@@ -27,8 +27,15 @@ create index if not exists athlete_comments_athlete_date on athlete_comments (at
 create table if not exists coach_conversations (
   id uuid primary key default gen_random_uuid(), athlete_id text not null default 'default',
   title text not null default 'New conversation', messages jsonb not null default '[]',
+  kind text not null default 'conversation' check (kind in ('conversation', 'daily_review')),
+  review_id text, pinned boolean not null default false, deleted_at timestamptz,
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
+alter table coach_conversations add column if not exists kind text not null default 'conversation';
+alter table coach_conversations add column if not exists review_id text;
+alter table coach_conversations add column if not exists pinned boolean not null default false;
+alter table coach_conversations add column if not exists deleted_at timestamptz;
+create index if not exists coach_conversations_athlete_updated on coach_conversations (athlete_id, updated_at desc);
 create table if not exists workout_library (
   id uuid primary key default gen_random_uuid(), athlete_id text not null default 'default',
   title text not null, sport text not null, purpose text, description text, structure jsonb default '{}',
@@ -38,9 +45,34 @@ create table if not exists sync_state (
   athlete_id text primary key, last_trainingpeaks_sync timestamptz, last_backfill_at timestamptz,
   cursor jsonb default '{}', status text default 'idle', error text, updated_at timestamptz default now()
 );
+create table if not exists daily_workout_reviews (
+  id text primary key, athlete_id text not null default 'default', local_date date not null,
+  conversation_id uuid, revision integer not null default 1, status text not null,
+  review jsonb not null, notification jsonb not null default '{}',
+  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+  unique (athlete_id, local_date)
+);
+create index if not exists daily_workout_reviews_athlete_date on daily_workout_reviews (athlete_id, local_date desc);
+create table if not exists workout_notification_preferences (
+  athlete_id text primary key, enabled boolean not null default false,
+  review_time time not null default '06:00', time_zone text not null default 'America/Chicago',
+  last_delivery_error text, updated_at timestamptz not null default now()
+);
+create table if not exists workout_push_subscriptions (
+  endpoint text primary key, athlete_id text not null default 'default',
+  subscription jsonb not null, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create table if not exists daily_review_decisions (
+  id uuid primary key default gen_random_uuid(), review_id text not null references daily_workout_reviews(id),
+  athlete_id text not null default 'default', decision text not null check (decision in ('approved','denied','expired')),
+  result jsonb not null default '{}', created_at timestamptz not null default now()
+);
 create or replace function prune_old_training_context() returns void language sql security definer as $$
   delete from workout_context where workout_date < now() - interval '90 days';
   delete from athlete_comments where created_at < now() - interval '90 days' and comment_type <> 'coach_note';
+  delete from coach_conversations where updated_at < now() - interval '90 days';
+  delete from daily_review_decisions where created_at < now() - interval '90 days';
+  delete from daily_workout_reviews where updated_at < now() - interval '90 days';
 $$;
 
 alter table coaching_config enable row level security;
@@ -49,4 +81,8 @@ alter table athlete_comments enable row level security;
 alter table coach_conversations enable row level security;
 alter table workout_library enable row level security;
 alter table sync_state enable row level security;
+alter table daily_workout_reviews enable row level security;
+alter table workout_notification_preferences enable row level security;
+alter table workout_push_subscriptions enable row level security;
+alter table daily_review_decisions enable row level security;
 -- The service-role secret is used only by the local server. No anonymous browser policies are created.

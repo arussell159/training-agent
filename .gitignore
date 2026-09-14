@@ -12,5 +12,7 @@ build/
 *.env.development
 *.env.test
 *.env.production
-ui/config.json
-ui/local-data.json
+app-backend/config.json
+app-backend/local-data*.json
+app-backend/trainingpeaks.cache
+tools/trainingpeaks-mcp-server/

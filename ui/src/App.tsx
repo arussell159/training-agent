@@ -1,1210 +1,445 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate, useParams, Routes, Route } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
-  Activity,
-  ArrowLeft,
-  Bike,
-  BookOpen,
   CalendarDays,
-  Check,
-  ChevronRight,
-  CircleAlert,
-  Cloud,
-  Droplets,
-  Footprints,
-  Home as HomeIcon,
-  Loader2,
-  Menu,
+  Dumbbell,
+  History,
+  Home,
+  Library,
   MessageCircle,
-  MoreHorizontal,
   Plus,
   RefreshCw,
-  Search,
-  Send,
-  Settings as SettingsIcon,
+  Settings,
   ShieldCheck,
-  Sparkles,
-  Timer,
-  HeartPulse,
-  Gauge,
-  TrendingDown,
-  TrendingUp,
-  UserRound,
-  WifiOff,
-  X,
-} from "lucide-react";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+} from "lucide-react"
+
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
-import { Progress } from "@/components/ui/progress";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { askCoach } from "@/lib/coaching";
-import { trainingPeaks } from "@/lib/trainingpeaks";
-import type { Workout } from "@/lib/types";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { ConversationHistory } from "@/components/conversation-history"
+import { SettingsWorkspace } from "@/components/settings-workspace"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarSeparator,
+} from "@/components/ui/sidebar"
+import { TrainingCalendar } from "@/components/training-calendar"
+import { TrainingCoach } from "@/components/training-coach"
+import { TrainingDashboard } from "@/components/training-dashboard"
+import { TrainingLibrary } from "@/components/training-library"
+import { WorkoutDetailPage } from "@/components/workout-detail-page"
+import {
+  loadCoachConversations,
+  type CoachConversationSummary,
+  type PlannedWorkout,
+} from "@/lib/training-context"
 
-const nav = [
-  { to: "/", label: "Home", icon: HomeIcon },
-  { to: "/coach", label: "Coach", icon: MessageCircle },
-  { to: "/calendar", label: "Calendar", icon: CalendarDays },
-  { to: "/library", label: "Library", icon: BookOpen },
-  { to: "/settings", label: "Settings", icon: SettingsIcon },
-];
-function Shell({ children }: { children: React.ReactNode }) {
-  const location = useLocation(),
-    navigate = useNavigate(),
-    [menuOpen, setMenuOpen] = useState(false);
-  const dock = nav.slice(0, 4),
-    activeDockIndex =
-      location.pathname === "/settings"
-        ? 4
-        : Math.max(
-            0,
-            dock.findIndex((item) => item.to === location.pathname)
-          );
-  return (
-    <div className="app">
-      <aside className="rail">
-        <div className="rail-brand">
-          <div className="brand">
-            <img src="/ar-performance-logo.png" alt="AR Performance" />
-          </div>
-          <strong>AR Performance</strong>
-        </div>
-        <div className="rail-nav">
-          {nav.map((item) => (
-            <Button
-              key={item.to}
-              variant={location.pathname === item.to ? "secondary" : "ghost"}
-              className="rail-button"
-              onClick={() => navigate(item.to)}
-            >
-              <item.icon size={18} />
-              <span>{item.label}</span>
-            </Button>
-          ))}
-        </div>
-        <div className="recent">
-          <span>CONVERSATIONS</span>
-          <button onClick={() => navigate("/coach")}>Race-week adjustments</button>
-          <button onClick={() => navigate("/coach")}>Saturday brick pacing</button>
-          <button onClick={() => navigate("/coach")}>Waco nutrition</button>
-        </div>
-        <div className="rail-footer">
-          <button>
-            <Search size={17} />
-            <span>Search</span>
-          </button>
-          <button onClick={() => navigate("/settings")}>
-            <UserRound size={20} />
-            <span>
-              <strong>Alex Russell</strong>
-              <small>70.3 Waco</small>
-            </span>
-            <ChevronRight size={15} />
-          </button>
-        </div>
-      </aside>
-      <main className="main">{children}</main>
-      <nav className="bottom-nav" aria-label="Mobile app navigation">
-        <div className="nav-glass">
-          <span className="nav-indicator" style={{ left: `calc(${activeDockIndex * 20 + 10}%)` }} />
-          {dock.map((item) => (
-            <button
-              aria-label={item.label}
-              key={item.to}
-              className={location.pathname === item.to ? "active" : ""}
-              onClick={() => navigate(item.to)}
-            >
-              <item.icon size={23} />
-              <span>{item.label}</span>
-            </button>
-          ))}
-          <button
-            aria-label="More"
-            className={location.pathname === "/settings" ? "active" : ""}
-            onClick={() => setMenuOpen(true)}
-          >
-            <Menu size={24} />
-            <span>More</span>
-          </button>
-        </div>
-      </nav>
-      {menuOpen && (
-        <div className="menu-backdrop" onClick={() => setMenuOpen(false)}>
-          <div className="mobile-sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-header">
-              <h2>Menu</h2>
-              <Button variant="secondary" size="icon" onClick={() => setMenuOpen(false)}>
-                <X size={18} />
-              </Button>
-            </div>
-            <div className="sheet-section">
-              <span>Account</span>
-              <button
-                onClick={() => {
-                  navigate("/settings");
-                  setMenuOpen(false);
-                }}
-              >
-                <SettingsIcon />
-                <div>
-                  <strong>Settings</strong>
-                  <small>Connections, zones, race and notifications</small>
-                </div>
-                <ChevronRight />
-              </button>
-            </div>
-            <div className="sheet-section">
-              <span>Coach</span>
-              <button
-                onClick={() => {
-                  navigate("/coach");
-                  setMenuOpen(false);
-                }}
-              >
-                <Plus />
-                <div>
-                  <strong>New conversation</strong>
-                  <small>Start a fresh coaching thread</small>
-                </div>
-                <ChevronRight />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-function Header({ eyebrow, title, back }: { eyebrow?: string; title: string; back?: boolean }) {
-  const navigate = useNavigate();
-  return (
-    <header className="page-header">
-      <div className="mobile-header-fade" />
-      {back ? (
-        <Button className="header-leading" variant="ghost" size="icon" onClick={() => navigate(-1)}>
-          <ArrowLeft size={20} />
-        </Button>
-      ) : (
-        <span className="header-spacer" />
-      )}
-      <div className="header-title">
-        <span className="eyebrow">{eyebrow}</span>
-        <h1>{title}</h1>
-      </div>
-      <Button
-        className="profile-button"
-        variant="outline"
-        size="icon"
-        onClick={() => navigate("/settings")}
-      >
-        <UserRound size={20} />
-      </Button>
-    </header>
-  );
-}
-const SportIcon = ({ sport }: { sport: Workout["sport"] }) =>
-  sport === "Bike" ? (
-    <Bike />
-  ) : sport === "Run" ? (
-    <Footprints />
-  ) : sport === "Swim" ? (
-    <Droplets />
-  ) : (
-    <Cloud />
-  );
-function WorkoutPreview({
-  sport,
-  title = "",
-  compact = false,
-}: {
-  sport: Workout["sport"];
-  title?: string;
-  compact?: boolean;
-}) {
-  const race = /race|threshold|interval/i.test(title);
-  const patterns: Record<Workout["sport"], number[][]> = {
-    Bike: race
-      ? [
-          [10, 28],
-          [7, 42],
-          [7, 18],
-          [18, 44],
-          [7, 18],
-          [18, 44],
-          [7, 18],
-          [18, 44],
-          [10, 24],
-        ]
-      : [
-          [12, 24],
-          [10, 28],
-          [12, 31],
-          [12, 29],
-          [12, 32],
-          [12, 27],
-          [12, 22],
-        ],
-    Run: race
-      ? [
-          [18, 22],
-          [5, 38],
-          [4, 18],
-          [5, 40],
-          [4, 18],
-          [5, 42],
-          [4, 18],
-          [18, 20],
-        ]
-      : [
-          [16, 20],
-          [16, 24],
-          [16, 23],
-          [16, 25],
-          [16, 21],
-          [16, 19],
-        ],
-    Swim: [
-      [14, 20],
-      [6, 28],
-      [6, 24],
-      [6, 30],
-      [18, 26],
-      [6, 34],
-      [6, 20],
-      [18, 29],
-      [14, 18],
-    ],
-    Recovery: [[100, 10]],
-  };
-  return (
-    <div
-      className={`workout-preview ${sport.toLowerCase()} ${compact ? "compact" : ""}`}
-      aria-label={`${sport} workout structure preview`}
-    >
-      {patterns[sport].map(([width, height], i) => (
-        <i key={i} style={{ flexGrow: width, height }} />
-      ))}
-    </div>
-  );
-}
-function Approval({
-  onApprove,
-  onDecline,
-  loading = false,
-}: {
-  onApprove: () => void;
-  onDecline: () => void;
-  loading?: boolean;
-}) {
-  return (
-    <div className="approval">
-      <Button onClick={onApprove} disabled={loading}>
-        {loading ? <Loader2 className="spin" size={17} /> : <Check size={17} />}Approve change
-      </Button>
-      <Button variant="outline" onClick={onDecline}>
-        <X size={17} />
-        Keep original
-      </Button>
-    </div>
-  );
+const navigation = [
+  { label: "Home", icon: Home },
+  { label: "Coach", icon: MessageCircle },
+  { label: "Calendar", icon: CalendarDays },
+  { label: "Library", icon: Library },
+  { label: "Settings", icon: Settings },
+]
+
+function routeItem() {
+  if (window.location.pathname === "/coach") return "Coach"
+  if (window.location.pathname === "/calendar" || window.location.pathname === "/week") return "Calendar"
+  if (window.location.pathname === "/library") return "Library"
+  if (window.location.pathname === "/settings") return "Settings"
+  return localStorage.getItem("training-app-active-item") ?? "Home"
 }
 
-function Home() {
-  const navigate = useNavigate();
-  const [context, setContext] = useState<any>(null);
-  useEffect(() => {
-    fetch("/api/training-context")
-      .then((response) => response.json())
-      .then(setContext)
-      .catch(() => undefined);
-  }, []);
-  const workouts: Workout[] = context?.planned ?? [];
-  const today = workouts.find((workout) => workout.status === "today") ?? workouts[0];
-  const latestRecovery = context?.history?.at?.(-1)?.recovery ?? {};
-  const metrics = context?.metrics ?? {};
-  const durationMinutes = (duration = "") => {
-    const hours = Number(duration.match(/(\d+)h/)?.[1] ?? 0);
-    const minutes = Number(duration.match(/(\d+)\s*m(?:in)?/)?.[1] ?? 0);
-    return hours * 60 + minutes;
-  };
-  const weeklyDuration = (
-    workouts.length
-      ? workouts
-      : [
-          { day: "MON", duration: "45 min", status: "completed" },
-          { day: "TUE", duration: "1h 05m", status: "today" },
-          { day: "WED", duration: "40 min", status: "upcoming" },
-          { day: "THU", duration: "50 min", status: "upcoming" },
-          { day: "FRI", duration: "—", status: "upcoming" },
-          { day: "SAT", duration: "1h 40m", status: "upcoming" },
-          { day: "SUN", duration: "50 min", status: "upcoming" },
-        ]
-  ).map((workout: any) => ({
-    day: workout.day.slice(0, 1),
-    planned: durationMinutes(workout.duration),
-    completed: workout.status === "completed" ? durationMinutes(workout.duration) : 0,
-  }));
-  const plannedTotal = weeklyDuration.reduce((sum, day) => sum + day.planned, 0);
-  const completedTotal = weeklyDuration.reduce((sum, day) => sum + day.completed, 0);
-  const metricCards = [
-    {
-      label: "Fitness score",
-      value: metrics.fitness ?? 71,
-      note: "TrainingPeaks CTL",
-      icon: Gauge,
-    },
-    {
-      label: "Form",
-      value: `${Number(metrics.form ?? 4) > 0 ? "+" : ""}${metrics.form ?? 4}`,
-      note: "Training stress balance",
-      icon: TrendingUp,
-    },
-    {
-      label: "Recovery",
-      value: metrics.recovery ?? 62,
-      note: "Today’s readiness",
-      icon: HeartPulse,
-    },
-    {
-      label: "Week complete",
-      value: `${Math.round((completedTotal / Math.max(plannedTotal, 1)) * 100)}%`,
-      note: `${completedTotal} of ${plannedTotal} min`,
-      icon: Check,
-    },
-  ];
-  return (
-    <div>
-      <Header eyebrow="MONDAY · SEPTEMBER 14" title="Performance" />
-      <section className="content dashboard month-end-dashboard">
-        <section className="performance-metric-grid">
-          <Card className="today-primary-card">
-            <CardHeader>
-              <CardDescription>Workout planned for today</CardDescription>
-              <Badge variant="outline">{today?.sport?.toUpperCase() ?? "BIKE"}</Badge>
-            </CardHeader>
-            <CardContent>
-              <div className="today-workout-copy">
-                <div>
-                  <CardTitle>{today?.title ?? "Race power touch"}</CardTitle>
-                  <p>
-                    {today?.duration ?? "1h 05m"} ·{" "}
-                    {today?.goal ?? "Keep race power familiar without carrying fatigue forward."}
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => navigate(`/workout/${today?.id ?? "tue"}`)}
-                >
-                  Details <ChevronRight size={15} />
-                </Button>
-              </div>
-              <WorkoutPreview
-                sport={today?.sport ?? "Bike"}
-                title={today?.title ?? "Race power touch"}
-              />
-              <div className="recovery-split">
-                <div>
-                  <span>HRV</span>
-                  <strong>
-                    {latestRecovery.hrv ?? 54} <small>ms</small>
-                  </strong>
-                  <p>7-day baseline 56 ms</p>
-                </div>
-                <div>
-                  <span>Resting HR</span>
-                  <strong>
-                    {latestRecovery.resting_hr ?? 48} <small>bpm</small>
-                  </strong>
-                  <p>Near your normal range</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          {metricCards.map((metric) => (
-            <Card className="performance-metric-card" key={metric.label}>
-              <CardHeader>
-                <CardDescription>{metric.label}</CardDescription>
-                <CardAction>
-                  <metric.icon />
-                </CardAction>
-                <CardTitle>{metric.value}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p>{metric.note}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </section>
-        <section className="performance-chart-grid">
-          <Card className="duration-chart-card">
-            <CardHeader>
-              <CardTitle>Planned vs completed duration</CardTitle>
-              <CardDescription>This training week · minutes</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer
-                config={{
-                  planned: { label: "Planned", color: "#94a3b8" },
-                  completed: { label: "Completed", color: "#2563eb" },
-                }}
-                className="weekly-duration-chart"
-              >
-                <BarChart data={weeklyDuration} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis dataKey="day" axisLine={false} tickLine={false} tickMargin={8} />
-                  <YAxis axisLine={false} tickLine={false} tickMargin={8} />
-                  <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
-                  <Bar dataKey="planned" fill="#94a3b8" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="completed" fill="#2563eb" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ChartContainer>
-              <div className="chart-legend">
-                <span>
-                  <i className="planned" />
-                  Planned
-                </span>
-                <span>
-                  <i className="completed" />
-                  Completed
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="week-duration-card">
-            <CardHeader>
-              <CardTitle>Weekly duration</CardTitle>
-              <CardDescription>Progress against plan</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <strong>
-                {completedTotal}
-                <small> / {plannedTotal} min</small>
-              </strong>
-              <Progress value={(completedTotal / Math.max(plannedTotal, 1)) * 100} />
-              <p>{Math.max(plannedTotal - completedTotal, 0)} minutes remaining</p>
-            </CardContent>
-          </Card>
-        </section>
-      </section>
-    </div>
-  );
+function itemPath(item: string) {
+  return ({ Home:"/", Coach:"/coach", Calendar:"/calendar", Library:"/library", Settings:"/settings" } as Record<string,string>)[item] || "/coach"
 }
 
-const libraryItems = [
-  {
-    id: "lib1",
-    sport: "Bike" as const,
-    title: "Controlled race power",
-    duration: "75 min",
-    purpose: "Race-specific power without residual fatigue",
-    tags: ["Taper", "70.3"],
-  },
-  {
-    id: "lib2",
-    sport: "Run" as const,
-    title: "Threshold cruise intervals",
-    duration: "55 min",
-    purpose: "Accumulate controlled sub-threshold volume",
-    tags: ["Threshold", "Repeatable"],
-  },
-  {
-    id: "lib3",
-    sport: "Swim" as const,
-    title: "CSS rhythm + form",
-    duration: "50 min",
-    purpose: "Hold form while accumulating steady CSS work",
-    tags: ["CSS", "Technique"],
-  },
-  {
-    id: "lib4",
-    sport: "Bike" as const,
-    title: "Race rehearsal brick",
-    duration: "1h 40m",
-    purpose: "Confirm pacing, fueling, and transition rhythm",
-    tags: ["Brick", "Race prep"],
-  },
-];
-function Library() {
-  const [query, setQuery] = useState("");
-  const items = libraryItems.filter((item) =>
-    `${item.title} ${item.sport} ${item.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase())
-  );
-  return (
-    <div>
-      <Header eyebrow="COACH-CREATED" title="Workout library" />
-      <section className="content library">
-        <div className="search-box">
-          <Search />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search workouts"
-          />
-        </div>
-        <div className="filter-row">
-          <Button size="sm" variant="secondary">
-            All
-          </Button>
-          <Button size="sm" variant="outline">
-            Swim
-          </Button>
-          <Button size="sm" variant="outline">
-            Bike
-          </Button>
-          <Button size="sm" variant="outline">
-            Run
-          </Button>
-        </div>
-        <div className="library-grid">
-          {items.map((item) => (
-            <Card key={item.id} className="library-card">
-              <CardHeader>
-                <WorkoutPreview sport={item.sport} title={item.title} />
-                <Button size="icon" variant="ghost">
-                  <MoreHorizontal />
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <span>
-                  {item.sport.toUpperCase()} · {item.duration}
-                </span>
-                <h3>{item.title}</h3>
-                <p>{item.purpose}</p>
-                <div>
-                  {item.tags.map((tag) => (
-                    <Badge key={tag}>{tag}</Badge>
-                  ))}
-                </div>
-                <Button variant="outline">Schedule workout</Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function Chat() {
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState([
-    {
-      from: "coach",
-      text: "Morning. Recovery is below your baseline and yesterday’s final reps faded.",
-    },
-    { from: "coach", text: "Drop today’s three bike blocks by 10–15W. Keep HR under 155." },
-  ]);
-  const [proposal, setProposal] = useState(true);
-  async function send(e?: FormEvent) {
-    e?.preventDefault();
-    if (!input.trim() || loading) return;
-    const q = input;
-    setInput("");
-    setMessages((m) => [...m, { from: "you", text: q }]);
-    setLoading(true);
-    const result = await askCoach(q);
-    setMessages((m) => [...m, { from: "coach", text: result.short_message_to_user }]);
-    setProposal(result.needs_user_approval);
-    setLoading(false);
+function routeConversation() {
+  const params = new URLSearchParams(window.location.search)
+  return {
+    conversationId:params.get("conversation"),
+    reviewId:params.get("review"),
   }
-  function approve() {
-    trainingPeaks.updateWorkout("tue", "3 × 8 min at 230–240W").then(() => {
-      setProposal(false);
-      setMessages((m) => [
-        ...m,
-        { from: "coach", text: "Updated in TrainingPeaks. Keep the first block conservative." },
-      ]);
-      toast.success("TrainingPeaks workout updated");
-    });
-  }
-  return (
-    <div className="chat-page">
-      <Header eyebrow="RACE WEEK · 12 DAYS" title="Coach" />
-      <div className="readiness">
-        <div>
-          <span>READINESS</span>
-          <strong>Fair</strong>
-        </div>
-        <div className="readiness-metrics">
-          <span>
-            <b>62</b> recovery
-          </span>
-          <span>
-            <b>7:04</b> sleep
-          </span>
-          <span>
-            <b>+4</b> form
-          </span>
-        </div>
-      </div>
-      <div className="chat-stream">
-        <div className="date-rule">
-          <span>Today · 6:42 AM</span>
-        </div>
-        {messages.map((m, i) => (
-          <div key={i} className={`message ${m.from}`}>
-            {m.from === "coach" && (
-              <Avatar>
-                <AvatarFallback>
-                  <img src="/ar-performance-logo.png" alt="" />
-                </AvatarFallback>
-              </Avatar>
-            )}
-            <div>
-              <span className="message-name">{m.from === "coach" ? "AR PERFORMANCE" : "YOU"}</span>
-              <p>{m.text}</p>
-            </div>
-          </div>
-        ))}
-        {proposal && (
-          <Card className="proposal">
-            <CardHeader>
-              <div className="proposal-title">
-                <CircleAlert size={18} />
-                <div>
-                  <span>PROPOSED ADJUSTMENT</span>
-                  <strong>Race power touch</strong>
-                </div>
-              </div>
-              <Badge>MEDIUM RISK</Badge>
-            </CardHeader>
-            <CardContent>
-              <div className="change">
-                <span>
-                  <s>240–250W</s>
-                </span>
-                <ChevronRight size={16} />
-                <strong>230–240W</strong>
-              </div>
-              <p>Recovery is down and yesterday’s final reps faded.</p>
-              <Approval
-                onApprove={approve}
-                onDecline={() => {
-                  setProposal(false);
-                  setMessages((m) => [
-                    ...m,
-                    {
-                      from: "coach",
-                      text: "Keeping the original. Cap HR at 155 and cut the final block if it drifts.",
-                    },
-                  ]);
-                }}
-              />
-            </CardContent>
-          </Card>
-        )}
-        {loading && (
-          <div className="typing">
-            <span />
-            <span />
-            <span />
-          </div>
-        )}
-      </div>
-      <div className="quick-prompts">
-        <Button variant="outline" size="sm" onClick={() => setInput("How should I fuel today?")}>
-          Fuel today
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => setInput("What should I watch for?")}>
-          What to watch
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => setInput("How does the week look?")}>
-          Review week
-        </Button>
-      </div>
-      <form className="composer" onSubmit={send}>
-        <Textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          placeholder="Message AR Performance"
-          rows={1}
-        />
-        <Button size="icon" aria-label="Send">
-          <Send size={18} />
-        </Button>
-      </form>
-    </div>
-  );
 }
 
-function Today() {
-  const [loading, setLoading] = useState(false),
-    [resolved, setResolved] = useState(false);
-  const navigate = useNavigate();
-  function approve() {
-    setLoading(true);
-    trainingPeaks.updateWorkout("tue", "3 × 8 min at 230–240W").then(() => {
-      setResolved(true);
-      setLoading(false);
-      toast.success("Workout updated");
-    });
-  }
-  return (
-    <div>
-      <Header eyebrow="TUESDAY · SEPTEMBER 15" title="Today" />
-      <section className="content">
-        <div className="today-top">
-          <div className="sport-mark bike">
-            <Bike />
-          </div>
-          <div>
-            <Badge>BIKE · KEY SESSION</Badge>
-            <h2>Race power touch</h2>
-            <p>
-              <Timer size={16} /> 1h 05m <span>·</span> 54 TSS
-            </p>
-          </div>
-        </div>
-        <Card className="goal-card">
-          <span className="section-label">SESSION GOAL</span>
-          <p>Keep race power familiar without carrying fatigue forward.</p>
-        </Card>
-        <div className="workout-structure">
-          <div className="structure-head">
-            <span className="section-label">STRUCTURE</span>
-            <Button variant="ghost" size="sm" onClick={() => navigate("/workout/tue")}>
-              Full details <ChevronRight size={15} />
-            </Button>
-          </div>
-          <div className="block">
-            <span>15 min</span>
-            <div>
-              <strong>Warm up</strong>
-              <small>Easy · Z1–Z2</small>
-            </div>
-            <i style={{ width: "22%" }} />
-          </div>
-          <div className="block key">
-            <span>3 × 8</span>
-            <div>
-              <strong>Race power</strong>
-              <small>{resolved ? "230–240W" : "240–250W"} · 4 min easy</small>
-            </div>
-            <i style={{ width: "64%" }} />
-          </div>
-          <div className="block">
-            <span>10 min</span>
-            <div>
-              <strong>Cool down</strong>
-              <small>Easy · Z1</small>
-            </div>
-            <i style={{ width: "16%" }} />
-          </div>
-        </div>
-        {!resolved ? (
-          <Card className="alert-card">
-            <CardHeader>
-              <div>
-                <span className="section-label">COACH ADJUSTMENT</span>
-                <Badge>MEDIUM RISK</Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <p>Drop all three blocks by 10–15W. Recovery is down and yesterday faded late.</p>
-              <Approval onApprove={approve} onDecline={() => setResolved(true)} loading={loading} />
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="resolved">
-            <Check size={18} /> Workout set. Keep HR under 155.
-          </div>
-        )}
-        <div className="coach-note">
-          <span className="section-label">COACH NOTE</span>
-          <p>
-            Keep the first block conservative. You should finish feeling like another rep was
-            available.
-          </p>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function Week() {
-  const [workouts, setWorkouts] = useState<Workout[]>([]);
-  const navigate = useNavigate();
-  useEffect(() => {
-    trainingPeaks.getWeek().then(setWorkouts);
-  }, []);
-  const load = useMemo(() => workouts.reduce((n, w) => n + (w.load || 0), 0), [workouts]);
-  return (
-    <div>
-      <Header eyebrow="SEPTEMBER 14–20" title="Race week" />
-      <section className="content calendar">
-        <div className="week-summary">
-          <div>
-            <span>WEEK LOAD</span>
-            <strong>
-              {load} <small>TSS</small>
-            </strong>
-            <p>↓ 38% from last week</p>
-          </div>
-          <div>
-            <span>FOCUS</span>
-            <strong>Freshness</strong>
-            <p>2 key sessions · 1 rest day</p>
-          </div>
-        </div>
-        <div className="taper-line">
-          <div>
-            <span className="section-label">TAPER PROGRESS</span>
-            <b>Race in 12 days</b>
-          </div>
-          <Progress value={68} />
-        </div>
-        <div className="week-list">
-          {workouts.map((w) => (
-            <button
-              className={`day-row ${w.status}`}
-              key={w.id}
-              onClick={() => navigate(`/workout/${w.id}`)}
-            >
-              <div className="day-date">
-                <strong>{w.day}</strong>
-                <span>{w.date.split(" ")[1]}</span>
-              </div>
-              <WorkoutPreview sport={w.sport} title={w.title} compact />
-              <div className="day-info">
-                <strong>{w.title}</strong>
-                <span>
-                  {w.duration}
-                  {w.changed ? " · Changed" : ""}
-                </span>
-              </div>
-              {w.risk === "medium" && <span className="risk-dot" />}
-              {w.status === "completed" && <Check className="done" />}
-              <ChevronRight className="chevron" />
-            </button>
-          ))}
-        </div>
-        <Card className="week-note">
-          <CardHeader>
-            <Sparkles size={18} />
-            <strong>Coach’s read</strong>
-          </CardHeader>
-          <CardContent>
-            Volume is right. Protect Friday’s rest day and keep Saturday controlled.
-          </CardContent>
-        </Card>
-      </section>
-    </div>
-  );
-}
-
-function WorkoutDetail() {
-  const { id } = useParams();
-  const [workout, setWorkout] = useState<Workout>();
-  const [feedback, setFeedback] = useState("");
-  useEffect(() => {
-    trainingPeaks.getWeek().then((w) => setWorkout(w.find((x) => x.id === id)));
-  }, [id]);
-  if (!workout)
-    return (
-      <div className="center">
-        <Loader2 className="spin" />
-      </div>
-    );
-  return (
-    <div>
-      <Header
-        back
-        eyebrow={`${workout.day} · ${workout.sport.toUpperCase()}`}
-        title={workout.title}
-      />
-      <section className="content detail">
-        <WorkoutPreview sport={workout.sport} title={workout.title} />
-        <div className="detail-meta">
-          <div>
-            <span>DURATION</span>
-            <strong>{workout.duration}</strong>
-          </div>
-          <div>
-            <span>LOAD</span>
-            <strong>{workout.load || "—"} TSS</strong>
-          </div>
-        </div>
-        <div>
-          <span className="section-label">PURPOSE</span>
-          <p className="purpose">{workout.goal}</p>
-        </div>
-        <Separator />
-        <div>
-          <span className="section-label">WORKOUT</span>
-          <pre>{workout.details}</pre>
-        </div>
-        <Separator />
-        <div>
-          <span className="section-label">PRE-ACTIVITY NOTE</span>
-          <p>Keep the work controlled. Stop the final block if HR drifts above 155.</p>
-        </div>
-        <div className="feedback">
-          <span className="section-label">POST-WORKOUT FEEDBACK</span>
-          <Textarea
-            placeholder="How did it feel? What failed or held up?"
-            value={feedback}
-            onChange={(e) => setFeedback(e.target.value)}
-          />
-          <Button
-            disabled={!feedback.trim()}
-            onClick={async () => {
-              const response = await fetch("/api/comments", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ workoutId: id, body: feedback }),
-              });
-              if (response.ok) {
-                toast.success("Feedback saved for the next coaching review");
-                setFeedback("");
-              } else toast.error("Feedback could not be saved");
-            }}
-          >
-            Save feedback
-          </Button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function Settings() {
-  const [connected, setConnected] = useState(false),
-    [saving, setSaving] = useState(false),
-    [tpKey, setTpKey] = useState(""),
-    [openAIKey, setOpenAIKey] = useState(""),
-    [supabaseUrl, setSupabaseUrl] = useState(""),
-    [contextReady, setContextReady] = useState(false);
-  useEffect(() => {
-    fetch("/api/config")
-      .then((r) => r.json())
-      .then((s) => {
-        setConnected(Boolean(s.trainingPeaksConnected));
-        setContextReady(Boolean(s.supabaseConnected));
-      })
-      .catch(() => {});
-  }, []);
-  async function save() {
-    if (!tpKey && !openAIKey && !supabaseUrl) {
-      toast.error("Enter at least one connection value");
-      return;
-    }
-    setSaving(true);
+function AppWorkspace() {
+  const initialConversation = routeConversation()
+  const [activeItem, setActiveItem] = useState(routeItem)
+  const [conversationId, setConversationId] = useState(initialConversation.conversationId)
+  const [reviewId, setReviewId] = useState(initialConversation.reviewId)
+  const [conversationTitle, setConversationTitle] = useState("Coach")
+  const [conversationHistory, setConversationHistory] = useState<CoachConversationSummary[]>([])
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [conversationToDelete, setConversationToDelete] = useState<CoachConversationSummary | null>(null)
+  const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(null)
+  const [refreshRequest, setRefreshRequest] = useState(0)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [trainingPeaksDisconnected, setTrainingPeaksDisconnected] = useState(false)
+  const workoutReturnScroll = useRef(0)
+  const isCoachConversation = activeItem === "Coach"
+  const selectedConversation = conversationHistory.find((conversation) =>
+    conversationId ? conversation.id === conversationId : conversation.review_id === reviewId
+  )
+  const activeConversationId = conversationId || selectedConversation?.id || null
+  const displayedConversationTitle = selectedConversation?.title || conversationTitle
+  const handleRefreshComplete = useCallback(() => setIsRefreshing(false), [])
+  const refreshConversationHistory = useCallback(async () => {
     try {
-      const response = await fetch("/api/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          TP_AUTH_COOKIE: tpKey,
-          OPENAI_API_KEY: openAIKey,
-          SUPABASE_URL: supabaseUrl,
-        }),
-      });
-      if (!response.ok) throw new Error();
-      const status = await response.json();
-      setConnected(Boolean(status.trainingPeaksConnected));
-      setContextReady(Boolean(status.supabaseConnected));
-      setTpKey("");
-      setOpenAIKey("");
-      setSupabaseUrl("");
-      toast.success("Connections stored by the local server");
+      setConversationHistory(await loadCoachConversations())
     } catch {
-      toast.error("Could not save credentials. Reconnect the local server.");
-    } finally {
-      setSaving(false);
+      // The current chat remains usable if history is temporarily unavailable.
     }
-  }
-  return (
-    <div>
-      <Header eyebrow="ACCOUNT & TRAINING" title="Settings" />
-      <section className="content settings">
-        <div className="settings-block">
-          <h3>Connections</h3>
-          <Card>
-            <div className="setting-row">
-              <div className="connection-icon tp">TP</div>
-              <div>
-                <strong>TrainingPeaks</strong>
-                <span>{connected ? "Connected · incremental sync" : "Demo data active"}</span>
-              </div>
-              <Badge className={connected ? "good" : ""}>{connected ? "CONNECTED" : "DEMO"}</Badge>
-            </div>
-            <Separator />
-            <div className="setting-row">
-              <div className="connection-icon">DB</div>
-              <div>
-                <strong>90-day coach memory</strong>
-                <span>{contextReady ? "Supabase connected" : "Project URL required"}</span>
-              </div>
-              <Badge className={contextReady ? "good" : ""}>
-                {contextReady ? "READY" : "SETUP"}
-              </Badge>
-            </div>
-            <Separator />
-            <div className="credentials">
-              <label>
-                TrainingPeaks session credential
-                <Input
-                  type="password"
-                  placeholder="Production_tpAuth"
-                  autoComplete="off"
-                  value={tpKey}
-                  onChange={(e) => setTpKey(e.target.value)}
-                />
-              </label>
-              <label>
-                OpenAI API key
-                <Input
-                  type="password"
-                  placeholder="Already stored · enter only to replace"
-                  autoComplete="off"
-                  value={openAIKey}
-                  onChange={(e) => setOpenAIKey(e.target.value)}
-                />
-              </label>
-              <label>
-                Supabase project URL
-                <Input
-                  type="url"
-                  placeholder="https://your-project.supabase.co"
-                  value={supabaseUrl}
-                  onChange={(e) => setSupabaseUrl(e.target.value)}
-                />
-              </label>
-              <p>
-                <ShieldCheck size={14} /> Secrets stay on the local server and are excluded from
-                Git.
-              </p>
-              <Button onClick={save} disabled={saving}>
-                {saving && <Loader2 className="spin" size={16} />}Save connections
-              </Button>
-            </div>
-          </Card>
-        </div>
-        <div className="settings-block">
-          <h3>Athlete zones</h3>
-          <Card className="zone-grid">
-            <label>
-              Bike FTP
-              <Input defaultValue="278" />
-              <small>watts</small>
-            </label>
-            <label>
-              Run threshold
-              <Input defaultValue="7:12" />
-              <small>/ mile</small>
-            </label>
-            <label>
-              Swim CSS
-              <Input defaultValue="1:38" />
-              <small>/ 100 yd</small>
-            </label>
-            <label>
-              Threshold HR
-              <Input defaultValue="168" />
-              <small>bpm</small>
-            </label>
-          </Card>
-        </div>
-        <div className="settings-block">
-          <h3>Race</h3>
-          <Card>
-            <div className="setting-row">
-              <div>
-                <strong>IRONMAN 70.3 Waco</strong>
-                <span>September 27 · Taper phase</span>
-              </div>
-              <Badge>12 DAYS</Badge>
-            </div>
-          </Card>
-        </div>
-        <div className="settings-block">
-          <h3>Notifications</h3>
-          <Card>
-            <div className="setting-row">
-              <div>
-                <strong>Morning coaching note</strong>
-                <span>Readiness and today’s changes</span>
-              </div>
-              <Switch defaultChecked />
-            </div>
-            <Separator />
-            <div className="setting-row">
-              <div>
-                <strong>Approval requests</strong>
-                <span>Before any TrainingPeaks update</span>
-              </div>
-              <Switch defaultChecked />
-            </div>
-          </Card>
-        </div>
-        <Button variant="outline" className="reconnect">
-          <RefreshCw size={16} /> Reconnect TrainingPeaks
-        </Button>
-      </section>
-    </div>
-  );
-}
-function Offline() {
-  return (
-    <div className="empty-state">
-      <WifiOff />
-      <h2>You’re offline</h2>
-      <p>Recent workouts are available. Sync resumes when you reconnect.</p>
-      <Button onClick={() => location.reload()}>Try again</Button>
-    </div>
-  );
-}
-export default function App() {
-  const [online, setOnline] = useState(navigator.onLine);
+  }, [])
+
   useEffect(() => {
-    const on = () => setOnline(true),
-      off = () => setOnline(false);
-    window.addEventListener("online", on);
-    window.addEventListener("offline", off);
-    return () => {
-      window.removeEventListener("online", on);
-      window.removeEventListener("offline", off);
-    };
-  }, []);
+    localStorage.setItem("training-app-active-item", activeItem)
+  }, [activeItem])
+
+  useEffect(() => {
+    const showReconnect = () => setTrainingPeaksDisconnected(true)
+    window.addEventListener("trainingpeaks-auth-expired", showReconnect)
+    return () => window.removeEventListener("trainingpeaks-auth-expired", showReconnect)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void loadCoachConversations()
+      .then((conversations) => {
+        if (!cancelled) setConversationHistory(conversations)
+      })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [refreshConversationHistory])
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const route = routeConversation()
+      setSelectedWorkout(null)
+      setActiveItem(routeItem())
+      setConversationId(route.conversationId)
+      setReviewId(route.reviewId)
+      if (!route.conversationId && !route.reviewId) setConversationTitle("Coach")
+    }
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [])
+
+  const selectItem = (item: string) => {
+    setSelectedWorkout(null)
+    setActiveItem(item)
+    if (item === "Coach") {
+      setConversationId(null)
+      setReviewId(null)
+      setConversationTitle("Coach")
+    }
+    window.history.pushState({}, "", itemPath(item))
+  }
+
+  const openConversation = (conversation: CoachConversationSummary) => {
+    setSelectedWorkout(null)
+    setActiveItem("Coach")
+    setConversationId(conversation.id)
+    setReviewId(conversation.review_id)
+    setConversationTitle(conversation.title)
+    setHistoryOpen(false)
+    const url = conversation.review_id
+      ? `/coach?review=${encodeURIComponent(conversation.review_id)}`
+      : `/coach?conversation=${encodeURIComponent(conversation.id)}`
+    window.history.pushState({}, "", url)
+  }
+
+  const pinConversation = async (conversation: CoachConversationSummary) => {
+    const response = await fetch(`/api/conversations/${encodeURIComponent(conversation.id)}`, {
+      method:"PATCH",
+      headers:{ "Content-Type":"application/json", Accept:"application/json" },
+      body:JSON.stringify({ pinned:!conversation.pinned }),
+    })
+    if (response.ok) await refreshConversationHistory()
+  }
+
+  const deleteConversation = async () => {
+    if (!conversationToDelete) return
+    const deleted = conversationToDelete
+    const response = await fetch(`/api/conversations/${encodeURIComponent(deleted.id)}`, { method:"DELETE" })
+    setConversationToDelete(null)
+    if (!response.ok) return
+    if (activeConversationId === deleted.id) selectItem("Coach")
+    await refreshConversationHistory()
+  }
+
+  const handleConversationSaved = useCallback((conversation: CoachConversationSummary) => {
+    setConversationId(conversation.id)
+    setConversationTitle(conversation.title)
+    if (!conversation.review_id) {
+      window.history.replaceState({}, "", `/coach?conversation=${encodeURIComponent(conversation.id)}`)
+    }
+    void refreshConversationHistory()
+  }, [refreshConversationHistory])
+
+  const openWorkout = (workout: PlannedWorkout) => {
+    workoutReturnScroll.current = window.scrollY
+    setSelectedWorkout(workout)
+    requestAnimationFrame(() => window.scrollTo({ top: 0 }))
+  }
+
+  const closeWorkout = () => {
+    const returnTo = workoutReturnScroll.current
+    setSelectedWorkout(null)
+    requestAnimationFrame(() => window.scrollTo({ top: returnTo }))
+  }
+
   return (
-    <Shell>
-      {!online ? (
-        <Offline />
-      ) : (
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/coach" element={<Chat />} />
-          <Route path="/today" element={<Today />} />
-          <Route path="/calendar" element={<Week />} />
-          <Route path="/week" element={<Week />} />
-          <Route path="/library" element={<Library />} />
-          <Route path="/workout/:id" element={<WorkoutDetail />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
-      )}
-    </Shell>
-  );
+    <>
+      <AlertDialog open={trainingPeaksDisconnected} onOpenChange={setTrainingPeaksDisconnected}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reconnect TrainingPeaks</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your TrainingPeaks session has expired. Your saved coaching context remains available in Supabase. Sign in to TrainingPeaks, then update the connection from Settings to resume syncing new workouts.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Use saved data</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                window.open("https://app.trainingpeaks.com", "_blank", "noopener,noreferrer")
+                selectItem("Settings")
+              }}
+            >
+              Sign in and reconnect
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(conversationToDelete)} onOpenChange={(open) => !open && setConversationToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this chat?</AlertDialogTitle>
+            <AlertDialogDescription>
+              “{conversationToDelete?.title}” will disappear from history and will no longer be used as coaching context. This cannot be undone from the app.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => void deleteConversation()}>
+              Delete chat
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+        <SheetContent side="right" className="w-[min(92vw,24rem)] gap-0 p-0 md:hidden">
+          <SheetHeader className="border-b">
+            <SheetTitle>Coach history</SheetTitle>
+            <SheetDescription>Daily reviews and conversations from the last 90 days.</SheetDescription>
+          </SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            <ConversationHistory
+              conversations={conversationHistory}
+              activeConversationId={activeConversationId}
+              onOpen={openConversation}
+              onPin={(conversation) => void pinConversation(conversation)}
+              onDelete={setConversationToDelete}
+            />
+          </div>
+          <SheetFooter className="border-t">
+            <Button onClick={() => { setHistoryOpen(false); selectItem("Coach") }}>
+              <Plus /> New conversation
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <Sidebar collapsible="offcanvas">
+        <SidebarHeader className="px-3 py-4">
+          <Button
+            variant="ghost"
+            className="h-10 w-full justify-start px-2 text-base"
+            onClick={() => selectItem("Home")}
+          >
+            <Dumbbell />
+            <span>AR Performance</span>
+          </Button>
+        </SidebarHeader>
+
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {navigation.map((item) => (
+                  <SidebarMenuItem key={item.label}>
+                    <SidebarMenuButton
+                      isActive={activeItem === item.label}
+                      onClick={() => selectItem(item.label)}
+                    >
+                      <item.icon />
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+
+          <SidebarSeparator />
+
+          <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+            <SidebarGroupContent>
+              <ConversationHistory
+                conversations={conversationHistory}
+                activeConversationId={activeConversationId}
+                onOpen={openConversation}
+                onPin={(conversation) => void pinConversation(conversation)}
+                onDelete={setConversationToDelete}
+              />
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
+      </Sidebar>
+
+      <SidebarInset
+        className={(isCoachConversation || activeItem === "Settings") && !selectedWorkout ? "h-svh min-h-0 overflow-hidden" : undefined}
+      >
+        {!selectedWorkout && activeItem !== "Calendar" && activeItem !== "Settings" && (
+          <header className={`sticky top-0 z-50 flex h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur ${isCoachConversation ? "md:px-6" : ""}`}>
+            {isCoachConversation ? (
+              <>
+                <div className="min-w-0">
+                  <h1 className="truncate text-sm font-semibold md:text-base">
+                    <span className="md:hidden">{displayedConversationTitle}</span>
+                    <span className="hidden md:inline">Coach</span>
+                  </h1>
+                </div>
+                <div className="ml-auto flex items-center gap-2">
+                  <Badge variant="outline" className="hidden gap-1.5 md:flex">
+                    <ShieldCheck className="size-3.5 text-emerald-600" /> 90-day context
+                  </Badge>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="md:hidden"
+                    onClick={() => setHistoryOpen(true)}
+                  >
+                    <History /> History
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <h1 className="min-w-0 truncate text-sm font-semibold">{activeItem}</h1>
+            )}
+            {activeItem === "Home" && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="ml-auto cursor-pointer"
+                disabled={isRefreshing}
+                onClick={() => {
+                  setIsRefreshing(true)
+                  setRefreshRequest((request) => request + 1)
+                }}
+              >
+                <RefreshCw className={isRefreshing ? "animate-spin" : undefined} />
+                <span className="hidden sm:inline">Refresh TrainingPeaks</span>
+                <span className="sm:hidden">Refresh</span>
+              </Button>
+            )}
+          </header>
+        )}
+        <main
+          className={`flex min-h-0 flex-1 ${
+            selectedWorkout
+              ? ""
+              : isCoachConversation
+                ? "overflow-hidden pb-16 md:pb-0"
+                : activeItem === "Settings"
+                  ? "overflow-hidden"
+                  : "pb-20 md:pb-0"
+          }`}
+        >
+          {selectedWorkout ? (
+            <WorkoutDetailPage workout={selectedWorkout} onBack={closeWorkout} />
+          ) : activeItem === "Home" ? (
+            <TrainingDashboard
+              onWorkoutOpen={openWorkout}
+              refreshRequest={refreshRequest}
+              onRefreshComplete={handleRefreshComplete}
+            />
+          ) : activeItem === "Calendar" ? (
+            <TrainingCalendar onWorkoutOpen={openWorkout} />
+          ) : isCoachConversation ? (
+            <TrainingCoach
+              key={reviewId || conversationId || "new-conversation"}
+              conversationTitle={displayedConversationTitle}
+              conversationId={conversationId}
+              reviewId={reviewId}
+              onConversationSaved={handleConversationSaved}
+            />
+          ) : activeItem === "Settings" ? (
+            <SettingsWorkspace onClose={() => selectItem("Home")} />
+          ) : activeItem === "Library" ? (
+            <TrainingLibrary onWorkoutOpen={openWorkout} />
+          ) : null}
+        </main>
+
+        {!selectedWorkout && activeItem !== "Settings" && (
+          <nav
+            aria-label="Primary navigation"
+            className="fixed inset-x-0 bottom-0 z-40 grid h-16 grid-cols-5 border-t bg-background/95 px-1 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+          >
+            {navigation.map((item) => (
+              <Button
+                key={item.label}
+                type="button"
+                variant="ghost"
+                aria-current={activeItem === item.label ? "page" : undefined}
+                className="h-16 min-w-0 flex-col gap-1 rounded-none px-1 text-[10px] font-medium aria-[current=page]:bg-accent aria-[current=page]:text-accent-foreground"
+                onClick={() => selectItem(item.label)}
+              >
+                <item.icon className="size-4" />
+                <span className="max-w-full truncate">{item.label}</span>
+              </Button>
+            ))}
+          </nav>
+        )}
+      </SidebarInset>
+    </>
+  )
 }
+
+export function App() {
+  return (
+    <SidebarProvider>
+      <AppWorkspace />
+    </SidebarProvider>
+  )
+}
+
+export default App
