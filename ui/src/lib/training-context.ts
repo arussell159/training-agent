@@ -68,10 +68,8 @@ export interface DailyWorkoutReviewItem {
   proposed_change: string | null
   reason: string
   execution_guidance: {
-    target_range: string
-    additional_recovery_limit: string
-    stop_main_set_when: string
-    fueling_note: string
+    target_ranges: string[]
+    target_range?: string
   }
   applied_at?: string | null
 }
@@ -83,7 +81,16 @@ export interface DailyWorkoutReview {
   revision: number
   status: DailyReviewStatus
   summary: string
+  notification_summary: string
   reason: string
+  athlete_metrics: {
+    fitness: string
+    fatigue: string
+    form: string
+    recovery: string
+    hrv: string
+    resting_heart_rate: string
+  }
   relevant_observations: string[]
   workouts: DailyWorkoutReviewItem[]
   changes_proposed: boolean
@@ -132,6 +139,7 @@ export interface TrainingContext {
     name?: string
     race?: string
     race_date?: string
+    days_to_race?: number | null
     phase?: string
     zones?: {
       bike_ftp?: number
@@ -185,8 +193,8 @@ export const fallbackTrainingContext: TrainingContext = {
   athlete: {
     name: "Alex Russell",
     race: "IRONMAN 70.3 Waco",
-    race_date: "2026-09-27",
-    phase: "Taper",
+    race_date: "2026-10-04",
+    phase: "Race-specific",
     zones: {
       bike_ftp: 278,
       run_threshold_pace: "7:12/mi",

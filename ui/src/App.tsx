@@ -330,7 +330,7 @@ function AppWorkspace() {
           <header className={`sticky top-0 z-50 flex h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur ${isCoachConversation ? "md:px-6" : ""}`}>
             {isCoachConversation ? (
               <>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1 pr-2">
                   <h1 className="truncate text-sm font-semibold md:text-base">
                     <span className="md:hidden">{displayedConversationTitle}</span>
                     <span className="hidden md:inline">Coach</span>

@@ -213,6 +213,19 @@ async function loadDailyReviewFromSupabase(id) {
   }
 }
 
+async function loadDailyReviewFromSupabaseByDate(athleteId, localDate) {
+  const config = await readConfig();
+  const store = createContextStore(config, updateLogs);
+  if (!store.ready) return null;
+  try {
+    const row = await store.getDailyReviewByDate(athleteId, localDate);
+    return row?.review ? { ...row.review, status:row.status, notification:row.notification } : null;
+  } catch (error) {
+    updateLogs(`daily review date read failed: ${error.message}`);
+    return null;
+  }
+}
+
 async function recentConversationMemory(config, excludeId = null) {
   const conversations = await listCoachConversations(config, 100);
   return conversationContext(conversations, { excludeId, maxMessages:60 });
@@ -326,6 +339,22 @@ function zonedDateTimeIso(date, time, timeZone) {
     guess += target - rendered;
   }
   return new Date(guess).toISOString();
+}
+
+function assessRaceTiming(raceDate, timeZone, now = new Date()) {
+  const localParts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone, year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(now).map(part => [part.type, part.value]));
+  const localDate = `${localParts.year}-${localParts.month}-${localParts.day}`;
+  const raceDay = Date.parse(`${raceDate}T12:00:00Z`);
+  const currentDay = Date.parse(`${localDate}T12:00:00Z`);
+  const daysToRace = Number.isFinite(raceDay) ? Math.round((raceDay - currentDay) / 86_400_000) : null;
+  let phase = 'general preparation';
+  if (daysToRace != null && daysToRace < 0) phase = 'post-race recovery';
+  else if (daysToRace != null && daysToRace <= 7) phase = 'race week';
+  else if (daysToRace != null && daysToRace <= 14) phase = 'taper';
+  else if (daysToRace != null && daysToRace <= 28) phase = 'race-specific';
+  else if (daysToRace != null && daysToRace <= 56) phase = 'race preparation';
+  else if (daysToRace != null && daysToRace <= 84) phase = 'build';
+  return { localDate, daysToRace, phase };
 }
 
 function scheduledStart(workout, workoutDate, timeZone) {
@@ -517,6 +546,9 @@ async function readTrainingPeaksCache() {
 async function buildCoachContext(config, coach, { force = false, strict = false } = {}) {
   const contextStore = createContextStore(config, updateLogs);
   const local = await readLocalContext();
+  const timeZone = local.notification_preferences?.time_zone || local.athlete?.time_zone || 'America/Chicago';
+  const raceDate = coach.race_date || local.athlete?.race_date;
+  const raceTiming = assessRaceTiming(raceDate, timeZone);
   let context = {
     ...local,
     coaching:coach,
@@ -534,7 +566,7 @@ async function buildCoachContext(config, coach, { force = false, strict = false 
   if (config.TP_AUTH_COOKIE) {
     let trainingPeaks = null;
     try {
-      trainingPeaks = await fetchTrainingPeaksContext(config, { force, timeZone:local.notification_preferences?.time_zone || local.athlete?.time_zone || 'America/Chicago' });
+      trainingPeaks = await fetchTrainingPeaksContext(config, { force, timeZone });
     } catch (error) {
       updateLogs(`coach TrainingPeaks sync failed: ${error.message}`);
       if (strict) throw error;
@@ -546,7 +578,14 @@ async function buildCoachContext(config, coach, { force = false, strict = false 
       context = {
         ...context,
         ...trainingPeaks,
-        athlete:{ ...context.athlete, ...trainingPeaks.athlete },
+        athlete:{
+          ...context.athlete,
+          ...trainingPeaks.athlete,
+          race:coach.race || context.athlete?.race,
+          race_date:raceDate,
+          phase:raceTiming.phase,
+          days_to_race:raceTiming.daysToRace,
+        },
         metrics:{ ...context.metrics, ...trainingPeaks.metrics },
         workouts:trainingPeaks.history,
         history:trainingPeaks.history,
@@ -561,6 +600,14 @@ async function buildCoachContext(config, coach, { force = false, strict = false 
       }
     }
   }
+
+  context.athlete = {
+    ...(context.athlete || {}),
+    race:coach.race || context.athlete?.race,
+    race_date:raceDate,
+    phase:raceTiming.phase,
+    days_to_race:raceTiming.daysToRace,
+  };
 
   return context;
 }
@@ -704,6 +751,7 @@ const dailyReviews = createDailyReviewService({
   writeConfig,
   getContext:buildDailyReviewContext,
   applyWorkoutPatch:applyTrainingPeaksWorkoutPatch,
+  hydrateDailyReviewByDate:loadDailyReviewFromSupabaseByDate,
   log:updateLogs,
 });
 
@@ -769,7 +817,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/daily-reviews/run' && req.method === 'POST') {
-      const review = await dailyReviews.runDue(new Date(), { force:true });
+      const review = await dailyReviews.runDue(new Date(), { force:true, refresh:requestUrl.searchParams.get('refresh') === '1' });
       if (review) await syncDailyReviewToSupabase(review);
       res.writeHead(review ? 200 : 204, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
       res.end(review ? JSON.stringify(review) : '');
@@ -788,6 +836,19 @@ const server = http.createServer(async (req, res) => {
       const id = decodeURIComponent(reviewAction[1]);
       await getPersistentDailyReview(id);
       const result = reviewAction[2] === 'approve' ? await dailyReviews.approve(id) : await dailyReviews.deny(id);
+      if (result.body?.review) await syncDailyReviewToSupabase(result.body.review);
+      res.writeHead(result.status, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
+      res.end(JSON.stringify(result.body));
+      return;
+    }
+
+    const reviewRefinement = pathname.match(/^\/api\/daily-reviews\/([^/]+)\/refine$/);
+    if (reviewRefinement && req.method === 'POST') {
+      const id = decodeURIComponent(reviewRefinement[1]);
+      await getPersistentDailyReview(id);
+      const payload = await readBody(req);
+      if (typeof payload.message !== 'string' || !payload.message.trim()) throw new Error('Refinement message is required');
+      const result = await dailyReviews.refine(id, payload.message.trim());
       if (result.body?.review) await syncDailyReviewToSupabase(result.body.review);
       res.writeHead(result.status, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
       res.end(JSON.stringify(result.body));
@@ -863,15 +924,27 @@ const server = http.createServer(async (req, res) => {
     if (req.url?.startsWith('/api/training-context') && req.method === 'GET') {
       const config = await readConfig();
       const local = await readLocalContext();
+      const coach = JSON.parse(await fs.readFile(coachingConfigPath, 'utf8'));
+      const timeZone = local.notification_preferences?.time_zone || local.athlete?.time_zone || 'America/Chicago';
+      const raceDate = coach.race_date || local.athlete?.race_date;
+      const raceTiming = assessRaceTiming(raceDate, timeZone);
+      const athleteWithRace = athlete => ({
+        ...local.athlete,
+        ...(athlete || {}),
+        race:coach.race || local.athlete?.race,
+        race_date:raceDate,
+        phase:raceTiming.phase,
+        days_to_race:raceTiming.daysToRace,
+      });
       const requestUrl = new URL(req.url, 'http://localhost');
       const forceRefresh = requestUrl.searchParams.get('refresh') === '1';
       if (config.TP_AUTH_COOKIE) {
         try {
-          const live = await fetchTrainingPeaksContext(config, { force:forceRefresh, timeZone:local.notification_preferences?.time_zone || local.athlete?.time_zone || 'America/Chicago' });
+          const live = await fetchTrainingPeaksContext(config, { force:forceRefresh, timeZone });
           const liveContext = {
             ...local,
             ...live,
-            athlete:{ ...local.athlete, ...live.athlete },
+            athlete:athleteWithRace(live.athlete),
             metrics:{ ...local.metrics, ...live.metrics },
             comments:local.comments,
             library:local.library,
@@ -889,17 +962,17 @@ const server = http.createServer(async (req, res) => {
           try {
             const cached = JSON.parse(await fs.readFile(trainingPeaksCachePath, 'utf8'));
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
-            res.end(JSON.stringify({ ...local, ...cached, comments:local.comments, library:local.library, source:'trainingpeaks-cache', sync_error:error.message }));
+            res.end(JSON.stringify({ ...local, ...cached, athlete:athleteWithRace(cached.athlete), comments:local.comments, library:local.library, source:'trainingpeaks-cache', sync_error:error.message }));
             return;
           } catch {
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
-            res.end(JSON.stringify({ ...local, source:'local-fallback', sync_error:error.message, retention_days:90 }));
+            res.end(JSON.stringify({ ...local, athlete:athleteWithRace(local.athlete), source:'local-fallback', sync_error:error.message, retention_days:90 }));
             return;
           }
         }
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ...local, source:'local-live', retention_days:90 }));
+      res.end(JSON.stringify({ ...local, athlete:athleteWithRace(local.athlete), source:'local-live', retention_days:90 }));
       return;
     }
 
@@ -933,14 +1006,14 @@ const server = http.createServer(async (req, res) => {
       const existing = await getCoachConversation(config, conversationId);
       const reviewMessageId = review ? `${review.id}:coach` : null;
       const reviewMessage = reviewMessageId
-        ? existing?.messages?.find(message => message.id === reviewMessageId) || { id:reviewMessageId, role:'assistant', content:review.conversation_text, created_at:review.created_at }
+        ? { id:reviewMessageId, role:'assistant', content:review.conversation_text, created_at:review.created_at }
         : null;
       const incomingMessages = Array.isArray(payload.messages) ? payload.messages : [];
       const conversation = await persistCoachConversation(config, {
         ...existing,
         id:conversationId,
         athlete_id:existing?.athlete_id || await currentConversationAthleteId(),
-        title:review ? `Daily workout review — ${review.local_date}` : title,
+        title:review ? new Date(`${review.local_date}T12:00:00Z`).toLocaleDateString('en-US', { month:'short', day:'2-digit', timeZone:'UTC' }) + ' Review' : title,
         kind:review ? 'daily_review' : 'conversation',
         review_id:review?.id || null,
         messages:reviewMessage ? [reviewMessage, ...incomingMessages.filter(message => message?.id !== reviewMessageId)] : incomingMessages,

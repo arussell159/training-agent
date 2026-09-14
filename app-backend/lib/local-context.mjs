@@ -38,7 +38,7 @@ const planned = [
   {id:"sun",day:"SUN",date:"Sep 20",workout_date:"2026-09-20",sport:"Run",title:"Run – Aerobic",duration:"50 min",goal:"Keep this easy and finish the week feeling better.",details:"50 min Z2. No fast finish.",status:"upcoming",risk:"low",load:44}
 ]
 
-function seed() { return { athlete:{id:"default",name:"Alex Russell",race:"IRONMAN 70.3 Waco",race_date:"2026-09-27",phase:"taper",time_zone:"America/Chicago",zones:{bike_ftp:278,run_threshold_pace:"7:12/mi",swim_css:"1:38/100yd",threshold_hr:168}},metrics:{fitness:71,fatigue:67,form:4,recovery:62,compliance_30d:91,readiness:78},history:buildHistory(),planned,comments:[{id:"comment-1",workout_id:"history-2",type:"post",body:"Final reps faded. Legs were the limiter, not breathing.",created_at:"2026-09-12T15:30:00Z"}],library:[{id:"lib1",sport:"Bike",title:"Controlled race power",duration:"75 min",purpose:"Race-specific power without residual fatigue",tags:["Taper","70.3"]},{id:"lib2",sport:"Run",title:"Threshold cruise intervals",duration:"55 min",purpose:"Accumulate controlled sub-threshold volume",tags:["Threshold","Repeatable"]},{id:"lib3",sport:"Swim",title:"CSS rhythm + form",duration:"50 min",purpose:"Hold form while accumulating steady CSS work",tags:["CSS","Technique"]}],notification_preferences:{enabled:false,review_time:"06:00",time_zone:"America/Chicago",subscriptions:[]},daily_reviews:[],coach_conversations:[],updated_at:new Date().toISOString()} }
+function seed() { return { athlete:{id:"default",name:"Alex Russell",race:"IRONMAN 70.3 Waco",race_date:"2026-10-04",phase:"race-specific",time_zone:"America/Chicago",zones:{bike_ftp:278,run_threshold_pace:"7:12/mi",swim_css:"1:38/100yd",threshold_hr:168}},metrics:{fitness:71,fatigue:67,form:4,recovery:62,compliance_30d:91,readiness:78},history:buildHistory(),planned,comments:[{id:"comment-1",workout_id:"history-2",type:"post",body:"Final reps faded. Legs were the limiter, not breathing.",created_at:"2026-09-12T15:30:00Z"}],library:[{id:"lib1",sport:"Bike",title:"Controlled race power",duration:"75 min",purpose:"Race-specific power without residual fatigue",tags:["Taper","70.3"]},{id:"lib2",sport:"Run",title:"Threshold cruise intervals",duration:"55 min",purpose:"Accumulate controlled sub-threshold volume",tags:["Threshold","Repeatable"]},{id:"lib3",sport:"Swim",title:"CSS rhythm + form",duration:"50 min",purpose:"Hold form while accumulating steady CSS work",tags:["CSS","Technique"]}],notification_preferences:{enabled:false,review_time:"06:00",time_zone:"America/Chicago",subscriptions:[]},daily_reviews:[],coach_conversations:[],updated_at:new Date().toISOString()} }
 
 async function readData() {
   try {
@@ -154,7 +154,7 @@ export async function saveDailyReview(review) {
       ...existingConversation,
       id:review.conversation_id,
       athlete_id:review.athlete_id,
-      title:`Daily workout review — ${review.local_date}`,
+      title:new Date(`${review.local_date}T12:00:00Z`).toLocaleDateString("en-US", { month:"short", day:"2-digit", timeZone:"UTC" }) + " Review",
       kind:"daily_review",
       review_id:review.id,
       messages:[

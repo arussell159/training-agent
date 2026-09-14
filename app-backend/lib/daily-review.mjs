@@ -14,10 +14,24 @@ const CHANGE_ACTIONS = new Set([
 export const dailyReviewSchema = {
   type:"object",
   additionalProperties:false,
-  required:["summary","reason","relevant_observations","workouts"],
+  required:["summary","notification_summary","reason","athlete_metrics","relevant_observations","workouts"],
   properties:{
     summary:{ type:"string" },
+    notification_summary:{ type:"string" },
     reason:{ type:"string" },
+    athlete_metrics:{
+      type:"object",
+      additionalProperties:false,
+      required:["fitness","fatigue","form","recovery","hrv","resting_heart_rate"],
+      properties:{
+        fitness:{ type:"string" },
+        fatigue:{ type:"string" },
+        form:{ type:"string" },
+        recovery:{ type:"string" },
+        hrv:{ type:"string" },
+        resting_heart_rate:{ type:"string" },
+      },
+    },
     relevant_observations:{ type:"array", items:{ type:"string" } },
     workouts:{
       type:"array",
@@ -35,12 +49,9 @@ export const dailyReviewSchema = {
           execution_guidance:{
             type:"object",
             additionalProperties:false,
-            required:["target_range","additional_recovery_limit","stop_main_set_when","fueling_note"],
+            required:["target_ranges"],
             properties:{
-              target_range:{ type:"string" },
-              additional_recovery_limit:{ type:"string" },
-              stop_main_set_when:{ type:"string" },
-              fueling_note:{ type:"string" },
+              target_ranges:{ type:"array", minItems:1, maxItems:12, items:{ type:"string" } },
             },
           },
           patch:{
@@ -189,23 +200,82 @@ function allRecentText(context, localDate) {
   ].filter(Boolean).join(" ").toLowerCase()
 }
 
-function baseGuidance(action, workout, signals = {}) {
-  if (action === "rest") return { target_range:"No training target today.", additional_recovery_limit:"Not applicable.", stop_main_set_when:"Do not start the main set.", fueling_note:"Eat and hydrate normally; seek qualified care for persistent illness or injury concerns." }
-  if (action === "substitute_easy") return { target_range:"Keep the replacement fully conversational at easy effort (RPE 2–3/10).", additional_recovery_limit:"No interval recovery is needed.", stop_main_set_when:"Stop if symptoms worsen, pain changes mechanics, or easy effort no longer feels easy.", fueling_note:signals.bonk ? "A prior fade may have involved under-fueling; address carbohydrate and fluids before treating it as lost fitness." : "Fuel for the revised duration and conditions." }
-  if (action === "reduce_target") return { target_range:"Use the lower end of the prescribed range, up to 5% below it if needed to preserve the intended controlled effort.", additional_recovery_limit:"Up to 60 seconds extra between work bouts, no more than twice.", stop_main_set_when:"Stop the main set after two consecutive intervals outside the adjusted range, or sooner for concerning symptoms.", fueling_note:signals.bonk ? "Treat the previous late fade as possibly fuel-related: begin fueled and take carbohydrate early enough for this session." : "Fuel and hydrate for the session length and conditions." }
-  if (action === "add_recovery") return { target_range:"Keep the written work target, favoring the lower half of its range.", additional_recovery_limit:"Add up to 60 seconds per recovery, for at most two recoveries.", stop_main_set_when:"Stop the main set if the target still cannot be held with stable form after the allowed extra recovery.", fueling_note:signals.bonk ? "Start fueled; do not use extra recovery to mask a developing energy deficit." : "Use normal session fueling and hydration." }
-  if (action === "shorten" || action === "remove_repetitions") return { target_range:"Keep remaining work controlled within the written range; do not compensate by going harder.", additional_recovery_limit:"Use written recovery only.", stop_main_set_when:"Stop if execution deteriorates for two consecutive efforts, mechanics change, or concerning symptoms appear.", fueling_note:"Fuel for the original intent and current conditions even though volume is reduced." }
-  if (action === "increase_modestly") return { target_range:"Use only the displayed modest increase and keep RPE appropriate to the session purpose.", additional_recovery_limit:"Use written recovery; do not extend the set further.", stop_main_set_when:"Return to the original target if control is lost; stop the main set for worsening pain, dizziness, chest pain, faintness, confusion, or unusual severe breathlessness.", fueling_note:"Support the extra work with the planned carbohydrate and fluids." }
-  return { target_range:"Stay within the written target range and preserve the intended effort rather than chasing a single number.", additional_recovery_limit:"Use the written recovery. If needed, add up to 30 seconds once; otherwise end the main set rather than forcing targets.", stop_main_set_when:"Stop the main set after two consecutive intervals outside the range with worsening form, or immediately for concerning symptoms.", fueling_note:signals.bonk ? "A prior fade may have been a bonk. Start fueled and take carbohydrate early; reassess before changing fitness estimates." : "Follow the planned fueling and hydration for duration and conditions." }
+function athleteMetrics(context, localDate) {
+  const snapshot = recoverySnapshot(context, localDate)
+  const recentRecovery = snapshot.latest.find(item => item.recovery && Object.values(item.recovery).some(value => value != null))?.recovery || {}
+  const historyRecovery = (context.history || []).filter(item => item.workout_date <= localDate).slice(-90).map(item => item.recovery || {})
+  const recovery = Number(context.metrics?.recovery)
+  const fitness = Number(context.metrics?.fitness)
+  const fatigue = Number(context.metrics?.fatigue)
+  const form = Number(context.metrics?.form)
+  const hrv = Number(context.wellness?.hrv ?? recentRecovery.hrv)
+  const restingHeartRate = Number(context.wellness?.resting_hr ?? recentRecovery.resting_hr)
+  const hrvBaseline = median(historyRecovery.map(item => Number(item.hrv)))
+  const restingHeartRateBaseline = median(historyRecovery.map(item => Number(item.resting_hr)))
+  const withBaseline = (value, baseline, unit) => {
+    if (!Number.isFinite(value) || value <= 0) return null
+    if (!Number.isFinite(baseline) || baseline <= 0) return `${Math.round(value)} ${unit}; no personal baseline is available.`
+    const difference = Math.round(value - baseline)
+    return `${Math.round(value)} ${unit}; ${Math.abs(difference)} ${unit} ${difference === 0 ? "from" : difference > 0 ? "above" : "below"} the 90-day median of ${Math.round(baseline)} ${unit}.`.replace("0 " + unit + " from", "in line with")
+  }
+  return {
+    fitness:Number.isFinite(fitness) ? `${Math.round(fitness)} (training-load estimate)` : "Unavailable",
+    fatigue:Number.isFinite(fatigue) ? `${Math.round(fatigue)} (training-load estimate)` : "Unavailable",
+    form:Number.isFinite(form) ? `${Math.round(form)} (training-load estimate)` : "Unavailable",
+    recovery:Number.isFinite(recovery) && recovery > 0 ? `${Math.round(recovery)}%` : "Unavailable",
+    hrv:withBaseline(hrv, hrvBaseline, "ms") || "No current HRV reading is available.",
+    resting_heart_rate:withBaseline(restingHeartRate, restingHeartRateBaseline, "bpm") || "No current resting-heart-rate reading is available.",
+  }
+}
+
+function mainSetLines(workout) {
+  const lines = String(workout.details || workout.goal || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+  const mainIndex = lines.findIndex(line => /^main set:/i.test(line))
+  const warmDownIndex = lines.findIndex((line, index) => index > mainIndex && /^warm down:|^cool down:/i.test(line))
+  const source = mainIndex >= 0
+    ? lines.slice(mainIndex + 1, warmDownIndex >= 0 ? warmDownIndex : undefined)
+    : lines
+  const intervals = source
+    .filter(line => /\b\d+\s*[x×]\s*(?:\(|\d)/i.test(line))
+    .map(line => line.replace(/[,.]$/, "").replace(/\s*[×x]\s*/i, "x"))
+  return intervals.length ? intervals.slice(0, 12) : [workout.title]
+}
+
+function baseGuidance(action, workout) {
+  if (action === "rest") return { target_ranges:["Rest today; there is no training target."] }
+  if (action === "substitute_easy") return { target_ranges:["Easy replacement at RPE 2–3/10: keep it fully conversational with no interval targets."] }
+  const sport = String(workout.sport || "").toLowerCase()
+  const actionLead = action === "reduce_target"
+    ? "Use the proposed 3–5% reduction."
+    : action === "add_recovery"
+      ? "Keep the written work target and use no more than the proposed extra recovery."
+      : action === "shorten" || action === "remove_repetitions"
+        ? "Complete only the proposed repetitions and keep them controlled."
+        : action === "increase_modestly"
+          ? "Use only the proposed 2–3% increase; do not add volume."
+          : "Hold the prescribed effort with smooth, repeatable execution."
+  return {
+    target_ranges:mainSetLines(workout).map(line => {
+      const seconds = Number(line.match(/(\d+)\s*(?:sec|secs|seconds)\s*(?:rest|recovery)/i)?.[1])
+      const quality = /z4|z5|css|threshold|vo2|race pace|race power/i.test(line)
+      if (sport === "swim") {
+        if (quality) return `${line}: ${actionLead} Maintain the prescribed pace or zone; ${Number.isFinite(seconds) ? `increase rest from ${seconds} to a maximum of ${seconds + 30} seconds` : "add no more than 30 seconds to the written rest"} if needed to preserve quality.`
+        return `${line}: ${actionLead} Keep ${Number.isFinite(seconds) ? `${seconds} seconds` : "the written"} rest; you may swim up to 5 sec/100 yd slower while staying at the prescribed aerobic effort.`
+      }
+      if (sport === "bike") return `${line}: ${actionLead} Keep the written recovery; power may be reduced by up to 5% if needed to preserve the intended effort.`
+      if (sport === "run") return `${line}: ${actionLead} Keep the written recovery; pace may be up to 10 sec/mi slower if needed to preserve the intended effort.`
+      return `${line}: ${actionLead} Keep the written recovery; reduce the target by no more than 5% if needed to preserve the intended effort.`
+    }),
+  }
 }
 
 export function heuristicDecision(context, workouts, localDate) {
   const recentText = allRecentText(context, localDate)
   const concerning = /chest pain|faint|fainted|confusion|severe unusual breath|fever|worsening pain/.test(recentText)
-  const bonk = /bonk|bonked|ran out of fuel|underfuel|under-fuel|no energy|nutrition/.test(recentText)
   const todayRecovery = recoverySnapshot(context, localDate).latest[0]?.recovery || {}
   const lowRecovery = Number(context.metrics?.recovery) > 0 && Number(context.metrics.recovery) < 45
   const poorSleep = Number(todayRecovery.sleep_hours) > 0 && Number(todayRecovery.sleep_hours) < 5.5
+  const relevantObservations = []
   const decisions = workouts.map(workout => {
     const evidence = evidenceFor(context, workout, localDate)
     const failed = evidence.comparable.filter(item => (item.failure_signals || []).length || Number(item.compliance) < 75)
@@ -223,39 +293,87 @@ export function heuristicDecision(context, workouts, localDate) {
       action = "reduce_target"
       reason = failed.length >= 2 ? "Multiple recent comparable sessions show incomplete execution, so a small reduction protects repeatable quality without redefining training zones." : "Available recovery information is meaningfully below normal, so reducing today’s output should preserve the session’s purpose."
       proposedChange = "Keep the session structure but reduce prescribed pace or power by about 3–5%; do not add volume."
-      patch = { ...patch, coachComments:`Daily review: use 95–97% of the written pace or power target today. Preserve the intended effort and stop the main set after two consecutive misses. ${workout.goal || ""}`.trim() }
+      patch = { ...patch, coachComments:`Daily review: use 95–97% of the written pace or power target today and preserve the intended effort. ${workout.goal || ""}`.trim() }
     } else if (failed.length === 1) {
       action = "add_recovery"
       reason = "One recent comparable session was difficult, which supports protecting interval quality but not changing zones or removing the stimulus."
       proposedChange = "Keep the work target and allow up to 60 seconds extra recovery on no more than two recoveries."
-      patch = { ...patch, coachComments:`Daily review: prioritize interval quality. Up to 60 seconds extra recovery is allowed twice; stop after two consecutive target misses. ${workout.goal || ""}`.trim() }
+      patch = { ...patch, coachComments:`Daily review: prioritize interval quality. Up to 60 seconds extra recovery is allowed twice. ${workout.goal || ""}`.trim() }
     } else if (easy.length >= 3 && context.athlete?.phase !== "taper") {
       action = "increase_modestly"
       reason = "At least three recent comparable sessions were completed comfortably with good adherence and no conflicting recovery signal."
       proposedChange = "Increase the main-set target by about 2–3%, without adding repetitions or duration."
       patch = { ...patch, coachComments:`Daily review: a modest 2–3% main-set target increase is supported. Do not add repetitions or duration. ${workout.goal || ""}`.trim() }
     }
+    if (failed[0]) {
+      relevantObservations.push(`${failed[0].workout_date}: ${failed[0].title || `${workout.sport} workout`} was not completed as intended${Number.isFinite(Number(failed[0].compliance)) ? ` (${Math.round(Number(failed[0].compliance))}% completion)` : ""}.`)
+    } else if (easy[0]) {
+      relevantObservations.push(`${easy[0].workout_date}: ${easy[0].title || `${workout.sport} workout`} was completed comfortably at RPE ${Number(easy[0].completed?.rpe)}/10 with ${Math.round(Number(easy[0].compliance))}% completion.`)
+    }
+    const priority = /threshold|vo2|race|interval|brick/i.test(`${workout.title} ${workout.goal}`) ? "key" : "supporting"
+    const targetFlexibility = priority === "key"
+      ? action === "follow_as_written" ? "This is the key session today, so protect smooth, repeatable interval quality; the targets are guides, not pass/fail numbers." : "This is the key session today, so use only the displayed adjustment and protect repeatable interval quality."
+      : action === "follow_as_written" ? "This session supports the week, so keep it controlled and let good technique and the intended effort matter more than an exact number." : "This session supports the week, so keep the adjustment conservative and finish without adding extra load."
     return {
       workout_id:String(workout.id),
-      priority:/threshold|vo2|race|interval|brick/i.test(`${workout.title} ${workout.goal}`) ? "key" : "supporting",
-      target_flexibility:action === "follow_as_written" ? "Targets are a range; preserve the intended effort and technique." : "The displayed adjustment is the limit; do not turn it into a harder or longer session.",
+      priority,
+      target_flexibility:targetFlexibility,
       action,
       proposed_change:proposedChange,
       reason,
-      execution_guidance:baseGuidance(action, workout, { bonk }),
+      execution_guidance:baseGuidance(action, workout),
       patch,
     }
   })
   const changed = decisions.some(item => CHANGE_ACTIONS.has(item.action))
   return {
     summary:changed ? "A small adjustment is recommended for today’s training." : "Proceed as planned",
+    notification_summary:changed ? "Workout adjustment suggested." : "Proceed as planned.",
     reason:changed ? "The recommendation uses the smallest change supported by recent comparable execution, feedback, recovery, and today’s session purpose." : "Today’s sessions match the available recovery and recent execution evidence.",
-    relevant_observations:[
-      `${workouts.length} scheduled session${workouts.length === 1 ? "" : "s"} reviewed together.`,
-      bonk ? "Recent feedback suggests a possible fueling-related fade; this is not treated automatically as lost fitness." : "No recent feedback clearly indicates a fueling-related failure.",
-      "One unusual session alone is not used to change training zones.",
-    ],
+    athlete_metrics:athleteMetrics(context, localDate),
+    relevant_observations:[...new Set(relevantObservations)].slice(0,8),
     workouts:decisions,
+  }
+}
+
+export function lockDecisionToVerdict(generated, baseline) {
+  const generatedWorkouts = new Map(
+    (Array.isArray(generated?.workouts) ? generated.workouts : []).map(item => [
+      String(item?.workout_id || ""),
+      item,
+    ])
+  )
+  const workouts = baseline.workouts.map(locked => {
+    const candidate = generatedWorkouts.get(String(locked.workout_id)) || {}
+    const candidatePatch = candidate.patch && typeof candidate.patch === "object" ? candidate.patch : null
+    const candidateHasChange = candidatePatch
+      ? Object.values(candidatePatch).some(value => value !== null && value !== undefined && value !== "")
+      : false
+    const action = locked.action
+    return {
+      ...locked,
+      ...candidate,
+      workout_id:locked.workout_id,
+      action,
+      proposed_change:
+        action === "follow_as_written"
+          ? null
+          : String(candidate.proposed_change || locked.proposed_change || "Apply the displayed coaching adjustment."),
+      reason:String(candidate.reason || locked.reason),
+      patch:
+        action === "follow_as_written"
+          ? locked.patch
+          : candidateHasChange
+            ? candidatePatch
+            : locked.patch,
+    }
+  })
+  return {
+    ...baseline,
+    ...(generated && typeof generated === "object" ? generated : {}),
+    summary:baseline.summary,
+    notification_summary:baseline.notification_summary,
+    workouts,
   }
 }
 
@@ -280,6 +398,43 @@ function cleanPatch(patch, original) {
   return result
 }
 
+function notificationSummary(workouts, changesProposed) {
+  if (!changesProposed) return "Proceed as planned."
+  const actions = new Set(workouts.filter(item => item.action !== "follow_as_written").map(item => item.action))
+  if ([...actions].every(action => action === "add_recovery")) return "Extra recovery suggested."
+  if ([...actions].every(action => action === "increase_modestly")) return "Higher targets suggested."
+  if ([...actions].every(action => ["reduce_target","shorten","remove_repetitions","substitute_easy","rest"].includes(action))) return "Easier targets suggested."
+  const sports = new Set(workouts.filter(item => item.action !== "follow_as_written").map(item => item.sport).filter(Boolean))
+  if (sports.size === 1) return `${[...sports][0]} adjustment suggested.`
+  return "Workout adjustments suggested."
+}
+
+function ensureAdjustment(range, workout) {
+  let value = String(range).replace(/,\s*\((build|steady|strong)\),/i, ",").replace(/[.;\s]+$/, "")
+  const recoveryAllowance = value.match(/(?:add no more than|allow up to\s*\+?)\s*(\d+)\s*(?:sec|secs|seconds?)\s*(?:of\s*)?(?:recovery|rest)?/i)
+  if (recoveryAllowance) {
+    const seconds = Number(recoveryAllowance[1])
+    value = value
+      .replace(/\s*\(\s*allow up to\s*\+?\s*\d+\s*(?:sec|secs|seconds?)\s*(?:recovery|rest)\s*\)/i, "")
+      .replace(/;\s*maintain the target and\s*(?:add no more than|allow up to\s*\+?)\s*\d+\s*(?:sec|secs|seconds?)\s*(?:of\s*)?(?:recovery|rest)?(?:\s*if needed)?\s*$/i, "")
+      .replace(/[.;\s]+$/, "")
+    return `${value}; maintain the target and increase rest by no more than ${seconds} seconds if needed.`
+  }
+  if (/\b(?:allow|may|maximum|max\.?|up to|increase|reduce|slower)\b/i.test(value)) return `${value}.`
+  const rest = Number(value.match(/(?:recovery|rest)\s*(\d+)\s*(?:sec|secs|seconds|s)\b/i)?.[1])
+  const sport = String(workout.sport || "").toLowerCase()
+  const quality = /\b(?:build|strong|z4|z5|css|threshold|vo2|race pace|race power)\b/i.test(value)
+  if (sport === "swim" && quality) {
+    return `${value}; maintain the target and ${Number.isFinite(rest) ? `increase recovery from ${rest} to a maximum of ${rest + 10} seconds` : "add no more than 10 seconds recovery"} if needed.`
+  }
+  if (sport === "swim") {
+    return `${value}; keep ${Number.isFinite(rest) ? `${rest} seconds recovery` : "the written recovery"} and allow up to 5 sec/100yd slower if needed.`
+  }
+  if (sport === "bike") return `${value}; keep the written recovery and allow up to 5% lower power if needed.`
+  if (sport === "run") return `${value}; keep the written recovery and allow up to 10 sec/mi slower if needed.`
+  return `${value}; keep the written recovery and allow up to 5% lower intensity if needed.`
+}
+
 export function normalizeDecision(decision, workouts) {
   const rawItems = Array.isArray(decision?.workouts) ? decision.workouts : []
   const normalized = workouts.map(workout => {
@@ -299,10 +454,11 @@ export function normalizeDecision(decision, workouts) {
       proposed_change:action === "follow_as_written" ? null : String(raw.proposed_change || "Apply the displayed coaching adjustment."),
       reason:String(raw.reason || "Available evidence does not support a larger change."),
       execution_guidance:{
-        target_range:String(raw.execution_guidance?.target_range || baseGuidance(action, workout).target_range),
-        additional_recovery_limit:String(raw.execution_guidance?.additional_recovery_limit || baseGuidance(action, workout).additional_recovery_limit),
-        stop_main_set_when:String(raw.execution_guidance?.stop_main_set_when || baseGuidance(action, workout).stop_main_set_when),
-        fueling_note:String(raw.execution_guidance?.fueling_note || baseGuidance(action, workout).fueling_note),
+        target_ranges:(Array.isArray(raw.execution_guidance?.target_ranges) && raw.execution_guidance.target_ranges.length
+          ? raw.execution_guidance.target_ranges.slice(0,12).map(String)
+          : raw.execution_guidance?.target_range
+            ? [String(raw.execution_guidance.target_range)]
+            : baseGuidance(action, workout).target_ranges).map(range => ensureAdjustment(range, workout)),
       },
       patch,
       applied_at:null,
@@ -312,7 +468,16 @@ export function normalizeDecision(decision, workouts) {
   const summary = changesProposed ? String(decision?.summary || "A training adjustment is proposed for today.") : "Proceed as planned"
   return {
     summary,
+    notification_summary:notificationSummary(normalized, changesProposed),
     reason:String(decision?.reason || "Today’s plan fits the available execution and recovery evidence."),
+    athlete_metrics:{
+      fitness:String(decision?.athlete_metrics?.fitness || "Unavailable"),
+      fatigue:String(decision?.athlete_metrics?.fatigue || "Unavailable"),
+      form:String(decision?.athlete_metrics?.form || "Unavailable"),
+      recovery:String(decision?.athlete_metrics?.recovery || "Unavailable"),
+      hrv:String(decision?.athlete_metrics?.hrv || "No current HRV reading is available."),
+      resting_heart_rate:String(decision?.athlete_metrics?.resting_heart_rate || "No current resting-heart-rate reading is available."),
+    },
     relevant_observations:Array.isArray(decision?.relevant_observations) ? decision.relevant_observations.slice(0,8).map(String) : [],
     workouts:normalized,
     changes_proposed:changesProposed,
@@ -320,19 +485,26 @@ export function normalizeDecision(decision, workouts) {
 }
 
 export function reviewConversationText(review) {
-  const lines = [review.summary, review.reason, "", "Relevant observations:", ...review.relevant_observations.map(item => `- ${item}`)]
+  const lines = [
+    review.summary,
+    review.reason,
+    "",
+    "Athlete metrics:",
+    `- Fitness: ${review.athlete_metrics.fitness}`,
+    `- Fatigue: ${review.athlete_metrics.fatigue}`,
+    `- Form: ${review.athlete_metrics.form}`,
+    `- Recovery: ${review.athlete_metrics.recovery}`,
+    `- HRV: ${review.athlete_metrics.hrv}`,
+    `- Resting heart rate: ${review.athlete_metrics.resting_heart_rate}`,
+  ]
+  if (review.relevant_observations.length) lines.push("", "Relevant observations:", ...review.relevant_observations.map(item => `- ${item}`))
   for (const workout of review.workouts) {
+    lines.push("", workout.title, `Proposed change: ${workout.proposed_change || "Follow the session as planned."}`)
+    if (workout.action !== "follow_as_written") lines.push(`Why: ${workout.reason}`)
     lines.push(
-      "",
-      workout.title,
-      `Original: ${workout.original.duration_minutes} min · ${workout.original.description || workout.original.coach_comments || "See TrainingPeaks for structure."}`,
-      `Recommendation: ${workout.proposed_change || "Follow the session as written."}`,
-      `Why: ${workout.reason}`,
-      `Priority: ${workout.priority}. ${workout.target_flexibility}`,
-      `Target range: ${workout.execution_guidance.target_range}`,
-      `Extra recovery: ${workout.execution_guidance.additional_recovery_limit}`,
-      `Stop rule: ${workout.execution_guidance.stop_main_set_when}`,
-      `Fueling: ${workout.execution_guidance.fueling_note}`,
+      `How to approach it: ${workout.target_flexibility}`,
+      "Pace and rest guidance:",
+      ...workout.execution_guidance.target_ranges.map(item => `- ${item}`),
     )
   }
   return lines.join("\n")
@@ -340,6 +512,7 @@ export function reviewConversationText(review) {
 
 export function createDailyReview({ athleteId, localDate, timeZone, context, workouts, decision, previous = null, now = new Date() }) {
   const normalized = normalizeDecision(decision, workouts)
+  normalized.athlete_metrics = athleteMetrics(context, localDate)
   const snapshots = workouts.map(workoutSnapshot).sort((a,b) => a.id.localeCompare(b.id))
   const createdAt = previous?.created_at || now.toISOString()
   const id = previous?.id || `daily-review-${encodeURIComponent(athleteId)}-${localDate}`

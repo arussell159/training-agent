@@ -45,7 +45,11 @@ test("a failed TrainingPeaks write remains retryable and duplicate approval is i
   assert.equal(duplicateRun.id, review.id)
   assert.equal(duplicateRun.revision, review.revision)
 
-  const first = await service.approve(review.id, now)
+  const refreshed = await service.runDue(now, { force:true, refresh:true })
+  assert.equal(refreshed.id, review.id)
+  assert.equal(refreshed.revision, review.revision + 1)
+
+  const first = await service.approve(refreshed.id, now)
   assert.equal(first.status, 502)
   assert.equal(first.body.review.status, "apply_failed")
 

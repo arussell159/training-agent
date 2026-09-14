@@ -21,6 +21,12 @@ test("a normal day is proceed as planned and needs no approval", () => {
   assert.equal(review.summary, "Proceed as planned")
   assert.equal(review.status, "proceed_as_planned")
   assert.equal(review.changes_proposed, false)
+  assert.deepEqual(review.relevant_observations, [])
+  assert.match(review.athlete_metrics.hrv, /^55 ms/)
+  assert.match(review.athlete_metrics.resting_heart_rate, /^48 bpm/)
+  assert.ok(review.workouts[0].execution_guidance.target_ranges.length > 0)
+  assert.ok(review.workouts[0].execution_guidance.target_ranges.every(range => /allow|increase|maximum|up to/i.test(range)))
+  assert.doesNotMatch(review.conversation_text, /Stop (?:the )?main set|Stop rule/i)
 })
 
 test("missing recovery data does not automatically cancel training", () => {
@@ -43,11 +49,10 @@ test("repeated failed comparable sessions reduce the target, while one does not 
   assert.match(decision.workouts[0].reason, /Multiple recent comparable sessions/)
 })
 
-test("suspected bonking is flagged for fueling rather than assumed fitness loss", () => {
+test("suspected bonking does not automatically change the workout", () => {
   const bonkContext = { ...context, comments:[{ body:"I bonked late after missing breakfast." }] }
   const decision = heuristicDecision(bonkContext, [workout], "2026-09-14")
   assert.equal(decision.workouts[0].action, "follow_as_written")
-  assert.match(decision.workouts[0].execution_guidance.fueling_note, /fuel/i)
 })
 
 test("a taper does not increase training after a few easy sessions", () => {
@@ -68,5 +73,6 @@ test("multiple same-day sessions are combined into one review", () => {
   const decision = heuristicDecision({ ...context, planned:workouts }, workouts, "2026-09-14")
   const review = createDailyReview({ athleteId:"a1", localDate:"2026-09-14", timeZone:"America/Chicago", context:{ ...context, planned:workouts }, workouts, decision })
   assert.equal(review.workouts.length, 2)
-  assert.match(review.relevant_observations[0], /2 scheduled sessions/)
+  assert.deepEqual(review.relevant_observations, [])
+  assert.equal(typeof review.athlete_metrics.fatigue, "string")
 })

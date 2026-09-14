@@ -28,6 +28,16 @@ function formatConversationDate(value: string) {
   })
 }
 
+function displayConversationTitle(conversation: CoachConversationSummary) {
+  if (conversation.kind !== "daily_review") return conversation.title
+  const localDate = conversation.review_id?.match(/(\d{4}-\d{2}-\d{2})$/)?.[1]
+    || conversation.title.match(/(\d{4}-\d{2}-\d{2})/)?.[1]
+  if (!localDate) return conversation.title
+  const date = new Date(`${localDate}T12:00:00Z`)
+  if (Number.isNaN(date.getTime())) return conversation.title
+  return `${date.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" })} ${date.getUTCDate()} Review`
+}
+
 function ConversationRow({
   conversation,
   active,
@@ -41,6 +51,7 @@ function ConversationRow({
   onPin: () => void
   onDelete: () => void
 }) {
+  const title = displayConversationTitle(conversation)
   return (
     <div
       data-active={active || undefined}
@@ -58,7 +69,7 @@ function ConversationRow({
         )}
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
-            <span className="block truncate font-medium">{conversation.title}</span>
+            <span className="block truncate font-medium">{title}</span>
             {conversation.pinned && <Pin className="size-3 shrink-0 fill-current text-primary" aria-label="Pinned" />}
           </span>
           <span className="block truncate text-[11px] text-muted-foreground">
@@ -73,7 +84,7 @@ function ConversationRow({
               type="button"
               size="icon-sm"
               variant="ghost"
-              aria-label={`Actions for ${conversation.title}`}
+              aria-label={`Actions for ${title}`}
               className="absolute right-1 size-8 opacity-100 md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100"
             />
           }

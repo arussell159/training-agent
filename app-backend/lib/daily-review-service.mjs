@@ -16,6 +16,7 @@ import {
   fingerprint,
   heuristicDecision,
   isReviewDue,
+  lockDecisionToVerdict,
   localClock,
   materiallyChanged,
   reviewConversationText,
@@ -37,7 +38,11 @@ const localStorageAdapter = {
 
 const REVIEW_INSTRUCTIONS = `You are performing one pre-workout daily triathlon coaching review.
 Use the supplied 90-day context, giving more weight to recent comparable workouts. Consider interval completion, failed or comfortable execution, heart rate, perceived effort, recovery, athlete feedback, conditions, fueling, and measurement quality. Never change zones from one unusual workout. Use the smallest supported adjustment and preserve the intended stimulus.
-For each workout, explain priority, target flexibility, an acceptable target range, no more than a defined amount of extra recovery, and a clear main-set stop rule. Never say to hit targets at all costs. Treat suspected bonking as a possible fueling problem and distinguish it from normal difficulty, fatigue, excessive intensity, and concerning symptoms. For dizziness, nausea, worsening pain, chest pain, fainting, confusion, or severe unusual breathlessness, prioritize stopping and appropriate care.
+Keep summary to eight words or fewer, reason to one sentence of 22 words or fewer, and each target_flexibility sentence to 24 words or fewer. Do not repeat metric values outside athlete_metrics unless one directly drives a proposed change.
+The athlete's race is on 2026-10-04. Use the supplied local date and days_to_race to assess the phase; do not assume the athlete is tapering. In athlete_metrics, report fitness, fatigue, and form explicitly as training-load estimates. Report recovery separately, plus current HRV and resting heart rate with a recent trend or personal baseline when the evidence provides one. Say clearly when a current measurement or baseline is unavailable and never infer reassurance from missing data.
+Relevant observations are optional. Include one only when a specific recent comparable workout was materially overachieved, failed, shortened, or completed with unusually easy or difficult execution and that fact is relevant to today's recommendation. Name its date and workout. Return an empty array when there is no such evidence. Never put the race date, training phase, scheduled-workout count, general coaching principles, unavailable measurements, or “nothing concerning” statements in relevant_observations.
+notification_summary must be a three-to-six-word sentence matching the saved recommendation, such as “Proceed as planned.”, “Swim adjustment suggested.”, “Easier targets suggested.”, “Higher targets suggested.”, or “Extra recovery suggested.” Proposed changes must sound like suggestions awaiting approval.
+For each workout, make target_flexibility a natural sentence that explains the session's priority and what matters most today. Say “work within” a target, never “hit” a target. execution_guidance.target_ranges must contain one precise bullet per main-set block or repeat group. Start every bullet with the exact repeat count, distance or duration, intended effort, verified pace or power target, and planned recovery from the source workout and athlete zones. For swim sets, when the verified pace uses /100yd, express repeat distance in yards (for example, 3x400 yd), never seconds. Then choose the single bounded adjustment that best preserves that set's purpose: either maintain the target while allowing a stated maximum recovery increase, or maintain the written recovery while allowing a stated pace or power reduction. For every target-preserving recovery adjustment, use exactly this wording pattern: “maintain the target and increase rest by no more than N seconds if needed.” Do not alternate with parenthetical allowances, “add recovery,” or “allow up to +N.” Use explicit units and limits. Never invent CSS values, convert aerobic work to threshold work, or use vague guidance such as “drop a zone.” Do not produce a separate extra-recovery line, main-set stop rule, or fueling section. Never say to hit targets at all costs.
 Choose follow_as_written, reduce_target, add_recovery, shorten, remove_repetitions, substitute_easy, rest, or increase_modestly. Propose an increase only after repeated comfortable comparable sessions plus good recovery; do not add intensity during a taper without compelling evidence.
 The patch is the exact TrainingPeaks change that approval will apply. Use null for every unchanged field. totalTimePlanned is decimal hours, so 45 minutes is 0.75. If changing targets, recoveries, duration, or repetitions in a structured workout, return a complete valid replacement structure JSON string when the source structure is available and keep its duration/TSS fields consistent; otherwise put the full revised instructions in description and coachComments. A follow_as_written recommendation must have a fully null patch. Do not claim any proposal is already applied.`
 
@@ -46,7 +51,8 @@ function outputText(data) {
 }
 
 async function requestStructuredDecision(config, context, workouts, localDate) {
-  if (!config.OPENAI_API_KEY) return heuristicDecision(context, workouts, localDate)
+  const baseline = heuristicDecision(context, workouts, localDate)
+  if (!config.OPENAI_API_KEY) return baseline
   const evidence = {
     local_date:localDate,
     athlete:context.athlete,
@@ -57,6 +63,16 @@ async function requestStructuredDecision(config, context, workouts, localDate) {
     comments:(context.comments || []).slice(0,20),
     scheduled_workouts:workouts,
     recent_history:(context.history || context.workouts || []).slice(-90),
+    verdict_lock:{
+      summary:baseline.summary,
+      notification_summary:baseline.notification_summary,
+      workouts:baseline.workouts.map(item => ({
+        workout_id:item.workout_id,
+        action:item.action,
+        proposed_change:item.proposed_change,
+        patch:item.patch,
+      })),
+    },
   }
   const response = await fetch("https://api.openai.com/v1/responses", {
     method:"POST",
@@ -66,7 +82,8 @@ async function requestStructuredDecision(config, context, workouts, localDate) {
       store:false,
       max_output_tokens:5000,
       reasoning:{ effort:"low" },
-      instructions:REVIEW_INSTRUCTIONS,
+      instructions:`${REVIEW_INSTRUCTIONS}
+The verdict_lock is deterministic for this exact data snapshot. Preserve every locked workout action, whether a change is proposed, and the top-level summary. You may improve the explanation and execution guidance, but must not make the verdict stricter or easier.`,
       input:JSON.stringify(evidence).slice(0,100000),
       text:{
         format:{ type:"json_schema", name:"daily_workout_review", strict:true, schema:dailyReviewSchema },
@@ -77,6 +94,39 @@ async function requestStructuredDecision(config, context, workouts, localDate) {
   if (!response.ok) throw new Error(`OpenAI daily review failed (${response.status}): ${(await response.text()).slice(0,300)}`)
   const text = outputText(await response.json())
   if (!text) throw new Error("OpenAI returned an empty daily review")
+  return lockDecisionToVerdict(JSON.parse(text), baseline)
+}
+
+async function requestStructuredRefinement(config, review, context, workouts, instruction) {
+  if (!config.OPENAI_API_KEY) throw new Error("OpenAI is not configured for recommendation refinements")
+  const evidence = {
+    athlete_request:instruction,
+    athlete:context.athlete,
+    metrics:context.metrics,
+    wellness:context.wellness,
+    current_review:review,
+    source_workouts:workouts,
+  }
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method:"POST",
+    headers:{ Authorization:`Bearer ${config.OPENAI_API_KEY}`, "Content-Type":"application/json" },
+    body:JSON.stringify({
+      model:config.OPENAI_MODEL || "gpt-5-mini",
+      store:false,
+      max_output_tokens:5000,
+      reasoning:{ effort:"low" },
+      instructions:`${REVIEW_INSTRUCTIONS}
+Revise the unresolved saved review using the athlete's latest reply. Treat that reply as a requested constraint, not approval. Change only the workout, interval group, targets, recovery, or fields explicitly named by the athlete. Preserve every unmentioned workout and main-set group exactly. The patch must contain the complete TrainingPeaks-ready replacement needed to apply the displayed revision, while leaving unmentioned intervals unchanged. Describe the revised workout as a suggestion awaiting approval.`,
+      input:JSON.stringify(evidence).slice(0,100000),
+      text:{
+        format:{ type:"json_schema", name:"daily_workout_review_refinement", strict:true, schema:dailyReviewSchema },
+        verbosity:"low",
+      },
+    }),
+  })
+  if (!response.ok) throw new Error(`OpenAI review refinement failed (${response.status}): ${(await response.text()).slice(0,300)}`)
+  const text = outputText(await response.json())
+  if (!text) throw new Error("OpenAI returned an empty review refinement")
   return JSON.parse(text)
 }
 
@@ -105,7 +155,17 @@ function applyPatchToSnapshot(snapshot, patch) {
   }
 }
 
-export function createDailyReviewService({ readConfig, writeConfig, getContext, applyWorkoutPatch, log = () => {}, storage = localStorageAdapter }) {
+export function createDailyReviewService({
+  readConfig,
+  writeConfig,
+  getContext,
+  applyWorkoutPatch,
+  log = () => {},
+  storage = localStorageAdapter,
+  hydrateDailyReviewByDate = null,
+  decisionProvider = requestStructuredDecision,
+  refinementProvider = requestStructuredRefinement,
+}) {
   let running = false
   const {
     getDailyReview,
@@ -136,14 +196,11 @@ export function createDailyReviewService({ readConfig, writeConfig, getContext, 
     try {
       const config = await readConfig()
       if (!config.OPENAI_API_KEY) generationSource = "rules_fallback"
-      decision = await requestStructuredDecision(config, context, workouts, localDate)
+      decision = await decisionProvider(config, context, workouts, localDate)
     } catch (error) {
       log(`daily review model fallback: ${error.message}`)
       decision = heuristicDecision(context, workouts, localDate)
       generationSource = "rules_fallback"
-    }
-    if (generationSource === "rules_fallback") {
-      decision.relevant_observations = ["The structured AI review was unavailable, so conservative rules used the last available training context.", ...(decision.relevant_observations || [])]
     }
     return { ...createDailyReview({ athleteId, localDate, timeZone:preferences.time_zone, context, workouts, decision, previous, now }), generation_source:generationSource }
   }
@@ -163,8 +220,8 @@ export function createDailyReviewService({ readConfig, writeConfig, getContext, 
     const config = await ensureVapid()
     webpush.setVapidDetails(config.VAPID_SUBJECT || "mailto:coach@arperformance.local", config.VAPID_PUBLIC_KEY, config.VAPID_PRIVATE_KEY)
     const payload = JSON.stringify({
-      title:"Today’s workout review",
-      body:review.changes_proposed ? review.summary : `Proceed as planned — ${review.reason}`,
+      title:"Daily workout review",
+      body:review.notification_summary || (review.changes_proposed ? "Workout adjustment suggested." : "Proceed as planned."),
       tag:`daily-workout-review-${review.athlete_id}-${review.local_date}`,
       url:`/coach?review=${encodeURIComponent(review.id)}`,
       reviewId:review.id,
@@ -202,7 +259,7 @@ export function createDailyReviewService({ readConfig, writeConfig, getContext, 
     return saveDailyReview(refreshed)
   }
 
-  async function runDue(now = new Date(), { force = false } = {}) {
+  async function runDue(now = new Date(), { force = false, refresh = false } = {}) {
     if (running) return null
     running = true
     try {
@@ -215,8 +272,15 @@ export function createDailyReviewService({ readConfig, writeConfig, getContext, 
       if (!workouts.length || (!force && !isReviewDue({ now, timeZone:preferences.time_zone, configuredTime:preferences.review_time, workouts }))) return null
 
       let review = await getDailyReviewByDate(athleteId, localDate)
-      if (!review) {
-        review = await generate(context, workouts, preferences, null, now)
+      if (!review && hydrateDailyReviewByDate) {
+        review = await hydrateDailyReviewByDate(athleteId, localDate)
+        if (review) await saveDailyReview(review)
+      }
+      if (!review || refresh) {
+        if (refresh && review && ["approved","denied","cancelled","expired"].includes(review.status)) return review
+        const previousNotification = review?.notification
+        review = await generate(context, workouts, preferences, review, now)
+        if (previousNotification) review.notification = previousNotification
         await saveDailyReview(review)
       }
       if (["approved","denied","cancelled","expired"].includes(review.status)) return review
@@ -228,6 +292,47 @@ export function createDailyReviewService({ readConfig, writeConfig, getContext, 
       return deliver(review)
     } finally {
       running = false
+    }
+  }
+
+  async function refine(id, instruction, now = new Date()) {
+    let review = await getDailyReview(id)
+    if (!review) return { status:404, body:{ error:"Daily review not found" } }
+    if (!["pending_approval","proceed_as_planned","apply_failed"].includes(review.status)) {
+      return { status:409, body:{ error:"This daily review can no longer be revised.", review } }
+    }
+    if (localClock(now, review.time_zone).date !== review.local_date) {
+      review = await updateDailyReview(id, current => ({ ...current, status:"expired", decision:{ type:"expired", decided_at:now.toISOString() } }))
+      return { status:409, body:{ error:"This recommendation expired when the workout day ended.", review } }
+    }
+    const config = await readConfig()
+    const latest = await getContext(config, { force:true, strict:true })
+    const workouts = scheduledWorkouts(latest, review.local_date)
+    const reviewedIds = new Set(review.workouts.map(item => String(item.workout_id)))
+    if (!workouts.length || workouts.some(workout => workoutHasStarted(workout, now)) || !workouts.some(workout => reviewedIds.has(String(workout.id)))) {
+      return { status:409, body:{ error:"A reviewed workout has started, completed, moved, or been removed. Nothing was revised.", review } }
+    }
+    try {
+      const decision = await refinementProvider(config, review, latest, workouts, instruction)
+      const refined = createDailyReview({
+        athleteId:review.athlete_id,
+        localDate:review.local_date,
+        timeZone:review.time_zone,
+        context:latest,
+        workouts,
+        decision,
+        previous:review,
+        now,
+      })
+      refined.notification = review.notification
+      refined.refinements = [
+        ...(review.refinements || []),
+        { instruction:String(instruction), revision:refined.revision, refined_at:now.toISOString() },
+      ]
+      return { status:200, body:{ review:await saveDailyReview(refined) } }
+    } catch (error) {
+      log(`daily review refinement failed: ${error.message}`)
+      return { status:502, body:{ error:error.message, review } }
     }
   }
 
@@ -302,6 +407,7 @@ export function createDailyReviewService({ readConfig, writeConfig, getContext, 
 
   return {
     runDue,
+    refine,
     approve,
     deny,
     getReview:getDailyReview,

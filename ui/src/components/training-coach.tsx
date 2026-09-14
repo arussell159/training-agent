@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import {
   AlertCircle,
   Bell,
@@ -52,6 +52,46 @@ type CoachMessage = {
   created_at: string
   proposal?: WorkoutProposal
   error?: boolean
+}
+
+function inlineMarkdown(value: string): ReactNode[] {
+  return value.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((part, index) =>
+    part.startsWith("**") && part.endsWith("**")
+      ? <strong key={index}>{part.slice(2, -2)}</strong>
+      : part
+  )
+}
+
+function FormattedCoachText({ content }: { content: string }) {
+  const blocks: ReactNode[] = []
+  let paragraph: string[] = []
+  let bullets: string[] = []
+  const flushParagraph = () => {
+    if (!paragraph.length) return
+    blocks.push(<p key={`p-${blocks.length}`} className="whitespace-pre-wrap">{inlineMarkdown(paragraph.join("\n"))}</p>)
+    paragraph = []
+  }
+  const flushBullets = () => {
+    if (!bullets.length) return
+    blocks.push(<ul key={`ul-${blocks.length}`} className="list-disc space-y-2 pl-5">{bullets.map((item, index) => <li key={index}>{inlineMarkdown(item)}</li>)}</ul>)
+    bullets = []
+  }
+  for (const line of content.split(/\r?\n/)) {
+    const bullet = line.match(/^\s*[-*]\s+(.+)$/)
+    if (bullet) {
+      flushParagraph()
+      bullets.push(bullet[1])
+    } else if (!line.trim()) {
+      flushParagraph()
+      flushBullets()
+    } else {
+      flushBullets()
+      paragraph.push(line.replace(/^#{1,6}\s+/, "**") + (/^#{1,6}\s+/.test(line) ? "**" : ""))
+    }
+  }
+  flushParagraph()
+  flushBullets()
+  return <div className="space-y-3">{blocks}</div>
 }
 
 function messageId() {
@@ -264,97 +304,87 @@ function DailyReviewCard({
   onDeny: () => void
 }) {
   const canResolve = review.changes_proposed && ["pending_approval", "apply_failed"].includes(review.status)
-  const stateLabel = {
-    pending_approval:"Awaiting approval",
-    proceed_as_planned:"No approval needed",
-    applying:"Applying",
-    apply_failed:"Apply failed",
-    approved:"Approved and verified",
-    denied:"Denied — original kept",
-    expired:"Expired — nothing changed",
-    cancelled:"Cancelled",
-  }[review.status]
 
   return (
-    <Card className="border-primary/20 bg-background" size="sm">
-      <CardHeader>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Sparkles className="size-4 text-primary" /> Daily workout review
-          </CardTitle>
-          <Badge variant="outline">{stateLabel}</Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="rounded-xl border bg-muted/35 p-4">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <Bell className="size-3.5" /> Notification preview
-          </div>
-          <p className="mt-2 text-sm font-semibold">Today’s workout review</p>
-          <p className="mt-1 text-sm leading-5 text-muted-foreground">
-            {review.changes_proposed ? review.summary : `Proceed as planned — ${review.reason}`}
-          </p>
-        </div>
+    <div className="space-y-8 py-1 text-[15px] leading-7 sm:text-base">
+      <div className="space-y-2">
+        <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">{review.summary}</h2>
+        <p className="text-muted-foreground">{review.reason}</p>
+      </div>
 
+      <div>
+        <h2 className="text-lg font-semibold tracking-tight">Athlete metrics</h2>
+        <dl className="mt-3 space-y-2 text-muted-foreground">
+          <div><dt className="inline font-semibold text-foreground">Training-load estimates: </dt><dd className="inline">Fitness {review.athlete_metrics?.fitness?.replace(/\s*\(training-load estimate\)$/i, "") || "unavailable"}; fatigue {review.athlete_metrics?.fatigue?.replace(/\s*\(training-load estimate\)$/i, "") || "unavailable"}; form {review.athlete_metrics?.form?.replace(/\s*\(training-load estimate\)$/i, "") || "unavailable"}.</dd></div>
+          <div><dt className="inline font-semibold text-foreground">Recovery: </dt><dd className="inline">{review.athlete_metrics?.recovery || "Unavailable"}</dd></div>
+          <div><dt className="inline font-semibold text-foreground">HRV: </dt><dd className="inline">{review.athlete_metrics?.hrv || "Unavailable"}</dd></div>
+          <div><dt className="inline font-semibold text-foreground">Resting heart rate: </dt><dd className="inline">{review.athlete_metrics?.resting_heart_rate || "Unavailable"}</dd></div>
+        </dl>
+      </div>
+
+      {review.relevant_observations.length > 0 && (
         <div>
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Detailed review</p>
-          <p className="font-semibold">{review.summary}</p>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">{review.reason}</p>
+          <h2 className="text-lg font-semibold tracking-tight">Relevant observations</h2>
+          <ul className="mt-3 list-disc space-y-3 pl-5">
+            {review.relevant_observations.map((observation, index) => <li key={index}>{observation}</li>)}
+          </ul>
         </div>
+      )}
 
-        {review.relevant_observations.length > 0 && (
-          <div>
-            <p className="text-xs font-medium text-muted-foreground">Relevant observations</p>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6">
-              {review.relevant_observations.map((observation, index) => <li key={index}>{observation}</li>)}
-            </ul>
-          </div>
-        )}
-
-        {review.workouts.map((workout) => (
-          <section key={workout.workout_id} className="space-y-3 border-t pt-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="font-medium">{workout.title}</h3>
-              <Badge variant="secondary">{workout.priority} priority</Badge>
-            </div>
-            <div className="grid gap-3 text-sm sm:grid-cols-2">
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Original workout</p>
-                <p className="mt-1 leading-6">{workout.original.duration_minutes} min · {workout.original.description || workout.original.coach_comments || "Full structure in TrainingPeaks."}</p>
+      <div className="space-y-9">
+        {review.workouts.map((workout) => {
+          const targetRanges = workout.execution_guidance.target_ranges?.length
+            ? workout.execution_guidance.target_ranges
+            : workout.execution_guidance.target_range
+              ? [workout.execution_guidance.target_range]
+              : []
+          return (
+            <section key={workout.workout_id} className="space-y-5 [overflow-wrap:anywhere]">
+              <h2 className="text-lg font-semibold leading-7 tracking-tight sm:text-xl">{workout.title}</h2>
+              <div className="space-y-4">
+                <div><h3 className="font-semibold">Proposed change</h3><p className="mt-1 text-muted-foreground">{workout.proposed_change || "Follow the session as planned."}</p></div>
+                {workout.action !== "follow_as_written" && <div><h3 className="font-semibold">Why</h3><p className="mt-1 text-muted-foreground">{workout.reason}</p></div>}
+                <div><h3 className="font-semibold">How to approach it</h3><p className="mt-1 text-muted-foreground">{workout.target_flexibility}</p></div>
+                {targetRanges.length > 0 && (
+                  <div>
+                    <h3 className="font-semibold">Pace and rest guidance</h3>
+                    <ul className="mt-3 list-disc space-y-3 pl-5 text-muted-foreground marker:text-foreground">
+                      {targetRanges.map((range, index) => {
+                        const cleanedRange = range.replace(/,\s*\((build|steady|strong)\),/i, ",")
+                        const parts = cleanedRange.match(/^(\d+\s*[x×]\s*\d+\s*(?:yds?|yards?|m|meters?|km|min|minutes?|sec|seconds?)?)\s*(?:[,—–-]\s*)?(.*)$/i)
+                        const set = parts?.[1] || cleanedRange
+                        const guidance = parts?.[2]
+                        return <li key={index}><strong className="text-foreground">{set}</strong>{guidance ? <span className="mt-0.5 block">— {guidance}</span> : null}</li>
+                      })}
+                    </ul>
+                  </div>
+                )}
               </div>
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Proposed change</p>
-                <p className="mt-1 leading-6">{workout.proposed_change || "Follow the session as written."}</p>
-              </div>
-            </div>
-            <div className="text-sm leading-6">
-              <p><span className="font-medium">Why:</span> {workout.reason}</p>
-              <p><span className="font-medium">Target flexibility:</span> {workout.target_flexibility}</p>
-              <p><span className="font-medium">Acceptable range:</span> {workout.execution_guidance.target_range}</p>
-              <p><span className="font-medium">Additional recovery:</span> {workout.execution_guidance.additional_recovery_limit}</p>
-              <p><span className="font-medium">Stop the main set:</span> {workout.execution_guidance.stop_main_set_when}</p>
-              <p><span className="font-medium">Fueling:</span> {workout.execution_guidance.fueling_note}</p>
-            </div>
-          </section>
-        ))}
+            </section>
+          )
+        })}
+      </div>
 
-        {canResolve && (
-          <div className="flex gap-2 border-t pt-4">
-            <Button type="button" variant="outline" className="flex-1" disabled={busy} onClick={onDeny}>
-              <X className="size-4" /> Deny
-            </Button>
-            <Button type="button" className="flex-1" disabled={busy} onClick={onApprove}>
-              {busy ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />} Approve
-            </Button>
-          </div>
-        )}
-        {(message || review.apply_error) && (
-          <p role="status" className={`text-sm ${review.status === "apply_failed" ? "text-destructive" : "text-muted-foreground"}`}>
-            {message || review.apply_error}
-          </p>
-        )}
-      </CardContent>
-    </Card>
+      {canResolve && (
+        <div className="flex gap-2 pt-2">
+          <Button type="button" variant="outline" className="flex-1" disabled={busy} onClick={onDeny}>
+            <X className="size-4" /> Deny
+          </Button>
+          <Button type="button" className="flex-1" disabled={busy} onClick={onApprove}>
+            {busy ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />} Approve
+          </Button>
+        </div>
+      )}
+      <p className="flex flex-wrap items-center gap-x-2 text-xs leading-5 text-muted-foreground">
+        <span className="flex items-center gap-1.5 font-semibold"><Bell className="size-3.5" /> Notification</span>
+        <span>Daily workout review — {review.notification_summary || (review.changes_proposed ? "Workout adjustment suggested." : "Proceed as planned.")}</span>
+      </p>
+      {(message || review.apply_error) && (
+        <p role="status" className={`text-sm ${review.status === "apply_failed" ? "text-destructive" : "text-muted-foreground"}`}>
+          {message || review.apply_error}
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -384,7 +414,9 @@ export function TrainingCoach({
   const [saveError, setSaveError] = useState<string | null>(null)
   const lastSavedMessages = useRef("")
   const shouldPersistMessages = useRef(false)
+  const reviewViewportRef = useRef<HTMLDivElement>(null)
   const persistentConversationId = conversationId || dailyReview?.conversation_id || localConversationId
+  const dailyReviewRevision = dailyReview?.revision
 
   useEffect(() => {
     setResolvedTitle(conversationTitle)
@@ -404,6 +436,20 @@ export function TrainingCoach({
       .then(setDailyReview)
       .catch(() => setReviewMessage("This daily review could not be loaded. It may no longer be available."))
   }, [reviewId])
+
+  useEffect(() => {
+    if (!reviewId || dailyReviewRevision == null) return
+    const startedAt = performance.now()
+    let frame = 0
+    const scrollToStart = () => {
+      if (reviewViewportRef.current) reviewViewportRef.current.scrollTop = 0
+      if (performance.now() - startedAt < 1000) frame = window.requestAnimationFrame(scrollToStart)
+    }
+    frame = window.requestAnimationFrame(scrollToStart)
+    return () => {
+      window.cancelAnimationFrame(frame)
+    }
+  }, [reviewId, dailyReviewRevision])
 
   useEffect(() => {
     if (!conversationId && !(reviewId && dailyReview?.conversation_id)) {
@@ -644,12 +690,13 @@ export function TrainingCoach({
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-background">
       <MessageScrollerProvider
-        autoScroll
-        defaultScrollPosition="last-anchor"
+        autoScroll={!reviewId || messages.length > 0 || sending}
+        defaultScrollPosition={reviewId ? "start" : "last-anchor"}
         scrollPreviousItemPeek={56}
       >
         <MessageScroller className="min-h-0 flex-1">
           <MessageScrollerViewport
+            ref={reviewViewportRef}
             aria-label="Coach conversation"
             className="[scrollbar-gutter:auto] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
@@ -670,8 +717,8 @@ export function TrainingCoach({
                 </MessageScrollerItem>
               )}
               {dailyReview && (
-                <MessageScrollerItem messageId={dailyReview.id} scrollAnchor>
-                  <div className="mr-auto w-full max-w-[96%]">
+                <MessageScrollerItem messageId={dailyReview.id}>
+                  <div className="mr-auto w-full max-w-none sm:max-w-2xl">
                     <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
                       <Sparkles className="size-3.5 text-primary" /> AR Performance · {dailyReview.local_date}
                     </div>
@@ -703,15 +750,15 @@ export function TrainingCoach({
                         <Sparkles className="size-3.5 text-primary" /> AR Performance
                       </div>
                     )}
-                    <p
+                    <div
                       aria-live={message.role === "assistant" ? "polite" : undefined}
-                      className={`whitespace-pre-wrap text-sm leading-6 ${message.error ? "text-destructive" : ""}`}
+                      className={`text-sm leading-6 ${message.error ? "text-destructive" : ""}`}
                     >
-                      {message.content}
+                      {message.role === "assistant" ? <FormattedCoachText content={message.content} /> : <p className="whitespace-pre-wrap">{message.content}</p>}
                       {message.id === streamingMessageId && (
                         <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-current align-[-2px]" />
                       )}
-                    </p>
+                    </div>
                     {message.proposal && (
                       <ProposalCard
                         proposal={message.proposal}

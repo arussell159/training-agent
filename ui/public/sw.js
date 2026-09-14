@@ -3,9 +3,9 @@ self.addEventListener("push", (event) => {
   try {
     data = event.data ? event.data.json() : {}
   } catch {
-    data = { title:"Today’s workout review", body:event.data?.text() || "Your coaching review is ready." }
+    data = { title:"Daily workout review", body:event.data?.text() || "Your coaching review is ready." }
   }
-  event.waitUntil(self.registration.showNotification(data.title || "Today’s workout review", {
+  event.waitUntil(self.registration.showNotification(data.title || "Daily workout review", {
     body:data.body || "Your coaching review is ready.",
     tag:data.tag || "daily-workout-review",
     renotify:false,
