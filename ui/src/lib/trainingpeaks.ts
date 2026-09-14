@@ -8,5 +8,9 @@ const week:Workout[]=[
 {id:"fri",day:"FRI",date:"Sep 18",sport:"Recovery",title:"Rest day",duration:"—",goal:"Absorb the week and arrive fresh for Saturday.",details:"Walk and mobility only.",status:"upcoming",risk:"low",load:0},
 {id:"sat",day:"SAT",date:"Sep 19",sport:"Bike",title:"Race rehearsal brick",duration:"1h 40m",goal:"Confirm pacing and fueling; finish with more available.",details:"Bike 75 min with 2 × 15 min race power · Run 20 min easy",status:"upcoming",risk:"medium",load:86},
 {id:"sun",day:"SUN",date:"Sep 20",sport:"Run",title:"Easy aerobic",duration:"50 min",goal:"Keep this easy and finish the week feeling better.",details:"50 min Z2. No fast finish.",status:"upcoming",risk:"low",load:44}]
-class MockAdapter implements TrainingPeaksAdapter { async getWeek(){return structuredClone(week)} async updateWorkout(id:string,change:string){await new Promise(r=>setTimeout(r,650));const w=week.find(x=>x.id===id);if(!w)throw new Error("Workout not found");w.changed=true;w.recommendation=change} async connectionState(){return "mock" as const} }
-export const trainingPeaks:TrainingPeaksAdapter=new MockAdapter()
+class ApiAdapter implements TrainingPeaksAdapter {
+  async getWeek(){try{const response=await fetch("/api/training-context");if(response.ok){const data=await response.json();return data.planned as Workout[]}}catch{}return structuredClone(week)}
+  async updateWorkout(id:string,change:string){const response=await fetch(`/api/workouts/${encodeURIComponent(id)}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({change})});if(!response.ok)throw new Error("Workout update failed")}
+  async connectionState(){try{const response=await fetch("/api/training-context");if(response.ok){const data=await response.json();return data.source==="trainingpeaks"?"connected" as const:"mock" as const}}catch{}return "expired" as const}
+}
+export const trainingPeaks:TrainingPeaksAdapter=new ApiAdapter()

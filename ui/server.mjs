@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createContextStore } from './lib/supabase-context.mjs';
+import { addLocalComment, readLocalContext, updateLocalWorkout } from './lib/local-context.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,7 +55,8 @@ async function runCoach(message) {
   if (!config.OPENAI_API_KEY) throw new Error('OpenAI is not configured');
   const coach = JSON.parse(await fs.readFile(coachingConfigPath, 'utf8'));
   const contextStore = createContextStore(config, updateLogs);
-  let context = { coaching: coach, workouts: [], comments: [] };
+  const local = await readLocalContext();
+  let context = { coaching: coach, workouts: local.history, planned: local.planned, comments: local.comments, athlete: local.athlete, metrics: local.metrics };
   if (contextStore.ready) {
     try { context = { ...context, ...await contextStore.getContext() }; } catch (error) { updateLogs(`context read failed: ${error.message}`); }
   }
@@ -186,6 +188,32 @@ const server = http.createServer(async (req, res) => {
       const config = await readConfig();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ready:Boolean(config.SUPABASE_URL && config.SUPABASE_SECRET_KEY), retentionDays:90, needsProjectUrl:Boolean(config.SUPABASE_SECRET_KEY && !config.SUPABASE_URL) }));
+      return;
+    }
+
+    if (req.url === '/api/training-context' && req.method === 'GET') {
+      const config = await readConfig();
+      const local = await readLocalContext();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ...local, source:config.TP_AUTH_COOKIE ? 'trainingpeaks' : 'local-live', retention_days:90 }));
+      return;
+    }
+
+    if (req.url?.startsWith('/api/workouts/') && req.method === 'PATCH') {
+      const id = decodeURIComponent(req.url.split('/').pop());
+      const payload = await readBody(req);
+      const workout = await updateLocalWorkout(id, String(payload.change || 'Approved coaching adjustment'));
+      updateLogs(`local workout updated: ${id}`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(workout));
+      return;
+    }
+
+    if (req.url === '/api/comments' && req.method === 'POST') {
+      const payload = await readBody(req);
+      const comment = await addLocalComment(String(payload.workoutId || ''), String(payload.body || ''));
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(comment));
       return;
     }
 

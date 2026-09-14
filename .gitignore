@@ -13,3 +13,4 @@ build/
 *.env.test
 *.env.production
 ui/config.json
+ui/local-data.json
