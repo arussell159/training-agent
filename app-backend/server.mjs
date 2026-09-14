@@ -45,6 +45,7 @@ const serverState = {
 };
 
 let trainingPeaksMemoryCache = null;
+let trainingPeaksRefreshPromise = null;
 
 const CONFIG_ENV_KEYS = [
   'OPENAI_API_KEY',
@@ -416,6 +417,18 @@ function scheduledStart(workout, workoutDate, timeZone) {
 async function fetchTrainingPeaksContext(config, { force = false, timeZone = 'America/Chicago' } = {}) {
   if (!config.TP_AUTH_COOKIE) throw new Error('TrainingPeaks credential is missing');
   if (!force && trainingPeaksMemoryCache && Date.now() - trainingPeaksMemoryCache.savedAt < 5 * 60_000) return trainingPeaksMemoryCache.data;
+  if (!force) {
+    const disk = await readTrainingPeaksCache();
+    if (disk?.history && disk?.planned) {
+      trainingPeaksMemoryCache = { savedAt:Date.now(), data:{ ...disk, source:'trainingpeaks-cache' } };
+      if (!trainingPeaksRefreshPromise) {
+        trainingPeaksRefreshPromise = fetchTrainingPeaksContext(config, { force:true, timeZone })
+          .catch(error => updateLogs(`background TrainingPeaks refresh failed: ${error.message}`))
+          .finally(() => { trainingPeaksRefreshPromise = null; });
+      }
+      return trainingPeaksMemoryCache.data;
+    }
+  }
 
   const tokenResponse = await fetch('https://tpapi.trainingpeaks.com/users/v3/token', {
     headers: { Cookie:`Production_tpAuth=${config.TP_AUTH_COOKIE}` },
@@ -522,6 +535,23 @@ async function fetchTrainingPeaksContext(config, { force = false, timeZone = 'Am
     updateLogs(`TrainingPeaks disk cache write skipped: ${error.message}`);
   }
   return context;
+}
+
+function scopedTrainingContext(context, scope, today = new Date()) {
+  if (scope !== 'week') return context;
+  const todayDate = isoDate(today);
+  const monday = shiftDate(today, -((today.getUTCDay() + 6) % 7));
+  const historyStart = isoDate(shiftDate(monday, -7));
+  const plannedEnd = isoDate(shiftDate(monday, 13));
+  return {
+    ...context,
+    history:(context.history || []).filter(item => item.workout_date >= historyStart && item.workout_date <= todayDate),
+    workouts:(context.workouts || context.history || []).filter(item => item.workout_date >= historyStart && item.workout_date <= todayDate),
+    planned:(context.planned || []).filter(item => item.workout_date >= historyStart && item.workout_date <= plannedEnd),
+    performance:(context.performance || []).slice(-14),
+    context_scope:'week',
+    full_history_available:true,
+  };
 }
 
 function sameField(actual, expected) {
@@ -1051,6 +1081,7 @@ export async function handleRequest(req, res) {
       });
       const requestUrl = new URL(req.url, 'http://localhost');
       const forceRefresh = requestUrl.searchParams.get('refresh') === '1';
+      const contextScope = requestUrl.searchParams.get('scope') === 'full' ? 'full' : 'week';
       if (config.TP_AUTH_COOKIE) {
         try {
           const live = await fetchTrainingPeaksContext(config, { force:forceRefresh, timeZone });
@@ -1068,24 +1099,24 @@ export async function handleRequest(req, res) {
             updateLogs(`context write failed: ${error.message}`);
           }
           res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
-          res.end(JSON.stringify(liveContext));
+          res.end(JSON.stringify(scopedTrainingContext(liveContext, contextScope)));
           return;
         } catch (error) {
           updateLogs(`TrainingPeaks sync failed: ${error.message}`);
           try {
             const cached = JSON.parse(await fs.readFile(trainingPeaksCachePath, 'utf8'));
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
-            res.end(JSON.stringify({ ...local, ...cached, athlete:athleteWithRace(cached.athlete), comments:local.comments, library:local.library, source:'trainingpeaks-cache', sync_error:error.message }));
+            res.end(JSON.stringify(scopedTrainingContext({ ...local, ...cached, athlete:athleteWithRace(cached.athlete), comments:local.comments, library:local.library, source:'trainingpeaks-cache', sync_error:error.message }, contextScope)));
             return;
           } catch {
             const remote = await loadSupabaseTrainingSnapshot(config, local.athlete?.id);
             if (remote) {
               res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
-              res.end(JSON.stringify({ ...local, ...remote, athlete:athleteWithRace(remote.athlete), sync_error:error.message }));
+              res.end(JSON.stringify(scopedTrainingContext({ ...local, ...remote, athlete:athleteWithRace(remote.athlete), sync_error:error.message }, contextScope)));
               return;
             }
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
-            res.end(JSON.stringify({ ...local, athlete:athleteWithRace(local.athlete), source:'local-fallback', sync_error:error.message, retention_days:90 }));
+            res.end(JSON.stringify(scopedTrainingContext({ ...local, athlete:athleteWithRace(local.athlete), source:'local-fallback', sync_error:error.message, retention_days:90 }, contextScope)));
             return;
           }
         }
@@ -1093,11 +1124,11 @@ export async function handleRequest(req, res) {
       const remote = await loadSupabaseTrainingSnapshot(config, local.athlete?.id);
       if (remote) {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
-        res.end(JSON.stringify({ ...local, ...remote, athlete:athleteWithRace(remote.athlete) }));
+        res.end(JSON.stringify(scopedTrainingContext({ ...local, ...remote, athlete:athleteWithRace(remote.athlete) }, contextScope)));
         return;
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ...local, athlete:athleteWithRace(local.athlete), source:'local-live', retention_days:90 }));
+      res.end(JSON.stringify(scopedTrainingContext({ ...local, athlete:athleteWithRace(local.athlete), source:'local-live', retention_days:90 }, contextScope)));
       return;
     }
 

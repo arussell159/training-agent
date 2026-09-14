@@ -7,7 +7,7 @@
   "scripts": {
     "build": "npm run build:mcp && npm run build:ui && node -e \"require('fs').cpSync('ui/dist', 'dist', { recursive: true })\"",
     "build:mcp": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\" && tsc",
-    "build:ui": "npm ci --prefix ui && npm run build --prefix ui",
+    "build:ui": "npm run ui:build",
     "start": "node app-backend/server.mjs",
     "dev": "ts-node --esm src/index.ts",
     "watch": "tsc --watch",
@@ -19,7 +19,7 @@
     "inspector": "npx @modelcontextprotocol/inspector node dist/index.js",
     "app:server": "node app-backend/server.mjs",
     "ui:dev": "npm --prefix ui run dev",
-    "ui:build": "npm --prefix ui run build"
+    "ui:build": "npm ci --prefix ui --include=dev && npm --prefix ui run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react"
+import { lazy, Suspense, useEffect, useState } from "react"
 
 import { ChartAreaInteractive } from "@/components/chart-area-interactive"
 import { SectionCards } from "@/components/section-cards"
-import { WorkoutDialog } from "@/components/training-calendar"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
   fallbackTrainingContext,
+  loadFullTrainingContext,
   loadTrainingContext,
   type PlannedWorkout,
 } from "@/lib/training-context"
+
+const WorkoutDialog = lazy(() => import("@/components/training-calendar").then((module) => ({ default:module.WorkoutDialog })))
 
 export function TrainingDashboard({
   onWorkoutOpen,
@@ -41,9 +43,23 @@ export function TrainingDashboard({
   }, [])
 
   useEffect(() => {
+    let active = true
+    const hydrateHistory = () => {
+      void loadFullTrainingContext().then((nextContext) => {
+        if (active) setContext(nextContext)
+      })
+    }
+    const timer = window.setTimeout(hydrateHistory, 500)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!refreshRequest) return
     let active = true
-    loadTrainingContext(true).then((nextContext) => {
+    loadFullTrainingContext(true).then((nextContext) => {
       if (active) setContext(nextContext)
     }).finally(() => {
       if (active) onRefreshComplete?.()
@@ -60,10 +76,14 @@ export function TrainingDashboard({
         onWorkoutOpen={openWorkout}
       />
       <ChartAreaInteractive context={context} />
-      <WorkoutDialog
-        workout={selectedWorkout}
-        onOpenChange={(open) => !open && setSelectedWorkout(null)}
-      />
+      {selectedWorkout ? (
+        <Suspense fallback={null}>
+          <WorkoutDialog
+            workout={selectedWorkout}
+            onOpenChange={(open) => !open && setSelectedWorkout(null)}
+          />
+        </Suspense>
+      ) : null}
     </div>
   )
 }

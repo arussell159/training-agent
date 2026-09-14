@@ -188,6 +188,8 @@ export interface TrainingContext {
   source?: string
   synced_at?: string
   sync_error?: string | null
+  context_scope?: "week" | "full"
+  full_history_available?: boolean
 }
 
 const anchor = new Date("2026-09-14T12:00:00Z")
@@ -322,9 +324,22 @@ export const fallbackTrainingContext: TrainingContext = {
   source: "local-preview",
 }
 
-export async function loadTrainingContext(forceRefresh = false) {
+const contextCache = new Map<"week" | "full", TrainingContext>()
+const contextRequests = new Map<"week" | "full", Promise<TrainingContext>>()
+
+export async function loadTrainingContext(forceRefresh = false, scope: "week" | "full" = "week") {
+  if (forceRefresh) contextCache.clear()
+  if (!forceRefresh) {
+    const cached = contextCache.get(scope)
+    if (cached) return cached
+    const pending = contextRequests.get(scope)
+    if (pending) return pending
+  }
+  const request = (async () => {
   try {
-    const response = await fetch(`/api/training-context${forceRefresh ? "?refresh=1" : ""}`, {
+    const query = new URLSearchParams({ scope })
+    if (forceRefresh) query.set("refresh", "1")
+    const response = await fetch(`/api/training-context?${query}`, {
       headers: { Accept: "application/json" },
     })
     if (!response.ok) throw new Error(`Training context ${response.status}`)
@@ -332,10 +347,23 @@ export async function loadTrainingContext(forceRefresh = false) {
     if (context.sync_error && /authentication|401|403|expired|credential/i.test(context.sync_error)) {
       window.dispatchEvent(new CustomEvent("trainingpeaks-auth-expired"))
     }
+    contextCache.set(scope, context)
+    if (scope === "full") contextCache.delete("week")
     return context
   } catch {
     return fallbackTrainingContext
   }
+  })()
+  contextRequests.set(scope, request)
+  try {
+    return await request
+  } finally {
+    if (contextRequests.get(scope) === request) contextRequests.delete(scope)
+  }
+}
+
+export function loadFullTrainingContext(forceRefresh = false) {
+  return loadTrainingContext(forceRefresh, "full")
 }
 
 export async function loadDailyReview(id: string) {

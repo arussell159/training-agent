@@ -33,6 +33,7 @@ import {
   durationMinutes,
   completedMinutes,
   fallbackTrainingContext,
+  loadFullTrainingContext,
   loadTrainingContext,
   type PlannedWorkout,
 } from "@/lib/training-context"
@@ -195,6 +196,23 @@ export function TrainingCalendar({
     loadTrainingContext().then((next) => active && setContext(next))
     return () => {
       active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    let started = false
+    const hydrateHistory = () => {
+      if (started) return
+      started = true
+      void loadFullTrainingContext().then((next) => active && setContext(next))
+    }
+    window.addEventListener("scroll", hydrateHistory, { passive: true, once: true })
+    const timer = window.setTimeout(hydrateHistory, 1200)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+      window.removeEventListener("scroll", hydrateHistory)
     }
   }, [])
 

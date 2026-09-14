@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import {
   CalendarDays,
   History,
@@ -24,7 +24,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ConversationHistory } from "@/components/conversation-history"
-import { SettingsWorkspace } from "@/components/settings-workspace"
 import {
   Sheet,
   SheetContent,
@@ -46,16 +45,22 @@ import {
   SidebarProvider,
   SidebarSeparator,
 } from "@/components/ui/sidebar"
-import { TrainingCalendar } from "@/components/training-calendar"
-import { TrainingCoach } from "@/components/training-coach"
-import { TrainingDashboard } from "@/components/training-dashboard"
-import { TrainingLibrary } from "@/components/training-library"
-import { WorkoutDetailPage } from "@/components/workout-detail-page"
 import {
   loadCoachConversations,
   type CoachConversationSummary,
   type PlannedWorkout,
 } from "@/lib/training-context"
+
+const SettingsWorkspace = lazy(() => import("@/components/settings-workspace").then((module) => ({ default:module.SettingsWorkspace })))
+const TrainingCalendar = lazy(() => import("@/components/training-calendar").then((module) => ({ default:module.TrainingCalendar })))
+const TrainingCoach = lazy(() => import("@/components/training-coach").then((module) => ({ default:module.TrainingCoach })))
+const TrainingDashboard = lazy(() => import("@/components/training-dashboard").then((module) => ({ default:module.TrainingDashboard })))
+const TrainingLibrary = lazy(() => import("@/components/training-library").then((module) => ({ default:module.TrainingLibrary })))
+const WorkoutDetailPage = lazy(() => import("@/components/workout-detail-page").then((module) => ({ default:module.WorkoutDetailPage })))
+
+function RouteFallback() {
+  return <div className="m-auto size-8 animate-pulse rounded-full bg-muted" aria-label="Loading view" />
+}
 
 const navigation = [
   { label: "Home", icon: Home },
@@ -387,29 +392,31 @@ function AppWorkspace() {
                   : "pb-20 md:pb-0"
           }`}
         >
-          {selectedWorkout ? (
-            <WorkoutDetailPage workout={selectedWorkout} onBack={closeWorkout} />
-          ) : activeItem === "Home" ? (
-            <TrainingDashboard
-              onWorkoutOpen={openWorkout}
-              refreshRequest={refreshRequest}
-              onRefreshComplete={handleRefreshComplete}
-            />
-          ) : activeItem === "Calendar" ? (
-            <TrainingCalendar onWorkoutOpen={openWorkout} />
-          ) : isCoachConversation ? (
-            <TrainingCoach
-              key={reviewId || conversationId || "new-conversation"}
-              conversationTitle={displayedConversationTitle}
-              conversationId={conversationId}
-              reviewId={reviewId}
-              onConversationSaved={handleConversationSaved}
-            />
-          ) : activeItem === "Settings" ? (
-            <SettingsWorkspace onClose={() => selectItem("Home")} />
-          ) : activeItem === "Library" ? (
-            <TrainingLibrary onWorkoutOpen={openWorkout} />
-          ) : null}
+          <Suspense fallback={<RouteFallback />}>
+            {selectedWorkout ? (
+              <WorkoutDetailPage workout={selectedWorkout} onBack={closeWorkout} />
+            ) : activeItem === "Home" ? (
+              <TrainingDashboard
+                onWorkoutOpen={openWorkout}
+                refreshRequest={refreshRequest}
+                onRefreshComplete={handleRefreshComplete}
+              />
+            ) : activeItem === "Calendar" ? (
+              <TrainingCalendar onWorkoutOpen={openWorkout} />
+            ) : isCoachConversation ? (
+              <TrainingCoach
+                key={reviewId || conversationId || "new-conversation"}
+                conversationTitle={displayedConversationTitle}
+                conversationId={conversationId}
+                reviewId={reviewId}
+                onConversationSaved={handleConversationSaved}
+              />
+            ) : activeItem === "Settings" ? (
+              <SettingsWorkspace onClose={() => selectItem("Home")} />
+            ) : activeItem === "Library" ? (
+              <TrainingLibrary onWorkoutOpen={openWorkout} />
+            ) : null}
+          </Suspense>
         </main>
 
         {!selectedWorkout && activeItem !== "Settings" && (
