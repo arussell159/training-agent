@@ -33,7 +33,8 @@ import {
   type TrainingContext,
 } from "@/lib/training-context"
 
-type ProposalStatus = "pending" | "applying" | "approved" | "rejected" | "failed"
+type ProposalStatus =
+  "pending" | "applying" | "approved" | "rejected" | "failed"
 
 type WorkoutProposal = {
   targetId: string
@@ -55,11 +56,18 @@ type CoachMessage = {
 }
 
 function inlineMarkdown(value: string): ReactNode[] {
-  return value.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((part, index) =>
-    part.startsWith("**") && part.endsWith("**")
-      ? <strong key={index}>{part.slice(2, -2)}</strong>
-      : part
-  )
+  return value
+    .split(/(\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^)]+\))/g)
+    .filter(Boolean)
+    .map((part, index) => {
+      const link = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/)
+      if (link) return <a key={index} href={link[2]} target="_blank" rel="noreferrer" className="font-medium text-primary underline underline-offset-2">{link[1]}</a>
+      return part.startsWith("**") && part.endsWith("**") ? (
+        <strong key={index}>{part.slice(2, -2)}</strong>
+      ) : (
+        part
+      )
+    })
 }
 
 function FormattedCoachText({ content }: { content: string }) {
@@ -68,12 +76,22 @@ function FormattedCoachText({ content }: { content: string }) {
   let bullets: string[] = []
   const flushParagraph = () => {
     if (!paragraph.length) return
-    blocks.push(<p key={`p-${blocks.length}`} className="whitespace-pre-wrap">{inlineMarkdown(paragraph.join("\n"))}</p>)
+    blocks.push(
+      <p key={`p-${blocks.length}`} className="whitespace-pre-wrap">
+        {inlineMarkdown(paragraph.join("\n"))}
+      </p>
+    )
     paragraph = []
   }
   const flushBullets = () => {
     if (!bullets.length) return
-    blocks.push(<ul key={`ul-${blocks.length}`} className="list-disc space-y-2 pl-5">{bullets.map((item, index) => <li key={index}>{inlineMarkdown(item)}</li>)}</ul>)
+    blocks.push(
+      <ul key={`ul-${blocks.length}`} className="list-disc space-y-2 pl-5">
+        {bullets.map((item, index) => (
+          <li key={index}>{inlineMarkdown(item)}</li>
+        ))}
+      </ul>
+    )
     bullets = []
   }
   for (const line of content.split(/\r?\n/)) {
@@ -86,7 +104,9 @@ function FormattedCoachText({ content }: { content: string }) {
       flushBullets()
     } else {
       flushBullets()
-      paragraph.push(line.replace(/^#{1,6}\s+/, "**") + (/^#{1,6}\s+/.test(line) ? "**" : ""))
+      paragraph.push(
+        line.replace(/^#{1,6}\s+/, "**") + (/^#{1,6}\s+/.test(line) ? "**" : "")
+      )
     }
   }
   flushParagraph()
@@ -119,7 +139,9 @@ function storageKey(conversationTitle: string, reviewId?: string | null) {
 
 function loadMessages(conversationTitle: string, reviewId?: string | null) {
   try {
-    const saved = JSON.parse(localStorage.getItem(storageKey(conversationTitle, reviewId)) ?? "null")
+    const saved = JSON.parse(
+      localStorage.getItem(storageKey(conversationTitle, reviewId)) ?? "null"
+    )
     if (Array.isArray(saved) && saved.length) return saved as CoachMessage[]
   } catch {
     // Start a clean local conversation if saved data is invalid.
@@ -137,7 +159,9 @@ function selectTargetWorkout(context: TrainingContext, prompt: string) {
   const normalized = prompt.toLowerCase()
   const candidates = [...context.planned]
     .filter((workout) => workout.status !== "completed")
-    .sort((a, b) => String(a.workout_date).localeCompare(String(b.workout_date)))
+    .sort((a, b) =>
+      String(a.workout_date).localeCompare(String(b.workout_date))
+    )
   if (!candidates.length) return undefined
 
   const today = context.planned.find((workout) => workout.status === "today")
@@ -162,13 +186,19 @@ function selectTargetWorkout(context: TrainingContext, prompt: string) {
     (sport) => normalized.includes(sport)
   )
   const sportMatch = requestedSport
-    ? candidates.find((workout) => workout.sport.toLowerCase().includes(requestedSport))
+    ? candidates.find((workout) =>
+        workout.sport.toLowerCase().includes(requestedSport)
+      )
     : undefined
   if (sportMatch) return sportMatch
 
   if (normalized.includes("tomorrow") && today?.workout_date) {
     const todayDate = today.workout_date
-    return candidates.find((workout) => Boolean(workout.workout_date && workout.workout_date > todayDate)) ?? candidates[0]
+    return (
+      candidates.find((workout) =>
+        Boolean(workout.workout_date && workout.workout_date > todayDate)
+      ) ?? candidates[0]
+    )
   }
   return today ?? candidates[0]
 }
@@ -185,9 +215,41 @@ function isWorkoutChangeRequest(prompt: string, response: string) {
   return asksForChange && proposesChange
 }
 
+function isDailyReviewRefinementRequest(prompt: string) {
+  const value = prompt.trim()
+  return (
+    /^(?:please\s+)?(?:only\s+)?(?:allow|change|keep|leave|set|make|update|reduce|increase|remove|restore|shorten|swap|revise)\b/i.test(
+      value
+    ) ||
+    /\b(?:leave|keep)\s+(?:all|the)\s+other\b/i.test(value) ||
+    /\binstead\b/i.test(value)
+  )
+}
+
+function normalizeRecoveryWording(value: string) {
+  const allowance = value.match(
+    /(?:add no more than|allow up to\s*\+?)\s*(\d+)\s*(?:seconds?|secs?|sec)\s*(?:of\s*)?(?:recovery|rest)\b/i
+  )
+  if (!allowance) return value
+  const seconds = Number(allowance[1])
+  const base = value
+    .replace(
+      /\s*\(\s*allow up to\s*\+?\s*\d+\s*(?:seconds?|secs?|sec)\s*(?:recovery|rest)\s*\)/i,
+      ""
+    )
+    .replace(
+      /;\s*maintain the target and\s*(?:add no more than|allow up to\s*\+?)\s*\d+\s*(?:seconds?|secs?|sec)\s*(?:of\s*)?(?:recovery|rest)?(?:\s*if needed)?\s*[.;]?$/i,
+      ""
+    )
+    .replace(/[.;\s]+$/, "")
+  return `${base}; maintain the target and increase rest by no more than ${seconds} seconds if needed.`
+}
+
 function proposalRisk(response: string): WorkoutProposal["risk"] {
-  if (/\b(max|all-out|very high risk|race simulation)\b/i.test(response)) return "High"
-  if (/\b(threshold|vo2|hard|longer|increase|medium risk)\b/i.test(response)) return "Medium"
+  if (/\b(max|all-out|very high risk|race simulation)\b/i.test(response))
+    return "High"
+  if (/\b(threshold|vo2|hard|longer|increase|medium risk)\b/i.test(response))
+    return "Medium"
   return "Low"
 }
 
@@ -216,7 +278,8 @@ function ProposalCard({
   onApprove: () => void
   onReject: () => void
 }) {
-  const resolved = proposal.status === "approved" || proposal.status === "rejected"
+  const resolved =
+    proposal.status === "approved" || proposal.status === "rejected"
 
   return (
     <Card className="mt-3 border-primary/20 bg-background" size="sm">
@@ -230,12 +293,18 @@ function ProposalCard({
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
-          <p className="text-xs font-medium text-muted-foreground">Current plan</p>
+          <p className="text-xs font-medium text-muted-foreground">
+            Current plan
+          </p>
           <p className="mt-1 text-sm">{proposal.current}</p>
         </div>
         <div>
-          <p className="text-xs font-medium text-muted-foreground">Proposed change</p>
-          <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{proposal.change}</p>
+          <p className="text-xs font-medium text-muted-foreground">
+            Proposed change
+          </p>
+          <p className="mt-1 text-sm leading-6 whitespace-pre-wrap">
+            {proposal.change}
+          </p>
         </div>
         <div>
           <p className="text-xs font-medium text-muted-foreground">Reason</p>
@@ -282,7 +351,8 @@ function ProposalCard({
 
         {proposal.status === "failed" && (
           <p className="flex items-center gap-2 text-xs text-destructive">
-            <AlertCircle className="size-3.5" /> Could not save the adjustment. Try again.
+            <AlertCircle className="size-3.5" /> Could not save the adjustment.
+            Try again.
           </p>
         )}
       </CardContent>
@@ -303,30 +373,85 @@ function DailyReviewCard({
   onApprove: () => void
   onDeny: () => void
 }) {
-  const canResolve = review.changes_proposed && ["pending_approval", "apply_failed"].includes(review.status)
+  const canResolve =
+    review.changes_proposed &&
+    review.evidence_status === "verified" &&
+    ["pending_approval", "apply_failed"].includes(review.status)
 
   return (
     <div className="space-y-8 py-1 text-[15px] leading-7 sm:text-base">
       <div className="space-y-2">
-        <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">{review.summary}</h2>
+        <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
+          {review.summary}
+        </h2>
         <p className="text-muted-foreground">{review.reason}</p>
+        {review.evidence_status === "insufficient" ? (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
+            No prescription is being presented. Missing evidence is not evidence that everything is normal.
+          </p>
+        ) : null}
       </div>
 
       <div>
-        <h2 className="text-lg font-semibold tracking-tight">Athlete metrics</h2>
+        <h2 className="text-lg font-semibold tracking-tight">
+          Athlete metrics
+        </h2>
         <dl className="mt-3 space-y-2 text-muted-foreground">
-          <div><dt className="inline font-semibold text-foreground">Training-load estimates: </dt><dd className="inline">Fitness {review.athlete_metrics?.fitness?.replace(/\s*\(training-load estimate\)$/i, "") || "unavailable"}; fatigue {review.athlete_metrics?.fatigue?.replace(/\s*\(training-load estimate\)$/i, "") || "unavailable"}; form {review.athlete_metrics?.form?.replace(/\s*\(training-load estimate\)$/i, "") || "unavailable"}.</dd></div>
-          <div><dt className="inline font-semibold text-foreground">Recovery: </dt><dd className="inline">{review.athlete_metrics?.recovery || "Unavailable"}</dd></div>
-          <div><dt className="inline font-semibold text-foreground">HRV: </dt><dd className="inline">{review.athlete_metrics?.hrv || "Unavailable"}</dd></div>
-          <div><dt className="inline font-semibold text-foreground">Resting heart rate: </dt><dd className="inline">{review.athlete_metrics?.resting_heart_rate || "Unavailable"}</dd></div>
+          <div>
+            <dt className="inline font-semibold text-foreground">
+              Training-load estimates:{" "}
+            </dt>
+            <dd className="inline">
+              Fitness{" "}
+              {review.athlete_metrics?.fitness?.replace(
+                /\s*\(training-load estimate\)$/i,
+                ""
+              ) || "unavailable"}
+              ; fatigue{" "}
+              {review.athlete_metrics?.fatigue?.replace(
+                /\s*\(training-load estimate\)$/i,
+                ""
+              ) || "unavailable"}
+              ; form{" "}
+              {review.athlete_metrics?.form?.replace(
+                /\s*\(training-load estimate\)$/i,
+                ""
+              ) || "unavailable"}
+              .
+            </dd>
+          </div>
+          <div>
+            <dt className="inline font-semibold text-foreground">Recovery: </dt>
+            <dd className="inline">
+              {review.athlete_metrics?.recovery || "Unavailable"}
+            </dd>
+          </div>
+          <div>
+            <dt className="inline font-semibold text-foreground">HRV: </dt>
+            <dd className="inline">
+              {review.athlete_metrics?.hrv || "Unavailable"}
+            </dd>
+          </div>
+          <div>
+            <dt className="inline font-semibold text-foreground">
+              Resting heart rate:{" "}
+            </dt>
+            <dd className="inline">
+              {review.athlete_metrics?.resting_heart_rate || "Unavailable"}
+            </dd>
+          </div>
         </dl>
       </div>
 
       {review.relevant_observations.length > 0 && (
         <div>
-          <h2 className="text-lg font-semibold tracking-tight">Relevant observations</h2>
+          <h2 className="text-lg font-semibold tracking-tight">
+            Relevant observations
+          </h2>
           <ul className="mt-3 list-disc space-y-3 pl-5">
-            {review.relevant_observations.map((observation, index) => <li key={index}>{observation}</li>)}
+            {review.relevant_observations.map((observation, index) => (
+              <li key={index}>{observation}</li>
+            ))}
           </ul>
         </div>
       )}
@@ -339,26 +464,78 @@ function DailyReviewCard({
               ? [workout.execution_guidance.target_range]
               : []
           return (
-            <section key={workout.workout_id} className="space-y-5 [overflow-wrap:anywhere]">
-              <h2 className="text-lg font-semibold leading-7 tracking-tight sm:text-xl">{workout.title}</h2>
+            <section
+              key={workout.workout_id}
+              className="space-y-5 [overflow-wrap:anywhere]"
+            >
+              <h2 className="text-lg leading-7 font-semibold tracking-tight sm:text-xl">
+                {workout.title}
+              </h2>
               <div className="space-y-4">
-                <div><h3 className="font-semibold">Proposed change</h3><p className="mt-1 text-muted-foreground">{workout.proposed_change || "Follow the session as planned."}</p></div>
-                {workout.action !== "follow_as_written" && <div><h3 className="font-semibold">Why</h3><p className="mt-1 text-muted-foreground">{workout.reason}</p></div>}
-                <div><h3 className="font-semibold">How to approach it</h3><p className="mt-1 text-muted-foreground">{workout.target_flexibility}</p></div>
-                {targetRanges.length > 0 && (
+                <div>
+                  <h3 className="font-semibold">Proposed change</h3>
+                  <p className="mt-1 text-muted-foreground">
+                    {workout.proposed_change ||
+                      "Follow the session as planned."}
+                  </p>
+                </div>
+                {workout.action !== "follow_as_written" && (
+                  <div>
+                    <h3 className="font-semibold">Why</h3>
+                    <p className="mt-1 text-muted-foreground">
+                      {workout.reason}
+                    </p>
+                  </div>
+                )}
+                <div>
+                  <h3 className="font-semibold">How to approach it</h3>
+                  <p className="mt-1 text-muted-foreground">
+                    {workout.target_flexibility}
+                  </p>
+                </div>
+                {review.evidence_status === "verified" && targetRanges.length > 0 && (
                   <div>
                     <h3 className="font-semibold">Pace and rest guidance</h3>
                     <ul className="mt-3 list-disc space-y-3 pl-5 text-muted-foreground marker:text-foreground">
                       {targetRanges.map((range, index) => {
-                        const cleanedRange = range.replace(/,\s*\((build|steady|strong)\),/i, ",")
-                        const parts = cleanedRange.match(/^(\d+\s*[x×]\s*\d+\s*(?:yds?|yards?|m|meters?|km|min|minutes?|sec|seconds?)?)\s*(?:[,—–-]\s*)?(.*)$/i)
+                        const cleanedRange = normalizeRecoveryWording(
+                          range.replace(/,\s*\((build|steady|strong)\),/i, ",")
+                        )
+                        const parts = cleanedRange.match(
+                          /^(\d+\s*[x×]\s*\d+\s*(?:yds?|yards?|m|meters?|km|min|minutes?|sec|seconds?)?)\s*(?:[,—–-]\s*)?(.*)$/i
+                        )
                         const set = parts?.[1] || cleanedRange
                         const guidance = parts?.[2]
-                        return <li key={index}><strong className="text-foreground">{set}</strong>{guidance ? <span className="mt-0.5 block">— {guidance}</span> : null}</li>
+                        return (
+                          <li key={index}>
+                            <strong className="text-foreground">{set}</strong>
+                            {guidance ? (
+                              <span className="mt-0.5 block">— {guidance}</span>
+                            ) : null}
+                          </li>
+                        )
                       })}
                     </ul>
                   </div>
                 )}
+                {workout.evidence ? (
+                  <details className="rounded-lg border bg-muted/25 px-4 py-3 text-sm">
+                    <summary className="cursor-pointer font-semibold">Evidence</summary>
+                    <div className="mt-3 space-y-3 text-muted-foreground">
+                      <p>{workout.evidence.reasoning}</p>
+                      <p><span className="font-semibold text-foreground">Coaching judgment: </span>{workout.evidence.coaching_judgment}</p>
+                      <p><span className="font-semibold text-foreground">Applicability: </span>{workout.evidence.applicability}</p>
+                      {!workout.evidence.published.length ? <p className="text-xs">No published source was applied; this recommendation is identified as coaching judgment.</p> : null}
+                      <div className="flex flex-wrap gap-2">
+                        {workout.evidence.published.map((source) => source.url ? (
+                          <a key={`${source.source_id}:${source.passage_id}`} href={source.url} target="_blank" rel="noreferrer" className="rounded-full border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:text-primary">
+                            {source.title || source.source_id}{source.locator ? ` · ${source.locator}` : ""}
+                          </a>
+                        ) : null)}
+                      </div>
+                    </div>
+                  </details>
+                ) : null}
               </div>
             </section>
           )
@@ -367,20 +544,47 @@ function DailyReviewCard({
 
       {canResolve && (
         <div className="flex gap-2 pt-2">
-          <Button type="button" variant="outline" className="flex-1" disabled={busy} onClick={onDeny}>
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1"
+            disabled={busy}
+            onClick={onDeny}
+          >
             <X className="size-4" /> Deny
           </Button>
-          <Button type="button" className="flex-1" disabled={busy} onClick={onApprove}>
-            {busy ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />} Approve
+          <Button
+            type="button"
+            className="flex-1"
+            disabled={busy}
+            onClick={onApprove}
+          >
+            {busy ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <Check className="size-4" />
+            )}{" "}
+            Approve
           </Button>
         </div>
       )}
       <p className="flex flex-wrap items-center gap-x-2 text-xs leading-5 text-muted-foreground">
-        <span className="flex items-center gap-1.5 font-semibold"><Bell className="size-3.5" /> Notification</span>
-        <span>Daily workout review — {review.notification_summary || (review.changes_proposed ? "Workout adjustment suggested." : "Proceed as planned.")}</span>
+        <span className="flex items-center gap-1.5 font-semibold">
+          <Bell className="size-3.5" /> Notification
+        </span>
+        <span>
+          Daily workout review —{" "}
+          {review.notification_summary ||
+            (review.changes_proposed
+              ? "Workout adjustment suggested."
+              : "Proceed as planned.")}
+        </span>
       </p>
       {(message || review.apply_error) && (
-        <p role="status" className={`text-sm ${review.status === "apply_failed" ? "text-destructive" : "text-muted-foreground"}`}>
+        <p
+          role="status"
+          className={`text-sm ${review.status === "apply_failed" ? "text-destructive" : "text-muted-foreground"}`}
+        >
           {message || review.apply_error}
         </p>
       )}
@@ -407,16 +611,24 @@ export function TrainingCoach({
   const [context, setContext] = useState(fallbackTrainingContext)
   const [draft, setDraft] = useState("")
   const [sending, setSending] = useState(false)
-  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null)
-  const [dailyReview, setDailyReview] = useState<DailyWorkoutReview | null>(null)
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(
+    null
+  )
+  const [dailyReview, setDailyReview] = useState<DailyWorkoutReview | null>(
+    null
+  )
   const [reviewBusy, setReviewBusy] = useState(false)
   const [reviewMessage, setReviewMessage] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const lastSavedMessages = useRef("")
   const shouldPersistMessages = useRef(false)
   const reviewViewportRef = useRef<HTMLDivElement>(null)
-  const persistentConversationId = conversationId || dailyReview?.conversation_id || localConversationId
+  const persistentConversationId =
+    conversationId || dailyReview?.conversation_id || localConversationId
   const dailyReviewRevision = dailyReview?.revision
+  const hasReviewChatMessages = messages.some(
+    (message) => message.role === "user"
+  )
 
   useEffect(() => {
     setResolvedTitle(conversationTitle)
@@ -434,22 +646,30 @@ export function TrainingCoach({
     setReviewMessage(null)
     void loadDailyReview(reviewId)
       .then(setDailyReview)
-      .catch(() => setReviewMessage("This daily review could not be loaded. It may no longer be available."))
+      .catch(() =>
+        setReviewMessage(
+          "This daily review could not be loaded. It may no longer be available."
+        )
+      )
   }, [reviewId])
 
   useEffect(() => {
     if (!reviewId || dailyReviewRevision == null) return
     const startedAt = performance.now()
     let frame = 0
-    const scrollToStart = () => {
-      if (reviewViewportRef.current) reviewViewportRef.current.scrollTop = 0
-      if (performance.now() - startedAt < 1000) frame = window.requestAnimationFrame(scrollToStart)
+    const setInitialReviewPosition = () => {
+      const viewport = reviewViewportRef.current
+      if (viewport) {
+        viewport.scrollTop = hasReviewChatMessages ? viewport.scrollHeight : 0
+      }
+      if (performance.now() - startedAt < 1000)
+        frame = window.requestAnimationFrame(setInitialReviewPosition)
     }
-    frame = window.requestAnimationFrame(scrollToStart)
+    frame = window.requestAnimationFrame(setInitialReviewPosition)
     return () => {
       window.cancelAnimationFrame(frame)
     }
-  }, [reviewId, dailyReviewRevision])
+  }, [reviewId, dailyReviewRevision, hasReviewChatMessages])
 
   useEffect(() => {
     if (!conversationId && !(reviewId && dailyReview?.conversation_id)) {
@@ -462,47 +682,89 @@ export function TrainingCoach({
     void loadCoachConversation(id)
       .then((conversation) => {
         if (cancelled) return
-        const reviewMessageId = conversation.review_id ? `${conversation.review_id}:coach` : null
-        const savedMessages = conversation.messages.filter((message) => message.id !== reviewMessageId) as CoachMessage[]
+        const reviewMessageId = conversation.review_id
+          ? `${conversation.review_id}:coach`
+          : null
+        const savedMessages = conversation.messages.filter(
+          (message) => message.id !== reviewMessageId
+        ) as CoachMessage[]
         lastSavedMessages.current = JSON.stringify(savedMessages)
         setMessages(savedMessages)
         setResolvedTitle(conversation.title)
         setSaveError(null)
       })
       .catch(() => {
-        if (!cancelled) setSaveError("Saved messages could not be loaded. New messages are still available on this device.")
+        if (!cancelled)
+          setSaveError(
+            "Saved messages could not be loaded. New messages are still available on this device."
+          )
       })
-    return () => { cancelled = true }
-  }, [conversationId, conversationTitle, dailyReview?.conversation_id, reviewId])
+    return () => {
+      cancelled = true
+    }
+  }, [
+    conversationId,
+    conversationTitle,
+    dailyReview?.conversation_id,
+    reviewId,
+  ])
 
   useEffect(() => {
-    localStorage.setItem(storageKey(persistentConversationId, reviewId), JSON.stringify(messages))
+    localStorage.setItem(
+      storageKey(persistentConversationId, reviewId),
+      JSON.stringify(messages)
+    )
   }, [messages, persistentConversationId, reviewId])
 
   useEffect(() => {
-    if (sending || !shouldPersistMessages.current || !messages.some((message) => message.role === "user")) return
+    if (
+      sending ||
+      !shouldPersistMessages.current ||
+      !messages.some((message) => message.role === "user")
+    )
+      return
     const messageSignature = JSON.stringify(messages)
     if (messageSignature === lastSavedMessages.current) return
     const controller = new AbortController()
     void fetch("/api/conversations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal:controller.signal,
-      body: JSON.stringify({ id:persistentConversationId, title:resolvedTitle, reviewId, messages }),
+      signal: controller.signal,
+      body: JSON.stringify({
+        id: persistentConversationId,
+        title: resolvedTitle,
+        reviewId,
+        messages,
+      }),
     })
       .then(async (response) => {
-        const data = (await response.json().catch(() => null)) as (CoachConversationSummary & { error?: string }) | null
-        if (!response.ok || !data) throw new Error(data?.error || "Supabase did not confirm the conversation save.")
+        const data = (await response.json().catch(() => null)) as
+          (CoachConversationSummary & { error?: string }) | null
+        if (!response.ok || !data)
+          throw new Error(
+            data?.error || "Supabase did not confirm the conversation save."
+          )
         lastSavedMessages.current = messageSignature
         setSaveError(null)
         onConversationSaved?.(data)
       })
       .catch((error) => {
         if (error instanceof DOMException && error.name === "AbortError") return
-        setSaveError(error instanceof Error ? error.message : "Supabase did not confirm the conversation save.")
+        setSaveError(
+          error instanceof Error
+            ? error.message
+            : "Supabase did not confirm the conversation save."
+        )
       })
     return () => controller.abort()
-  }, [messages, onConversationSaved, persistentConversationId, resolvedTitle, reviewId, sending])
+  }, [
+    messages,
+    onConversationSaved,
+    persistentConversationId,
+    resolvedTitle,
+    reviewId,
+    sending,
+  ])
 
   async function sendMessage(value: string) {
     const prompt = value.trim()
@@ -515,15 +777,79 @@ export function TrainingCoach({
       content: prompt,
       created_at: new Date().toISOString(),
     }
+    const isReviewRefinement = Boolean(
+      reviewId &&
+      dailyReview &&
+      ["pending_approval", "proceed_as_planned", "apply_failed"].includes(
+        dailyReview.status
+      ) &&
+      isDailyReviewRefinementRequest(prompt)
+    )
+    if (isReviewRefinement && dailyReview) {
+      setMessages((current) => [...current, userMessage])
+      setDraft("")
+      setSending(true)
+      setReviewMessage(null)
+      try {
+        const response = await fetch(
+          `/api/daily-reviews/${encodeURIComponent(dailyReview.id)}/refine`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({ message: prompt }),
+          }
+        )
+        const data = (await response.json().catch(() => null)) as {
+          review?: DailyWorkoutReview
+          error?: string
+        } | null
+        if (!response.ok || !data?.review)
+          throw new Error(
+            data?.error || "The daily review could not be revised."
+          )
+        setDailyReview(data.review)
+        setReviewMessage(
+          data.review.changes_proposed
+            ? "Updated from your reply. Review the revised workout, then approve or deny it."
+            : "Updated from your reply. No workout change requires approval."
+        )
+      } catch (error) {
+        setMessages((current) => [
+          ...current,
+          {
+            id: messageId(),
+            role: "assistant",
+            content:
+              error instanceof Error
+                ? error.message
+                : "The daily review could not be revised.",
+            created_at: new Date().toISOString(),
+            error: true,
+          },
+        ])
+      } finally {
+        setSending(false)
+      }
+      return
+    }
     const assistantMessage: CoachMessage = {
       id: messageId(),
       role: "assistant",
       content: "",
       created_at: new Date().toISOString(),
     }
-    if (!reviewId && resolvedTitle === "Coach") setResolvedTitle(conversationTitleFromPrompt(prompt))
-    const reviewContext = dailyReview ? [{ role:"assistant" as const, content:dailyReview.conversation_text }] : []
-    const recentHistory = [...reviewContext, ...messages.slice(-9).map(({ role, content }) => ({ role, content }))]
+    if (!reviewId && resolvedTitle === "Coach")
+      setResolvedTitle(conversationTitleFromPrompt(prompt))
+    const reviewContext = dailyReview
+      ? [{ role: "assistant" as const, content: dailyReview.conversation_text }]
+      : []
+    const recentHistory = [
+      ...reviewContext,
+      ...messages.slice(-9).map(({ role, content }) => ({ role, content })),
+    ]
     setMessages((current) => [...current, userMessage, assistantMessage])
     setDraft("")
     setSending(true)
@@ -532,14 +858,26 @@ export function TrainingCoach({
     try {
       const response = await fetch("/api/coach", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ message: prompt, history: recentHistory, conversationId:persistentConversationId }),
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({
+          message: prompt,
+          history: recentHistory,
+          conversationId: persistentConversationId,
+        }),
       })
       if (!response.ok) {
-        const data = (await response.json().catch(() => null)) as { error?: string } | null
-        throw new Error(data?.error || `Coach request failed (${response.status})`)
+        const data = (await response.json().catch(() => null)) as {
+          error?: string
+        } | null
+        throw new Error(
+          data?.error || `Coach request failed (${response.status})`
+        )
       }
-      if (!response.body) throw new Error("The coach returned an empty response.")
+      if (!response.body)
+        throw new Error("The coach returned an empty response.")
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
@@ -647,14 +985,18 @@ export function TrainingCoach({
         `/api/workouts/${encodeURIComponent(message.proposal.targetId)}`,
         {
           method: "PATCH",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
           body: JSON.stringify({
             change: message.proposal.change,
             title: message.proposal.targetTitle,
           }),
         }
       )
-      if (!response.ok) throw new Error(`Workout update failed (${response.status})`)
+      if (!response.ok)
+        throw new Error(`Workout update failed (${response.status})`)
       updateProposal(message.id, "approved")
     } catch {
       updateProposal(message.id, "failed")
@@ -665,23 +1007,44 @@ export function TrainingCoach({
     if (!dailyReview || reviewBusy) return
     setReviewBusy(true)
     setReviewMessage(null)
-    if (action === "approve") setDailyReview((current) => current ? { ...current, status:"applying" } : current)
+    if (action === "approve")
+      setDailyReview((current) =>
+        current ? { ...current, status: "applying" } : current
+      )
     try {
-      const response = await fetch(`/api/daily-reviews/${encodeURIComponent(dailyReview.id)}/${action}`, {
-        method:"POST",
-        headers:{ Accept:"application/json" },
-      })
-      const data = (await response.json().catch(() => null)) as { review?: DailyWorkoutReview; error?: string; refreshed?: boolean } | null
+      const response = await fetch(
+        `/api/daily-reviews/${encodeURIComponent(dailyReview.id)}/${action}`,
+        {
+          method: "POST",
+          headers: { Accept: "application/json" },
+        }
+      )
+      const data = (await response.json().catch(() => null)) as {
+        review?: DailyWorkoutReview
+        error?: string
+        refreshed?: boolean
+      } | null
       if (data?.review) setDailyReview(data.review)
       if (!response.ok) {
-        setReviewMessage(data?.error || `The daily review could not be ${action === "approve" ? "applied" : "denied"}.`)
+        setReviewMessage(
+          data?.error ||
+            `The daily review could not be ${action === "approve" ? "applied" : "denied"}.`
+        )
         return
       }
-      setReviewMessage(action === "approve" ? "TrainingPeaks confirmed the displayed changes." : "Decision recorded. The existing workout remains unchanged.")
+      setReviewMessage(
+        action === "approve"
+          ? "TrainingPeaks confirmed the displayed changes."
+          : "Decision recorded. The existing workout remains unchanged."
+      )
       if (action === "approve") void loadTrainingContext(true).then(setContext)
     } catch (error) {
       setDailyReview(dailyReview)
-      setReviewMessage(error instanceof Error ? error.message : "The daily review could not be updated.")
+      setReviewMessage(
+        error instanceof Error
+          ? error.message
+          : "The daily review could not be updated."
+      )
     } finally {
       setReviewBusy(false)
     }
@@ -691,14 +1054,22 @@ export function TrainingCoach({
     <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-background">
       <MessageScrollerProvider
         autoScroll={!reviewId || messages.length > 0 || sending}
-        defaultScrollPosition={reviewId ? "start" : "last-anchor"}
+        defaultScrollPosition={
+          reviewId
+            ? hasReviewChatMessages
+              ? "end"
+              : "start"
+            : conversationId
+              ? "end"
+              : "last-anchor"
+        }
         scrollPreviousItemPeek={56}
       >
         <MessageScroller className="min-h-0 flex-1">
           <MessageScrollerViewport
             ref={reviewViewportRef}
             aria-label="Coach conversation"
-            className="[scrollbar-gutter:auto] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="[scrollbar-width:none] [scrollbar-gutter:auto] [&::-webkit-scrollbar]:hidden"
           >
             <MessageScrollerContent
               aria-busy={sending}
@@ -707,7 +1078,8 @@ export function TrainingCoach({
               {reviewId && !dailyReview && !reviewMessage && (
                 <MessageScrollerItem messageId="daily-review-loading">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <LoaderCircle className="size-4 animate-spin" /> Loading the saved daily review…
+                    <LoaderCircle className="size-4 animate-spin" /> Loading the
+                    saved daily review…
                   </div>
                 </MessageScrollerItem>
               )}
@@ -720,7 +1092,8 @@ export function TrainingCoach({
                 <MessageScrollerItem messageId={dailyReview.id}>
                   <div className="mr-auto w-full max-w-none sm:max-w-2xl">
                     <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                      <Sparkles className="size-3.5 text-primary" /> AR Performance · {dailyReview.local_date}
+                      <Sparkles className="size-3.5 text-primary" /> AR
+                      Performance · {dailyReview.local_date}
                     </div>
                     <DailyReviewCard
                       review={dailyReview}
@@ -747,14 +1120,21 @@ export function TrainingCoach({
                   >
                     {message.role === "assistant" && (
                       <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                        <Sparkles className="size-3.5 text-primary" /> AR Performance
+                        <Sparkles className="size-3.5 text-primary" /> AR
+                        Performance
                       </div>
                     )}
                     <div
-                      aria-live={message.role === "assistant" ? "polite" : undefined}
+                      aria-live={
+                        message.role === "assistant" ? "polite" : undefined
+                      }
                       className={`text-sm leading-6 ${message.error ? "text-destructive" : ""}`}
                     >
-                      {message.role === "assistant" ? <FormattedCoachText content={message.content} /> : <p className="whitespace-pre-wrap">{message.content}</p>}
+                      {message.role === "assistant" ? (
+                        <FormattedCoachText content={message.content} />
+                      ) : (
+                        <p className="whitespace-pre-wrap">{message.content}</p>
+                      )}
                       {message.id === streamingMessageId && (
                         <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-current align-[-2px]" />
                       )}
@@ -770,22 +1150,31 @@ export function TrainingCoach({
                 </MessageScrollerItem>
               ))}
 
-              {sending && !messages.some((message) => message.id === streamingMessageId && message.content) && (
-                <MessageScrollerItem messageId="coach-thinking">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <LoaderCircle className="size-4 animate-spin" /> Reviewing your training context…
-                  </div>
-                </MessageScrollerItem>
-              )}
+              {sending &&
+                !messages.some(
+                  (message) =>
+                    message.id === streamingMessageId && message.content
+                ) && (
+                  <MessageScrollerItem messageId="coach-thinking">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <LoaderCircle className="size-4 animate-spin" /> Reviewing
+                      your training context…
+                    </div>
+                  </MessageScrollerItem>
+                )}
             </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerButton />
         </MessageScroller>
       </MessageScrollerProvider>
 
-      <footer className="shrink-0 bg-background px-3 pb-2 pt-2 sm:px-4 sm:pb-3 sm:pt-3">
+      <footer className="shrink-0 bg-background px-3 pt-2 pb-2 sm:px-4 sm:pt-3 sm:pb-3">
         <div className="mx-auto w-full max-w-3xl">
-          {saveError && <p role="status" className="mb-2 text-xs text-destructive">{saveError}</p>}
+          {saveError && (
+            <p role="status" className="mb-2 text-xs text-destructive">
+              {saveError}
+            </p>
+          )}
           <form
             className="flex items-end gap-2 rounded-xl border bg-card p-2 shadow-sm"
             onSubmit={(event) => {

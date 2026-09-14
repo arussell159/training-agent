@@ -67,6 +67,16 @@ create table if not exists daily_review_decisions (
   athlete_id text not null default 'default', decision text not null check (decision in ('approved','denied','expired')),
   result jsonb not null default '{}', created_at timestamptz not null default now()
 );
+create table if not exists coaching_evidence_sources (
+  id text primary key, title text not null, authors jsonb not null default '[]',
+  published_date date, url text, source_kind text not null, retrieval_status text not null,
+  scope_note text, passages jsonb not null default '[]', content_hash text,
+  retrieved_at timestamptz, updated_at timestamptz not null default now()
+);
+create table if not exists coaching_evidence_imports (
+  id text primary key, athlete_id text not null default 'default', source_id text not null,
+  imported_portions jsonb not null, imported_at timestamptz not null default now()
+);
 create or replace function prune_old_training_context() returns void language sql security definer as $$
   delete from workout_context where workout_date < now() - interval '90 days';
   delete from athlete_comments where created_at < now() - interval '90 days' and comment_type <> 'coach_note';
@@ -85,4 +95,6 @@ alter table daily_workout_reviews enable row level security;
 alter table workout_notification_preferences enable row level security;
 alter table workout_push_subscriptions enable row level security;
 alter table daily_review_decisions enable row level security;
+alter table coaching_evidence_sources enable row level security;
+alter table coaching_evidence_imports enable row level security;
 -- The service-role secret is used only by the local server. No anonymous browser policies are created.

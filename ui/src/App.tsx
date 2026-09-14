@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
   CalendarDays,
-  Dumbbell,
   History,
   Home,
   Library,
@@ -283,7 +282,11 @@ function AppWorkspace() {
             className="h-10 w-full justify-start px-2 text-base"
             onClick={() => selectItem("Home")}
           >
-            <Dumbbell />
+            <img
+              src="/ar-performance-logo.png"
+              alt=""
+              className="size-6 shrink-0 rounded-sm object-contain"
+            />
             <span>AR Performance</span>
           </Button>
         </SidebarHeader>

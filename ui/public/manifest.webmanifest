@@ -1,8 +1,23 @@
 {
   "name": "AR Performance",
   "short_name": "AR Performance",
+  "description": "A direct, practical triathlon coach connected to TrainingPeaks.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#ffffff"
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/ar-performance-logo.png",
+      "sizes": "2000x2000",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/ar-performance-logo.png",
+      "sizes": "2000x2000",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
 }

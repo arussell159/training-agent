@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { createDailyReview, effectiveReviewTime, heuristicDecision, localClock, materiallyChanged, scheduledWorkouts } from "./daily-review.mjs"
+import { createDailyReview, effectiveReviewTime, heuristicDecision, localClock, lockDecisionToVerdict, materiallyChanged, normalizeDecision, scheduledWorkouts } from "./daily-review.mjs"
 
 const workout = { id:"12", workout_date:"2026-09-14", sport:"Bike", title:"Bike – 3x8min", status:"today", plannedDurationMinutes:60, load:50, details:"3 x 8 min", goal:"Controlled work" }
 const context = { athlete:{ phase:"base" }, metrics:{ recovery:70 }, wellness:{ hrv:55, resting_hr:48 }, history:[], planned:[workout], comments:[] }
@@ -25,7 +25,7 @@ test("a normal day is proceed as planned and needs no approval", () => {
   assert.match(review.athlete_metrics.hrv, /^55 ms/)
   assert.match(review.athlete_metrics.resting_heart_rate, /^48 bpm/)
   assert.ok(review.workouts[0].execution_guidance.target_ranges.length > 0)
-  assert.ok(review.workouts[0].execution_guidance.target_ranges.every(range => /allow|increase|maximum|up to/i.test(range)))
+  assert.ok(review.workouts[0].execution_guidance.target_ranges.every(range => /no individualized numerical adjustment/i.test(range)))
   assert.doesNotMatch(review.conversation_text, /Stop (?:the )?main set|Stop rule/i)
 })
 
@@ -75,4 +75,42 @@ test("multiple same-day sessions are combined into one review", () => {
   assert.equal(review.workouts.length, 2)
   assert.deepEqual(review.relevant_observations, [])
   assert.equal(typeof review.athlete_metrics.fatigue, "string")
+})
+
+test("the model cannot change the deterministic verdict for the same data snapshot", () => {
+  const lowRecovery = { ...context, metrics:{ recovery:30 } }
+  const baseline = heuristicDecision(lowRecovery, [workout], "2026-09-14")
+  const generated = {
+    ...baseline,
+    summary:"Ignore the data and proceed",
+    notification_summary:"Proceed as planned.",
+    workouts:baseline.workouts.map(item => ({ ...item, action:"follow_as_written", proposed_change:null })),
+  }
+  const locked = lockDecisionToVerdict(generated, baseline)
+  assert.equal(locked.summary, baseline.summary)
+  assert.equal(locked.notification_summary, baseline.notification_summary)
+  assert.equal(locked.workouts[0].action, "reduce_target")
+})
+
+test("recovery allowances use one consistent wording pattern", () => {
+  const swim = { ...workout, sport:"Swim", title:"Swim – 3x400 Aerobic + 8x100 CSS" }
+  const normalized = normalizeDecision({
+    workouts:[{
+      workout_id:swim.id,
+      action:"add_recovery",
+      patch:{ coachComments:"Use the revised rest allowance." },
+      execution_guidance:{ target_ranges:[
+        "4x50 yd, Build, Z2-Z4, 15 sec rest; maintain the target and add no more than 10 seconds recovery if needed.",
+        "3x400 yd, Steady, 1:38-1:40/100yd, 30 sec rest; keep the written recovery and allow up to 5 sec/100yd slower if needed.",
+        "8x100 yd, Strong, 1:35-1:37/100yd, 15 sec rest (allow up to +10 sec recovery).",
+      ] },
+    }],
+  }, [swim])
+  const [fifties, fourHundreds, hundreds] = normalized.workouts[0].execution_guidance.target_ranges
+  for (const range of [fifties, hundreds]) {
+    assert.match(range, /maintain the target and increase rest by no more than 10 seconds if needed\.$/i)
+    assert.doesNotMatch(range, /add no more than|allow up to/i)
+  }
+  assert.match(fourHundreds, /keep the written recovery and allow up to 5 sec\/100yd slower if needed\.$/i)
+  assert.doesNotMatch(fourHundreds, /increase rest/i)
 })

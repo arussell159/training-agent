@@ -2,8 +2,8 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import { createDailyReviewService } from "./daily-review-service.mjs"
 
-function fakeStorage() {
-  let review = null
+function fakeStorage(initialReview = null) {
+  let review = initialReview
   let preferences = { enabled:false, review_time:"06:00", time_zone:"UTC", subscriptions:[] }
   return {
     getDailyReview:async id => review?.id === id ? review : null,
@@ -36,6 +36,7 @@ test("a failed TrainingPeaks write remains retryable and duplicate approval is i
       return { verified:true }
     },
     storage:fakeStorage(),
+    decisionProvider:async (_config, value, workouts, date) => (await import("./daily-review.mjs")).heuristicDecision(value, workouts, date),
   })
   const now = new Date("2026-09-14T12:00:00Z")
   const review = await service.runDue(now, { force:true })
@@ -45,11 +46,11 @@ test("a failed TrainingPeaks write remains retryable and duplicate approval is i
   assert.equal(duplicateRun.id, review.id)
   assert.equal(duplicateRun.revision, review.revision)
 
-  const refreshed = await service.runDue(now, { force:true, refresh:true })
-  assert.equal(refreshed.id, review.id)
-  assert.equal(refreshed.revision, review.revision + 1)
+  const unchangedRefresh = await service.runDue(now, { force:true, refresh:true })
+  assert.equal(unchangedRefresh.id, review.id)
+  assert.equal(unchangedRefresh.revision, review.revision)
 
-  const first = await service.approve(refreshed.id, now)
+  const first = await service.approve(unchangedRefresh.id, now)
   assert.equal(first.status, 502)
   assert.equal(first.body.review.status, "apply_failed")
 
@@ -62,4 +63,72 @@ test("a failed TrainingPeaks write remains retryable and duplicate approval is i
   assert.equal(duplicate.status, 200)
   assert.equal(duplicate.body.duplicate, true)
   assert.equal(attempts, 2)
+})
+
+test("a restart hydrates the saved review and does not regenerate an unchanged verdict", async () => {
+  const workout = { id:"42", workout_date:"2026-09-14", sport:"Bike", title:"Bike – Threshold", status:"today", plannedDurationMinutes:60, load:55, details:"3 x 8 min", goal:"Controlled threshold" }
+  const context = { athlete:{ id:"athlete-1", phase:"base" }, metrics:{ recovery:30 }, wellness:{ hrv:50 }, history:[], planned:[workout], comments:[] }
+  const now = new Date("2026-09-14T12:00:00Z")
+  const originalService = createDailyReviewService({
+    readConfig:async () => ({}),
+    writeConfig:async () => {},
+    getContext:async () => context,
+    applyWorkoutPatch:async () => ({ verified:true }),
+    storage:fakeStorage(),
+    decisionProvider:async (_config, value, workouts, date) => (await import("./daily-review.mjs")).heuristicDecision(value, workouts, date),
+  })
+  const remoteReview = await originalService.runDue(now, { force:true })
+  let generations = 0
+  const restartedService = createDailyReviewService({
+    readConfig:async () => ({}),
+    writeConfig:async () => {},
+    getContext:async () => context,
+    applyWorkoutPatch:async () => ({ verified:true }),
+    storage:fakeStorage(),
+    hydrateDailyReviewByDate:async () => remoteReview,
+    decisionProvider:async () => {
+      generations += 1
+      throw new Error("An unchanged saved review must not be regenerated")
+    },
+  })
+  const hydrated = await restartedService.runDue(now, { force:true, refresh:true })
+  assert.equal(hydrated.id, remoteReview.id)
+  assert.equal(hydrated.revision, remoteReview.revision)
+  assert.equal(generations, 0)
+})
+
+test("an athlete reply creates a new pending revision without sending another notification", async () => {
+  const workout = { id:"42", workout_date:"2026-09-14", sport:"Swim", title:"Swim – 8x100", status:"today", plannedDurationMinutes:60, load:55, details:"8 x (100 FS in Z4 + 15 secs rest)", goal:"Controlled quality" }
+  const context = { athlete:{ id:"athlete-1", phase:"base" }, metrics:{ recovery:30 }, wellness:{ hrv:50 }, history:[], planned:[workout], comments:[] }
+  const storage = fakeStorage()
+  const service = createDailyReviewService({
+    readConfig:async () => ({ OPENAI_API_KEY:"test" }),
+    writeConfig:async () => {},
+    getContext:async () => context,
+    applyWorkoutPatch:async () => ({ verified:true }),
+    storage,
+    decisionProvider:async (_config, value, workouts, date) => (await import("./daily-review.mjs")).heuristicDecision(value, workouts, date),
+    refinementProvider:async () => ({
+      summary:"Extra recovery suggested",
+      reason:"The athlete requested a narrower recovery allowance.",
+      workouts:[{
+        workout_id:"42",
+        action:"add_recovery",
+        proposed_change:"Increase only the 8x100 rest from 15 to 20 seconds.",
+        target_flexibility:"Keep every other interval unchanged and preserve the 100-yard target.",
+        execution_guidance:{ target_ranges:["8x100 yd, Strong, Z4, 15 sec rest; maintain the target and increase rest by no more than 5 seconds if needed."] },
+        patch:{ coachComments:"Only the 8x100 rest changes from 15 to 20 seconds; all other intervals stay the same." },
+      }],
+    }),
+  })
+  const now = new Date("2026-09-14T12:00:00Z")
+  const original = await service.runDue(now, { force:true })
+  const originalNotification = original.notification
+  const result = await service.refine(original.id, "Only change the 100s rest from 15 to 20 seconds; leave every other interval the same.", now)
+  assert.equal(result.status, 200)
+  assert.equal(result.body.review.id, original.id)
+  assert.equal(result.body.review.revision, original.revision + 1)
+  assert.equal(result.body.review.status, "pending_approval")
+  assert.deepEqual(result.body.review.notification, originalNotification)
+  assert.equal(result.body.review.refinements.at(-1).instruction, "Only change the 100s rest from 15 to 20 seconds; leave every other interval the same.")
 })

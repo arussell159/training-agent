@@ -43,6 +43,31 @@ export type DailyReviewStatus =
   | "denied"
   | "expired"
   | "cancelled"
+  | "evidence_insufficient"
+
+export interface RecommendationEvidence {
+  published: Array<{
+    source_id: string
+    passage_id: string
+    claim: string
+    title?: string
+    url?: string | null
+    locator?: string
+    source_kind?: string
+  }>
+  athlete_data: Array<{ fact_id: string; date: string }>
+  reasoning: string
+  coaching_judgment: string
+  applicability: string
+  terminology: string
+  calculations: Array<{
+    id: string
+    operation: string
+    inputs: Array<{ label: string; value: number; unit: string }>
+    result: number
+    unit: string
+  }>
+}
 
 export interface DailyWorkoutReviewItem {
   workout_id: string
@@ -72,6 +97,7 @@ export interface DailyWorkoutReviewItem {
     target_range?: string
   }
   applied_at?: string | null
+  evidence?: RecommendationEvidence | null
 }
 
 export interface DailyWorkoutReview {
@@ -94,6 +120,7 @@ export interface DailyWorkoutReview {
   relevant_observations: string[]
   workouts: DailyWorkoutReviewItem[]
   changes_proposed: boolean
+  evidence_status?: "verified" | "insufficient"
   conversation_text: string
   apply_error?: string | null
 }

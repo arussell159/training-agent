@@ -242,6 +242,37 @@ The `create_workout` tool accepts a `structure` parameter — a JSON string desc
 - `"percentOfThresholdHr"` — heart-rate based, % of threshold HR
 - `"percentOfThresholdPace"` — running, % of threshold pace
 
+For swimming, prescribe every swimming step with `distance_yards` and a goal-pace intensity target. Use `duration_seconds` only for passive rest. The server converts yards to TrainingPeaks meter-valued step lengths, uses the athlete's swim threshold to calculate timeline duration, and sets `visualizationDistanceUnit` to `yard`.
+
+```json
+{
+  "primaryIntensityMetric": "percentOfThresholdPace",
+  "steps": [
+    {
+      "name": "CSS repeats",
+      "type": "repetition",
+      "reps": 8,
+      "steps": [
+        {
+          "name": "100 yd at CSS",
+          "distance_yards": 100,
+          "intensity_min": 100,
+          "intensity_max": 102,
+          "intensityClass": "active"
+        },
+        {
+          "name": "Rest",
+          "duration_seconds": 20,
+          "intensity_min": 0,
+          "intensity_max": 0,
+          "intensityClass": "rest"
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### Step types
 
 **Single interval** (`type: "step"`):

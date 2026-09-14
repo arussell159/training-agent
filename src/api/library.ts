@@ -4,7 +4,7 @@ import { api } from "../api.js";
 import { getAthleteId } from "../auth.js";
 import {
   SportNameToId,
-  resolveStructure,
+  resolveStructureForSport,
   formatWorkoutSummary,
   formatDuration,
   sportIdToName,
@@ -305,7 +305,10 @@ export function registerLibraryTools(mcp: McpServer): void {
     async (params) => {
       // Structure is a nested object in library items (not double-serialized).
       const structureObj = params.structure
-        ? (JSON.parse(resolveStructure(params.structure)) as Record<string, unknown>)
+        ? (JSON.parse(await resolveStructureForSport(params.structure, params.sport)) as Record<
+            string,
+            unknown
+          >)
         : undefined;
       const item = await createLibraryItem(params.library_id, {
         workoutTypeId: SportNameToId[params.sport],
@@ -427,10 +430,19 @@ export function registerLibraryTools(mcp: McpServer): void {
       if (params.tss !== undefined) updates.tssPlanned = params.tss;
       if (params.if_value !== undefined) updates.ifPlanned = params.if_value;
       if (params.structure !== undefined) {
-        updates.structure = JSON.parse(resolveStructure(params.structure)) as Record<
-          string,
-          unknown
-        >;
+        let structureSport = params.sport;
+        if (!structureSport) {
+          const existing = (await getLibraryItems(params.library_id)).find(
+            (item) => item.exerciseLibraryItemId === params.item_id
+          );
+          if (!existing) {
+            throw new Error(`Item ${params.item_id} not found in library ${params.library_id}`);
+          }
+          if (existing.workoutTypeId === SportNameToId.swim) structureSport = "swim";
+        }
+        updates.structure = JSON.parse(
+          await resolveStructureForSport(params.structure, structureSport)
+        ) as Record<string, unknown>;
       }
       const item = await updateLibraryItem(params.library_id, params.item_id, updates);
       return {

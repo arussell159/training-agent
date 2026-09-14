@@ -476,6 +476,7 @@ The object shape (confirmed against real browser request):
 - `targets` entries for primary intensity have **no `unit` field** (just `{ minValue, maxValue }`)
 - Cadence targets do include `"unit": "roundOrStridePerMinute"`
 - Root includes `"primaryIntensityTargetOrRange": "range"`
+- Swim work is distance-first: simple input uses `distance_yards`, the wire step stores the converted value with `unit: "meter"`, and the root uses `visualizationDistanceUnit: "yard"`. Only passive rest uses `unit: "second"`; never represent a 100-yard repeat as 100 seconds.
 
 **Step types:**
 

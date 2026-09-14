@@ -162,6 +162,7 @@ export async function saveDailyReview(review) {
       title:new Date(`${review.local_date}T12:00:00Z`).toLocaleDateString("en-US", { month:"short", day:"2-digit", timeZone:"UTC" }) + " Review",
       kind:"daily_review",
       review_id:review.id,
+      deleted_at:null,
       messages:[
         { id:reviewMessageId, role:"assistant", content:review.conversation_text, created_at:review.created_at },
         ...(existingConversation?.messages || []).filter(message => message.id !== reviewMessageId),

@@ -13,6 +13,7 @@ import {
 import {
   createDailyReview,
   dailyReviewSchema,
+  evidenceInsufficientDecision,
   fingerprint,
   heuristicDecision,
   isReviewDue,
@@ -21,8 +22,102 @@ import {
   materiallyChanged,
   reviewConversationText,
   scheduledWorkouts,
+  validateWorkoutRecommendation,
   workoutHasStarted,
 } from "./daily-review.mjs"
+import {
+  assertRecommendationEvidence,
+  athleteEvidence,
+  readKnowledgeBase,
+  retrieveEvidence,
+} from "./evidence.mjs"
+
+const knowledgePath = new URL("../knowledge-sources.json", import.meta.url)
+
+function enrichDecisionEvidence(decision, passages) {
+  const passageMap = new Map(passages.map(item => [`${item.source_id}:${item.passage_id}`, item]))
+  return {
+    ...decision,
+    workouts:(decision.workouts || []).map(workout => ({
+      ...workout,
+      evidence:workout.evidence ? {
+        ...workout.evidence,
+        published:(workout.evidence.published || []).map(citation => {
+          const passage = passageMap.get(`${citation.source_id}:${citation.passage_id}`)
+          return passage ? { ...citation, title:passage.title, url:passage.url, locator:passage.locator, source_kind:passage.source_kind } : citation
+        }),
+      } : null,
+    })),
+  }
+}
+
+function assertWorkoutPatches(decision, workouts) {
+  const byId = new Map(workouts.map(workout => [String(workout.id), workout]))
+  const errors = []
+  for (const item of decision.workouts || []) {
+    const workout = byId.get(String(item.workout_id))
+    if (!workout) { errors.push(`unknown workout ${item.workout_id}`); continue }
+    const result = validateWorkoutRecommendation(item, workout)
+    errors.push(...result.errors.map(error => `${item.workout_id}: ${error}`))
+  }
+  if (errors.length) throw new Error(`Recommendation workout validation failed: ${errors.join("; ")}`)
+}
+
+async function verifiedFollowDecision(context, workouts, localDate) {
+  const recentText = [
+    ...(context.comments || []).slice(-10).map(item => item.body),
+    ...(context.history || []).slice(-7).flatMap(item => [item.post_comment, item.athleteComments]),
+  ].filter(Boolean).join(" ").toLowerCase()
+  if (/chest pain|faint|fainted|confusion|severe unusual breath|fever|worsening pain/.test(recentText)) {
+    return evidenceInsufficientDecision(context, workouts, localDate, "Recent athlete feedback requires assessment before the app can safely recommend following or changing the session.")
+  }
+  const knowledge = await readKnowledgeBase(knowledgePath)
+  const passages = retrieveEvidence(knowledge, "triathlon consistent intervals zone range intensity control recovery workout", { limit:12 })
+  const preferred = passages.find(item => item.source_id === "8020-triathlon-plan-web" && item.passage_id === "consistent-intervals")
+    || passages.find(item => item.source_id === "8020-triathlon-plan-web" && item.passage_id === "zones-are-ranges")
+  const facts = athleteEvidence(context, workouts, localDate)
+  if (!preferred) return evidenceInsufficientDecision(context, workouts, localDate, "The official public 80/20 execution guidance was not available in the verified source registry.")
+  const factIds = new Set(facts.map(item => item.id))
+  const decision = {
+    summary:"Follow today’s scheduled session",
+    notification_summary:"Proceed with scheduled workout.",
+    reason:"The retrieved execution principle and today’s verified schedule support preserving the existing prescription without adding a numerical adjustment.",
+    athlete_metrics:{},
+    relevant_observations:[],
+    workouts:workouts.map(workout => {
+      const candidates = [
+        `workout:${workout.id}:date`,
+        `workout:${workout.id}:title`,
+        `workout:${workout.id}:description`,
+        `wellness:${localDate}:hrv`,
+        `wellness:${localDate}:resting_hr`,
+        `metrics:${localDate}:recovery`,
+      ].filter(id => factIds.has(id))
+      return {
+        workout_id:String(workout.id),
+        priority:/threshold|vo2|race|interval|css/i.test(`${workout.title} ${workout.goal}`) ? "key" : "supporting",
+        target_flexibility:"Work within the existing prescribed ranges and prioritize consistent execution; no new personalized allowance is added.",
+        action:"follow_as_written",
+        proposed_change:null,
+        reason:"Today’s dated workout is verified, and the available data do not establish a source-supported reason for a specific change.",
+        execution_guidance:{ target_ranges:[] },
+        patch:{ title:null, description:null, coachComments:null, totalTimePlanned:null, tssPlanned:null, structure:null },
+        evidence:{
+          published:[{ source_id:preferred.source_id, passage_id:preferred.passage_id, claim:preferred.passage_id === "consistent-intervals" ? "repeatability" : "zone_range" }],
+          athlete_data:candidates.map(factId => ({ fact_id:factId, date:facts.find(item => item.id === factId).date })),
+          reasoning:"The source supports controlled, consistent execution inside prescribed zones. The dated athlete record confirms the scheduled session and current measurements; it does not justify changing an exact target.",
+          coaching_judgment:"Preserving the existing workout is a coaching judgment based on the absence of verified change-specific evidence, not a claim that the source prescribed this athlete’s numbers.",
+          calculations:[],
+          applicability:"The source is triathlon guidance, but it is general rather than a study of this athlete; the existing TrainingPeaks targets remain athlete-specific records.",
+          terminology:"The session retains its existing 80/20-style zones. No Norwegian lactate value or zone mapping is inferred.",
+        },
+      }
+    }),
+  }
+  assertWorkoutPatches(decision, workouts)
+  assertRecommendationEvidence(decision.workouts.map(item => ({ action:"Follow the scheduled workout as written.", evidence:item.evidence })), { passages, athleteFacts:facts })
+  return enrichDecisionEvidence(decision, passages)
+}
 
 const localStorageAdapter = {
   getDailyReview,
@@ -44,7 +139,8 @@ Relevant observations are optional. Include one only when a specific recent comp
 notification_summary must be a three-to-six-word sentence matching the saved recommendation, such as “Proceed as planned.”, “Swim adjustment suggested.”, “Easier targets suggested.”, “Higher targets suggested.”, or “Extra recovery suggested.” Proposed changes must sound like suggestions awaiting approval.
 For each workout, make target_flexibility a natural sentence that explains the session's priority and what matters most today. Say “work within” a target, never “hit” a target. execution_guidance.target_ranges must contain one precise bullet per main-set block or repeat group. Start every bullet with the exact repeat count, distance or duration, intended effort, verified pace or power target, and planned recovery from the source workout and athlete zones. For swim sets, when the verified pace uses /100yd, express repeat distance in yards (for example, 3x400 yd), never seconds. Then choose the single bounded adjustment that best preserves that set's purpose: either maintain the target while allowing a stated maximum recovery increase, or maintain the written recovery while allowing a stated pace or power reduction. For every target-preserving recovery adjustment, use exactly this wording pattern: “maintain the target and increase rest by no more than N seconds if needed.” Do not alternate with parenthetical allowances, “add recovery,” or “allow up to +N.” Use explicit units and limits. Never invent CSS values, convert aerobic work to threshold work, or use vague guidance such as “drop a zone.” Do not produce a separate extra-recovery line, main-set stop rule, or fueling section. Never say to hit targets at all costs.
 Choose follow_as_written, reduce_target, add_recovery, shorten, remove_repetitions, substitute_easy, rest, or increase_modestly. Propose an increase only after repeated comfortable comparable sessions plus good recovery; do not add intensity during a taper without compelling evidence.
-The patch is the exact TrainingPeaks change that approval will apply. Use null for every unchanged field. totalTimePlanned is decimal hours, so 45 minutes is 0.75. If changing targets, recoveries, duration, or repetitions in a structured workout, return a complete valid replacement structure JSON string when the source structure is available and keep its duration/TSS fields consistent; otherwise put the full revised instructions in description and coachComments. A follow_as_written recommendation must have a fully null patch. Do not claim any proposal is already applied.`
+Every workout recommendation, including follow_as_written, must include an evidence object with dated athlete facts and explicit evidence-to-action reasoning. Use a retrieved published passage when one materially supports the actual claim; a source is preferred but not mandatory for individualized coaching judgment. If citing, use only source_id and passage_id values in retrieved_sources and set claim to one exact claim tag listed on that passage. Never add a decorative or weakly related citation. Identify all personalization as coaching_judgment. When no source applies, leave published empty and clearly explain that the action is the coach's judgment from this athlete's verified history, feedback, recovery, goals, and constraints. State relevant uncertainty and applicability limits. Keep Norwegian lactate terminology and the 80/20 seven-zone system distinct in terminology. If they conflict, explain the conflict and choose based on evidence quality and athlete relevance. Every numerical adjustment must include machine-checkable calculations using verified inputs. Existing measured workout targets may be repeated without claiming a publication prescribed them.
+The patch is the exact TrainingPeaks change that approval will apply. Use null for every unchanged field. totalTimePlanned is decimal hours, so 45 minutes is 0.75. If changing targets, recoveries, duration, or repetitions in a structured workout, return a complete valid replacement structure JSON string when the source structure is available and keep its duration/TSS fields consistent; otherwise put the full revised instructions in description and coachComments. In every swim structure, preserve swimming work as distance-based meter lengths converted from the prescribed yards, preserve visualizationDistanceUnit as yard, and use second lengths only for passive rest; never convert a yard repeat into the same number of seconds. A follow_as_written recommendation must have a fully null patch. Do not claim any proposal is already applied.`
 
 function outputText(data) {
   return data.output_text || data.output?.flatMap(item => item.content || []).find(item => item.type === "output_text")?.text || ""
@@ -52,7 +148,12 @@ function outputText(data) {
 
 async function requestStructuredDecision(config, context, workouts, localDate) {
   const baseline = heuristicDecision(context, workouts, localDate)
-  if (!config.OPENAI_API_KEY) return baseline
+  if (!config.OPENAI_API_KEY) return verifiedFollowDecision(context, workouts, localDate)
+  const knowledge = await readKnowledgeBase(knowledgePath)
+  const query = workouts.map(workout => `${workout.sport} ${workout.title} ${workout.goal || ""} ${workout.details || ""}`).join(" ")
+  const retrievedSources = retrieveEvidence(knowledge, `${query} intensity recovery adjustment repeatability load zone`, { limit:12 })
+  const athleteFacts = athleteEvidence(context, workouts, localDate)
+  if (!retrievedSources.length || !athleteFacts.length) return evidenceInsufficientDecision(context, workouts, localDate)
   const evidence = {
     local_date:localDate,
     athlete:context.athlete,
@@ -73,6 +174,8 @@ async function requestStructuredDecision(config, context, workouts, localDate) {
         patch:item.patch,
       })),
     },
+    retrieved_sources:retrievedSources,
+    athlete_facts:athleteFacts,
   }
   const response = await fetch("https://api.openai.com/v1/responses", {
     method:"POST",
@@ -94,11 +197,17 @@ The verdict_lock is deterministic for this exact data snapshot. Preserve every l
   if (!response.ok) throw new Error(`OpenAI daily review failed (${response.status}): ${(await response.text()).slice(0,300)}`)
   const text = outputText(await response.json())
   if (!text) throw new Error("OpenAI returned an empty daily review")
-  return lockDecisionToVerdict(JSON.parse(text), baseline)
+  const decision = lockDecisionToVerdict(JSON.parse(text), baseline)
+  assertWorkoutPatches(decision, workouts)
+  assertRecommendationEvidence(decision.workouts.map(item => ({ action:item.proposed_change || "Follow the scheduled workout as written.", evidence:item.evidence })), { passages:retrievedSources, athleteFacts })
+  return enrichDecisionEvidence(decision, retrievedSources)
 }
 
 async function requestStructuredRefinement(config, review, context, workouts, instruction) {
   if (!config.OPENAI_API_KEY) throw new Error("OpenAI is not configured for recommendation refinements")
+  const knowledge = await readKnowledgeBase(knowledgePath)
+  const retrievedSources = retrieveEvidence(knowledge, `${instruction} ${workouts.map(item => `${item.sport} ${item.title} ${item.details || ""}`).join(" ")} adjustment recovery intensity`, { limit:12 })
+  const athleteFacts = athleteEvidence(context, workouts, review.local_date)
   const evidence = {
     athlete_request:instruction,
     athlete:context.athlete,
@@ -106,6 +215,8 @@ async function requestStructuredRefinement(config, review, context, workouts, in
     wellness:context.wellness,
     current_review:review,
     source_workouts:workouts,
+    retrieved_sources:retrievedSources,
+    athlete_facts:athleteFacts,
   }
   const response = await fetch("https://api.openai.com/v1/responses", {
     method:"POST",
@@ -127,7 +238,10 @@ Revise the unresolved saved review using the athlete's latest reply. Treat that 
   if (!response.ok) throw new Error(`OpenAI review refinement failed (${response.status}): ${(await response.text()).slice(0,300)}`)
   const text = outputText(await response.json())
   if (!text) throw new Error("OpenAI returned an empty review refinement")
-  return JSON.parse(text)
+  const decision = JSON.parse(text)
+  assertWorkoutPatches(decision, workouts)
+  assertRecommendationEvidence(decision.workouts.map(item => ({ action:item.proposed_change || "Follow the scheduled workout as written.", evidence:item.evidence })), { passages:retrievedSources, athleteFacts })
+  return enrichDecisionEvidence(decision, retrievedSources)
 }
 
 function publicPreferences(preferences, config) {
@@ -142,7 +256,6 @@ function publicPreferences(preferences, config) {
     lastDeliveryError:preferences.last_delivery_error || null,
   }
 }
-
 function applyPatchToSnapshot(snapshot, patch) {
   return {
     ...snapshot,
@@ -199,7 +312,11 @@ export function createDailyReviewService({
       decision = await decisionProvider(config, context, workouts, localDate)
     } catch (error) {
       log(`daily review model fallback: ${error.message}`)
-      decision = heuristicDecision(context, workouts, localDate)
+      try {
+        decision = await verifiedFollowDecision(context, workouts, localDate)
+      } catch (fallbackError) {
+        decision = evidenceInsufficientDecision(context, workouts, localDate, `The evidence chain could not be validated: ${error.message}; fallback failed: ${fallbackError.message}`)
+      }
       generationSource = "rules_fallback"
     }
     return { ...createDailyReview({ athleteId, localDate, timeZone:preferences.time_zone, context, workouts, decision, previous, now }), generation_source:generationSource }
@@ -276,14 +393,17 @@ export function createDailyReviewService({
         review = await hydrateDailyReviewByDate(athleteId, localDate)
         if (review) await saveDailyReview(review)
       }
-      if (!review || refresh) {
+      const snapshotChanged = review ? materiallyChanged(review, context, workouts) : false
+      const needsEvidenceUpgrade = Boolean(review && review.evidence_status !== "verified")
+      const policyChanged = Boolean(review && review.snapshot?.coaching_policy_version !== (context.coaching?.version || null))
+      if (!review || (refresh && (snapshotChanged || needsEvidenceUpgrade || policyChanged))) {
         if (refresh && review && ["approved","denied","cancelled","expired"].includes(review.status)) return review
         const previousNotification = review?.notification
         review = await generate(context, workouts, preferences, review, now)
         if (previousNotification) review.notification = previousNotification
         await saveDailyReview(review)
       }
-      if (["approved","denied","cancelled","expired"].includes(review.status)) return review
+      if (["approved","denied","cancelled","expired","evidence_insufficient"].includes(review.status)) return review
       if (!preferences.enabled && review.notification?.state === "disabled") return review
       if (preferences.enabled && !(preferences.subscriptions || []).length && review.notification?.state === "unavailable") return review
       if (review.notification?.notified_at || review.notification?.attempts >= 5) return review
@@ -309,7 +429,8 @@ export function createDailyReviewService({
     const latest = await getContext(config, { force:true, strict:true })
     const workouts = scheduledWorkouts(latest, review.local_date)
     const reviewedIds = new Set(review.workouts.map(item => String(item.workout_id)))
-    if (!workouts.length || workouts.some(workout => workoutHasStarted(workout, now)) || !workouts.some(workout => reviewedIds.has(String(workout.id)))) {
+    const reviewedWorkouts = workouts.filter(workout => reviewedIds.has(String(workout.id)))
+    if (!reviewedWorkouts.length || reviewedWorkouts.some(workout => workoutHasStarted(workout, now)) || reviewedWorkouts.length !== reviewedIds.size) {
       return { status:409, body:{ error:"A reviewed workout has started, completed, moved, or been removed. Nothing was revised.", review } }
     }
     try {
@@ -341,6 +462,7 @@ export function createDailyReviewService({
     if (!review) return { status:404, body:{ error:"Daily review not found" } }
     if (review.status === "approved") return { status:200, body:{ review, duplicate:true } }
     if (review.status === "denied") return { status:409, body:{ error:"This proposal was denied and cannot be applied.", review } }
+    if (review.evidence_status !== "verified") return { status:409, body:{ error:"This review has no validated evidence chain, so no change can be applied.", review } }
     if (!review.changes_proposed) return { status:409, body:{ error:"This review has no proposed changes.", review } }
     if (localClock(now, review.time_zone).date !== review.local_date) {
       review = await updateDailyReview(id, current => ({ ...current, status:"expired", decision:{ type:"expired", decided_at:now.toISOString() } }))

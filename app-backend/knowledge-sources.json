@@ -1,0 +1,201 @@
+{
+  "version": 1,
+  "retrieved_at": "2026-09-14T00:00:00.000Z",
+  "sources": [
+    {
+      "id": "bakken-norwegian-model-2022",
+      "title": "The Norwegian model of lactate threshold training and lactate controlled approach to training",
+      "authors": ["Marius Bakken"],
+      "published_date": "2022-01-23",
+      "url": "https://www.mariusbakken.com/the-norwegian-model.html",
+      "source_kind": "coach_experience",
+      "retrieval_status": "verified",
+      "scope_note": "Bakken explicitly describes this as empirical reflection, not a scientific article. It concerns elite distance running and lactate-guided training, not an individualized triathlon prescription.",
+      "passages": [
+        {
+          "id": "empirical-status",
+          "locator": "opening note",
+          "text": "The author states that the article is not scientific and presents thoughts, reflections, and experience from an empirical perspective.",
+          "claims": ["evidence_classification", "coaching_experience"]
+        },
+        {
+          "id": "measure-test-adjust",
+          "locator": "Finding the sweet spot training zone",
+          "text": "Bakken describes optimizing training by measuring, testing, and adjusting workouts rather than applying a fixed threshold number universally.",
+          "claims": ["individualize_from_measurements", "threshold_control", "avoid_unverified_numbers"]
+        },
+        {
+          "id": "individual-threshold",
+          "locator": "Finding the sweet spot training zone",
+          "text": "He warns that threshold lactate is individual and says better athletes eventually need accurate laboratory or field measurement.",
+          "claims": ["individualize_from_measurements", "threshold_control", "population_difference"]
+        },
+        {
+          "id": "long-repeats-subthreshold",
+          "locator": "Finding the sweet spot training zone",
+          "text": "His experience placed longer intervals mostly just below threshold, with shorter intervals nearer threshold.",
+          "claims": ["controlled_threshold", "repeat_duration", "intensity_control"]
+        }
+      ]
+    },
+    {
+      "id": "bakken-double-threshold-2026",
+      "title": "Double Threshold Training in Depth: What It Is, Why It Works, and How to Use It",
+      "authors": ["Marius Bakken"],
+      "published_date": "2026-03-22",
+      "url": "https://www.mariusbakken.com/double-threshold-training.html",
+      "source_kind": "coach_experience_with_research_discussion",
+      "retrieval_status": "verified",
+      "scope_note": "The practical prescriptions reflect Bakken's elite-running experience. Research discussion within the article is not treated as proof of a specific dose for this athlete.",
+      "passages": [
+        {
+          "id": "controlled-two-sessions",
+          "locator": "What Double Threshold Training Actually Is",
+          "text": "Double threshold uses two controlled threshold sessions in one day, separated by hours, to accumulate work without one oversized session.",
+          "claims": ["controlled_threshold", "session_distribution"]
+        },
+        {
+          "id": "recovery-and-risk",
+          "locator": "The First Double Sessions",
+          "text": "Bakken notes that frequent accumulated load carried risk and describes respecting the following recovery day.",
+          "claims": ["load_management", "recovery", "population_difference"]
+        }
+      ]
+    },
+    {
+      "id": "8020-triathlon-plan-web",
+      "title": "Understanding Your 80/20 Triathlon Plan",
+      "authors": ["David Warden", "Matt Fitzgerald"],
+      "published_date": null,
+      "url": "https://www.8020endurance.com/understanding-your-8020-triathlon-plan/",
+      "source_kind": "official_public_guidance",
+      "retrieval_status": "verified",
+      "scope_note": "Official public 80/20 Endurance web guidance. This is not imported book content and must not be cited as the book.",
+      "passages": [
+        {
+          "id": "zones-are-ranges",
+          "locator": "Anatomy of a Workout",
+          "text": "A workout segment may be performed anywhere within its prescribed zone; always using the upper end is not necessarily better.",
+          "claims": ["zone_range", "intensity_control", "recovery"]
+        },
+        {
+          "id": "consistent-intervals",
+          "locator": "Anatomy of a Workout",
+          "text": "The guidance prefers consistent moderate and high intervals over pushing each repeat progressively harder.",
+          "claims": ["repeatability", "intensity_control", "interval_execution"]
+        },
+        {
+          "id": "swim-distance-structure",
+          "locator": "Swimming Speed Play",
+          "text": "The swim examples prescribe work by distance and passive recovery by seconds.",
+          "claims": ["swim_units", "workout_structure", "unit_validation"]
+        },
+        {
+          "id": "listen-and-adjust",
+          "locator": "The Importance of Listening to Your Body",
+          "text": "The plan is conditional on circumstances; athlete feedback and alarming soreness can justify changing or stopping a session.",
+          "claims": ["athlete_feedback", "workout_adjustment", "safety"]
+        }
+      ]
+    },
+    {
+      "id": "8020-intensity-triathlon-web",
+      "title": "Intensity Guidelines for 80/20 Triathlon",
+      "authors": ["Matt Fitzgerald", "David Warden"],
+      "published_date": null,
+      "url": "https://www.8020endurance.com/intensity-guidelines-for-8020-triathlon/",
+      "source_kind": "official_public_guidance",
+      "retrieval_status": "verified",
+      "scope_note": "Official public 80/20 Endurance web guidance. Its seven-zone scale remains distinct from Norwegian lactate terminology.",
+      "passages": [
+        {
+          "id": "metric-selection",
+          "locator": "Intensity measures",
+          "text": "The article distinguishes power as output, pace as outcome, and heart rate as an indicator affected by conditions.",
+          "claims": ["metric_selection", "conditions", "measurement_limits"]
+        },
+        {
+          "id": "threshold-derived-zones",
+          "locator": "Lactate Threshold",
+          "text": "The 80/20 zones are derived from a tested personal threshold rather than from a generic athlete value.",
+          "claims": ["zone_mapping", "individualize_from_measurements", "threshold_testing"]
+        },
+        {
+          "id": "swim-critical-velocity",
+          "locator": "Swim Pace",
+          "text": "Swim threshold pace is estimated from a 400/200 critical-velocity test or a documented alternative test.",
+          "claims": ["swim_threshold", "calculation", "verified_target"]
+        }
+      ]
+    },
+    {
+      "id": "8020-race-goal-web-2024",
+      "title": "How to Set a Good Race Time Goal – A Breakthrough Strategy",
+      "authors": ["Matt Fitzgerald"],
+      "published_date": "2024-10-29",
+      "url": "https://www.8020endurance.com/how-to-set-a-good-race-time-goal/",
+      "source_kind": "official_public_guidance",
+      "retrieval_status": "verified",
+      "scope_note": "Public running-focused guidance; triathlon targets require discipline-specific performance data and course/context adjustments.",
+      "passages": [
+        {
+          "id": "zones-too-coarse",
+          "locator": "How to Set a Good Race Time Goal",
+          "text": "Intensity zones are too broad on their own to establish a precise race-time target.",
+          "claims": ["race_target", "zone_mapping", "avoid_unverified_numbers"]
+        },
+        {
+          "id": "use-prior-and-key-workouts",
+          "locator": "Think in terms of incremental improvements",
+          "text": "Race goals should be informed by comparable past performances, current training, key workouts, and preparatory races.",
+          "claims": ["race_target", "performance_history", "prediction"]
+        },
+        {
+          "id": "course-and-conditions",
+          "locator": "Other steps",
+          "text": "Fitness, course profile, and expected conditions should all be considered when setting a target.",
+          "claims": ["race_target", "conditions", "prediction"]
+        }
+      ]
+    },
+    {
+      "id": "rosenblat-tid-2025",
+      "title": "Which Training Intensity Distribution Intervention will Produce the Greatest Improvements in Maximal Oxygen Uptake and Time-Trial Performance in Endurance Athletes?",
+      "authors": ["Michael A. Rosenblat", "Jennifer Watt", "Jem Arnold", "and colleagues"],
+      "published_date": "2025-03-01",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/39888556/",
+      "doi": "10.1007/s40279-024-02149-3",
+      "source_kind": "peer_reviewed_systematic_review",
+      "retrieval_status": "verified",
+      "scope_note": "Thirteen studies, 348 recreational and competitive endurance athletes. Outcomes and relative benefits differed by performance level; this does not prescribe an individual's exact weekly split.",
+      "passages": [
+        {
+          "id": "no-universal-distribution",
+          "locator": "Abstract results and conclusions",
+          "text": "No training-intensity distribution was universally superior; responses differed between recreational and competitive athletes.",
+          "claims": ["intensity_distribution", "population_difference", "evidence_conflict"]
+        }
+      ]
+    },
+    {
+      "id": "bourdon-load-monitoring-2017",
+      "title": "Monitoring Athlete Training Loads: Consensus Statement",
+      "authors": ["Pitre C. Bourdon", "Marco Cardinale", "Andrew Murray", "and colleagues"],
+      "published_date": "2017-04-01",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/28463642/",
+      "doi": "10.1123/IJSPP.2017-0208",
+      "source_kind": "peer_reviewed_consensus",
+      "retrieval_status": "verified",
+      "scope_note": "Multidisciplinary consensus framework for athlete-load monitoring; it supports using monitoring in decisions but does not validate a single readiness score or exact adjustment.",
+      "passages": [
+        {
+          "id": "multidisciplinary-monitoring",
+          "locator": "Abstract",
+          "text": "The consensus describes multidisciplinary monitoring of internal and external load to inform performance and health decisions.",
+          "claims": ["load_management", "multiple_data_sources", "measurement_limits"]
+        }
+      ]
+    }
+  ],
+  "imports": []
+}

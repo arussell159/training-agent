@@ -176,7 +176,7 @@ Training context also includes athlete identity, race and zones; fitness, fatigu
 - Render Coach and saved sidebar conversations with the shadcn Message Scroller, preserving the athlete's reading position while new content arrives and providing a jump-to-latest control.
 - Keep the composer pinned above the mobile navigation with no divider, use the placeholder `Ask about training...`, and omit suggested prompt chips. The text box grows upward through four lines, then scrolls internally.
 
-Generated workout titles follow `Discipline – Main Purpose + Key Set`, begin with Run, Bike, Swim, Brick, or Strength, omit minor structure, use consistent interval notation, and stay near 45 characters when practical. The complete live rules remain in `app-backend/coaching-config.json`.
+Generated workout titles follow `Discipline – Main Purpose + Key Set`, begin with Run, Bike, Swim, Brick, or Strength, omit minor structure, use consistent interval notation, and stay near 45 characters when practical. Generated swim structures prescribe each swimming step by distance in yards at its goal-pace target, convert that distance to TrainingPeaks meter-valued lengths for storage, and reserve timed lengths for passive rest. The complete live rules remain in `app-backend/coaching-config.json`.
 
 ## Preserved local seed behavior
 

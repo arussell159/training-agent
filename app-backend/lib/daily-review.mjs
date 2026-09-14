@@ -38,7 +38,7 @@ export const dailyReviewSchema = {
       items:{
         type:"object",
         additionalProperties:false,
-        required:["workout_id","priority","target_flexibility","action","proposed_change","reason","execution_guidance","patch"],
+        required:["workout_id","priority","target_flexibility","action","proposed_change","reason","execution_guidance","patch","evidence"],
         properties:{
           workout_id:{ type:"string" },
           priority:{ type:"string", enum:["key","supporting","recovery"] },
@@ -65,6 +65,33 @@ export const dailyReviewSchema = {
               totalTimePlanned:{ type:["number","null"], minimum:0 },
               tssPlanned:{ type:["number","null"], minimum:0 },
               structure:{ type:["string","null"] },
+            },
+          },
+          evidence:{
+            type:"object",
+            additionalProperties:false,
+            required:["published","athlete_data","reasoning","coaching_judgment","calculations","applicability","terminology"],
+            properties:{
+              published:{ type:"array", maxItems:4, items:{
+                type:"object", additionalProperties:false, required:["source_id","passage_id","claim"],
+                properties:{ source_id:{type:"string"}, passage_id:{type:"string"}, claim:{type:"string"} },
+              } },
+              athlete_data:{ type:"array", minItems:1, maxItems:12, items:{
+                type:"object", additionalProperties:false, required:["fact_id","date"],
+                properties:{ fact_id:{type:"string"}, date:{type:"string"} },
+              } },
+              reasoning:{type:"string"},
+              coaching_judgment:{type:"string"},
+              calculations:{ type:"array", maxItems:8, items:{
+                type:"object", additionalProperties:false, required:["id","operation","inputs","result","unit"],
+                properties:{
+                  id:{type:"string"}, operation:{type:"string",enum:["difference","sum","product","percent_of","percent_change"]},
+                  inputs:{type:"array",minItems:1,maxItems:4,items:{type:"object",additionalProperties:false,required:["label","value","unit"],properties:{label:{type:"string"},value:{type:"number"},unit:{type:"string"}}}},
+                  result:{type:"number"}, unit:{type:"string"},
+                },
+              } },
+              applicability:{type:"string"},
+              terminology:{type:"string"},
             },
           },
         },
@@ -245,6 +272,9 @@ function baseGuidance(action, workout) {
   if (action === "rest") return { target_ranges:["Rest today; there is no training target."] }
   if (action === "substitute_easy") return { target_ranges:["Easy replacement at RPE 2–3/10: keep it fully conversational with no interval targets."] }
   const sport = String(workout.sport || "").toLowerCase()
+  if (action === "follow_as_written") return {
+    target_ranges:mainSetLines(workout).map(line => `${line}: follow the scheduled target and recovery; no individualized numerical adjustment is being added.`),
+  }
   const actionLead = action === "reduce_target"
     ? "Use the proposed 3–5% reduction."
     : action === "add_recovery"
@@ -259,7 +289,7 @@ function baseGuidance(action, workout) {
       const seconds = Number(line.match(/(\d+)\s*(?:sec|secs|seconds)\s*(?:rest|recovery)/i)?.[1])
       const quality = /z4|z5|css|threshold|vo2|race pace|race power/i.test(line)
       if (sport === "swim") {
-        if (quality) return `${line}: ${actionLead} Maintain the prescribed pace or zone; ${Number.isFinite(seconds) ? `increase rest from ${seconds} to a maximum of ${seconds + 30} seconds` : "add no more than 30 seconds to the written rest"} if needed to preserve quality.`
+        if (quality) return `${line}: ${actionLead} Maintain the prescribed pace or zone; maintain the target and increase rest by no more than 30 seconds if needed.`
         return `${line}: ${actionLead} Keep ${Number.isFinite(seconds) ? `${seconds} seconds` : "the written"} rest; you may swim up to 5 sec/100 yd slower while staying at the prescribed aerobic effort.`
       }
       if (sport === "bike") return `${line}: ${actionLead} Keep the written recovery; power may be reduced by up to 5% if needed to preserve the intended effort.`
@@ -336,6 +366,28 @@ export function heuristicDecision(context, workouts, localDate) {
   }
 }
 
+export function evidenceInsufficientDecision(context, workouts, localDate, reason = "No fully validated athlete-data and coaching-reasoning chain was available.") {
+  return {
+    summary:"Recommendation withheld: insufficient evidence",
+    notification_summary:"Recommendation needs more evidence.",
+    reason,
+    evidence_status:"insufficient",
+    athlete_metrics:athleteMetrics(context, localDate),
+    relevant_observations:[],
+    workouts:workouts.map(workout => ({
+      workout_id:String(workout.id),
+      priority:"supporting",
+      target_flexibility:"No individualized execution guidance is presented until its evidence is validated.",
+      action:"follow_as_written",
+      proposed_change:null,
+      reason:"The coach is withholding a prescription; this does not establish that the current state is normal.",
+      execution_guidance:{ target_ranges:[] },
+      patch:{ title:null, description:null, coachComments:null, totalTimePlanned:null, tssPlanned:null, structure:null },
+      evidence:null,
+    })),
+  }
+}
+
 export function lockDecisionToVerdict(generated, baseline) {
   const generatedWorkouts = new Map(
     (Array.isArray(generated?.workouts) ? generated.workouts : []).map(item => [
@@ -398,6 +450,35 @@ function cleanPatch(patch, original) {
   return result
 }
 
+function nestedWorkoutSteps(structure) {
+  const groups = Array.isArray(structure?.structure) ? structure.structure : []
+  return groups.flatMap(group => Array.isArray(group.steps) ? group.steps : [])
+}
+
+export function validateWorkoutRecommendation(item, workout) {
+  const errors = []
+  if (String(item?.workout_id) !== String(workout?.id)) errors.push("workout id does not match the reviewed athlete workout")
+  const patch = item?.patch || {}
+  if (patch.structure) {
+    let structure
+    try { structure = JSON.parse(patch.structure) } catch { errors.push("replacement structure is not valid JSON") }
+    if (structure) {
+      const steps = nestedWorkoutSteps(structure)
+      if (String(workout.sport).toLowerCase() === "swim") {
+        if (structure.visualizationDistanceUnit !== "yard") errors.push("swim structure must preserve visualizationDistanceUnit=yard")
+        for (const step of steps) {
+          const rest = step.intensityClass === "rest" || /\brest\b/i.test(step.name || "")
+          if (!rest && step.length?.unit === "second") errors.push("swimming work was incorrectly encoded as seconds")
+          if (rest && step.length?.unit !== "second") errors.push("passive swim rest must be encoded in seconds")
+        }
+      }
+      const endSeconds = Math.max(0, ...((structure.structure || []).map(group => Number(group.end)).filter(Number.isFinite)))
+      if (Number.isFinite(patch.totalTimePlanned) && endSeconds > 0 && Math.abs(Number(patch.totalTimePlanned) * 3600 - endSeconds) > 60) errors.push("planned workout total does not match the replacement structure")
+    }
+  }
+  return { valid:errors.length === 0, errors }
+}
+
 function notificationSummary(workouts, changesProposed) {
   if (!changesProposed) return "Proceed as planned."
   const actions = new Set(workouts.filter(item => item.action !== "follow_as_written").map(item => item.action))
@@ -411,21 +492,39 @@ function notificationSummary(workouts, changesProposed) {
 
 function ensureAdjustment(range, workout) {
   let value = String(range).replace(/,\s*\((build|steady|strong)\),/i, ",").replace(/[.;\s]+$/, "")
-  const recoveryAllowance = value.match(/(?:add no more than|allow up to\s*\+?)\s*(\d+)\s*(?:sec|secs|seconds?)\s*(?:of\s*)?(?:recovery|rest)?/i)
+  const targetIsPrimary = /\b(?:build|strong|css|threshold|vo2|race[ -]?(?:pace|power|effort)|target pace|target power|z4|z5)\b/i.test(value)
+  const stripTargetReduction = input => input
+    .replace(/;?\s*(?:keep (?:the )?written (?:rest|recovery)(?: unchanged)?(?: and)?\s*)?(?:you may\s+)?(?:allow(?: up to)?\s+)?\d+(?:\.\d+)?\s*(?:sec(?:ond)?s?\s*\/\s*100\s*(?:yd|yard)s?|sec(?:ond)?s?\s*\/\s*mi|%)(?:\s+(?:lower|slower))?[^.;]*?(?:if needed|intended effort)?/gi, "")
+    .replace(/;?\s*(?:reduce|decrease)\s+(?:the\s+)?(?:pace|power|target|intensity)[^.;]*/gi, "")
+    .replace(/[.;\s]+$/, "")
+  const stripRecoveryIncrease = input => input
+    .replace(/;?\s*(?:maintain the target and\s*)?(?:increase|add|allow up to)\s+(?:the\s+)?(?:rest|recovery)[^.;]*/gi, "")
+    .replace(/;?\s*(?:increase|add)\s+(?:no more than|up to)?\s*\d+\s*(?:seconds?|secs?|sec)\s*(?:of\s*)?(?:rest|recovery)[^.;]*/gi, "")
+    .replace(/[.;\s]+$/, "")
+  const recoveryAllowance = value.match(/(?:add no more than|allow up to\s*\+?)\s*(\d+)\s*(?:seconds?|secs?|sec)\s*(?:of\s*)?(?:recovery|rest)\b/i)
+  if (targetIsPrimary) {
+    const seconds = Number(recoveryAllowance?.[1] || (String(workout.sport).toLowerCase() === "swim" ? 10 : 30))
+    value = stripTargetReduction(value)
+      .replace(/\s*\(\s*allow up to\s*\+?\s*\d+\s*(?:seconds?|secs?|sec)\s*(?:recovery|rest)\s*\)/i, "")
+      .replace(/;\s*maintain the target and\s*(?:add no more than|allow up to\s*\+?)\s*\d+\s*(?:seconds?|secs?|sec)\s*(?:of\s*)?(?:recovery|rest)?(?:\s*if needed)?\s*$/i, "")
+      .replace(/[.;\s]+$/, "")
+    return `${value}; maintain the target and increase rest by no more than ${seconds} seconds if needed.`
+  }
+  value = stripRecoveryIncrease(value)
   if (recoveryAllowance) {
     const seconds = Number(recoveryAllowance[1])
     value = value
-      .replace(/\s*\(\s*allow up to\s*\+?\s*\d+\s*(?:sec|secs|seconds?)\s*(?:recovery|rest)\s*\)/i, "")
-      .replace(/;\s*maintain the target and\s*(?:add no more than|allow up to\s*\+?)\s*\d+\s*(?:sec|secs|seconds?)\s*(?:of\s*)?(?:recovery|rest)?(?:\s*if needed)?\s*$/i, "")
+      .replace(/\s*\(\s*allow up to\s*\+?\s*\d+\s*(?:seconds?|secs?|sec)\s*(?:recovery|rest)\s*\)/i, "")
+      .replace(/;\s*maintain the target and\s*(?:add no more than|allow up to\s*\+?)\s*\d+\s*(?:seconds?|secs?|sec)\s*(?:of\s*)?(?:recovery|rest)?(?:\s*if needed)?\s*$/i, "")
       .replace(/[.;\s]+$/, "")
-    return `${value}; maintain the target and increase rest by no more than ${seconds} seconds if needed.`
+    return `${value}; keep the written recovery and reduce the target by no more than ${Math.max(3, Math.min(5, Math.round(seconds / 2)))}% if needed.`
   }
   if (/\b(?:allow|may|maximum|max\.?|up to|increase|reduce|slower)\b/i.test(value)) return `${value}.`
   const rest = Number(value.match(/(?:recovery|rest)\s*(\d+)\s*(?:sec|secs|seconds|s)\b/i)?.[1])
   const sport = String(workout.sport || "").toLowerCase()
   const quality = /\b(?:build|strong|z4|z5|css|threshold|vo2|race pace|race power)\b/i.test(value)
   if (sport === "swim" && quality) {
-    return `${value}; maintain the target and ${Number.isFinite(rest) ? `increase recovery from ${rest} to a maximum of ${rest + 10} seconds` : "add no more than 10 seconds recovery"} if needed.`
+    return `${value}; maintain the target and increase rest by no more than 10 seconds if needed.`
   }
   if (sport === "swim") {
     return `${value}; keep ${Number.isFinite(rest) ? `${rest} seconds recovery` : "the written recovery"} and allow up to 5 sec/100yd slower if needed.`
@@ -458,14 +557,18 @@ export function normalizeDecision(decision, workouts) {
           ? raw.execution_guidance.target_ranges.slice(0,12).map(String)
           : raw.execution_guidance?.target_range
             ? [String(raw.execution_guidance.target_range)]
-            : baseGuidance(action, workout).target_ranges).map(range => ensureAdjustment(range, workout)),
+          : baseGuidance(action, workout).target_ranges).map(range => action === "follow_as_written" ? String(range) : ensureAdjustment(range, workout)),
       },
       patch,
+      evidence:raw.evidence && typeof raw.evidence === "object" ? raw.evidence : null,
       applied_at:null,
     }
   })
   const changesProposed = normalized.some(item => item.action !== "follow_as_written" && Object.keys(item.patch).length)
-  const summary = changesProposed ? String(decision?.summary || "A training adjustment is proposed for today.") : "Proceed as planned"
+  const evidenceStatus = decision?.evidence_status === "insufficient" ? "insufficient" : "verified"
+  const summary = evidenceStatus === "insufficient"
+    ? String(decision?.summary || "Recommendation withheld: insufficient evidence")
+    : changesProposed ? String(decision?.summary || "A training adjustment is proposed for today.") : "Proceed as planned"
   return {
     summary,
     notification_summary:notificationSummary(normalized, changesProposed),
@@ -481,6 +584,7 @@ export function normalizeDecision(decision, workouts) {
     relevant_observations:Array.isArray(decision?.relevant_observations) ? decision.relevant_observations.slice(0,8).map(String) : [],
     workouts:normalized,
     changes_proposed:changesProposed,
+    evidence_status:evidenceStatus,
   }
 }
 
@@ -506,6 +610,14 @@ export function reviewConversationText(review) {
       "Pace and rest guidance:",
       ...workout.execution_guidance.target_ranges.map(item => `- ${item}`),
     )
+    if (workout.evidence) {
+      lines.push("Evidence:")
+      if (workout.evidence.published?.length) lines.push(...workout.evidence.published.map(item => `- ${item.source_id} / ${item.passage_id}: ${item.claim}`))
+      else lines.push("- Published source: none used; this is explicitly coaching judgment.")
+      lines.push(`- Athlete data: ${workout.evidence.athlete_data.map(item => `${item.fact_id} (${item.date})`).join(", ")}`)
+      lines.push(`- Reasoning: ${workout.evidence.reasoning}`)
+      lines.push(`- Coaching judgment: ${workout.evidence.coaching_judgment}`)
+    }
   }
   return lines.join("\n")
 }
@@ -526,7 +638,7 @@ export function createDailyReview({ athleteId, localDate, timeZone, context, wor
     created_at:createdAt,
     updated_at:now.toISOString(),
     expires_at:new Date(now.getTime() + DAY).toISOString(),
-    status:normalized.changes_proposed ? "pending_approval" : "proceed_as_planned",
+    status:normalized.evidence_status === "insufficient" ? "evidence_insufficient" : normalized.changes_proposed ? "pending_approval" : "proceed_as_planned",
     decision:null,
     notification:previous?.notification || { state:"pending", attempts:0, notified_at:null, last_error:null },
     snapshot:{
@@ -535,6 +647,7 @@ export function createDailyReview({ athleteId, localDate, timeZone, context, wor
       recovery:recoverySnapshot(context, localDate),
       recovery_fingerprint:fingerprint(recoverySnapshot(context, localDate)),
       context_synced_at:context.synced_at || null,
+      coaching_policy_version:context.coaching?.version || null,
     },
     ...normalized,
   }

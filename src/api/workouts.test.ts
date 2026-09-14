@@ -6,12 +6,15 @@ import {
   resolveStructure,
   computeStructureMetrics,
 } from "./workouts.js";
-import type { WorkoutStructure, StructureStep } from "./workouts.js";
+import type { WorkoutStructure, StructureBuildOptions, StructureStep } from "./workouts.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function parse(input: Parameters<typeof buildWorkoutStructure>[0]): WorkoutStructure {
-  return JSON.parse(buildWorkoutStructure(input)) as WorkoutStructure;
+function parse(
+  input: Parameters<typeof buildWorkoutStructure>[0],
+  options?: StructureBuildOptions
+): WorkoutStructure {
+  return JSON.parse(buildWorkoutStructure(input, options)) as WorkoutStructure;
 }
 
 const WARMUP = {
@@ -53,6 +56,75 @@ describe("buildWorkoutStructure — root fields", () => {
   it("sets primaryIntensityTargetOrRange to range", () => {
     const r = parse({ steps: [WARMUP] });
     assert.equal(r.primaryIntensityTargetOrRange, "range");
+  });
+});
+
+describe("buildWorkoutStructure — distance-based swims", () => {
+  const swimThresholdMetersPerSecond = 91.44 / 98;
+
+  it("stores yard prescriptions as meter lengths with yard visualization", () => {
+    const result = parse(
+      {
+        primaryIntensityMetric: "percentOfThresholdPace",
+        steps: [
+          {
+            name: "CSS repeats",
+            type: "repetition",
+            reps: 8,
+            steps: [
+              {
+                name: "100 yd at CSS",
+                distance_yards: 100,
+                intensity_min: 100,
+                intensity_max: 100,
+                intensityClass: "active",
+              },
+              {
+                name: "Rest",
+                duration_seconds: 20,
+                intensity_min: 0,
+                intensity_max: 0,
+                intensityClass: "rest",
+              },
+            ],
+          },
+        ],
+      },
+      { sport: "swim", swimThresholdMetersPerSecond }
+    );
+
+    assert.deepEqual(result.structure[0].steps[0].length, {
+      value: 91.44,
+      unit: "meter",
+    });
+    assert.deepEqual(result.structure[0].steps[1].length, {
+      value: 20,
+      unit: "second",
+    });
+    assert.equal(result.visualizationDistanceUnit, "yard");
+    assert.equal(result.structure[0].end, 944);
+  });
+
+  it("rejects duration-based swim work instead of treating yards as seconds", () => {
+    assert.throws(
+      () =>
+        parse(
+          {
+            primaryIntensityMetric: "percentOfThresholdPace",
+            steps: [
+              {
+                name: "Wrong 100",
+                duration_seconds: 100,
+                intensity_min: 100,
+                intensity_max: 102,
+                intensityClass: "active",
+              },
+            ],
+          },
+          { sport: "swim", swimThresholdMetersPerSecond }
+        ),
+      /must prescribe distance_yards/i
+    );
   });
 });
 
@@ -926,5 +998,42 @@ describe("computeStructureMetrics", () => {
       primaryIntensityTargetOrRange: "range",
     };
     assert.equal(computeStructureMetrics(structure), null);
+  });
+
+  it("uses projected time, not raw meters, for distance-based swim load", () => {
+    const structure = parse(
+      {
+        primaryIntensityMetric: "percentOfThresholdPace",
+        steps: [
+          {
+            name: "CSS repeats",
+            type: "repetition",
+            reps: 8,
+            steps: [
+              {
+                name: "100 yd at CSS",
+                distance_yards: 100,
+                intensity_min: 100,
+                intensity_max: 100,
+                intensityClass: "active",
+              },
+              {
+                name: "Rest",
+                duration_seconds: 20,
+                intensity_min: 0,
+                intensity_max: 0,
+                intensityClass: "rest",
+              },
+            ],
+          },
+        ],
+      },
+      { sport: "swim", swimThresholdMetersPerSecond: 91.44 / 98 }
+    );
+    const metrics = computeStructureMetrics(structure);
+    assert.ok(metrics);
+    assert.equal(metrics.totalSeconds, 944);
+    assert.equal(metrics.distanceMeters, 8 * 91.44);
+    assert.equal(metrics.ifPlanned, 0.95);
   });
 });

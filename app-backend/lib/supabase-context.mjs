@@ -85,6 +85,12 @@ export function createContextStore(config, log = () => {}) {
       })
       return rows?.[0] || null
     },
+    async getDailyReviewByDate(athleteId, localDate) {
+      const rows = await request("daily_workout_reviews", {
+        query:`?athlete_id=eq.${encodeURIComponent(athleteId)}&local_date=eq.${encodeURIComponent(localDate)}&limit=1&select=*`,
+      })
+      return rows?.[0] || null
+    },
     async prune() { return request("rpc/prune_old_training_context", { method:"POST", body:"{}" }) },
   }
 }

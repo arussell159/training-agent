@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { api } from "../api.js";
 import { getAthleteId } from "../auth.js";
 import { getFitnessMetrics } from "./fitness.js";
+import { getAthleteSettings } from "./settings.js";
 
 export interface Workout {
   workoutId: number;
@@ -167,6 +168,7 @@ export interface WorkoutStructure {
   primaryLengthMetric: string;
   primaryIntensityMetric: string;
   primaryIntensityTargetOrRange: "range" | "target";
+  visualizationDistanceUnit?: "yard" | "meter" | null;
 }
 
 // Simplified input format for LLM to specify workout structure
@@ -174,6 +176,8 @@ export interface SimpleWorkoutStep {
   name: string;
   type?: "step" | "repetition";
   duration_seconds?: number;
+  distance_yards?: number;
+  distance_meters?: number;
   intensity_min?: number;
   intensity_max?: number;
   intensityClass?: IntensityClass; // warmUp | active | rest | coolDown | recovery | other
@@ -186,6 +190,12 @@ export interface SimpleWorkoutStep {
 export interface SimpleWorkoutStructure {
   primaryIntensityMetric?: "percentOfFtp" | "percentOfThresholdHr" | "percentOfThresholdPace";
   steps: SimpleWorkoutStep[];
+}
+
+export interface StructureBuildOptions {
+  sport?: SportName;
+  swimThresholdMetersPerSecond?: number;
+  visualizationDistanceUnit?: "yard" | "meter";
 }
 
 // ─── API functions ────────────────────────────────────────────────────────────
@@ -218,6 +228,7 @@ export function computeStructureMetrics(
   ftpWatts?: number
 ): {
   totalSeconds: number;
+  distanceMeters: number;
   ifPlanned: number;
   tssPlanned: number;
   energyPlanned: number | null;
@@ -227,15 +238,46 @@ export function computeStructureMetrics(
 
   const totalSeconds = blocks[blocks.length - 1].end;
   if (totalSeconds === 0) return null;
+  const distanceMeters = blocks.reduce((total, block) => {
+    const reps = block.type === "repetition" ? block.length.value : 1;
+    return (
+      total +
+      reps *
+        block.steps
+          .filter((step) => step.length.unit === "meter")
+          .reduce((sum, step) => sum + step.length.value, 0)
+    );
+  }, 0);
 
   let weightedSum = 0;
   for (const block of blocks) {
     const reps = block.type === "repetition" ? block.length.value : 1;
-    for (const step of block.steps) {
+    const secondsPerRep = (block.end - block.begin) / reps;
+    const fixedSeconds = block.steps
+      .filter((step) => step.length.unit === "second")
+      .reduce((sum, step) => sum + step.length.value, 0);
+    const distanceSteps = block.steps.filter((step) => step.length.unit === "meter");
+    const distanceSeconds = Math.max(0, secondsPerRep - fixedSeconds);
+    const distanceWeights = distanceSteps.map((step) => {
+      const target = step.targets.find((item) => !item.unit);
+      const intensity = target ? (target.minValue + target.maxValue) / 2 : 0;
+      return intensity > 0 ? step.length.value / intensity : 0;
+    });
+    const totalDistanceWeight = distanceWeights.reduce((sum, value) => sum + value, 0);
+
+    for (const [index, step] of block.steps.entries()) {
       const primary = step.targets.find((t) => !t.unit);
       if (!primary) continue;
       const midpoint = (primary.minValue + primary.maxValue) / 2;
-      weightedSum += reps * step.length.value * midpoint ** 4;
+      const duration =
+        step.length.unit === "second"
+          ? step.length.value
+          : totalDistanceWeight > 0
+            ? distanceSeconds * (distanceWeights[distanceSteps.indexOf(step)] / totalDistanceWeight)
+            : index === block.steps.length - 1
+              ? distanceSeconds
+              : 0;
+      weightedSum += reps * duration * midpoint ** 4;
     }
   }
 
@@ -246,7 +288,7 @@ export function computeStructureMetrics(
     ? Math.round(ftpWatts * ifPlanned * (totalSeconds / 1000) * 100) / 100
     : null;
 
-  return { totalSeconds, ifPlanned, tssPlanned, energyPlanned };
+  return { totalSeconds, distanceMeters, ifPlanned, tssPlanned, energyPlanned };
 }
 
 export async function createWorkout(data: WorkoutPayload): Promise<Workout> {
@@ -254,6 +296,7 @@ export async function createWorkout(data: WorkoutPayload): Promise<Workout> {
 
   // Compute duration, IF, TSS, and energy from structure (like the TP web app does).
   let totalTimePlanned = data.totalTimePlanned;
+  let distancePlanned = data.distancePlanned;
   let tssPlanned = data.tssPlanned;
   let ifPlanned: number | null = null;
   let energyPlanned: number | null = null;
@@ -264,6 +307,8 @@ export async function createWorkout(data: WorkoutPayload): Promise<Workout> {
       const metrics = computeStructureMetrics(parsed);
       if (metrics) {
         if (totalTimePlanned === undefined) totalTimePlanned = metrics.totalSeconds / 3600;
+        if (distancePlanned === undefined && metrics.distanceMeters > 0)
+          distancePlanned = metrics.distanceMeters;
         if (tssPlanned === undefined) tssPlanned = metrics.tssPlanned;
         ifPlanned = metrics.ifPlanned;
         energyPlanned = metrics.energyPlanned;
@@ -289,7 +334,7 @@ export async function createWorkout(data: WorkoutPayload): Promise<Workout> {
       coachComments: data.coachComments ?? null,
       athleteComments: data.athleteComments ?? null,
       totalTimePlanned: totalTimePlanned ?? null,
-      distancePlanned: data.distancePlanned ?? null,
+      distancePlanned: distancePlanned ?? null,
       tssPlanned: tssPlanned ?? null,
       ifPlanned,
       energyPlanned,
@@ -460,6 +505,40 @@ export function formatWorkoutSummary(w: {
 
 // ─── Workout structure builder ────────────────────────────────────────────────
 
+const YARDS_TO_METERS = 0.9144;
+
+function hasPositive(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function validateSimpleStepLength(
+  step: SimpleWorkoutStep,
+  label: string,
+  options: StructureBuildOptions
+): void {
+  const supplied = [step.duration_seconds, step.distance_yards, step.distance_meters].filter(
+    hasPositive
+  );
+  if (supplied.length !== 1) {
+    throw new Error(
+      `Step "${label}" must provide exactly one positive length: duration_seconds, distance_yards, or distance_meters.`
+    );
+  }
+
+  if (options.sport === "swim") {
+    const distanceBased = hasPositive(step.distance_yards) || hasPositive(step.distance_meters);
+    const targetMaximum = Number(step.intensity_max ?? 0);
+    if (targetMaximum > 0 && !distanceBased) {
+      throw new Error(
+        `Swim step "${label}" must prescribe distance_yards (preferred) or distance_meters at its goal pace; duration_seconds is only for passive rest.`
+      );
+    }
+    if (distanceBased && targetMaximum <= 0) {
+      throw new Error(`Swim step "${label}" needs a positive goal-pace intensity target.`);
+    }
+  }
+}
+
 function buildStep(step: SimpleWorkoutStep, innerStep = false): StructureStep {
   const targets: StructureTarget[] = [];
 
@@ -478,10 +557,15 @@ function buildStep(step: SimpleWorkoutStep, innerStep = false): StructureStep {
   // The TP API rejects "recovery" as an intensityClass — map it to "rest" which
   // the API accepts in all contexts (both within repetition blocks and standalone).
   const cls = step.intensityClass ?? "active";
+  const length = hasPositive(step.distance_yards)
+    ? { value: step.distance_yards * YARDS_TO_METERS, unit: "meter" }
+    : hasPositive(step.distance_meters)
+      ? { value: step.distance_meters, unit: "meter" }
+      : { value: step.duration_seconds ?? 0, unit: "second" };
 
   const result: StructureStep = {
     name: step.name,
-    length: { value: step.duration_seconds ?? 0, unit: "second" },
+    length,
     targets,
     intensityClass: cls === "recovery" ? "rest" : cls,
     openDuration: false,
@@ -491,7 +575,49 @@ function buildStep(step: SimpleWorkoutStep, innerStep = false): StructureStep {
   return result;
 }
 
-function buildPolyline(blocks: StructureBlock[]): [number, number][] {
+function normalizeWireStep(step: StructureStep): StructureStep {
+  if (step.length.unit !== "yard") return step;
+  return {
+    ...step,
+    length: { value: step.length.value * YARDS_TO_METERS, unit: "meter" },
+  };
+}
+
+function estimatedStepSeconds(step: StructureStep, options: StructureBuildOptions): number {
+  if (step.length.unit === "second") return step.length.value;
+  if (step.length.unit === "meter") {
+    const threshold = Number(options.swimThresholdMetersPerSecond);
+    const primary = step.targets.find((target) => !target.unit);
+    const intensity = primary ? (primary.minValue + primary.maxValue) / 200 : 0;
+    if (!(threshold > 0) || !(intensity > 0)) {
+      throw new Error(
+        `Distance-based swim step "${step.name}" needs the athlete's swim threshold pace and a positive goal-pace target.`
+      );
+    }
+    return step.length.value / (threshold * intensity);
+  }
+  throw new Error(`Unsupported step length unit "${step.length.unit}" in "${step.name}".`);
+}
+
+function validateSwimWireStep(step: StructureStep): void {
+  const targetMaximum = Math.max(
+    0,
+    ...step.targets.filter((target) => !target.unit).map((target) => target.maxValue)
+  );
+  if (targetMaximum > 0 && step.length.unit !== "meter") {
+    throw new Error(
+      `Swim step "${step.name}" must be distance-based at its goal pace; only passive rest may use seconds.`
+    );
+  }
+  if (step.length.unit === "meter" && targetMaximum <= 0) {
+    throw new Error(`Swim step "${step.name}" needs a positive goal-pace intensity target.`);
+  }
+}
+
+function buildPolyline(
+  blocks: StructureBlock[],
+  options: StructureBuildOptions
+): [number, number][] {
   const totalDuration = blocks.length > 0 ? blocks[blocks.length - 1].end : 0;
   if (totalDuration === 0) return [];
 
@@ -512,7 +638,7 @@ function buildPolyline(blocks: StructureBlock[]): [number, number][] {
     const reps = block.type === "repetition" ? block.length.value : 1;
     for (let rep = 0; rep < reps; rep++) {
       for (const step of block.steps) {
-        const dur = step.length.value;
+        const dur = estimatedStepSeconds(step, options);
         const primary = step.targets.find((t) => !t.unit);
         const y = primary ? r(primary.maxValue / maxIntensity) : 0;
         points.push([r(cursor / totalDuration), y]);
@@ -523,13 +649,18 @@ function buildPolyline(blocks: StructureBlock[]): [number, number][] {
     }
   }
 
+  if (points.length > 1) points[points.length - 1] = [1, 0];
   return points;
 }
 
-export function wrapWorkoutBlocks(input: {
-  primaryIntensityMetric?: string;
-  steps: StructureBlock[];
-}): string {
+export function wrapWorkoutBlocks(
+  input: {
+    primaryIntensityMetric?: string;
+    steps: StructureBlock[];
+    visualizationDistanceUnit?: "yard" | "meter" | null;
+  },
+  options: StructureBuildOptions = {}
+): string {
   if (!Array.isArray(input.steps) || input.steps.length === 0) {
     throw new Error("Structure must have at least one step block.");
   }
@@ -541,32 +672,44 @@ export function wrapWorkoutBlocks(input: {
         `${label} at index ${i} has no steps array — each top-level block must contain at least one interval.`
       );
     }
-    for (const [j, step] of block.steps.entries()) {
+    const steps = block.steps.map(normalizeWireStep);
+    for (const [j, step] of steps.entries()) {
       if (!step.length || typeof step.length.value !== "number" || step.length.value <= 0) {
         throw new Error(
-          `Step "${step.name ?? j}" in block ${i} has no valid duration (length.value must be a positive number).`
+          `Step "${step.name ?? j}" in block ${i} has no valid length (length.value must be a positive number).`
         );
       }
+      if (options.sport === "swim") validateSwimWireStep(step);
     }
     const begin = cursor;
     const reps = block.type === "repetition" ? block.length.value : 1;
-    const innerTotal = block.steps.reduce((s, step) => s + step.length.value, 0);
-    cursor += reps * innerTotal;
-    return { ...block, begin, end: cursor };
+    const innerTotal = steps.reduce((sum, step) => sum + estimatedStepSeconds(step, options), 0);
+    cursor = Math.round(cursor + reps * innerTotal);
+    return { ...block, steps, begin, end: cursor };
   });
+
+  const hasDistance = blocks.some((block) =>
+    block.steps.some((step) => step.length.unit === "meter")
+  );
 
   const structure: WorkoutStructure = {
     structure: blocks,
-    polyline: buildPolyline(blocks),
+    polyline: buildPolyline(blocks, options),
     primaryLengthMetric: "duration",
     primaryIntensityMetric: input.primaryIntensityMetric ?? "percentOfFtp",
     primaryIntensityTargetOrRange: "range",
+    visualizationDistanceUnit: hasDistance
+      ? (options.visualizationDistanceUnit ?? input.visualizationDistanceUnit ?? "yard")
+      : null,
   };
 
   return JSON.stringify(structure);
 }
 
-export function buildWorkoutStructure(input: SimpleWorkoutStructure): string {
+export function buildWorkoutStructure(
+  input: SimpleWorkoutStructure,
+  options: StructureBuildOptions = {}
+): string {
   if (!Array.isArray(input.steps) || input.steps.length === 0) {
     throw new Error("Structure must have at least one step.");
   }
@@ -578,11 +721,7 @@ export function buildWorkoutStructure(input: SimpleWorkoutStructure): string {
         );
       }
       for (const [j, inner] of step.steps.entries()) {
-        if (!inner.duration_seconds || inner.duration_seconds <= 0) {
-          throw new Error(
-            `Inner step "${inner.name ?? j}" in repetition "${step.name ?? i}" has no valid duration_seconds.`
-          );
-        }
+        validateSimpleStepLength(inner, inner.name ?? String(j), options);
       }
       return {
         type: "repetition" as const,
@@ -592,9 +731,7 @@ export function buildWorkoutStructure(input: SimpleWorkoutStructure): string {
         end: 0,
       };
     } else {
-      if (!step.duration_seconds || step.duration_seconds <= 0) {
-        throw new Error(`Step "${step.name ?? `at index ${i}`}" has no valid duration_seconds.`);
-      }
+      validateSimpleStepLength(step, step.name ?? `at index ${i}`, options);
       return {
         type: "step" as const,
         length: { value: 1, unit: "repetition" },
@@ -605,13 +742,17 @@ export function buildWorkoutStructure(input: SimpleWorkoutStructure): string {
     }
   });
 
-  return wrapWorkoutBlocks({
-    primaryIntensityMetric: input.primaryIntensityMetric,
-    steps: blocks,
-  });
+  return wrapWorkoutBlocks(
+    {
+      primaryIntensityMetric: input.primaryIntensityMetric,
+      steps: blocks,
+      visualizationDistanceUnit: options.visualizationDistanceUnit,
+    },
+    options
+  );
 }
 
-export function resolveStructure(raw: string): string {
+export function resolveStructure(raw: string, options: StructureBuildOptions = {}): string {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -628,10 +769,15 @@ export function resolveStructure(raw: string): string {
   // Handle case where LLM passes a fully-formed WorkoutStructure (with "structure" key at root,
   // e.g. copied from get_workout output)
   if (Array.isArray(obj.structure) && !Array.isArray(obj.steps)) {
-    return wrapWorkoutBlocks({
-      primaryIntensityMetric: (obj.primaryIntensityMetric as string) ?? undefined,
-      steps: obj.structure as StructureBlock[],
-    });
+    return wrapWorkoutBlocks(
+      {
+        primaryIntensityMetric: (obj.primaryIntensityMetric as string) ?? undefined,
+        steps: obj.structure as StructureBlock[],
+        visualizationDistanceUnit:
+          (obj.visualizationDistanceUnit as "yard" | "meter" | null) ?? undefined,
+      },
+      options
+    );
   }
 
   if (!Array.isArray(obj.steps) || obj.steps.length === 0) {
@@ -642,11 +788,16 @@ export function resolveStructure(raw: string): string {
 
   // Detect format: simple (has duration_seconds/intensity_min/reps) vs wire (has length.unit/openDuration/targets)
   const hasSimpleFields = steps.some(
-    (s) => "duration_seconds" in s || "intensity_min" in s || "reps" in s
+    (s) =>
+      "duration_seconds" in s ||
+      "distance_yards" in s ||
+      "distance_meters" in s ||
+      "intensity_min" in s ||
+      "reps" in s
   );
 
   if (hasSimpleFields) {
-    return buildWorkoutStructure(parsed as SimpleWorkoutStructure);
+    return buildWorkoutStructure(parsed as SimpleWorkoutStructure, options);
   }
 
   const first = steps[0];
@@ -656,13 +807,42 @@ export function resolveStructure(raw: string): string {
     typeof (first.length as Record<string, unknown>).unit === "string";
 
   if (hasWireFields) {
-    return wrapWorkoutBlocks(obj as { primaryIntensityMetric?: string; steps: StructureBlock[] });
+    return wrapWorkoutBlocks(
+      obj as {
+        primaryIntensityMetric?: string;
+        steps: StructureBlock[];
+        visualizationDistanceUnit?: "yard" | "meter" | null;
+      },
+      options
+    );
   }
 
   throw new Error(
     "Could not determine structure format. Use the simple format with " +
-      "duration_seconds, intensity_min, intensity_max on each step."
+      "duration_seconds or distance_yards, plus intensity_min and intensity_max on each step."
   );
+}
+
+async function structureOptionsForSport(sport?: SportName): Promise<StructureBuildOptions> {
+  if (sport !== "swim") return { sport };
+  const settings = await getAthleteSettings();
+  const threshold = Number(
+    settings.speedZones?.find((zone) => zone.workoutTypeId === SportTypeId.Swim)?.threshold
+  );
+  if (!(threshold > 0)) {
+    throw new Error(
+      "A swim threshold pace is required to build distance-based swim intervals. Configure it in TrainingPeaks first."
+    );
+  }
+  return {
+    sport,
+    swimThresholdMetersPerSecond: threshold,
+    visualizationDistanceUnit: "yard",
+  };
+}
+
+export async function resolveStructureForSport(raw: string, sport?: SportName): Promise<string> {
+  return resolveStructure(raw, await structureOptionsForSport(sport));
 }
 
 // ─── Week bounds helper ───────────────────────────────────────────────────────
@@ -703,6 +883,8 @@ const SPORT_ENUM = [
 const STRUCTURE_DESCRIPTION =
   'Interval structure as a JSON string. Format: {"steps": [...], "primaryIntensityMetric": "percentOfFtp"|"percentOfThresholdHr"|"percentOfThresholdPace"}. ' +
   "Each step is either a single interval or a repetition block. " +
+  "SWIM RULE: every swimming step must use distance_yards at its goal-pace intensity; never turn yards into duration_seconds. Only passive rest uses duration_seconds. The server converts yards to TrainingPeaks meters and keeps yard visualization. " +
+  'SWIM EXAMPLE: {"type":"repetition","reps":8,"steps":[{"name":"CSS","distance_yards":100,"intensity_min":100,"intensity_max":102,"intensityClass":"active"},{"name":"Rest","duration_seconds":20,"intensity_min":0,"intensity_max":0,"intensityClass":"rest"}]}. ' +
   'SINGLE: {"name":"Warm Up","duration_seconds":600,"intensity_min":40,"intensity_max":55,"intensityClass":"warmUp"}. ' +
   'REPETITION: {"type":"repetition","reps":4,"steps":[' +
   '{"name":"Hard","duration_seconds":300,"intensity_min":90,"intensity_max":100,"intensityClass":"active"},' +
@@ -875,7 +1057,9 @@ export function registerWorkoutTools(mcp: McpServer): void {
       },
     },
     async (params) => {
-      const structureStr = params.structure ? resolveStructure(params.structure) : undefined;
+      const structureStr = params.structure
+        ? await resolveStructureForSport(params.structure, params.sport)
+        : undefined;
       const workout = await createWorkout({
         workoutDay: params.date,
         workoutTypeValueId: SportNameToId[params.sport],
@@ -966,7 +1150,14 @@ export function registerWorkoutTools(mcp: McpServer): void {
       if (params.coach_comment !== undefined) updates.coachComments = params.coach_comment;
       if (params.feeling !== undefined) updates.feeling = params.feeling;
       if (params.rpe !== undefined) updates.rpe = params.rpe;
-      if (params.structure !== undefined) updates.structure = resolveStructure(params.structure);
+      if (params.structure !== undefined) {
+        const existingSport =
+          params.sport ??
+          ((await getWorkout(params.workout_id)).workoutTypeValueId === SportTypeId.Swim
+            ? "swim"
+            : undefined);
+        updates.structure = await resolveStructureForSport(params.structure, existingSport);
+      }
       const workout = await updateWorkout(params.workout_id, updates);
       return {
         content: [
@@ -1158,11 +1349,15 @@ export function registerWorkoutTools(mcp: McpServer): void {
           .describe(
             "Structure JSON string to validate — same format as the structure field in create_workout"
           ),
+        sport: z
+          .enum(SPORT_ENUM)
+          .optional()
+          .describe("Sport type. Supply 'swim' to enforce distance-based swim steps."),
       },
     },
-    async ({ structure: raw }) => {
+    async ({ structure: raw, sport }) => {
       try {
-        const resolved = resolveStructure(raw);
+        const resolved = await resolveStructureForSport(raw, sport);
         const parsed = JSON.parse(resolved) as WorkoutStructure;
         const blocks = parsed.structure;
         const totalSeconds = blocks.length > 0 ? blocks[blocks.length - 1].end : 0;
