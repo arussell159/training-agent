@@ -1,0 +1,1 @@
+import * as React from"react";import{cn}from"@/lib/utils";export const Textarea=React.forwardRef<HTMLTextAreaElement,React.TextareaHTMLAttributes<HTMLTextAreaElement>>(({className,...p},r)=><textarea ref={r} className={cn("textarea",className)} {...p}/>);Textarea.displayName="Textarea"

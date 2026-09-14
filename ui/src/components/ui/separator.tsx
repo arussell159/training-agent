@@ -1,0 +1,1 @@
+import * as SeparatorPrimitive from"@radix-ui/react-separator";import{cn}from"@/lib/utils";export function Separator({className,...p}:React.ComponentPropsWithoutRef<typeof SeparatorPrimitive.Root>){return <SeparatorPrimitive.Root className={cn("separator",className)} {...p}/>}

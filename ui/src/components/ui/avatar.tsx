@@ -1,0 +1,1 @@
+import * as AvatarPrimitive from"@radix-ui/react-avatar";export const Avatar=AvatarPrimitive.Root;export function AvatarFallback(p:React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Fallback>){return <AvatarPrimitive.Fallback className="avatar" {...p}/>}
