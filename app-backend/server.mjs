@@ -9,12 +9,20 @@ import { createContextStore } from './lib/supabase-context.mjs';
 import {
   addLocalComment,
   deleteLocalCoachConversation,
+  getDailyReview,
+  getDailyReviewByDate,
+  getNotificationPreferences as getLocalNotificationPreferences,
   getLocalCoachConversation,
+  listDailyReviews,
   listLocalCoachConversations,
   readLocalContext,
+  removePushSubscription as removeLocalPushSubscription,
   saveDailyReview,
   saveLocalCoachConversation,
+  updateDailyReview,
+  updateNotificationPreferences as updateLocalNotificationPreferences,
   updateLocalWorkout,
+  upsertPushSubscription as upsertLocalPushSubscription,
 } from './lib/local-context.mjs';
 import { createDailyReviewService } from './lib/daily-review-service.mjs';
 import { activeConversations, conversationContext, conversationSummary, normalizeConversation } from './lib/conversation-history.mjs';
@@ -872,6 +880,35 @@ async function buildDailyReviewContext(config, options = {}) {
   return buildCoachContext(config, coach, options);
 }
 
+async function notificationContextStore() {
+  const store = createContextStore(await readConfig(), updateLogs);
+  return store.ready ? store : null;
+}
+
+const dailyReviewStorage = {
+  getDailyReview,
+  getDailyReviewByDate,
+  listDailyReviews,
+  saveDailyReview,
+  updateDailyReview,
+  async getNotificationPreferences() {
+    const store = await notificationContextStore();
+    return store ? store.getNotificationPreferences('default') : getLocalNotificationPreferences();
+  },
+  async updateNotificationPreferences(patch) {
+    const store = await notificationContextStore();
+    return store ? store.updateNotificationPreferences('default', patch) : updateLocalNotificationPreferences(patch);
+  },
+  async upsertPushSubscription(subscription) {
+    const store = await notificationContextStore();
+    return store ? store.upsertPushSubscription('default', subscription) : upsertLocalPushSubscription(subscription);
+  },
+  async removePushSubscription(endpoint) {
+    const store = await notificationContextStore();
+    return store ? store.removePushSubscription('default', endpoint) : removeLocalPushSubscription(endpoint);
+  },
+};
+
 const dailyReviews = createDailyReviewService({
   readConfig,
   writeConfig,
@@ -879,6 +916,7 @@ const dailyReviews = createDailyReviewService({
   applyWorkoutPatch:applyTrainingPeaksWorkoutPatch,
   hydrateDailyReviewByDate:loadDailyReviewFromSupabaseByDate,
   log:updateLogs,
+  storage:dailyReviewStorage,
 });
 
 async function getPersistentDailyReview(id) {

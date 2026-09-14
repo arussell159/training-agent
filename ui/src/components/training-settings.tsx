@@ -29,6 +29,15 @@ async function patchPreferences(patch: Partial<Pick<NotificationPreferences,"ena
   return (await response.json()) as NotificationPreferences
 }
 
+async function responseError(response: Response, fallback: string) {
+  try {
+    const payload = await response.json() as { error?: string; message?: string }
+    return payload.error || payload.message || fallback
+  } catch {
+    return fallback
+  }
+}
+
 function notificationSupportMessage() {
   if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
     return "Push delivery is unavailable in this browser. Daily reviews will still appear in Coach."
@@ -77,7 +86,9 @@ export function TrainingSettings({ embedded = false }: { embedded?: boolean }) {
         headers:{ "Content-Type":"application/json", Accept:"application/json" },
         body:JSON.stringify(subscription.toJSON()),
       })
-      if (!subscriptionResponse.ok) throw new Error("The device could not be registered for push delivery.")
+      if (!subscriptionResponse.ok) {
+        throw new Error(await responseError(subscriptionResponse, "The device could not be registered for push delivery."))
+      }
       setPreferences(await patchPreferences({ enabled:true, timeZone:browserTimeZone }))
       setMessage("Workout notifications are on. You’ll receive one combined review on scheduled workout days.")
     } catch (error) {

@@ -91,6 +91,60 @@ export function createContextStore(config, log = () => {}) {
       })
       return rows?.[0] || null
     },
+    async getNotificationPreferences(athleteId = "default") {
+      const [rows, subscriptions] = await Promise.all([
+        request("workout_notification_preferences", {
+          query:`?athlete_id=eq.${encodeURIComponent(athleteId)}&limit=1&select=*`,
+        }),
+        request("workout_push_subscriptions", {
+          query:`?athlete_id=eq.${encodeURIComponent(athleteId)}&order=updated_at.desc&select=subscription`,
+        }),
+      ])
+      const row = rows?.[0] || {}
+      return {
+        enabled:Boolean(row.enabled),
+        review_time:String(row.review_time || "06:00").slice(0, 5),
+        time_zone:row.time_zone || "America/Chicago",
+        last_delivery_error:row.last_delivery_error || null,
+        subscriptions:(subscriptions || []).map(item => item.subscription).filter(Boolean),
+      }
+    },
+    async updateNotificationPreferences(athleteId = "default", patch = {}) {
+      const current = await this.getNotificationPreferences(athleteId)
+      const rows = await request("workout_notification_preferences", {
+        method:"POST",
+        body:JSON.stringify([{
+          athlete_id:athleteId,
+          enabled:Object.hasOwn(patch, "enabled") ? Boolean(patch.enabled) : current.enabled,
+          review_time:patch.review_time || current.review_time,
+          time_zone:patch.time_zone || current.time_zone,
+          last_delivery_error:Object.hasOwn(patch, "last_delivery_error") ? patch.last_delivery_error : current.last_delivery_error,
+          updated_at:new Date().toISOString(),
+        }]),
+        headers:{ Prefer:"resolution=merge-duplicates,return=representation" },
+      })
+      return { ...current, ...(rows?.[0] || {}), review_time:String(rows?.[0]?.review_time || current.review_time).slice(0, 5) }
+    },
+    async upsertPushSubscription(athleteId = "default", subscription) {
+      await request("workout_push_subscriptions", {
+        method:"POST",
+        body:JSON.stringify([{
+          endpoint:subscription.endpoint,
+          athlete_id:athleteId,
+          subscription,
+          updated_at:new Date().toISOString(),
+        }]),
+        headers:{ Prefer:"resolution=merge-duplicates,return=minimal" },
+      })
+      return subscription
+    },
+    async removePushSubscription(athleteId = "default", endpoint) {
+      await request("workout_push_subscriptions", {
+        method:"DELETE",
+        query:`?athlete_id=eq.${encodeURIComponent(athleteId)}&endpoint=eq.${encodeURIComponent(endpoint)}`,
+      })
+      return true
+    },
     async prune() { return request("rpc/prune_old_training_context", { method:"POST", body:"{}" }) },
   }
 }
