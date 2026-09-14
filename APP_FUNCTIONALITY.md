@@ -18,15 +18,15 @@ The app is an athlete-facing triathlon coaching workspace. It combines a 90-day 
 
 The former routes describe required capabilities, not required page designs:
 
-| Destination | Required behavior |
-| --- | --- |
-| `/` | Performance overview with today's workout, HRV, resting heart rate, fitness/CTL, fatigue/ATL, form/TSB, recovery/readiness, recent compliance, planned-versus-completed training, and weekly duration progress. |
-| `/coach` | Coach conversation using athlete context and a clean text composer; display a proposed workout adjustment, its reason and risk; require explicit approval or rejection before applying it. |
-| `/today` | Today's workout goal and structure; show any recommendation; support the same explicit approval flow and resolved state as Coach. |
-| `/calendar` and `/week` | Current week, workload, focus, taper progress, workout status, load, risk, and coach notes. |
-| `/library` | Search and filter reusable workouts by sport; show title, duration, purpose, and tags; allow a workout to enter a scheduling workflow. |
-| `/workout/:id` | Workout goal, description/structure, duration, load, status, risk, coach guidance, and post-workout feedback submission. |
-| `/settings` | Connection status and credential entry for TrainingPeaks, OpenAI, and Supabase; athlete zones; race details; notification preferences; reconnect/save actions. Never return stored secrets to the browser. |
+| Destination             | Required behavior                                                                                                                                                                                               |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                     | Performance overview with today's workout, HRV, resting heart rate, fitness/CTL, fatigue/ATL, form/TSB, recovery/readiness, recent compliance, planned-versus-completed training, and weekly duration progress. |
+| `/coach`                | Coach conversation using athlete context and a clean text composer; display a proposed workout adjustment, its reason and risk; require explicit approval or rejection before applying it.                      |
+| `/today`                | Today's workout goal and structure; show any recommendation; support the same explicit approval flow and resolved state as Coach.                                                                               |
+| `/calendar` and `/week` | Current week, workload, focus, taper progress, workout status, load, risk, and coach notes.                                                                                                                     |
+| `/library`              | Search and filter reusable workouts by sport; show title, duration, purpose, and tags; allow a workout to enter a scheduling workflow.                                                                          |
+| `/workout/:id`          | Workout goal, description/structure, duration, load, status, risk, coach guidance, and post-workout feedback submission.                                                                                        |
+| `/settings`             | Connection status and credential entry for TrainingPeaks, OpenAI, and Supabase; athlete zones; race details; notification preferences; reconnect/save actions. Never return stored secrets to the browser.      |
 
 Calendar workout cards use discipline color only on the sport icon. Their proportional workout profiles sit directly along the card bottom in neutral gray without a nested panel. Each desktop week summary is a discipline-time donut chart with a total and per-discipline durations.
 
@@ -78,23 +78,24 @@ The existing local workout endpoint records an approved recommendation locally; 
 
 Run the retained local service with `npm run app:server`. It listens on `PORT` or `4173`, serves the built UI from `ui/dist`, and exposes the JSON endpoints below.
 
-| Method and path | Request | Response/behavior |
-| --- | --- | --- |
-| `GET /api/config` | — | `{ trainingPeaksConnected, openAIConnected, supabaseConnected, supabaseNeedsUrl }`. |
-| `POST /api/config` | Optional `TP_AUTH_COOKIE`, `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | Merges non-empty values into local configuration and returns connection booleans. |
-| `POST /api/coach` | `{ message: string }` | Concise context-aware coaching as `{ message }`; message is required. |
-| `GET /api/context/status` | — | Supabase readiness, 90-day retention, and missing-project-URL status. |
-| `GET /api/training-context` | — | Athlete, metrics, history, current-week plan, comments, library, source, sync state, and 90-day retention. |
-| `PATCH /api/workouts/:id` | `{ change: string }` | Marks the local planned workout as changed and records the approved recommendation. |
-| `POST /api/comments` | `{ workoutId, body }` | Creates a post-workout comment. |
-| `GET/PATCH /api/notification-settings` | Notification enablement, local review time, and IANA time zone | Returns safe delivery status and stores the athlete preference; never returns VAPID private material. |
-| `POST/DELETE /api/push-subscriptions` | Browser Push API subscription | Registers or removes a device used for workout-review delivery. |
-| `GET /api/daily-reviews` and `GET /api/daily-reviews/:id` | — | Lists saved reviews or opens the exact persisted coach review used by a notification. |
-| `POST /api/daily-reviews/:id/approve` | — | Revalidates the live schedule, recovery, and workout state, applies the exact displayed patch to TrainingPeaks, then verifies the write. |
-| `POST /api/daily-reviews/:id/deny` | — | Records denial and leaves TrainingPeaks unchanged. |
-| `POST /api/start` | — | Starts the compiled TrainingPeaks MCP child process. |
-| `POST /api/stop` | — | Stops the child process. |
-| `GET /api/status` | — | Child-process running state, PID, and recent logs. |
+| Method and path                                           | Request                                                                            | Response/behavior                                                                                                                                                  |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /api/config`                                         | —                                                                                  | `{ trainingPeaksConnected, openAIConnected, supabaseConnected, supabaseNeedsUrl }`.                                                                                |
+| `POST /api/config`                                        | Optional `TP_AUTH_COOKIE`, `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | Merges non-empty values into local configuration and returns connection booleans.                                                                                  |
+| `POST /api/coach`                                         | `{ message: string }`                                                              | Concise context-aware coaching as `{ message }`; message is required.                                                                                              |
+| `GET /api/context/status`                                 | —                                                                                  | Supabase readiness, 90-day retention, and missing-project-URL status.                                                                                              |
+| `GET /api/training-context`                               | —                                                                                  | Athlete, metrics, history, current-week plan, comments, library, source, sync state, and 90-day retention.                                                         |
+| `PATCH /api/workouts/:id`                                 | `{ change: string }`                                                               | Marks the local planned workout as changed and records the approved recommendation.                                                                                |
+| `POST /api/comments`                                      | `{ workoutId, body }`                                                              | Creates a post-workout comment.                                                                                                                                    |
+| `GET/PATCH /api/notification-settings`                    | Notification enablement, local review time, and IANA time zone                     | Returns safe delivery status and stores the athlete preference; never returns VAPID private material.                                                              |
+| `POST/DELETE /api/push-subscriptions`                     | Browser Push API subscription                                                      | Registers or removes a device used for workout-review delivery.                                                                                                    |
+| `GET /api/daily-reviews` and `GET /api/daily-reviews/:id` | —                                                                                  | Lists saved reviews or opens the exact persisted coach review used by a notification.                                                                              |
+| `POST /api/daily-reviews/:id/refine`                      | `{ message: string }`                                                              | Revises an unresolved review from an athlete constraint, preserves unmentioned work, and returns a new revision for approval without sending another notification. |
+| `POST /api/daily-reviews/:id/approve`                     | —                                                                                  | Revalidates the live schedule, recovery, and workout state, applies the exact displayed patch to TrainingPeaks, then verifies the write.                           |
+| `POST /api/daily-reviews/:id/deny`                        | —                                                                                  | Records denial and leaves TrainingPeaks unchanged.                                                                                                                 |
+| `POST /api/start`                                         | —                                                                                  | Starts the compiled TrainingPeaks MCP child process.                                                                                                               |
+| `POST /api/stop`                                          | —                                                                                  | Stops the child process.                                                                                                                                           |
+| `GET /api/status`                                         | —                                                                                  | Child-process running state, PID, and recent logs.                                                                                                                 |
 
 Unknown non-file routes fall back to the built frontend so client-side destinations remain reachable.
 
@@ -103,26 +104,26 @@ Unknown non-file routes fall back to the built frontend so client-side destinati
 ### Workout
 
 ```ts
-type Sport = "Bike" | "Run" | "Swim" | "Recovery"
-type Risk = "low" | "medium" | "high"
+type Sport = "Bike" | "Run" | "Swim" | "Recovery";
+type Risk = "low" | "medium" | "high";
 
 interface Workout {
-  id: string
-  day: string
-  date: string
-  workout_date?: string
-  sport: Sport
-  title: string
-  duration: string
-  goal: string
-  details: string
-  status: "completed" | "today" | "upcoming"
-  risk: Risk
-  changed?: boolean
-  load?: number
-  recommendation?: string
-  plannedDurationMinutes?: number
-  actualDurationMinutes?: number
+  id: string;
+  day: string;
+  date: string;
+  workout_date?: string;
+  sport: Sport;
+  title: string;
+  duration: string;
+  goal: string;
+  details: string;
+  status: "completed" | "today" | "upcoming";
+  risk: Risk;
+  changed?: boolean;
+  load?: number;
+  recommendation?: string;
+  plannedDurationMinutes?: number;
+  actualDurationMinutes?: number;
 }
 ```
 
@@ -132,15 +133,15 @@ The deleted client included this richer decision shape and fallback behavior. A 
 
 ```ts
 interface CoachDecision {
-  summary: string
-  risk_level: "low" | "medium" | "high"
-  reason: string
-  recommendation: string
-  proposed_trainingpeaks_change: string | null
-  needs_user_approval: boolean
-  short_message_to_user: string
-  pre_activity_comment: string
-  workout_description: string
+  summary: string;
+  risk_level: "low" | "medium" | "high";
+  reason: string;
+  recommendation: string;
+  proposed_trainingpeaks_change: string | null;
+  needs_user_approval: boolean;
+  short_message_to_user: string;
+  pre_activity_comment: string;
+  workout_description: string;
 }
 ```
 
@@ -165,7 +166,10 @@ Training context also includes athlete identity, race and zones; fitness, fatigu
 - Keep threshold and sub-threshold work controlled and repeatable.
 - Keep ordinary answers to one to four short sentences, but provide the complete title and structured session when asked to create a workout.
 - State the current plan, proposed change, reason, and risk for any workout adjustment, then require explicit approval or rejection before recording the change.
-- The server checks once per minute for a due daily review. It deduplicates by athlete and local date, saves the exact review in a coach conversation before attempting Web Push, retries failed delivery, and rechecks the calendar before sending. The app server must run continuously in production, but the PWA does not need to be open.
+- The server checks once per minute for a due daily review. It deduplicates by athlete and local date, saves the exact review in a coach conversation before attempting Web Push, retries failed delivery, and rechecks the calendar before sending. On restart or redeploy it hydrates the saved review by athlete and local date before generating; an unchanged data snapshot keeps the same verdict and revision even when an explicit refresh is requested. The app server must run continuously in production, but the PWA does not need to be open.
+- The model may improve daily-review explanations, but a deterministic rules decision locks the verdict for a given training snapshot. A verdict changes only after material workout/recovery data changes or after an explicit athlete refinement.
+- In an unresolved daily-review conversation, a direct constraint such as changing only one repeat group's rest creates a new review revision, preserves unmentioned intervals, keeps Approve/Deny active, and does not send a duplicate daily notification.
+- Pace-and-rest guidance uses one wording pattern for target-preserving recovery allowances: “maintain the target and increase rest by no more than N seconds if needed.”
 - Send the latest ten user/assistant messages with each coaching request so follow-up questions retain their conversational context.
 - Ground coaching answers in the live TrainingPeaks context, falling back to the TrainingPeaks disk cache before local seed data. Resolve relative dates against the current date and use completed duration/load for completed-workout reviews.
 - Use the OpenAI Responses API with `store: false`; the default model is `gpt-5-mini`. Proxy server-sent `response.output_text.delta` events so replies render incrementally.
@@ -176,7 +180,7 @@ Generated workout titles follow `Discipline – Main Purpose + Key Set`, begin w
 
 ## Preserved local seed behavior
 
-The retained local service seeds an athlete profile for Alex Russell, IRONMAN 70.3 Waco on 2026-09-27, taper phase, sport zones, readiness/performance metrics, 90 days of history, the current seven-day plan, existing feedback, and three library workouts. Approved adjustments and new comments persist in `app-backend/local-data.json`, which remains ignored by Git.
+The retained local service seeds an athlete profile for Alex Russell, IRONMAN 70.3 Waco on 2026-10-04, with the phase derived from the local date and current plan, sport zones, readiness/performance metrics, 90 days of history, the current seven-day plan, existing feedback, and three library workouts. Approved adjustments and new comments persist in `app-backend/local-data.json`, which remains ignored by Git.
 
 ## Rebuild acceptance criteria
 
