@@ -25,6 +25,8 @@ import {
   ShieldCheck,
   Sparkles,
   Timer,
+  HeartPulse,
+  Gauge,
   TrendingDown,
   TrendingUp,
   UserRound,
@@ -33,7 +35,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -41,7 +50,8 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { SectionCards } from "@/components/section-cards";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { askCoach } from "@/lib/coaching";
 import { trainingPeaks } from "@/lib/trainingpeaks";
 import type { Workout } from "@/lib/types";
@@ -316,70 +326,181 @@ function Approval({
 
 function Home() {
   const navigate = useNavigate();
+  const [context, setContext] = useState<any>(null);
+  useEffect(() => {
+    fetch("/api/training-context")
+      .then((response) => response.json())
+      .then(setContext)
+      .catch(() => undefined);
+  }, []);
+  const workouts: Workout[] = context?.planned ?? [];
+  const today = workouts.find((workout) => workout.status === "today") ?? workouts[0];
+  const latestRecovery = context?.history?.at?.(-1)?.recovery ?? {};
+  const metrics = context?.metrics ?? {};
+  const durationMinutes = (duration = "") => {
+    const hours = Number(duration.match(/(\d+)h/)?.[1] ?? 0);
+    const minutes = Number(duration.match(/(\d+)\s*m(?:in)?/)?.[1] ?? 0);
+    return hours * 60 + minutes;
+  };
+  const weeklyDuration = (
+    workouts.length
+      ? workouts
+      : [
+          { day: "MON", duration: "45 min", status: "completed" },
+          { day: "TUE", duration: "1h 05m", status: "today" },
+          { day: "WED", duration: "40 min", status: "upcoming" },
+          { day: "THU", duration: "50 min", status: "upcoming" },
+          { day: "FRI", duration: "—", status: "upcoming" },
+          { day: "SAT", duration: "1h 40m", status: "upcoming" },
+          { day: "SUN", duration: "50 min", status: "upcoming" },
+        ]
+  ).map((workout: any) => ({
+    day: workout.day.slice(0, 1),
+    planned: durationMinutes(workout.duration),
+    completed: workout.status === "completed" ? durationMinutes(workout.duration) : 0,
+  }));
+  const plannedTotal = weeklyDuration.reduce((sum, day) => sum + day.planned, 0);
+  const completedTotal = weeklyDuration.reduce((sum, day) => sum + day.completed, 0);
+  const metricCards = [
+    {
+      label: "Fitness score",
+      value: metrics.fitness ?? 71,
+      note: "TrainingPeaks CTL",
+      icon: Gauge,
+    },
+    {
+      label: "Form",
+      value: `${Number(metrics.form ?? 4) > 0 ? "+" : ""}${metrics.form ?? 4}`,
+      note: "Training stress balance",
+      icon: TrendingUp,
+    },
+    {
+      label: "Recovery",
+      value: metrics.recovery ?? 62,
+      note: "Today’s readiness",
+      icon: HeartPulse,
+    },
+    {
+      label: "Week complete",
+      value: `${Math.round((completedTotal / Math.max(plannedTotal, 1)) * 100)}%`,
+      note: `${completedTotal} of ${plannedTotal} min`,
+      icon: Check,
+    },
+  ];
   return (
     <div>
       <Header eyebrow="MONDAY · SEPTEMBER 14" title="Performance" />
-      <section className="content dashboard">
-        <Card className="hero-metric">
-          <CardHeader>
-            <div>
-              <span className="section-label">RACE READINESS</span>
-              <h2>Freshness is trending right</h2>
-            </div>
-            <Badge>12 DAYS</Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="readiness-score">
-              <strong>78</strong>
-              <div>
-                <span>READY</span>
-                <p>Keep the remaining intensity short and controlled.</p>
+      <section className="content dashboard month-end-dashboard">
+        <section className="performance-metric-grid">
+          <Card className="today-primary-card">
+            <CardHeader>
+              <CardDescription>Workout planned for today</CardDescription>
+              <Badge variant="outline">{today?.sport?.toUpperCase() ?? "BIKE"}</Badge>
+            </CardHeader>
+            <CardContent>
+              <div className="today-workout-copy">
+                <div>
+                  <CardTitle>{today?.title ?? "Race power touch"}</CardTitle>
+                  <p>
+                    {today?.duration ?? "1h 05m"} ·{" "}
+                    {today?.goal ?? "Keep race power familiar without carrying fatigue forward."}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate(`/workout/${today?.id ?? "tue"}`)}
+                >
+                  Details <ChevronRight size={15} />
+                </Button>
               </div>
-            </div>
-            <Progress value={78} />
-          </CardContent>
-        </Card>
-        <SectionCards />
-        <div className="dashboard-section">
-          <div className="section-head">
-            <div>
-              <span className="section-label">TODAY</span>
-              <h3>Race power touch</h3>
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => navigate("/workout/tue")}>
-              Details <ChevronRight size={15} />
-            </Button>
-          </div>
-          <Card className="today-dashboard">
-            <WorkoutPreview sport="Bike" title="Race power touch" compact />
-            <div>
-              <strong>1h 05m · 3 × 8 min</strong>
-              <span>Recommended: 230–240W</span>
-            </div>
-            <Badge>ADJUST</Badge>
+              <WorkoutPreview
+                sport={today?.sport ?? "Bike"}
+                title={today?.title ?? "Race power touch"}
+              />
+              <div className="recovery-split">
+                <div>
+                  <span>HRV</span>
+                  <strong>
+                    {latestRecovery.hrv ?? 54} <small>ms</small>
+                  </strong>
+                  <p>7-day baseline 56 ms</p>
+                </div>
+                <div>
+                  <span>Resting HR</span>
+                  <strong>
+                    {latestRecovery.resting_hr ?? 48} <small>bpm</small>
+                  </strong>
+                  <p>Near your normal range</p>
+                </div>
+              </div>
+            </CardContent>
           </Card>
-        </div>
-        <div className="dashboard-section">
-          <span className="section-label">7-DAY LOAD</span>
-          <div className="load-chart">
-            {[72, 48, 65, 40, 8, 82, 51].map((v, i) => (
-              <div key={i}>
-                <i style={{ height: `${v}%` }} className={i === 5 ? "key" : ""} />
-                <span>{["M", "T", "W", "T", "F", "S", "S"][i]}</span>
+          {metricCards.map((metric) => (
+            <Card className="performance-metric-card" key={metric.label}>
+              <CardHeader>
+                <CardDescription>{metric.label}</CardDescription>
+                <CardAction>
+                  <metric.icon />
+                </CardAction>
+                <CardTitle>{metric.value}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p>{metric.note}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </section>
+        <section className="performance-chart-grid">
+          <Card className="duration-chart-card">
+            <CardHeader>
+              <CardTitle>Planned vs completed duration</CardTitle>
+              <CardDescription>This training week · minutes</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer
+                config={{
+                  planned: { label: "Planned", color: "#94a3b8" },
+                  completed: { label: "Completed", color: "#2563eb" },
+                }}
+                className="weekly-duration-chart"
+              >
+                <BarChart data={weeklyDuration} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="day" axisLine={false} tickLine={false} tickMargin={8} />
+                  <YAxis axisLine={false} tickLine={false} tickMargin={8} />
+                  <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
+                  <Bar dataKey="planned" fill="#94a3b8" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="completed" fill="#2563eb" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ChartContainer>
+              <div className="chart-legend">
+                <span>
+                  <i className="planned" />
+                  Planned
+                </span>
+                <span>
+                  <i className="completed" />
+                  Completed
+                </span>
               </div>
-            ))}
-          </div>
-        </div>
-        <Card className="coach-insight">
-          <Sparkles />
-          <div>
-            <span className="section-label">COACH READ</span>
-            <p>Volume is right. Protect Friday and finish Saturday’s brick with more available.</p>
-          </div>
-          <Button size="icon" variant="ghost" onClick={() => navigate("/coach")}>
-            <ChevronRight />
-          </Button>
-        </Card>
+            </CardContent>
+          </Card>
+          <Card className="week-duration-card">
+            <CardHeader>
+              <CardTitle>Weekly duration</CardTitle>
+              <CardDescription>Progress against plan</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <strong>
+                {completedTotal}
+                <small> / {plannedTotal} min</small>
+              </strong>
+              <Progress value={(completedTotal / Math.max(plannedTotal, 1)) * 100} />
+              <p>{Math.max(plannedTotal - completedTotal, 0)} minutes remaining</p>
+            </CardContent>
+          </Card>
+        </section>
       </section>
     </div>
   );
