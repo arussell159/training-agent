@@ -56,7 +56,12 @@ async function readData() {
     return data
   } catch {
     const data=seed()
-    await fs.writeFile(dataPath,JSON.stringify(data,null,2))
+    try {
+      await fs.writeFile(dataPath,JSON.stringify(data,null,2))
+    } catch {
+      // Serverless hosts expose the deployed bundle as read-only. Reads can
+      // still use the in-memory seed while durable state lives in Supabase.
+    }
     return data
   }
 }

@@ -26,6 +26,15 @@ export function createContextStore(config, log = () => {}) {
       ])
       return { coaching:configRows?.[0] || null, workouts, comments }
     },
+    async getLatestSyncState(athleteId = null) {
+      const athleteFilter = athleteId
+        ? `athlete_id=eq.${encodeURIComponent(athleteId)}&`
+        : ""
+      const rows = await request("sync_state", {
+        query:`?${athleteFilter}status=eq.ready&order=updated_at.desc&limit=1&select=*`,
+      })
+      return rows?.[0] || null
+    },
     async upsert(table, rows) { log(`supabase upsert ${table}: ${rows.length}`); return request(table, { method:"POST", body:JSON.stringify(rows), headers:{ Prefer:"resolution=merge-duplicates,return=minimal" } }) },
     async listConversations(athleteId = null, limit = 500) {
       const cutoff = new Date(Date.now() - 90 * 86400000).toISOString()

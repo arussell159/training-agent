@@ -1,0 +1,18 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run ui:build",
+  "outputDirectory": "ui/dist",
+  "functions": {
+    "api/[...path].mjs": {
+      "includeFiles": "app-backend/**",
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    { "source": "/coach", "destination": "/index.html" },
+    { "source": "/calendar", "destination": "/index.html" },
+    { "source": "/week", "destination": "/index.html" },
+    { "source": "/library", "destination": "/index.html" },
+    { "source": "/settings", "destination": "/index.html" }
+  ]
+}

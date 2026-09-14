@@ -272,8 +272,44 @@ async function persistTrainingContext(config, context) {
   if (workoutRows.length) await store.upsert('workout_context', workoutRows);
   if (commentRows.length) await store.upsert('athlete_comments', commentRows);
   if (libraryRows.length) await store.upsert('workout_library', libraryRows);
-  await store.upsert('sync_state', [{ athlete_id:athleteId, last_trainingpeaks_sync:context.synced_at || new Date().toISOString(), last_backfill_at:new Date().toISOString(), status:'ready', error:null, updated_at:new Date().toISOString() }]);
+  const syncedAt = context.synced_at || new Date().toISOString();
+  await store.upsert('sync_state', [{
+    athlete_id:athleteId,
+    last_trainingpeaks_sync:syncedAt,
+    last_backfill_at:new Date().toISOString(),
+    cursor:{
+      context:{
+        athlete:context.athlete,
+        metrics:context.metrics,
+        wellness:context.wellness,
+        history:context.history || context.workouts || [],
+        planned:context.planned || [],
+        comments:context.comments || [],
+        library:context.library || [],
+        synced_at:syncedAt,
+        retention_days:90,
+      },
+    },
+    status:'ready',
+    error:null,
+    updated_at:new Date().toISOString(),
+  }]);
   await store.prune();
+}
+
+async function loadSupabaseTrainingSnapshot(config, athleteId = null) {
+  const store = createContextStore(config, updateLogs);
+  if (!store.ready) return null;
+  try {
+    const preferredId = athleteId && athleteId !== 'default' ? String(athleteId) : null;
+    const state = await store.getLatestSyncState(preferredId);
+    const snapshot = state?.cursor?.context;
+    if (!snapshot || !Array.isArray(snapshot.history) || !Array.isArray(snapshot.planned)) return null;
+    return { ...snapshot, source:'supabase-cache' };
+  } catch (error) {
+    updateLogs(`Supabase training snapshot read failed: ${error.message}`);
+    return null;
+  }
 }
 
 function isoDate(date) {
@@ -468,7 +504,11 @@ async function fetchTrainingPeaksContext(config, { force = false, timeZone = 'Am
     retention_days:90,
   };
   trainingPeaksMemoryCache = { savedAt:Date.now(), data:context };
-  await fs.writeFile(trainingPeaksCachePath, JSON.stringify(context));
+  try {
+    await fs.writeFile(trainingPeaksCachePath, JSON.stringify(context));
+  } catch (error) {
+    updateLogs(`TrainingPeaks disk cache write skipped: ${error.message}`);
+  }
   return context;
 }
 
@@ -784,7 +824,7 @@ async function listPersistentDailyReviews(limit = 30) {
   }
 }
 
-const server = http.createServer(async (req, res) => {
+export async function handleRequest(req, res) {
   try {
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     const pathname = requestUrl.pathname;
@@ -965,11 +1005,23 @@ const server = http.createServer(async (req, res) => {
             res.end(JSON.stringify({ ...local, ...cached, athlete:athleteWithRace(cached.athlete), comments:local.comments, library:local.library, source:'trainingpeaks-cache', sync_error:error.message }));
             return;
           } catch {
+            const remote = await loadSupabaseTrainingSnapshot(config, local.athlete?.id);
+            if (remote) {
+              res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
+              res.end(JSON.stringify({ ...local, ...remote, athlete:athleteWithRace(remote.athlete), sync_error:error.message }));
+              return;
+            }
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
             res.end(JSON.stringify({ ...local, athlete:athleteWithRace(local.athlete), source:'local-fallback', sync_error:error.message, retention_days:90 }));
             return;
           }
         }
+      }
+      const remote = await loadSupabaseTrainingSnapshot(config, local.athlete?.id);
+      if (remote) {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
+        res.end(JSON.stringify({ ...local, ...remote, athlete:athleteWithRace(remote.athlete) }));
+        return;
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ...local, athlete:athleteWithRace(local.athlete), source:'local-live', retention_days:90 }));
@@ -1161,16 +1213,19 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: error.message }));
   }
-});
+}
 
-const port = Number(process.env.PORT || 4173);
-server.listen(port, () => {
-  console.log(`Application service listening on http://localhost:${port}`);
-  if (process.env.DAILY_REVIEW_SCHEDULER_DISABLED !== '1') {
-    const runScheduledReview = () => dailyReviews.runDue()
-      .then(review => syncDailyReviewToSupabase(review))
-      .catch(error => updateLogs(`daily review scheduler failed: ${error.message}`));
-    setTimeout(runScheduledReview, 2_000).unref();
-    setInterval(runScheduledReview, 60_000).unref();
-  }
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  const port = Number(process.env.PORT || 4173);
+  const server = http.createServer(handleRequest);
+  server.listen(port, () => {
+    console.log(`Application service listening on http://localhost:${port}`);
+    if (process.env.DAILY_REVIEW_SCHEDULER_DISABLED !== '1') {
+      const runScheduledReview = () => dailyReviews.runDue()
+        .then(review => syncDailyReviewToSupabase(review))
+        .catch(error => updateLogs(`daily review scheduler failed: ${error.message}`));
+      setTimeout(runScheduledReview, 2_000).unref();
+      setInterval(runScheduledReview, 60_000).unref();
+    }
+  });
+}
