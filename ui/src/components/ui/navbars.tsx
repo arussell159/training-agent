@@ -24,10 +24,10 @@ export function MobileNavbar({
   onNavigate: (destination: string) => void
 }) {
   return (
-    <div className="pointer-events-none fixed left-0 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 flex w-screen justify-center px-4 md:hidden">
+    <div className="pointer-events-none fixed inset-x-[calc(1rem+env(safe-area-inset-bottom))] bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 flex justify-center md:hidden">
       <nav
         aria-label="Primary navigation"
-        className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/70 bg-background/95 p-2 shadow-lg backdrop-blur"
+        className="pointer-events-auto flex w-full items-center justify-between gap-2 rounded-full border border-border/70 bg-background/95 p-2 shadow-lg backdrop-blur"
       >
         {destinations.map(({ label, icon: Icon }) => (
           <Button

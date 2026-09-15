@@ -1,7 +1,35 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {createIntervalsClient,fetchIntervalsContext,moveIntervalsEvent,changeIntervalsEvent,applyIntervalsPatch,validDate} from './intervals.mjs';
+import {createIntervalsClient,fetchIntervalsContext,moveIntervalsEvent,changeIntervalsEvent,applyIntervalsPatch,mapIntervalsWorkout,validDate} from './intervals.mjs';
 import {createIntervalsCoachAdapter} from './triathlon-coach-adapter.mjs';
+
+test('historical and paired completed workouts retain actual Intervals summary values',()=>{
+ const activity={id:'i123',start_date_local:'2026-09-06T08:00:00',type:'Ride',moving_time:6075,distance:49880.28,average_speed:8.205,max_speed:12.447,calories:910,total_elevation_gain:143,total_elevation_loss:141,icu_training_load:76,icu_intensity:52.8,icu_joules:764608,icu_average_watts:126,average_heartrate:151,max_heartrate:171};
+ const historical=mapIntervalsWorkout(activity,'2026-09-15',null,true).workout_summary;
+ const paired=mapIntervalsWorkout({id:42,start_date_local:'2026-09-06T08:00:00',type:'Ride',moving_time:6000},'2026-09-15',activity).workout_summary;
+ assert.equal(historical.planned,null);
+ assert.deepEqual(paired.completed,historical.completed);
+ assert.equal(historical.completed.duration_seconds,6075);
+ assert.equal(historical.completed.calories,910);
+ assert.equal(historical.completed.intensity_factor,.528);
+ assert.equal(historical.completed.work_kj,764.608);
+ assert.equal(historical.completed.average_hr,151);
+ assert.equal(historical.completed.average_power,126);
+ assert.equal(paired.planned.duration_seconds,6000);
+ assert.equal(paired.planned.calories,null);
+});
+
+test('calendar range fetches only the requested week of workouts',async()=>{
+  const paths=[];
+  await fetchIntervalsContext(async path=>{paths.push(path);return path==='/athlete/0'?{id:'i1'}:[];},{range:{start:'2026-09-14',end:'2026-09-20'}});
+  assert.ok(paths.includes('/athlete/0/activities?oldest=2026-09-14&newest=2026-09-20'));
+  assert.ok(paths.includes('/athlete/0/events?oldest=2026-09-14&newest=2026-09-20'));
+});
+
+test('browsing a historical week still uses current Intervals fitness metrics',async()=>{
+  const context=await fetchIntervalsContext(async path=>path==='/athlete/0'?{id:'i1',timezone:'America/Chicago'}:path.includes('oldest=2026-09-15')?[{id:'2026-09-15',ctl:61,atl:70}]:path.includes('/wellness')?[{id:'2026-08-20',ctl:20,atl:30}]:[],{now:new Date('2026-09-15T18:00:00Z'),range:{start:'2026-08-17',end:'2026-08-23'}});
+  assert.deepEqual(context.metrics,{fitness:61,fatigue:70,form:-9});
+});
 
 test('personal key stays in Authorization and response secrets are removed',async()=>{
   const request=createIntervalsClient({INTERVALS_API_KEY:'fixture-key'},async(url,options)=>{

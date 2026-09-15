@@ -1,3 +1,5 @@
+import {formatDuration} from '@/lib/duration'
+import {durationMinutes} from '@/lib/training-context'
 import { apiFetch } from "@/lib/api-client"
 import { createContext, useContext, useEffect, useRef, useState } from "react"
 import {
@@ -203,7 +205,7 @@ function createProposal(
   return {
     targetId: workout.id,
     targetTitle: workout.title,
-    current: `${workout.date} · ${workout.title} · ${workout.duration}`,
+    current: `${workout.date} · ${workout.title} · ${formatDuration(durationMinutes(workout))}`,
     change: response,
     reason: `Based on your request, recent execution and recovery, and the ${context.athlete.phase ?? "current"} phase for ${context.athlete.race ?? "your goal event"}.`,
     risk: proposalRisk(response),

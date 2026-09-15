@@ -9,6 +9,15 @@ import { fileURLToPath } from 'node:url';
 import { createContextStore } from './lib/supabase-context.mjs';
 import { createSettingsService, publicSettings, STORED_SETTINGS } from './lib/settings-store.mjs';
 import { resolveApiRoute } from './lib/api-routing.mjs';
+import {intervalsOnlyContext} from './lib/intervals-only-context.mjs';
+import {readDurableState,writeDurableState} from './lib/durable-state.mjs';
+import {readFitLaps,normalizeAnalysis} from './lib/activity-analysis.mjs';
+import {recordedExtremes} from './lib/recorded-extremes.mjs';
+import {activityRoute} from './lib/activity-route.mjs';
+import {createRequestCache} from './lib/request-cache.mjs';
+import {compressAsset} from './lib/asset-compression.mjs';
+import {updateWorkoutDescription} from './lib/workout-description.mjs';
+import {applyCompletionConfirmation} from './lib/completion-confirmation.mjs';
 import {
   addLocalComment,
   deleteLocalCoachConversation,
@@ -50,6 +59,8 @@ const uiDistPath = path.resolve(__dirname, '..', 'ui', 'dist');
 const coachingConfigPath = path.join(__dirname, 'coaching-config.json');
 const intervalsCachePath = path.join(process.env.VERCEL ? '/tmp' : __dirname, 'intervals.cache');
 const knowledgeSourcesPath = path.join(__dirname, 'knowledge-sources.json');
+let completionConfirmation=null;
+try{completionConfirmation=await readDurableState('COMPLETION_CONFIRMATION',path.join(__dirname,'completion-confirmation.cache'),null);}catch(error){console.error('Completion confirmation unavailable:',error.message);}
 
 const serverState = {
   child: null,
@@ -58,6 +69,16 @@ const serverState = {
 };
 
 let intervalsMemoryCache = null;
+const analysisCache=new Map();
+const providerReads=createRequestCache({ttl:60000,maxEntries:32});
+function sendJson(req,res,value,cacheControl='no-store'){
+ const payload=compressAsset(Buffer.from(JSON.stringify(value)),'.js',req.headers['accept-encoding']);
+ res.writeHead(200,{'Content-Type':'application/json','Cache-Control':cacheControl,...payload.headers});res.end(payload.body);
+}
+function intervalsClient(config){
+ const account=createHash('sha256').update(config.INTERVALS_API_KEY || '').digest('hex');
+ return providerReads.wrap(createIntervalsClient(config),account);
+}
 
 const CONFIG_ENV_KEYS = [
   'OPENAI_API_KEY',
@@ -277,7 +298,7 @@ async function persistTrainingContext(config, context) {
   const store = createContextStore(config, updateLogs);
   if (!store.ready) return;
   const athleteId = String(context.athlete?.id || 'default');
-  const coach = JSON.parse(await fs.readFile(coachingConfigPath, 'utf8'));
+  const coach = await readDurableState('COACHING_CONFIG',coachingConfigPath,{});
   const workouts = [...(context.history || context.workouts || []), ...(context.planned || [])];
   const uniqueWorkouts = [...new Map(workouts.filter(item => item?.id && item?.workout_date).map(item => [String(item.id), item])).values()];
   const workoutRows = uniqueWorkouts.map(workout => ({
@@ -414,10 +435,18 @@ function scheduledStart(workout, workoutDate, timeZone) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-async function fetchIntervalsTrainingContext(config, {force = false, timeZone = 'America/Chicago'} = {}) {
+function currentWeekRange(timeZone){
+ const today=athleteLocalDate(new Date(),timeZone),date=new Date(`${today}T12:00:00Z`);
+ date.setUTCDate(date.getUTCDate()-((date.getUTCDay()+6)%7));const start=date.toISOString().slice(0,10);
+ date.setUTCDate(date.getUTCDate()+6);return {start,end:date.toISOString().slice(0,10)};
+}
+
+async function fetchIntervalsTrainingContext(config, {force = false, timeZone = 'America/Chicago', range} = {}) {
   if (!config.INTERVALS_API_KEY) throw new Error('Connect Intervals.icu in Settings first');
-  if (!force && intervalsMemoryCache?.key === config.INTERVALS_API_KEY && Date.now() - intervalsMemoryCache.savedAt < 60_000) return intervalsMemoryCache.data;
-  const context = await fetchIntervalsContext(createIntervalsClient(config), {timeZone});
+  if(force)providerReads.clear();
+  if (!range && !force && intervalsMemoryCache?.key === config.INTERVALS_API_KEY && Date.now() - intervalsMemoryCache.savedAt < 60_000) return intervalsMemoryCache.data;
+  const context = await fetchIntervalsContext(intervalsClient(config), {timeZone,range});
+  if(range)return context;
   intervalsMemoryCache = {savedAt:Date.now(),key:config.INTERVALS_API_KEY,data:context};
   try {await fs.writeFile(intervalsCachePath,JSON.stringify(context));}
   catch(error) {updateLogs(`Intervals.icu cache write skipped: ${error.message}`);}
@@ -425,6 +454,15 @@ async function fetchIntervalsTrainingContext(config, {force = false, timeZone = 
 }
 
 function scopedTrainingContext(context, scope, today = new Date()) {
+  context = intervalsOnlyContext(context);
+  context = applyCompletionConfirmation(context,completionConfirmation);
+  const compact=w=>{const {raw,...mapped}=w;return mapped};
+  context={...context,history:(context.history || []).map(compact),planned:(context.planned || []).map(compact),...(context.workouts?{workouts:context.workouts.map(compact)}:{})};
+  if (scope && typeof scope === 'object') {
+    const within = w => w.workout_date >= scope.start && w.workout_date <= scope.end;
+    const trendStart = isoDate(shiftDate(new Date(`${scope.start}T12:00:00Z`),-29));
+    return {...context,history:(context.history || []).filter(within),workouts:(context.workouts || context.history || []).filter(within),planned:(context.planned || []).filter(within),wellness_history:(context.wellness_history || []).filter(w => w.date >= trendStart && w.date <= scope.end),context_scope:'range',full_history_available:true};
+  }
   if (scope !== 'week') return context;
   const todayDate = isoDate(today);
   const monday = shiftDate(today, -((today.getUTCDay() + 6) % 7));
@@ -449,7 +487,7 @@ function sameField(actual, expected) {
 }
 
 async function applyIntervalsWorkoutPatch(config, workoutId, requestedPatch) {
-  const result = await applyIntervalsPatch(createIntervalsClient(config),workoutId,requestedPatch);
+  const result = await applyIntervalsPatch(intervalsClient(config),workoutId,requestedPatch);
   intervalsMemoryCache = null;
   return result;
 }
@@ -467,7 +505,9 @@ async function writeBootstrapConfig(data) {
   let local = {};
   try {local = JSON.parse(await fs.readFile(configPath,'utf8'));} catch {}
   await fs.mkdir(__dirname, { recursive: true });
-  await fs.writeFile(configPath, JSON.stringify({...local,...data}, null, 2));
+  const combined = {...local,...data};
+  const bootstrapOnly = Object.fromEntries(['SUPABASE_URL','SUPABASE_SECRET_KEY','SETTINGS_ENCRYPTION_KEY','SETTINGS_SCOPE'].filter(k => combined[k]).map(k => [k,combined[k]]));
+  await fs.writeFile(configPath, JSON.stringify(bootstrapOnly, null, 2));
 }
 
 async function readConfig() {
@@ -507,7 +547,7 @@ async function buildCoachContext(config, coach, { force = false, strict = false 
   let context = {
     ...local,
     coaching:coach,
-    workouts:local.history,
+    history:[],planned:[],workouts:[],
   };
 
   if (contextStore.ready) {
@@ -565,21 +605,21 @@ async function buildCoachContext(config, coach, { force = false, strict = false 
     days_to_race:raceTiming.daysToRace,
   };
 
-  return context;
+  return intervalsOnlyContext(context);
 }
 
 async function runCoach(message, history = [], conversationId = null) {
   const config = await readConfig();
   if (!config.OPENAI_API_KEY) throw new Error('OpenAI is not configured');
   if (!config.INTERVALS_API_KEY) throw new Error('Connect Intervals.icu in Settings before using live coaching');
-  const coach = JSON.parse(await fs.readFile(coachingConfigPath, 'utf8'));
+  const coach = await readDurableState('COACHING_CONFIG',coachingConfigPath,{});
   const context = await buildCoachContext(config, coach, {force:true,strict:true});
   const guide = await loadCoachingInstructions();
   return generateCoachResponse(config, {
     guide, currentDate:athleteLocalDate(new Date(),context.notification_preferences?.time_zone || context.athlete?.time_zone || 'America/Chicago'),
     context,
     history, message,
-    executeTool:createIntervalsCoachAdapter(createIntervalsClient(config)),
+    executeTool:createIntervalsCoachAdapter(intervalsClient(config)),
 
   });
 }
@@ -622,7 +662,7 @@ function startServer() {
 }
 
 async function buildDailyReviewContext(config, options = {}) {
-  const coach = JSON.parse(await fs.readFile(coachingConfigPath, 'utf8'));
+  const coach = await readDurableState('COACHING_CONFIG',coachingConfigPath,{});
   return buildCoachContext(config, coach, options);
 }
 
@@ -792,6 +832,10 @@ export async function handleRequest(req, res) {
           }));
           if (!Object.keys(patch).length) throw new Error('Enter an updated setting first.');
           if (patch.APP_THEME && !['light','dark','system'].includes(patch.APP_THEME)) throw new Error('Invalid appearance setting.');
+          if (patch.METRICS_LAYOUT) {
+            const layout = JSON.parse(patch.METRICS_LAYOUT);
+            if (!Array.isArray(layout.graphs) || layout.graphs.length !== 3 || !layout.graphs.every(x => typeof x === 'string') || !Array.isArray(layout.cards) || !layout.cards.every(x => typeof x === 'string')) throw new Error('Invalid metrics layout.');
+          }
           const current = await readBootstrapConfig();
           if (patch.INTERVALS_API_KEY) await createIntervalsClient({...current,...patch})('/athlete/0');
           const saved = await writeConfig(patch);
@@ -813,7 +857,7 @@ export async function handleRequest(req, res) {
     }
 
     if (pathname === '/api/evidence/sources' && req.method === 'GET') {
-      const knowledge = await readKnowledgeBase(knowledgeSourcesPath);
+      const knowledge = await readDurableState('KNOWLEDGE_BASE',knowledgeSourcesPath,()=>readKnowledgeBase(knowledgeSourcesPath));
       res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
       res.end(JSON.stringify({ version:knowledge.version, retrieved_at:knowledge.retrieved_at, sources:[...knowledge.sources, ...knowledge.imports] }));
       return;
@@ -821,9 +865,9 @@ export async function handleRequest(req, res) {
 
     if (pathname === '/api/evidence/import/8020-triathlon' && req.method === 'POST') {
       const imported = import8020BookPortions(await readBody(req));
-      const knowledge = await readKnowledgeBase(knowledgeSourcesPath);
+      const knowledge = await readDurableState('KNOWLEDGE_BASE',knowledgeSourcesPath,()=>readKnowledgeBase(knowledgeSourcesPath));
       const imports = [...knowledge.imports.filter(item => item.id !== imported.id), imported];
-      await writeKnowledgeBase(knowledgeSourcesPath, { ...knowledge, imports });
+      await writeDurableState('KNOWLEDGE_BASE',{ ...knowledge, imports },knowledgeSourcesPath);
       res.writeHead(201, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
       res.end(JSON.stringify({ imported:{ id:imported.id, title:imported.title, authors:imported.authors, edition:imported.edition, imported_at:imported.imported_at, scope_note:imported.scope_note, portions:imported.passages.map(item => ({ id:item.id, locator:item.locator, content_hash:item.content_hash })) } }));
       return;
@@ -856,7 +900,7 @@ export async function handleRequest(req, res) {
     if (req.url?.startsWith('/api/training-context') && req.method === 'GET') {
       const config = await readConfig();
       const local = await readLocalContext();
-      const coach = JSON.parse(await fs.readFile(coachingConfigPath, 'utf8'));
+      const coach = await readDurableState('COACHING_CONFIG',coachingConfigPath,{});
       const timeZone = local.notification_preferences?.time_zone || local.athlete?.time_zone || 'America/Chicago';
       const raceDate = coach.race_date || local.athlete?.race_date;
       const raceTiming = assessRaceTiming(raceDate, timeZone);
@@ -870,10 +914,17 @@ export async function handleRequest(req, res) {
       });
       const requestUrl = new URL(req.url, 'http://localhost');
       const forceRefresh = requestUrl.searchParams.get('refresh') === '1';
-      const contextScope = requestUrl.searchParams.get('scope') === 'full' ? 'full' : 'week';
+      if(forceRefresh)providerReads.clear();
+      let contextScope = requestUrl.searchParams.get('scope') === 'full' ? 'full' : 'week';
+      if (requestUrl.searchParams.get('scope') === 'range') {
+        const start=requestUrl.searchParams.get('start'),end=requestUrl.searchParams.get('end');
+        validDate(start);validDate(end);
+        if (end < start || new Date(end)-new Date(start) > 31*86400000) throw new Error('Calendar range must be between 1 and 32 days.');
+        contextScope={start,end};
+      }
       if (config.INTERVALS_API_KEY) {
         try {
-          const live = await fetchIntervalsTrainingContext(config, { force:forceRefresh, timeZone, refreshWindow:forceRefresh && requestUrl.searchParams.get('window') === 'recent' });
+          const live = await fetchIntervalsTrainingContext(config, { force:forceRefresh, timeZone, range:typeof contextScope === 'object' ? contextScope : contextScope === 'week' ? currentWeekRange(timeZone) : undefined });
           const liveContext = {
             ...local,
             ...live,
@@ -883,12 +934,11 @@ export async function handleRequest(req, res) {
             library:local.library,
           };
           try {
-            await persistTrainingContext(config, liveContext);
+            if(contextScope === 'full')await persistTrainingContext(config, liveContext);
           } catch (error) {
             updateLogs(`context write failed: ${error.message}`);
           }
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
-          res.end(JSON.stringify(scopedTrainingContext(liveContext, contextScope)));
+          sendJson(req,res,scopedTrainingContext(liveContext, contextScope));
           return;
         } catch (error) {
           updateLogs(`Intervals.icu sync failed: ${error.message}`);
@@ -921,12 +971,56 @@ export async function handleRequest(req, res) {
       return;
     }
 
+    if(pathname==='/api/calendar/workout-description' && req.method==='POST'){
+      const config=await readConfig(),{id,description}=await readBody(req);
+      const result=await updateWorkoutDescription(intervalsClient(config),id,description);
+      intervalsMemoryCache=null;
+      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(result));return;
+    }
+    const routeMap=pathname.match(/^\/api\/activities\/(i\d+|\d+)\/route$/);
+    if(routeMap && req.method==='GET'){
+      const config=await readConfig();
+      const streams=await intervalsClient(config)(`/activity/${routeMap[1]}/streams.json?types=latlng`);
+      const points=activityRoute(streams);
+      sendJson(req,res,{points},'private,max-age=300');return;
+    }
+
+    const summaryRoute=pathname.match(/^\/api\/activities\/(i\d+|\d+)\/summary$/);
+    if(summaryRoute && req.method==='GET'){
+      const config=await readConfig();
+      const request=intervalsClient(config);
+      const activity=await request(`/activity/${summaryRoute[1]}`);
+      const summary=mapIntervalsWorkout(activity,athleteLocalDate(new Date()),null,true).workout_summary.completed;
+      try{Object.assign(summary,recordedExtremes(await request(`/activity/${summaryRoute[1]}/streams.json?types=time,watts,heartrate,velocity_smooth,distance,cadence`)))}catch{/* Keep verified activity totals if streams are unavailable. */}
+      sendJson(req,res,summary);return;
+    }
+
+    const analysisRoute=pathname.match(/^\/api\/activities\/(i\d+|\d+)\/analysis$/);
+    if(analysisRoute && req.method==='GET'){
+      const config=await readConfig(),id=analysisRoute[1],request=intervalsClient(config);
+      const key=createHash('sha256').update(config.INTERVALS_API_KEY+id).digest('hex');
+      const cached=analysisCache.get(key);
+      let data=cached && Date.now()-cached.savedAt<900000?cached.data:null;
+      if(!data){
+        const [activity,streams]=await Promise.all([request(`/activity/${id}?intervals=true`),request(`/activity/${id}/streams.json?types=time,watts,heartrate,velocity_smooth,distance,cadence`)]);
+        let laps=[];
+        if(activity.file_type==='fit')try{
+          const response=await fetch(`https://intervals.icu/api/v1/activity/${id}/file`,{headers:{Authorization:`Basic ${Buffer.from('API_KEY:'+config.INTERVALS_API_KEY).toString('base64')}`},signal:AbortSignal.timeout(30000)});
+          if(response.ok)laps=readFitLaps(Buffer.from(await response.arrayBuffer()));
+        }catch(error){updateLogs(`Lap read unavailable: ${error.message}`);}
+        data=normalizeAnalysis(activity,streams,laps);
+        if(analysisCache.size>=20)analysisCache.delete(analysisCache.keys().next().value);
+        analysisCache.set(key,{data,savedAt:Date.now()});
+      }
+      sendJson(req,res,data,'private,max-age=300');return;
+    }
+
     if (pathname === '/api/calendar/day-actions' && req.method === 'POST') {
       const config = await readConfig();
       const {date,action} = await readBody(req);
       validDate(date);
       if (!['copy','delete'].includes(action)) throw new Error('Invalid calendar day action');
-      const request = createIntervalsClient(config);
+      const request = intervalsClient(config);
       const events = (await request(`/athlete/0/events?oldest=${date}&newest=${date}`) || []).filter(e => String(e.start_date_local).slice(0,10) === date);
       const results = [], failures = [];
       for (const event of events) {
@@ -938,7 +1032,7 @@ export async function handleRequest(req, res) {
       try {context = await fetchIntervalsTrainingContext(config,{force:true});await persistTrainingContext(config,context);}
       catch(error) {updateLogs(`Post-action refresh failed: ${error.message}`);}
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-      res.end(JSON.stringify({results,failures,total:events.length,context}));
+      res.end(JSON.stringify({results,failures,total:events.length,context:context ? scopedTrainingContext(context,null) : null}));
       return;
     }
 
@@ -947,7 +1041,7 @@ export async function handleRequest(req, res) {
     if ((calendarAction && req.method === 'POST') || (calendarDelete && req.method === 'DELETE')) {
       const config = await readConfig();
       const id = decodeURIComponent((calendarAction || calendarDelete)[1]);
-      const request = createIntervalsClient(config);
+      const request = intervalsClient(config);
       const action = calendarAction?.[2] || 'delete';
       const payload = action === 'move' ? await readBody(req) : {};
       const result = action === 'move'
@@ -963,7 +1057,7 @@ export async function handleRequest(req, res) {
         else {
           const prior = all.get(id);
           const mapped = mapIntervalsWorkout(result.event,today);
-          all.set(result.workoutId,action === 'move' ? {...prior,...mapped,completed_data:prior?.completed_data || {},actualDurationMinutes:prior?.actualDurationMinutes || 0,status:prior?.status === 'completed' ? 'completed' : mapped.status} : mapped);
+          all.set(result.workoutId,action === 'move' ? {...prior,...mapped,activity_id:prior?.activity_id || null,activity_file_type:prior?.activity_file_type || null,completed_data:prior?.completed_data || {},actualDurationMinutes:prior?.actualDurationMinutes || 0,status:prior?.status === 'completed' ? 'completed' : mapped.status} : mapped);
         }
         const workouts = [...all.values()].sort((a,b) => a.workout_date.localeCompare(b.workout_date));
         context = {...context,history:workouts.filter(w => w.workout_date <= today),planned:workouts.filter(w => w.workout_date >= today)};
@@ -974,7 +1068,7 @@ export async function handleRequest(req, res) {
       try {context = await fetchIntervalsTrainingContext(config,{force:true});await persistTrainingContext(config,context);}
       catch(error) {updateLogs(`Post-calendar refresh failed: ${error.message}`);}
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-      res.end(JSON.stringify({...result,context}));
+      res.end(JSON.stringify({...result,context:context ? scopedTrainingContext(context,null) : null}));
       return;
     }
 
@@ -1154,11 +1248,13 @@ export async function handleRequest(req, res) {
         '.svg':'image/svg+xml',
         '.woff2':'font/woff2',
       };
+      const asset=compressAsset(file,ext,req.headers['accept-encoding']);
       res.writeHead(200, {
+        ...asset.headers,
         'Content-Type': contentTypes[ext] || 'application/octet-stream',
         'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable',
       });
-      res.end(file);
+      res.end(asset.body);
     } catch {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Not found', message: 'Build the UI with npm run ui:build.' }));

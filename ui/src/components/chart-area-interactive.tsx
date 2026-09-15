@@ -1,5 +1,6 @@
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
+import {formatDuration} from '@/lib/duration'
 import {
   Card,
   CardAction,
@@ -31,8 +32,7 @@ const historyChartConfig = {
 } satisfies ChartConfig
 
 function formatHours(hours: number) {
-  const totalMinutes = Math.max(0, Math.round(hours * 60))
-  return `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`
+  return formatDuration(hours * 60)
 }
 
 function weekStart(value: string) {

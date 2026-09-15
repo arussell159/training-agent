@@ -1,3 +1,5 @@
+import {formatDuration} from '@/lib/duration'
+import {durationMinutes} from '@/lib/training-context'
 import { Activity, Clock3, Gauge, HeartPulse } from "lucide-react"
 import {
   Area,
@@ -255,7 +257,7 @@ function RecoveryTrendCard({
   )
 }
 
-import { hasWorkoutStructure } from "@/lib/workout-structure"
+import { hasWorkoutStructure, structuredWorkoutProfile } from "@/lib/workout-structure"
 
 export function SectionCards({
   context,
@@ -268,14 +270,10 @@ export function SectionCards({
     context.planned.find((workout) => workout.status === "today") ??
     context.planned.find((workout) => workout.status === "upcoming") ??
     context.planned[0]
-  const fitness = Math.round(context.metrics.fitness ?? 0)
-  const fatigue = Math.round(context.metrics.fatigue ?? 0)
-  const form = Math.round(context.metrics.form ?? 0)
-  const profile = workoutProfile(
-    today?.title,
-    today?.sport,
-    today?.details ?? today?.goal
-  )
+  const fitness = context.metrics.fitness == null ? '—' : Math.round(context.metrics.fitness)
+  const fatigue = context.metrics.fatigue == null ? '—' : Math.round(context.metrics.fatigue)
+  const form = context.metrics.form == null ? '—' : Math.round(context.metrics.form)
+  const profile = structuredWorkoutProfile(today?.structure)
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-12">
@@ -334,7 +332,7 @@ export function SectionCards({
             <div>
               <p className="text-xs text-muted-foreground">Duration</p>
               <p className="mt-1 flex items-center gap-2 font-medium">
-                <Clock3 className="size-4" /> {today?.duration ?? "—"}
+                <Clock3 className="size-4" /> {today ? formatDuration(durationMinutes(today)) : "—"}
               </p>
             </div>
             <div>
@@ -373,7 +371,7 @@ export function SectionCards({
           <div className="min-w-0 pl-2 sm:pl-5">
             <p className="text-xs text-muted-foreground">Form</p>
             <p className="mt-1 text-lg font-semibold tabular-nums">
-              {form > 0 ? "+" : ""}
+              {typeof form === 'number' && form > 0 ? "+" : ""}
               {form} <span className="text-xs font-normal">TSB</span>
             </p>
           </div>

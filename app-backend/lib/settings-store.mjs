@@ -3,6 +3,7 @@ import {createCipheriv,createDecipheriv,createHash,randomBytes} from 'node:crypt
 export const STORED_SETTINGS = [
   'INTERVALS_API_KEY','OPENAI_API_KEY','OPENAI_MODEL',
   'VAPID_PUBLIC_KEY','VAPID_PRIVATE_KEY','VAPID_SUBJECT','APP_THEME',
+  'METRICS_LAYOUT','APP_DATA','HISTORICAL_ARCHIVE','COACHING_CONFIG','KNOWLEDGE_BASE','CALENDAR_SUMMARY_OPEN','TRAININGPEAKS_IMPORT_REPORT','RACE_PLAN_IMPORT_REPORT','COMPLETION_CONFIRMATION',
 ];
 const BOOTSTRAP_SETTINGS = ['SUPABASE_URL','SUPABASE_SECRET_KEY','SETTINGS_ENCRYPTION_KEY','SETTINGS_SCOPE'];
 
@@ -18,6 +19,8 @@ export function publicSettings(config) {
     supabaseNeedsUrl:Boolean(config.SUPABASE_SECRET_KEY && !config.SUPABASE_URL),
     settingsStorage:'supabase',
     theme:['light','dark','system'].includes(config.APP_THEME) ? config.APP_THEME : null,
+    metricsLayout:config.METRICS_LAYOUT ? JSON.parse(config.METRICS_LAYOUT) : null,
+    calendarSummaryOpen:config.CALENDAR_SUMMARY_OPEN !== 'false',
     settingsError:config.settingsError || null,
   };
 }
@@ -110,9 +113,10 @@ export function createSettingsService({readBootstrap,writeBootstrap,fetchImpl = 
       if (bootstrapChanged && hosted) throw new Error('Set the Supabase URL and secret in the deployment environment. Hosted Settings cannot change their database bootstrap connection.');
       const store = createSupabaseSettingsStore(target,fetchImpl);
       // Ensure the destination table is reachable, including when only saving bootstrap fields.
-      await store.read();
-      await store.save(patch);
-      if (bootstrapChanged) await writeBootstrap(pickSettings(target,BOOTSTRAP_SETTINGS));
+      const existing = await store.read();
+      const migrated = Object.fromEntries(Object.entries(pickSettings(bootstrap,STORED_SETTINGS)).filter(([name]) => !existing[name]));
+      await store.save({...migrated,...patch});
+      if (bootstrapChanged || (!hosted && STORED_SETTINGS.some(name => bootstrap[name]))) await writeBootstrap(pickSettings(target,BOOTSTRAP_SETTINGS));
       return {...target,...await store.read()};
     },
   };

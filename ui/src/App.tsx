@@ -99,7 +99,7 @@ function routeItem() {
     return "Calendar"
   if (window.location.pathname === "/library") return "Library"
   if (window.location.pathname === "/settings") return "Settings"
-  return localStorage.getItem("training-app-active-item") ?? "Home"
+  return "Home"
 }
 
 function itemPath(item: string) {
@@ -166,10 +166,6 @@ function AppWorkspace() {
       // The current chat remains usable if history is temporarily unavailable.
     }
   }, [])
-
-  useEffect(() => {
-    localStorage.setItem("training-app-active-item", activeItem)
-  }, [activeItem])
 
   useEffect(() => {
     const showReconnect = () => setIntervalsDisconnected(true)

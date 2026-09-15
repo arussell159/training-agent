@@ -47,7 +47,7 @@ function sport(type) {
 }
 function duration(seconds) {
   const minutes = Math.round(Number(seconds || 0) / 60);
-  return minutes ? `${minutes} min` : '—';
+  return `${String(Math.floor(minutes/60)).padStart(2,'0')}h ${String(minutes%60).padStart(2,'0')}m`;
 }
 function pace(speed, distance, unit) {
   if (!(Number(speed) > 0)) return null;
@@ -57,20 +57,34 @@ function pace(speed, distance, unit) {
 
 export function mapIntervalsWorkout(item, today, activity = null, isActivity = false) {
   const actual = isActivity ? item : activity;
+  const description=String(item.description || '').split('\n\nIntervals.icu device definition:\n')[0];
   const date = String(item.start_date_local || '').slice(0,10);
   validDate(date);
   const minutes = Math.round(Number(item.moving_time || item.workout_doc?.duration || 0) / 60);
   const actualMinutes = actual ? Math.round(Number(actual.moving_time || 0) / 60) : 0;
   const local = new Date(`${date}T12:00:00Z`);
+  const summary=value=>{
+    if(!value)return null;
+    const durationSeconds=value.moving_time ?? value.workout_doc?.duration ?? null;
+    const distanceMeters=value.distance ?? value.workout_doc?.distance ?? null;
+    return {duration_seconds:durationSeconds,distance_meters:distanceMeters,
+      average_speed:value.average_speed ?? (distanceMeters>0 && durationSeconds>0?distanceMeters/durationSeconds:null),
+      max_speed:value.max_speed ?? null,calories:value.calories ?? null,elevation_gain:value.total_elevation_gain ?? null,
+      elevation_loss:value.total_elevation_loss ?? null,tss:value.icu_training_load ?? value.load_target ?? null,
+      intensity_factor:value.icu_intensity!=null?value.icu_intensity/100:null,
+      work_kj:value.icu_joules!=null?value.icu_joules/1000:null,
+      average_power:value.icu_average_watts ?? value.workout_doc?.average_watts ?? null,
+      average_hr:value.average_heartrate ?? null,max_hr:value.max_heartrate ?? null,average_cadence:value.average_cadence ?? null};
+  };
   return {
     id:`${isActivity ? 'activity' : 'event'}:${item.id}`,
-    provider:'intervals', editable:!isActivity, activity_id:actual?.id || null, category:item.category || 'ACTIVITY',
+    provider:'intervals', editable:!isActivity, activity_id:actual?.id || null, activity_file_type:actual?.file_type || null, category:item.category || 'ACTIVITY',
     workout_date:date, day:local.toLocaleDateString('en-US',{weekday:'short',timeZone:'UTC'}).toUpperCase(),
     date:local.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}), sport:sport(item.type),
     title:item.name || `${sport(item.type)} ${isActivity ? 'activity' : 'event'}`,
-    duration:duration(item.moving_time || item.workout_doc?.duration),
+    duration:duration(item.moving_time || item.workout_doc?.duration), distance_meters:actual?.distance ?? item.distance ?? item.workout_doc?.distance ?? null,
     plannedDurationMinutes:isActivity ? 0 : minutes, actualDurationMinutes:actualMinutes,
-    goal:item.description || '', details:item.description || '',
+    goal:description, details:description,
     status:actual ? 'completed' : date === today ? 'today' : 'upcoming', completed:Boolean(actual),
     load:item.icu_training_load ?? item.load_target ?? 0,
     planned:{duration_minutes:isActivity ? 0 : minutes, tss:isActivity ? 0 : item.icu_training_load ?? item.load_target ?? 0},
@@ -82,19 +96,21 @@ export function mapIntervalsWorkout(item, today, activity = null, isActivity = f
     scheduled_start_at:null, structure:item.workout_doc ? JSON.stringify(item.workout_doc) : null,
     source_updated_at:item.updated || null, source:'intervals',
     measurement_quality:{power_available:actual?.icu_average_watts != null,heart_rate_available:actual?.average_heartrate != null},
+    workout_summary:{planned:isActivity?null:summary(item),completed:summary(actual)},
     raw:item,
   };
 }
 
-export async function fetchIntervalsContext(request, {now = new Date(), timeZone = 'America/Chicago'} = {}) {
+export async function fetchIntervalsContext(request, {now = new Date(), timeZone = 'America/Chicago', range} = {}) {
   const athlete = await request('/athlete/0');
   timeZone = athlete.timezone || athlete.time_zone || timeZone;
   const today = athleteLocalDate(now,timeZone);
   const shift = days => new Date(Date.parse(`${today}T12:00:00Z`) + days * 86400000).toISOString().slice(0,10);
-  const query = `oldest=${shift(-89)}&newest=${shift(60)}`;
-  const [activities,events,wellness] = await Promise.all([
+  const query = `oldest=${range?.start || shift(-89)}&newest=${range?.end || shift(60)}`;
+  const [activities,events,wellness,currentWellness] = await Promise.all([
     request(`/athlete/0/activities?${query}`), request(`/athlete/0/events?${query}`),
-    request(`/athlete/0/wellness?oldest=${shift(-89)}&newest=${today}`),
+    request(`/athlete/0/wellness?oldest=${range ? new Date(Date.parse(`${range.start}T12:00:00Z`)-29*86400000).toISOString().slice(0,10) : shift(-89)}&newest=${range?.end || today}`),
+    range ? request(`/athlete/0/wellness?oldest=${today}&newest=${today}`) : Promise.resolve(null),
   ]);
   const byId = new Map((activities || []).map(a => [String(a.id),a]));
   const paired = new Set((events || []).filter(e => e.paired_activity_id != null).map(e => String(e.paired_activity_id)));
@@ -105,7 +121,7 @@ export async function fetchIntervalsContext(request, {now = new Date(), timeZone
   const settings = athlete.sportSettings || athlete.sport_settings || [];
   const find = pattern => settings.find(s => (s.types || [s.type]).some(t => pattern.test(t || ''))) || {};
   const bike = find(/Ride/), run = find(/Run/), swim = find(/Swim/);
-  const latest = [...(wellness || [])].sort((a,b) => String(a.id).localeCompare(String(b.id))).at(-1) || {};
+  const latest = [...(currentWellness || wellness || [])].filter(w=>w.id<=today).sort((a,b) => String(a.id).localeCompare(String(b.id))).at(-1) || {};
   return {
     athlete:{id:String(athlete.id), name:athlete.name || [athlete.first_name,athlete.last_name].filter(Boolean).join(' '),
       time_zone:timeZone, sport_settings:settings, thresholds:settings,

@@ -36,7 +36,7 @@ test('settings persist encrypted and survive fresh instances without local file 
   assert.equal(result.INTERVALS_API_KEY,'saved-key');
   assert.equal(result.OPENAI_API_KEY,'fixture-openai-key');
   assert.equal(result.APP_THEME,'dark');
-  assert.deepEqual(publicSettings(result),{intervalsConnected:true,openAIConnected:true,supabaseConnected:true,supabaseNeedsUrl:false,settingsStorage:'supabase',theme:'dark',settingsError:null});
+  assert.deepEqual(publicSettings(result),{intervalsConnected:true,openAIConnected:true,supabaseConnected:true,supabaseNeedsUrl:false,settingsStorage:'supabase',theme:'dark',metricsLayout:null,calendarSummaryOpen:true,settingsError:null});
 });
 
 test('encryption is randomized, authenticated and scoped; bootstrap secrets are not stored',async()=>{

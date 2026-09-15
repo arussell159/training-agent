@@ -1,6 +1,11 @@
+import {WorkoutDescription} from '@/components/workout-description'
+import {lazy,Suspense} from 'react'
+import {formatDuration} from '@/lib/duration'
 import { gradeWorkoutCompletion, type CompletionGrade } from "@/lib/workout-completion"
 import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
-import { hasWorkoutStructure } from "@/lib/workout-structure"
+import { WorkoutProfile } from "@/components/workout-profile"
+import { WorkoutSummary } from "@/components/workout-summary"
+import { plannedDistanceLabel } from "@/lib/workout-distance"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, useSensor, useSensors, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/core"
 import {
@@ -23,8 +28,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Card, CardTitle } from "@/components/ui/card"
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
 import {
   ChartContainer,
   ChartTooltip,
@@ -38,27 +43,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   durationMinutes,
   completedMinutes,
   fallbackTrainingContext,
-  loadFullTrainingContext,
-  loadTrainingContext,
   moveWorkoutDate,
   changeWorkout,
   changeWorkoutDay,
   type PlannedWorkout,
   type TrainingHistoryItem,
+  type TrainingContext,
 } from "@/lib/training-context"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { workoutProfile } from "@/components/section-cards"
+import { DailyMetricsCard, DailyMetricsDialog } from "@/components/daily-metrics"
+const WorkoutAnalysis=lazy(()=>import('@/components/workout-analysis').then(m=>({default:m.WorkoutAnalysis})))
+import {apiFetch} from '@/lib/api-client'
 
 function SportIcon({ sport }: { sport: string }) {
   const value = sport.toLowerCase()
   const base = "size-5 shrink-0"
   if (value.includes("swim")) return <Waves className={`${base} text-cyan-600`} />
-  if (value.includes("bike")) return <Bike className={`${base} text-violet-600`} />
+  if (value.includes("bike") || value.includes("brick")) return <Bike className={`${base} text-violet-600`} />
   if (value.includes("run")) return <Footprints className={`${base} text-lime-600`} />
   if (value.includes("strength")) return <Dumbbell className={`${base} text-orange-600`} />
   return <CalendarDays className={`${base} text-slate-500`} />
@@ -72,59 +77,10 @@ const gradeStyles: Record<CompletionGrade, string> = {
   failed: "border-red-500/50 bg-red-50 text-red-950 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-100",
 }
 function WorkoutPreview({ workout, large = false }: { workout: PlannedWorkout; large?: boolean }) {
-  if (!hasWorkoutStructure(workout.structure)) return null
-  const source = workout.details ?? workout.goal ?? workout.title
-  const points = workoutProfile(workout.title, workout.sport, source)
-  const profile = Array.from({ length: Math.floor(points.length / 2) }, (_, index) => {
-    const start = points[index * 2]
-    const end = points[index * 2 + 1]
-    return {
-      intensity: start.intensity,
-      width: Math.max(1, end.position - start.position),
-    }
-  })
-  return (
-    <div className={`mt-auto flex items-end overflow-hidden opacity-70 ${large ? "h-20 gap-1 rounded-md border p-2" : "-mx-2.5 -mb-3 h-8 gap-0 pt-2"}`} aria-label="Workout profile preview">
-      {profile.map((segment, index) => (
-        <span
-          key={index}
-          className={`min-w-px bg-muted-foreground/40 ${large ? "rounded-sm" : ""}`}
-          style={{
-            flexBasis: 0,
-            flexGrow: segment.width,
-            height: `${Math.min(segment.intensity, 96)}%`,
-          }}
-        />
-      ))}
-    </div>
-  )
+  return <div className={large ? '' : 'mt-auto -mx-2.5 -mb-3 pt-2'}><WorkoutProfile workout={workout} compact={!large} /></div>
 }
 
-function estimatedDistance(workout: PlannedWorkout) {
-  const sport = workout.sport.toLowerCase()
-  const source = `${workout.title} ${workout.details ?? workout.goal ?? ""}`
-  const minutes = workout.status === "completed" && completedMinutes(workout) > 0
-    ? completedMinutes(workout)
-    : durationMinutes(workout)
-  if (sport.includes("swim")) {
-    const yards = [...source.matchAll(/(\d+)\s*x\s*\(([^)]+)\)/gi)].reduce((sum, set) => {
-      const setDistance = [...set[2].matchAll(/(\d+)\s*(?:FS|Free|Pull|Kick|Back|Breast|Choice|Drill)/gi)]
-        .reduce((distance, step) => distance + Number(step[1]), 0)
-      return sum + Number(set[1]) * setDistance
-    }, 0)
-    const estimate = yards || Math.round((minutes * 50) / 50) * 50
-    return estimate > 0 ? `~${estimate} yds` : ""
-  }
-  if (sport.includes("bike") || sport.includes("brick")) {
-    const mph = /70\.3|race pace|threshold|over-under/i.test(source) ? 20 : /easy|recovery/i.test(source) ? 16 : 18
-    return minutes > 0 ? `~${(minutes / 60 * mph).toFixed(1)} mi` : ""
-  }
-  if (sport.includes("run")) {
-    const mph = /threshold|tempo|70\.3|race pace/i.test(source) ? 7.2 : /easy|recovery/i.test(source) ? 6 : 6.6
-    return minutes > 0 ? `~${(minutes / 60 * mph).toFixed(1)} mi` : ""
-  }
-  return ""
-}
+function estimatedDistance(workout: PlannedWorkout) { const label=plannedDistanceLabel(workout);return label==='—'?'':label }
 
 function workoutDate(value?: string) {
   if (!value) return null
@@ -134,7 +90,7 @@ function workoutDate(value?: string) {
 
 export function WorkoutCard({ workout, onClick, onAction, disabled = false }: { workout: PlannedWorkout; onClick: () => void; onAction?: (action: "copy" | "delete") => void; disabled?: boolean }) {
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const grade = gradeWorkoutCompletion(workout.status, { ...workout.planned, duration_minutes: workout.planned?.duration_minutes ?? workout.plannedDurationMinutes }, { ...workout.completed_data, duration_minutes: completedMinutes(workout) })
+  const grade = workout.status==='completed' && workout.completion_grade ? workout.completion_grade : gradeWorkoutCompletion(workout.status, { ...workout.planned, duration_minutes: workout.planned?.duration_minutes ?? workout.plannedDurationMinutes }, { ...workout.completed_data, duration_minutes: completedMinutes(workout) })
   const displayedMinutes = workout.status === "completed" && completedMinutes(workout) > 0
     ? completedMinutes(workout)
     : durationMinutes(workout)
@@ -144,19 +100,20 @@ export function WorkoutCard({ workout, onClick, onAction, disabled = false }: { 
       tabIndex={0}
       onClick={onClick}
       onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onClick() } }}
-      className={`w-full cursor-pointer gap-2 rounded-md px-2.5 py-3 shadow-sm transition-colors ${gradeStyles[grade]}`}
+      className={`group/workout w-full cursor-pointer gap-2 rounded-md px-2.5 py-3 shadow-sm transition-colors ${gradeStyles[grade]}`}
     >
       <div className="flex min-w-0 flex-col items-start gap-2">
         <div className="flex w-full items-center justify-between">
           <SportIcon sport={workout.sport} />
-          {onAction && <div onClick={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()} onTouchStart={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
+          <div onClick={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()} onTouchStart={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
             <DropdownMenu>
-              <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-sm" className="-my-1 -mr-1 size-7" disabled={disabled} aria-label={`Options for ${workout.title}`} />}>
+              <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-sm" className="-my-1 -mr-1 size-7 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/workout:opacity-100 group-focus-within/workout:opacity-100 data-[popup-open]:opacity-100" disabled={disabled && Boolean(onAction)} aria-label={`Options for ${workout.title}`} />}>
                 <Ellipsis className="size-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-36" onClick={event => event.stopPropagation()}>
-                <DropdownMenuItem onClick={() => onAction("copy")}><Copy />Copy</DropdownMenuItem>
-                <DropdownMenuItem variant="destructive" onClick={() => setDeleteOpen(true)}><Trash2 />Delete</DropdownMenuItem>
+                {!onAction && <p className="max-w-48 px-2 py-1.5 text-xs text-muted-foreground">Recorded history is read-only.</p>}
+                <DropdownMenuItem disabled={!onAction || disabled} onClick={() => onAction?.("copy")}><Copy />Copy</DropdownMenuItem>
+                <DropdownMenuItem disabled={!onAction || disabled} variant="destructive" onClick={() => setDeleteOpen(true)}><Trash2 />Delete</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
@@ -167,20 +124,25 @@ export function WorkoutCard({ workout, onClick, onAction, disabled = false }: { 
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction variant="destructive" onClick={() => onAction("delete")}>Delete workout</AlertDialogAction>
+                  <AlertDialogAction variant="destructive" onClick={() => onAction?.("delete")}>Delete workout</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-          </div>}
+          </div>
         </div>
-        <span className="line-clamp-2 w-full text-left text-sm font-semibold leading-tight md:text-base">
+        <span className="line-clamp-2 w-full text-left text-[13px] font-semibold leading-tight md:text-sm">
           {workout.title}
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-muted-foreground md:text-xs">
         {displayedMinutes > 0 && <span>{formatDuration(displayedMinutes)}</span>}
         {estimatedDistance(workout) && <span>· {estimatedDistance(workout)}</span>}
       </div>
+      {(workout.details || workout.goal) && (
+        <p className="line-clamp-6 whitespace-pre-line break-words text-xs leading-relaxed text-muted-foreground">
+          {(workout.details || workout.goal || "").trim()}
+        </p>
+      )}
       {workout.status === "completed" && grade !== "unknown" && (
         <span className="flex items-center gap-1 text-[10px] font-medium">
           {grade === "good" ? "On target" : grade === "medium" ? "Near target" : "Outside target"}
@@ -192,7 +154,7 @@ export function WorkoutCard({ workout, onClick, onAction, disabled = false }: { 
 }
 
 function DraggableWorkout({ workout, onOpen, onAction, disabled }: { workout: PlannedWorkout; onOpen: () => void; onAction: (action: "copy" | "delete") => void; disabled: boolean }) {
-  const {setNodeRef, listeners, isDragging} = useDraggable({id:workout.id, data:{workout}, disabled})
+  const {setNodeRef, listeners, isDragging} = useDraggable({id:workout.id, data:{workout}, disabled:disabled || !workout.id.startsWith("event:")})
   return <div ref={setNodeRef} {...listeners} className={`select-none ${isDragging ? "opacity-30" : ""}`}>
     <WorkoutCard workout={workout} onClick={onOpen} onAction={workout.id.startsWith("event:") ? onAction : undefined} disabled={disabled} />
   </div>
@@ -244,8 +206,12 @@ export function TrainingCalendar({
 }: {
   onWorkoutOpen?: (workout: PlannedWorkout) => void
 }) {
-  const [context, setContext] = useState(fallbackTrainingContext)
+  const [context, setContext] = useState({...fallbackTrainingContext, history: [], planned: [], wellness_history: []} as TrainingContext)
+  const [historyReady,setHistoryReady] = useState(false)
+  const loadedWeeks = useRef(new Set<string>())
+  const pendingWeeks = useRef(new Set<string>())
   const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(null)
+  const [metricsDate, setMetricsDate] = useState<string | null>(null)
   const [activeWeekKey, setActiveWeekKey] = useState("")
   const [dragging, setDragging] = useState<PlannedWorkout | null>(null)
   const [moving, setMoving] = useState(false)
@@ -310,37 +276,33 @@ export function TrainingCalendar({
       setMoveNotice(error instanceof Error ? error.message : "Unable to move workout.")
     } finally {setMoving(false)}
   }
-  const [summaryOpen, setSummaryOpen] = useState(() => localStorage.getItem("training-calendar-summary-open") !== "false")
+  const [summaryOpen, setSummaryOpen] = useState(true)
+  useEffect(()=>{const update=(event:Event)=>{const {id,description}=(event as CustomEvent<{id:string;description:string}>).detail;const map=(w:PlannedWorkout)=>w.id===id?{...w,details:description,goal:description}:w;setContext(c=>({...c,planned:c.planned.map(map),history:c.history.map(w=>(w as unknown as {id:string}).id===id?{...w,details:description,goal:description}:w)}))};window.addEventListener('workout-description-updated',update);return()=>window.removeEventListener('workout-description-updated',update)},[])
+  useEffect(()=>{let active=true;void apiFetch('/api/config').then(r=>r.json()).then(c=>{if(active)setSummaryOpen(c.calendarSummaryOpen !== false)}).catch(()=>{});return()=>{active=false}},[])
+  async function saveSummary(open:boolean) {
+    try {const r=await apiFetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({CALENDAR_SUMMARY_OPEN:String(open)})});const c=await r.json();if(!r.ok)throw new Error(c.error||'Could not save preference');setSummaryOpen(open)}catch(e){setMoveNotice(e instanceof Error?e.message:'Could not save preference')}
+  }
   const isMobile = useIsMobile()
   const weekRefs = useRef(new Map<string, HTMLElement>())
   const calendarRef = useRef<HTMLDivElement>(null)
+  const viewportAnchor = useRef<{element:Element;top:number;scrollY:number} | null>(null)
+
+  // Correct layout growth before paint, rather than letting newly loaded rows
+  // move the day the user was reading. Retain any intervening user scrolling.
+  useLayoutEffect(()=>{
+    const anchor=viewportAnchor.current
+    viewportAnchor.current=null
+    if(!anchor || !anchor.element.isConnected)return
+    const shift=anchor.element.getBoundingClientRect().top-anchor.top+(window.scrollY-anchor.scrollY)
+    if(Math.abs(shift)>0.5)window.scrollTo({top:window.scrollY+shift,behavior:'instant'})
+  },[context])
 
   useEffect(() => {
-    let active = true
-    const revision = calendarRevision.current
-    loadTrainingContext().then((next) => active && revision === calendarRevision.current && setContext(next))
-    return () => {
-      active = false
-    }
+    // Wait until initial date alignment finishes before observing the actual viewport.
+    const timer = window.setTimeout(() => setHistoryReady(true), 300)
+    return () => window.clearTimeout(timer)
   }, [])
 
-  useEffect(() => {
-    let active = true
-    let started = false
-    const hydrateHistory = () => {
-      if (started) return
-      started = true
-      const revision = calendarRevision.current
-      void loadFullTrainingContext().then((next) => active && revision === calendarRevision.current && setContext(next))
-    }
-    window.addEventListener("scroll", hydrateHistory, { passive: true, once: true })
-    const timer = window.setTimeout(hydrateHistory, 1200)
-    return () => {
-      active = false
-      window.clearTimeout(timer)
-      window.removeEventListener("scroll", hydrateHistory)
-    }
-  }, [])
 
   const workouts = useMemo(() => {
       const workouts = new Map<string, PlannedWorkout>()
@@ -355,9 +317,14 @@ export function TrainingCalendar({
   )
 
   const weeks = useMemo(() => {
-    if (!workouts.length) return []
-    const first = startOfMonday(workoutDate(workouts[0].workout_date)!)
-    const last = startOfMonday(workoutDate(workouts[workouts.length - 1].workout_date)!)
+    // Dates exist independently of sessions: an empty account still has a calendar.
+    const today = new Date()
+    const earliest = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 90)
+    const latest = new Date(today.getFullYear() + 1, today.getMonth(), today.getDate())
+    const firstWorkout = workoutDate(workouts[0]?.workout_date)
+    const lastWorkout = workoutDate(workouts[workouts.length - 1]?.workout_date)
+    const first = startOfMonday(firstWorkout && firstWorkout < earliest ? firstWorkout : earliest)
+    const last = startOfMonday(lastWorkout && lastWorkout > latest ? lastWorkout : latest)
     const result: Array<{ key: string; start: Date; days: Date[]; workouts: PlannedWorkout[] }> = []
     for (let cursor = first; cursor <= last; cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 7)) {
       const start = new Date(cursor)
@@ -367,6 +334,73 @@ export function TrainingCalendar({
     }
     return result
   }, [workouts])
+
+  const weekKeys = weeks.map(week=>week.key).join('|')
+  useEffect(()=>{
+    if(!historyReady)return
+    let active=true
+    const controller=new AbortController()
+    let busy=false
+    let scrolled=false
+    const queue=new Set<string>()
+    const pump=async()=>{
+      if(busy || !active)return
+      const start=queue.values().next().value as string | undefined
+      if(!start)return
+      queue.delete(start)
+      if(loadedWeeks.current.has(start)){void pump();return}
+      busy=true
+      const date=workoutDate(start)!
+      const end=dateKey(new Date(date.getFullYear(),date.getMonth(),date.getDate()+6))
+        pendingWeeks.current.add(start)
+        const revision=calendarRevision.current
+        const query=new URLSearchParams({scope:'range',start,end})
+        await apiFetch(`/api/training-context?${query}`,{signal:controller.signal}).then(async response=>{
+          if(!response.ok)throw new Error('Could not load calendar week')
+          return await response.json() as TrainingContext
+        }).then(next=>{
+          if(!active || revision!==calendarRevision.current)return
+          if(scrolled){
+            const header=isMobile?56:84
+            const visible=Array.from(calendarRef.current?.querySelectorAll('[data-calendar-date]') || [])
+              .map(element=>({element,bounds:element.getBoundingClientRect()}))
+              .filter(({bounds})=>bounds.bottom>header && bounds.top<window.innerHeight)
+              .sort((a,b)=>Math.abs(a.bounds.top-header)-Math.abs(b.bounds.top-header))
+            const anchor=visible[0]
+            if(anchor)viewportAnchor.current={element:anchor.element,top:anchor.bounds.top,scrollY:window.scrollY}
+          }
+          loadedWeeks.current.add(start)
+          setContext(previous=>{
+            const history=new Map([...previous.history,...next.history].map(w=>[(w as PlannedWorkout).id,w]))
+            const planned=new Map([...previous.planned,...next.planned].map(w=>[w.id,w]))
+            const wellness=new Map([...(previous.wellness_history || []),...(next.wellness_history || [])].map(w=>[w.date,w]))
+            return {...next,history:[...history.values()],planned:[...planned.values()],wellness_history:[...wellness.values()]}
+          })
+          if(!scrolled)requestAnimationFrame(()=>{
+            const element=isMobile ? calendarRef.current?.querySelector(`[data-calendar-date="${dateKey(new Date())}"]`) : weekRefs.current.get(start)
+            if(element && !scrolled)window.scrollTo({top:Math.max(0,window.scrollY+element.getBoundingClientRect().top-(isMobile?56:84)),behavior:'instant'})
+          })
+        }).catch(error=>{if(active && error.name!=='AbortError')setMoveNotice(`Workouts for ${start} could not load. Scroll back to retry.`)})
+          .finally(()=>{pendingWeeks.current.delete(start);busy=false})
+      if(active)void pump()
+    }
+    const loadVisible=()=>{
+      if(!scrolled)return
+      queue.clear()
+      for(const [key,element] of weekRefs.current){
+        const bounds=element.getBoundingClientRect()
+        if(bounds.bottom>56 && bounds.top<window.innerHeight && !loadedWeeks.current.has(key) && !pendingWeeks.current.has(key))queue.add(key)
+      }
+      void pump()
+    }
+    const onScroll=()=>{scrolled=true;loadVisible()}
+    const observer=new IntersectionObserver(loadVisible,{rootMargin:'0px',threshold:0})
+    for(const element of weekRefs.current.values())observer.observe(element)
+    queue.add(dateKey(startOfMonday(new Date())))
+    void pump()
+    window.addEventListener('scroll',onScroll,{passive:true})
+    return()=>{active=false;controller.abort();observer.disconnect();window.removeEventListener('scroll',onScroll);pendingWeeks.current.clear()}
+  },[weekKeys,historyReady])
 
   useLayoutEffect(() => {
     if (!weeks.length || calendarWasDragged.current) return
@@ -390,7 +424,7 @@ export function TrainingCalendar({
       window.clearTimeout(timer)
       history.scrollRestoration = previousRestoration
     }
-  }, [weeks, isMobile])
+  }, [weekKeys, isMobile])
 
   const scrollToWeek = (key: string, behavior: ScrollBehavior = "smooth") => {
     const element = weekRefs.current.get(key)
@@ -439,7 +473,7 @@ export function TrainingCalendar({
 
   return (
     <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={({active}) => setDragging(active.data.current?.workout || null)} onDragCancel={() => setDragging(null)} onDragEnd={event => void finishDrag(event)}>
-    <div ref={calendarRef} className="flex w-full min-w-0 flex-1 flex-col">
+    <div ref={calendarRef} style={{overflowAnchor:'none'}} className="flex w-full min-w-0 flex-1 flex-col">
       <header className="mobile-site-header sticky top-0 z-50 flex h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:shadow-none">
         <h1 className="mobile-header-title min-w-0 truncate text-sm font-semibold">{activeMonth}</h1>
         <div className="flex items-center gap-1 md:ml-4">
@@ -451,7 +485,11 @@ export function TrainingCalendar({
         <div className="grid min-w-0 flex-1 grid-cols-7 divide-x">
           {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(day => <div key={day} className="flex items-center px-2 text-[11px] font-medium uppercase text-muted-foreground">{day}</div>)}
         </div>
-        <div className={`hidden shrink-0 border-l xl:block ${summaryOpen ? "w-72" : "w-10"}`} />
+        <div className={`hidden shrink-0 items-center justify-end border-l px-1 xl:flex ${summaryOpen ? "w-72" : "w-10"}`}>
+          <Button variant="ghost" size="icon-sm" className="size-6" onClick={() => void saveSummary(!summaryOpen)} aria-label={summaryOpen ? "Collapse weekly summary" : "Expand weekly summary"} aria-expanded={summaryOpen}>
+            {summaryOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+          </Button>
+        </div>
       </div>
       {moveNotice && <p role="status" className="border-b bg-background px-4 py-2 text-xs text-muted-foreground">{moveNotice}</p>}
       <div className="flex min-h-0 flex-1 flex-col">
@@ -463,11 +501,12 @@ export function TrainingCalendar({
             return (
               <section
                 key={week.key}
+                data-calendar-week={week.key}
                 ref={(element) => { if (element) weekRefs.current.set(week.key, element); else weekRefs.current.delete(week.key) }}
                 className="h-auto min-h-0 scroll-mt-14 bg-background"
               >
-                <div className="flex h-auto min-h-0 w-full flex-col items-start xl:flex-row">
-                <div className="grid h-auto min-h-0 w-full min-w-0 flex-1 grid-cols-1 items-stretch divide-y md:grid-cols-7 md:divide-x md:divide-y-0">
+                <div className="flex h-auto min-h-0 w-full flex-col items-stretch xl:flex-row">
+                <div className="grid h-auto min-h-48 w-full min-w-0 flex-1 grid-cols-1 items-stretch divide-y md:min-h-60 md:grid-cols-7 md:divide-x md:divide-y-0">
                     {week.days.map((day) => {
                       const dayWorkouts = week.workouts.filter((workout) => workout.workout_date === dateKey(day))
                       const isToday = dateKey(day) === dateKey(new Date())
@@ -498,6 +537,7 @@ export function TrainingCalendar({
                             <DayMenu day={day} count={dayWorkouts.length} disabled={moving} onAction={action => void runDayAction(day,action)} />
                           </div>
                           <div className="space-y-2">
+                            {loadedWeeks.current.has(week.key) && <DailyMetricsCard date={dateKey(day)} rows={context.wellness_history || []} onOpen={() => setMetricsDate(dateKey(day))} />}
                             {dayWorkouts.map((workout) => <DraggableWorkout key={workout.id} workout={workout} disabled={moving || !workout.id.startsWith("event:")} onOpen={() => openWorkout(workout)} onAction={action => void runWorkoutAction(workout, action)} />)}
                             <div aria-hidden="true" className="flex h-12 w-full items-center justify-center rounded-sm border border-muted-foreground/40 text-muted-foreground opacity-0 transition-opacity group-hover/day:opacity-100">
                               <Plus className="size-4" />
@@ -508,13 +548,8 @@ export function TrainingCalendar({
                     })}
                 </div>
                 <aside className={`hidden shrink-0 self-stretch border-l bg-muted/20 transition-[width] xl:block ${summaryOpen ? "w-72" : "w-10"}`}>
-                  <Collapsible open={summaryOpen} onOpenChange={(open) => { setSummaryOpen(open); localStorage.setItem("training-calendar-summary-open", String(open)) }}>
-                    <div className="flex justify-end p-1">
-                      <CollapsibleTrigger render={<Button variant="ghost" size="icon-sm" aria-label={summaryOpen ? "Collapse weekly summary" : "Expand weekly summary"} />}>
-                        {summaryOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
-                      </CollapsibleTrigger>
-                    </div>
-                    <CollapsibleContent className="px-3 pb-3">
+                  <Collapsible open={summaryOpen} onOpenChange={(open) => { void saveSummary(open) }}>
+                    <CollapsibleContent className="p-3">
                       <WeekSummary title={title} workouts={week.workouts} />
                     </CollapsibleContent>
                   </Collapsible>
@@ -528,6 +563,7 @@ export function TrainingCalendar({
 
       </div>
       <WorkoutDialog workout={selectedWorkout} onOpenChange={(open) => !open && setSelectedWorkout(null)} />
+      <DailyMetricsDialog date={metricsDate} rows={context.wellness_history || []} onClose={() => setMetricsDate(null)} />
     </div>
     <DragOverlay>{dragging ? <div className="max-w-sm cursor-grabbing shadow-xl"><WorkoutCard workout={dragging} onClick={() => {}} /></div> : null}</DragOverlay>
     </DndContext>
@@ -535,20 +571,13 @@ export function TrainingCalendar({
 }
 
 const disciplineChartConfig = {
-  swim: { label: "Swim", color: "var(--chart-1)" },
-  bike: { label: "Bike", color: "var(--chart-2)" },
-  run: { label: "Run", color: "var(--chart-3)" },
-  strength: { label: "Strength", color: "var(--chart-4)" },
-  other: { label: "Other", color: "var(--chart-5)" },
+  swim: { label: "Swim", color: "var(--color-cyan-600)" },
+  bike: { label: "Bike", color: "var(--color-violet-600)" },
+  run: { label: "Run", color: "var(--color-lime-600)" },
+  strength: { label: "Strength", color: "var(--color-orange-600)" },
+  other: { label: "Other", color: "var(--color-slate-500)" },
 } satisfies ChartConfig
 
-function formatDuration(minutes: number) {
-  const hours = Math.floor(minutes / 60)
-  const remainder = minutes % 60
-  if (!hours) return `${remainder}m`
-  if (!remainder) return `${hours}h`
-  return `${hours}h ${remainder}m`
-}
 
 function WeekSummary({ title, workouts }: { title: string; workouts: PlannedWorkout[] }) {
   const totalMinutes = workouts.reduce((sum, item) => sum + completedMinutes(item), 0)
@@ -571,7 +600,7 @@ function WeekSummary({ title, workouts }: { title: string; workouts: PlannedWork
       discipline,
       label: config.label,
       minutes: totals[discipline] ?? 0,
-      fill: `var(--color-${discipline})`,
+      fill: config.color,
     }))
     .filter((item) => item.minutes > 0)
 
@@ -583,13 +612,14 @@ function WeekSummary({ title, workouts }: { title: string; workouts: PlannedWork
           <PieChart accessibilityLayer>
             <ChartTooltip
               cursor={false}
-              content={<ChartTooltipContent hideLabel formatter={(value) => formatDuration(Number(value))} />}
+              wrapperStyle={{ zIndex: 999 }}
+              content={<ChartTooltipContent hideLabel formatter={(value, name) => <div className="flex items-center gap-2"><span className="size-2 rounded-full" style={{backgroundColor: disciplineChartConfig[name as keyof typeof disciplineChartConfig]?.color}} /><span>{disciplineChartConfig[name as keyof typeof disciplineChartConfig]?.label || name}</span><span className="ml-2 font-medium tabular-nums">{formatDuration(Number(value))}</span></div>} />}
             />
             <Pie data={chartData} dataKey="minutes" nameKey="discipline" innerRadius={38} outerRadius={64} strokeWidth={2} />
           </PieChart>
         </ChartContainer>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <strong className="text-lg tabular-nums">{formatDuration(totalMinutes)}</strong>
+          <strong className="text-base tabular-nums">{formatDuration(totalMinutes)}</strong>
           <span className="text-[10px] text-muted-foreground">Total time</span>
         </div>
       </div>
@@ -608,7 +638,6 @@ function WeekSummary({ title, workouts }: { title: string; workouts: PlannedWork
 
 export function WorkoutDialog({ workout, onOpenChange }: { workout: PlannedWorkout | null; onOpenChange: (open: boolean) => void }) {
   if (!workout) return null
-  const planned = durationMinutes(workout)
   const completed = completedMinutes(workout)
   const date = workout.workout_date
     ? new Date(`${workout.workout_date}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
@@ -616,7 +645,7 @@ export function WorkoutDialog({ workout, onOpenChange }: { workout: PlannedWorko
 
   return (
     <Dialog open={Boolean(workout)} onOpenChange={onOpenChange}>
-      <DialogContent className="no-scrollbar max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="no-scrollbar max-h-[90vh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader className="pr-8">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={workout.status === "completed" ? "default" : "secondary"}>
@@ -630,33 +659,16 @@ export function WorkoutDialog({ workout, onOpenChange }: { workout: PlannedWorko
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-3 gap-2">
-          <StatCard label="Duration" value={workout.status === "completed" && completed ? `${completed} min` : workout.duration} />
-          <StatCard label="Training load" value={`${Math.round(workout.load ?? 0)} TSS`} />
-          <StatCard label="Discipline" value={workout.sport} />
+        <div className="grid grid-cols-2 gap-2">
+          <StatCard label="Duration" value={workout.status === "completed" && completed ? formatDuration(completed) : formatDuration(durationMinutes(workout))} />
+          <StatCard label={workout.status === "completed" ? "Distance" : "Estimated distance"} value={plannedDistanceLabel(workout)} />
         </div>
 
         <WorkoutPreview workout={workout} large />
+        <WorkoutSummary workout={workout} />
+        <Suspense fallback={<div className="h-44 animate-pulse rounded-xl bg-muted/30"/>}><WorkoutAnalysis workout={workout}/></Suspense>
 
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Planned and completed</CardTitle></CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader><TableRow><TableHead>Metric</TableHead><TableHead>Planned</TableHead><TableHead>Completed</TableHead></TableRow></TableHeader>
-              <TableBody>
-                <TableRow><TableCell>Duration</TableCell><TableCell>{planned ? `${planned} min` : "—"}</TableCell><TableCell>{completed ? `${completed} min` : "—"}</TableCell></TableRow>
-                <TableRow><TableCell>TSS</TableCell><TableCell>{Math.round(workout.load ?? 0)}</TableCell><TableCell>{workout.status === "completed" ? Math.round(workout.completed_data?.tss ?? workout.load ?? 0) : "—"}</TableCell></TableRow>
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Workout description</CardTitle></CardHeader>
-          <CardContent>
-            <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{workout.details ?? workout.goal}</p>
-          </CardContent>
-        </Card>
+        <WorkoutDescription workout={workout}/>
       </DialogContent>
     </Dialog>
   )

@@ -6,14 +6,24 @@ export interface TrainingHistoryItem {
   recovery?: { hrv?: number | null; resting_hr?: number | null }
 }
 
+export interface WorkoutSummaryValues {
+  min_hr?:number|null;min_speed?:number|null;min_power?:number|null;max_power?:number|null;average_cadence?:number|null;min_cadence?:number|null;max_cadence?:number|null;
+  duration_seconds?: number | null; distance_meters?: number | null; average_speed?: number | null; max_speed?: number | null;
+  calories?: number | null; elevation_gain?: number | null; elevation_loss?: number | null; tss?: number | null;
+  intensity_factor?: number | null; work_kj?: number | null; average_power?: number | null; average_hr?: number | null; max_hr?: number | null;
+}
+
 export interface PlannedWorkout {
   id: string
   day: string
+  activity_id?: string | null
+  completion_grade?: 'good' | 'medium' | 'failed'
   date: string
   workout_date?: string
   sport: string
   title: string
   duration: string
+  distance_meters?: number | null
   goal: string
   details?: string
   status: "completed" | "today" | "upcoming"
@@ -24,6 +34,7 @@ export interface PlannedWorkout {
   completed_data?: { duration_minutes?: number; tss?: number; power_watts?: number; pace_seconds_per_unit?: number }
   scheduled_start_at?: string | null
   structure?: string | null
+  workout_summary?: {planned:WorkoutSummaryValues|null;completed:WorkoutSummaryValues|null}
 }
 
 export interface LibraryWorkout {
@@ -184,41 +195,19 @@ export interface TrainingContext {
     recovery?: number
   }
   wellness?: { hrv?: number | null; resting_hr?: number | null }
+  wellness_history?: Array<{date?: string; id?: string; timeStamp?: string; [key:string]:unknown}>
   history: TrainingHistoryItem[]
   planned: PlannedWorkout[]
   library?: LibraryWorkout[]
   source?: string
   synced_at?: string
   sync_error?: string | null
-  context_scope?: "week" | "full"
+  context_scope?: "week" | "full" | "range"
   full_history_available?: boolean
 }
 
-const anchor = new Date("2026-09-14T12:00:00Z")
 
-const fallbackHistory: TrainingHistoryItem[] = Array.from(
-  { length: 90 },
-  (_, index) => {
-    const date = new Date(anchor)
-    date.setUTCDate(date.getUTCDate() - (89 - index))
-    const planned = index % 7 === 5 ? 0 : 42 + ((index * 11) % 58)
-    const missed = index % 17 === 0
 
-    return {
-      workout_date: date.toISOString().slice(0, 10),
-      planned: { duration_minutes: planned },
-      completed: {
-        duration_minutes: missed
-          ? 0
-          : Math.round(planned * (0.86 + (index % 8) * 0.025)),
-      },
-      recovery: {
-        hrv: 48 + ((index * 5) % 13),
-        resting_hr: 46 + ((index * 3) % 7),
-      },
-    }
-  }
-)
 
 export const fallbackTrainingContext: TrainingContext = {
   athlete: {
@@ -233,96 +222,9 @@ export const fallbackTrainingContext: TrainingContext = {
       threshold_hr: 168,
     },
   },
-  metrics: { fitness: 71, fatigue: 67, form: 4, recovery: 62 },
-  history: fallbackHistory,
-  planned: [
-    {
-      id: "mon",
-      day: "MON",
-      date: "Sep 14",
-      sport: "Swim",
-      title: "Swim – 6x100 Aerobic + 4x50 Build",
-      duration: "45 min",
-      goal: "Stay relaxed and sharpen feel for the water.",
-      status: "completed",
-      load: 31,
-      plannedDurationMinutes: 45,
-      actualDurationMinutes: 43,
-    },
-    {
-      id: "tue",
-      day: "TUE",
-      date: "Sep 15",
-      sport: "Bike",
-      title: "Bike – 3x8min 70.3 Pace",
-      duration: "1h 05m",
-      goal: "Keep race power familiar without carrying fatigue forward.",
-      status: "today",
-      load: 54,
-      plannedDurationMinutes: 65,
-      actualDurationMinutes: 0,
-    },
-    {
-      id: "wed",
-      day: "WED",
-      date: "Sep 16",
-      sport: "Run",
-      title: "Run – Aerobic",
-      duration: "40 min",
-      goal: "Keep cadence sharp while protecting freshness.",
-      status: "upcoming",
-      load: 36,
-      plannedDurationMinutes: 40,
-    },
-    {
-      id: "thu",
-      day: "THU",
-      date: "Sep 17",
-      sport: "Swim",
-      title: "Swim – 8x100 70.3 Pace",
-      duration: "50 min",
-      goal: "Rehearse smooth race rhythm with controlled breathing.",
-      status: "upcoming",
-      load: 42,
-      plannedDurationMinutes: 50,
-    },
-    {
-      id: "fri",
-      day: "FRI",
-      date: "Sep 18",
-      sport: "Recovery",
-      title: "Rest day",
-      duration: "—",
-      goal: "Absorb the week and arrive fresh for Saturday.",
-      status: "upcoming",
-      load: 0,
-      plannedDurationMinutes: 0,
-    },
-    {
-      id: "sat",
-      day: "SAT",
-      date: "Sep 19",
-      sport: "Bike",
-      title: "Brick – 2x15min 70.3 Pace + 20min Easy",
-      duration: "1h 40m",
-      goal: "Confirm pacing and fueling; finish with more available.",
-      status: "upcoming",
-      load: 86,
-      plannedDurationMinutes: 100,
-    },
-    {
-      id: "sun",
-      day: "SUN",
-      date: "Sep 20",
-      sport: "Run",
-      title: "Run – Aerobic",
-      duration: "50 min",
-      goal: "Keep this easy and finish the week feeling better.",
-      status: "upcoming",
-      load: 44,
-      plannedDurationMinutes: 50,
-    },
-  ],
+  metrics: {},
+  history: [],
+  planned: [],
   source: "local-preview",
 }
 
