@@ -127,6 +127,7 @@ function routeConversation() {
 function AppWorkspace() {
   const initialConversation = routeConversation()
   const [activeItem, setActiveItem] = useState(routeItem)
+  const [calendarNavigationVersion, setCalendarNavigationVersion] = useState(0)
   const [conversationId, setConversationId] = useState(
     initialConversation.conversationId
   )
@@ -203,6 +204,7 @@ function AppWorkspace() {
   const selectItem = (item: string) => {
     setSelectedWorkout(null)
     setActiveItem(item)
+    if (item === "Calendar") setCalendarNavigationVersion((value) => value + 1)
     if (item === "Coach") {
       setNewChatVersion((value) => value + 1)
       setConversationId(null)
@@ -507,7 +509,7 @@ function AppWorkspace() {
                 onRefreshComplete={handleRefreshComplete}
               />
             ) : activeItem === "Calendar" ? (
-              <TrainingCalendar onWorkoutOpen={openWorkout} />
+              <TrainingCalendar key={calendarNavigationVersion} onWorkoutOpen={openWorkout} />
             ) : isCoachConversation ? (
               <TrainingCoach
                 key={

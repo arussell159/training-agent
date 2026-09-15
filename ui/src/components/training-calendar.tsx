@@ -17,7 +17,6 @@ import {
   Copy,
   Trash2,
   Plus,
-  Crosshair,
   PanelRightClose,
   PanelRightOpen,
   Waves,
@@ -495,7 +494,6 @@ export function TrainingCalendar({
       <header className="mobile-site-header sticky top-0 z-50 flex h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:shadow-none">
         <h1 className="mobile-header-title min-w-0 truncate text-sm font-semibold">{activeMonth}</h1>
         <div className="flex items-center gap-1 md:ml-4">
-          <Button variant="ghost" size="icon" className="md:hidden" onClick={goToToday} aria-label="Go to today" title="Go to today"><Crosshair className="size-5" /></Button>
           <Button size="sm" className="hidden md:inline-flex" onClick={goToToday}>Today</Button>
         </div>
       <MobileHeaderMenu /></header>
