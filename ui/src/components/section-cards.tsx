@@ -1,5 +1,6 @@
 import {formatDuration} from '@/lib/duration'
 import {durationMinutes} from '@/lib/training-context'
+import {recoverySeries, todaysWorkout} from '@/lib/dashboard-metrics'
 import { Activity, Clock3, Gauge, HeartPulse } from "lucide-react"
 import {
   Area,
@@ -42,30 +43,7 @@ function latestRecoverySeries(
   context: TrainingContext,
   key: "hrv" | "resting_hr"
 ) {
-  const raw = context.history
-    .slice(-14)
-    .map((item) => ({ date: item.workout_date, value: item.recovery?.[key] }))
-    .filter((item): item is { date: string; value: number } =>
-      Number.isFinite(item.value)
-    )
-
-  return raw.map((item, index) => {
-    const window = raw.slice(Math.max(0, index - 6), index + 1)
-    const average =
-      window.reduce((sum, point) => sum + point.value, 0) / window.length
-    const variance =
-      window.reduce((sum, point) => sum + (point.value - average) ** 2, 0) /
-      window.length
-    const minimumSpread = key === "hrv" ? 5 : 2
-    const spread = Math.max(minimumSpread, Math.sqrt(variance) * 1.75)
-
-    return {
-      ...item,
-      average: Number(average.toFixed(1)),
-      baselineLow: Number((average - spread).toFixed(1)),
-      baselineHigh: Number((average + spread).toFixed(1)),
-    }
-  })
+  return recoverySeries(context, key)
 }
 
 export function workoutProfile(title = "", sport = "", details = "") {
@@ -147,16 +125,16 @@ function RecoveryTrendCard({
   const liveValue = isHrv
     ? context.wellness?.hrv
     : context.wellness?.resting_hr
-  const current = Number(liveValue ?? data.at(-1)?.value ?? 0)
-  const low = Math.min(...data.map((item) => item.baselineLow), current)
-  const high = Math.max(...data.map((item) => item.baselineHigh), current)
+  const current = liveValue ?? data.at(-1)?.value
+  const low = Math.min(...data.map((item) => Math.min(item.baselineLow, item.value)), current ?? 0)
+  const high = Math.max(...data.map((item) => Math.max(item.baselineHigh, item.value)), current ?? 1)
 
   return (
     <Card className="min-w-0 overflow-hidden [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-3">
       <CardHeader className="pb-0">
         <CardDescription>{isHrv ? "HRV" : "Resting heart rate"}</CardDescription>
         <CardTitle className="text-2xl tabular-nums sm:text-3xl">
-          {current}
+          {current ?? '—'}
           <span className="ml-1 text-sm font-normal text-muted-foreground">
             {isHrv ? "ms" : "bpm"}
           </span>
@@ -215,7 +193,7 @@ function RecoveryTrendCard({
                     })
                   }
                   formatter={(value, _name, _item, _index, payload) => {
-                    const point = payload as unknown as { average?: number; date?: string }
+                    const point = payload as unknown as { average?: number; date?: string; baselineLow?: number; baselineHigh?: number }
                     const unit = isHrv ? "ms" : "bpm"
                     const dateLabel = point.date
                       ? new Date(`${point.date}T12:00:00`).toLocaleDateString("en-US", {
@@ -237,6 +215,7 @@ function RecoveryTrendCard({
                             {Number(point.average ?? value).toFixed(1)} {unit}
                           </span>
                         </div>
+                        <div className="flex justify-between gap-4"><span className="text-muted-foreground">Range</span><span className="font-mono font-medium tabular-nums">{point.baselineLow}–{point.baselineHigh} {unit}</span></div>
                       </div>
                     )
                   }}
@@ -252,6 +231,7 @@ function RecoveryTrendCard({
             />
           </ComposedChart>
         </ChartContainer>
+        {data.length > 0 && <div className="flex flex-wrap justify-between gap-1 px-3 pt-1 text-[11px] text-muted-foreground" aria-label={`${isHrv ? 'HRV' : 'Resting heart rate'} baseline range`}><span>Low {data.at(-1)!.baselineLow}</span><span>Avg {data.at(-1)!.average}</span><span>High {data.at(-1)!.baselineHigh} {isHrv ? 'ms' : 'bpm'}</span></div>}
       </CardContent>
     </Card>
   )
@@ -266,10 +246,7 @@ export function SectionCards({
   context: TrainingContext
   onWorkoutOpen?: (workout: PlannedWorkout) => void
 }) {
-  const today =
-    context.planned.find((workout) => workout.status === "today") ??
-    context.planned.find((workout) => workout.status === "upcoming") ??
-    context.planned[0]
+  const today = todaysWorkout(context)
   const fitness = context.metrics.fitness == null ? '—' : Math.round(context.metrics.fitness)
   const fatigue = context.metrics.fatigue == null ? '—' : Math.round(context.metrics.fatigue)
   const form = context.metrics.form == null ? '—' : Math.round(context.metrics.form)
@@ -292,6 +269,7 @@ export function SectionCards({
         <CardHeader className="gap-3">
           <CardDescription>
             Today&apos;s workout
+            {today?.status === 'completed' && <span className="ml-2 text-primary">Completed</span>}
           </CardDescription>
           <CardTitle>
             <h1 className="text-2xl leading-tight font-semibold tracking-tight md:text-3xl">

@@ -1,6 +1,7 @@
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
 import {formatDuration} from '@/lib/duration'
+import {workoutDurations} from '@/lib/dashboard-metrics'
 import {
   Card,
   CardAction,
@@ -74,12 +75,14 @@ function currentWeekByDay(context: TrainingContext) {
     for (const workout of datedWorkouts) {
       const day = days.find((item) => item.key === workout.workout_date)
       if (!day) continue
-      day.planned += durationMinutes(workout) / 60
-      day.completed += completedMinutes(workout) / 60
+      const amounts = workoutDurations(workout)
+      day.planned += amounts.planned / 60
+      day.completed += amounts.completed / 60
+      day.remaining += amounts.remaining / 60
     }
     return days.map((day) => ({
       ...day,
-      remaining: Math.max(0, day.planned - day.completed),
+      remaining: day.remaining,
     }))
   }
 

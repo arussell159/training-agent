@@ -176,6 +176,7 @@ export interface NotificationPreferences {
 
 export interface TrainingContext {
   athlete: {
+    time_zone?: string
     name?: string
     race?: string
     race_date?: string

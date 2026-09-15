@@ -285,7 +285,25 @@ export function TrainingCalendar({
   const isMobile = useIsMobile()
   const weekRefs = useRef(new Map<string, HTMLElement>())
   const calendarRef = useRef<HTMLDivElement>(null)
+  const calendarUserScrolled = useRef(false)
   const viewportAnchor = useRef<{element:Element;top:number;scrollY:number} | null>(null)
+
+  useEffect(() => {
+    const mark = () => { calendarUserScrolled.current = true }
+    const key = (event: KeyboardEvent) => { if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) mark() }
+    window.addEventListener('wheel', mark, {passive:true})
+    window.addEventListener('touchmove', mark, {passive:true})
+    window.addEventListener('keydown', key)
+    return () => { window.removeEventListener('wheel', mark); window.removeEventListener('touchmove', mark); window.removeEventListener('keydown', key) }
+  }, [])
+
+  // Programmatic initial scrolling is not user scrolling. Re-align after rows
+  // and preferences hydrate, until the user actually moves away from today.
+  useLayoutEffect(() => {
+    if (calendarUserScrolled.current || calendarWasDragged.current || !window.matchMedia('(max-width: 767px)').matches) return
+    const day = calendarRef.current?.querySelector(`[data-calendar-date="${dateKey(new Date())}"]`)
+    if (day) window.scrollTo({top:Math.max(0, window.scrollY + day.getBoundingClientRect().top - 56), behavior:'instant'})
+  }, [context, summaryOpen, isMobile])
 
   // Correct layout growth before paint, rather than letting newly loaded rows
   // move the day the user was reading. Retain any intervening user scrolling.
@@ -393,7 +411,7 @@ export function TrainingCalendar({
       }
       void pump()
     }
-    const onScroll=()=>{scrolled=true;loadVisible()}
+    const onScroll=()=>{scrolled=calendarUserScrolled.current;loadVisible()}
     const observer=new IntersectionObserver(loadVisible,{rootMargin:'0px',threshold:0})
     for(const element of weekRefs.current.values())observer.observe(element)
     queue.add(dateKey(startOfMonday(new Date())))
@@ -403,13 +421,13 @@ export function TrainingCalendar({
   },[weekKeys,historyReady])
 
   useLayoutEffect(() => {
-    if (!weeks.length || calendarWasDragged.current) return
+    if (!weeks.length || calendarWasDragged.current || calendarUserScrolled.current) return
     const previousRestoration = history.scrollRestoration
     history.scrollRestoration = "manual"
     const todayWeek = dateKey(startOfMonday(new Date()))
     const target = weeks.some((week) => week.key === todayWeek) ? todayWeek : weeks[weeks.length - 1].key
     const alignToday = () => {
-      if (calendarWasDragged.current) return
+      if (calendarWasDragged.current || calendarUserScrolled.current) return
       setActiveWeekKey(target)
       const element = isMobile
         ? calendarRef.current?.querySelector(`[data-calendar-date="${dateKey(new Date())}"]`) || weekRefs.current.get(target)

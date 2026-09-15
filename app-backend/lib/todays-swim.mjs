@@ -3,7 +3,8 @@ import {createSupabaseSettingsStore} from './settings-store.mjs';
 import {createIntervalsClient} from './intervals.mjs';
 import {athleteLocalDate} from './coach-training-context.mjs';
 import {DEVICE_DEFINITION_MARKER} from './race-plan-import.mjs';
-import {readFitWorkoutSteps,expandFitWorkoutSteps} from './fit-workout-verification.mjs';
+import {readFitWorkoutSteps,expandFitWorkoutSteps,readFitWorkoutMetadata} from './fit-workout-verification.mjs';
+import {flattenSwimDefinition} from './swim-device-definition.mjs';
 
 export const swimDescription=`**Warm Up:**
 1 x (300 yd freestyle Z1–Z2 + 0 secs rest)
@@ -19,7 +20,7 @@ export const swimDescription=`**Warm Up:**
 
 Rest is seconds on the wall, not a send-off. Unlisted pauses remain continuous. Total: 2,900 yd. Source planned duration: 54:25; source planned TSS: 63.`;
 
-export const swimDefinition=`Pool length: 25y
+export const swimDefinition=flattenSwimDefinition(`Pool length: 25y
 
 Warm Up
 - Freestyle 300y Z1-Z2 Pace intensity=warmup
@@ -41,7 +42,7 @@ Main Set 8x
 - Rest 15s intensity=rest
 
 Warm Down
-- Freestyle 200y Z1-Z2 Pace intensity=cooldown`;
+- Freestyle 200y Z1-Z2 Pace intensity=cooldown`);
 
 export async function buildTodaysSwim(){
  const bootstrap=JSON.parse(await fs.readFile('app-backend/config.json','utf8'));
@@ -60,7 +61,12 @@ export async function buildTodaysSwim(){
  await request(`/athlete/0/events/${created.id}`,{method:'PUT',body:JSON.stringify({moving_time:3265,icu_training_load:63})});
  const response=await fetch(`https://intervals.icu/api/v1/athlete/0/events/${created.id}/download.fit`,{headers:{Authorization:`Basic ${Buffer.from('API_KEY:'+config.INTERVALS_API_KEY).toString('base64')}`},signal:AbortSignal.timeout(30000)});
  if(!response.ok)throw new Error(`Swim FIT export failed (${response.status})`);
- const fitSteps=expandFitWorkoutSteps(readFitWorkoutSteps(Buffer.from(await response.arrayBuffer())));
+ const fit=Buffer.from(await response.arrayBuffer());
+ const pool=readFitWorkoutMetadata(fit)[0];
+ if(pool?.poolLengthUnit!=='yards' || Math.abs(pool.poolLengthMeters-25*.9144)>.01)throw new Error('Swim FIT pool must be 25 yards');
+ const rawFitSteps=readFitWorkoutSteps(fit);
+ if(rawFitSteps.some(s=>s.durationType===6))throw new Error('Swim export still contains repeat controls that can skip final rest');
+ const fitSteps=expandFitWorkoutSteps(rawFitSteps);
  const fitDistance=fitSteps.filter(s=>s.durationType===1).reduce((sum,s)=>sum+s.durationValue/100,0);
  const fitRest=fitSteps.filter(s=>s.intensity===1);
  if(Math.abs(fitDistance-distance)>.01 || fitRest.length!==15 || fitRest.some(s=>s.durationType!==0) || fitSteps.filter(s=>s.durationType===1).some(s=>s.targetType===2))throw new Error('Swim FIT units/targets verification failed');
