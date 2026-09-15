@@ -1,6 +1,12 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {intervalSignals,tooltipPosition} from '../../ui/src/lib/interval-signals.ts';
+import {formatSignalClock,intervalSignals,tooltipPosition} from '../../ui/src/lib/interval-signals.ts';
+
+test('pace seconds format as minutes and seconds, including minute rollover',()=>{
+ assert.equal(formatSignalClock(103),'1:43');
+ assert.equal(formatSignalClock(63),'1:03');
+ assert.equal(formatSignalClock(119.6),'2:00');
+});
 
 test('swim pace and stroke rate are constant across each full recorded interval',()=>{
  const points=[

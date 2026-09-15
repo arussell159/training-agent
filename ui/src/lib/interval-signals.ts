@@ -2,6 +2,11 @@ import {segmentStatistics, type RecordedPoint} from './segment-statistics.ts'
 
 export type RecordedLap = {id:string; label:string; start:number; end:number; distance?:number|null; speed?:number|null}
 
+export function formatSignalClock(seconds: number) {
+  const rounded = Math.max(0, Math.round(seconds))
+  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, '0')}`
+}
+
 export function intervalSignals(points: RecordedPoint[], laps: RecordedLap[]) {
   return laps.filter(l => l.end > l.start).map(lap => {
     const averages = segmentStatistics(points, lap.start, lap.end)

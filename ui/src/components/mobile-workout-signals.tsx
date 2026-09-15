@@ -1,6 +1,6 @@
 import {useMemo,useState,type PointerEvent} from 'react'
 import type {RecordedPoint} from '@/lib/segment-statistics'
-import {intervalSignals,tooltipPosition} from '@/lib/interval-signals'
+import {formatSignalClock,intervalSignals,tooltipPosition} from '@/lib/interval-signals'
 
 type Lap={id:string;label:string;start:number;end:number;distance?:number|null;speed?:number|null}
 export function MobileWorkoutSignals({points,laps,duration,sport}:{points:RecordedPoint[];laps:Lap[];duration:number;sport:string}){
@@ -11,9 +11,9 @@ export function MobileWorkoutSignals({points,laps,duration,sport}:{points:Record
  const value=(p:RecordedPoint,key:string)=>key==='pace'?(p.speed!=null&&p.speed>.15?(swim?91.44:1609.344)/p.speed:null):key==='power'?p.power:key==='heartRate'?p.heartRate:p.cadence
  const tracks=[primary,'heartRate','cadence'].filter(key=>points.some(p=>value(p,key)!=null))
  const label=(key:string)=>key==='heartRate'?'Heart rate':key==='pace'?'Pace':key==='power'?'Power':swim?'Stroke rate':'Cadence'
- const unit=(key:string)=>key==='pace'?(swim?'s/100y':'min/mi'):key==='power'?'W':key==='heartRate'?'bpm':run?'spm':swim?'strokes/min':'rpm'
- const clock=(v:number)=>`${Math.floor(v/60)}:${String(Math.round(v)%60).padStart(2,'0')}`
- const format=(v:number|null|undefined,key:string)=>v==null?'—':key==='pace'&&run?clock(v):Math.round(v).toLocaleString()
+ const unit=(key:string)=>key==='pace'?(swim?'min/100 yd':'min/mi'):key==='power'?'W':key==='heartRate'?'bpm':run?'spm':swim?'strokes/min':'rpm'
+ const clock=formatSignalClock
+ const format=(v:number|null|undefined,key:string)=>v==null?'—':key==='pace'?clock(v):Math.round(v).toLocaleString()
  const nearest=time==null?null:points.reduce<RecordedPoint|null>((best,p)=>!best||Math.abs(p.time-time)<Math.abs(best.time-time)?p:best,null)
  const interval=intervals.find(i=>lap?i.lap.id===lap.id:time!=null&&time>=i.lap.start&&time<i.lap.end)
  const averagePoint=interval?.point
