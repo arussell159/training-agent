@@ -17,5 +17,14 @@ export function normalizeAnalysis(activity,streams,fitLaps=[]){
   const epoch=Date.UTC(1989,11,31)/1000,start=Date.parse(activity.start_date)/1000-epoch;
   const laps=fitLaps.filter(l=>Number.isFinite(start)).map((l,i)=>({id:`lap-${i}`,label:`Lap ${i+1}`,start:Math.max(0,l.timestamp-start),end:l.timestamp-start+l.duration,power:l.power,heartRate:l.heartRate,distance:l.distance,kind:'lap'}));
   const intervals=(activity.icu_intervals || []).filter(l=>Number.isFinite(l.start_time)&&Number.isFinite(l.end_time)).map((l,i)=>({id:`interval-${i}`,label:l.label || `${l.type==='WORK'?'Work':'Recovery'} ${i+1}`,start:l.start_time,end:l.end_time,power:l.average_watts??null,heartRate:l.average_heartrate??null,distance:l.distance??null,kind:'interval'}));
-  return {activityId:activity.id,points,laps,intervals,duration:points.at(-1)?.time || 0};
+  // Swim WORK intervals describe whole repeats, unlike pool-length samples.
+  // Keep recovery off the clicker and out of each repeat's average pace.
+  const swim=/swim/i.test(activity.type || '');
+  const validIntervals=(activity.icu_intervals || []).filter(l=>Number.isFinite(l.start_time)&&Number.isFinite(l.end_time));
+  const workIntervals=intervals.filter((l,i)=>validIntervals[i].type==='WORK' && l.end>l.start);
+  const displayedLaps=swim?(workIntervals.length?workIntervals:laps.filter(l=>l.distance>0)).map((l,i)=>({
+    ...l,label:l.distance>0?`${Math.round(l.distance/.9144)} yd · Interval ${i+1}`:`Interval ${i+1}`,
+    speed:l.distance>0 && l.end>l.start?l.distance/(l.end-l.start):null,
+  })):laps;
+  return {activityId:activity.id,points,laps:displayedLaps,intervals,duration:points.at(-1)?.time || 0};
 }

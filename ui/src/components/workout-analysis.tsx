@@ -7,7 +7,7 @@ import {segmentStatistics,type RecordedPoint} from '@/lib/segment-statistics'
 import {MobileWorkoutSignals} from '@/components/mobile-workout-signals'
 
 type Point=RecordedPoint
-type Lap={id:string;label:string;start:number;end:number;power:number|null;heartRate:number|null;distance:number|null;kind:string}
+type Lap={id:string;label:string;start:number;end:number;power:number|null;heartRate:number|null;distance:number|null;kind:string;speed?:number|null}
 type Analysis={points:Point[];laps:Lap[];intervals:Lap[];duration:number}
 const cache=new Map<string,Analysis>()
 const clock=(seconds:number)=>{const s=Math.max(0,Math.round(seconds));return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`}
@@ -36,6 +36,8 @@ function ActivityGraph({id,sport}:{id:string;sport:string}){
   const averages=useMemo(()=>segmentStatistics(data?.points || [],statsRange[0],statsRange[1]),[data,statsRange[0],statsRange[1]])
   const focusSegment=(l:Lap)=>{const start=Math.max(0,l.start),end=Math.min(duration,l.end);if(end<=start)return;setRange([start,end]);setSelected(l.id)}
   const activeLap=nearest?data?.laps.find(l=>nearest.time>=l.start && nearest.time<l.end):data?.laps.find(l=>l.id===selected)
+  const selectedLap=data?.laps.find(l=>l.id===selected)
+  const averageSpeed=swim&&selectedLap?.speed!=null?selectedLap.speed:averages.speed
   useEffect(()=>{
     if(!selected || !range || !data)return
     const segment=data.laps.find(l=>l.id===selected)
@@ -57,7 +59,7 @@ function ActivityGraph({id,sport}:{id:string;sport:string}){
       <div className="flex items-center"><div style={{marginLeft:`${52/980*100}%`,marginRight:`${28/980*100}%`}} className="relative h-8 flex-1 overflow-hidden rounded-md bg-muted/50">{laps.filter(l=>l.end>view[0]&&l.start<view[1]).map(l=><button key={l.id} aria-label={`Zoom to ${l.label}`} title={`${l.label} · ${clock(l.start)}–${clock(l.end)}`} aria-pressed={selected===l.id} onClick={()=>focusSegment(l)} style={{left:`${(Math.max(view[0],l.start)-view[0])/(view[1]-view[0])*100}%`,width:`${Math.max(0,Math.min(view[1],l.end)-Math.max(view[0],l.start))/(view[1]-view[0])*100}%`}} className={`absolute inset-y-1 overflow-hidden rounded-sm border border-background px-0.5 text-[10px] font-medium transition hover:z-10 hover:bg-sky-500 hover:text-white focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500 ${selected===l.id || activeLap?.id===l.id?'z-10 bg-sky-600 text-white':'bg-slate-300 text-slate-800 dark:bg-slate-600 dark:text-slate-100'}`}>{(l.end-l.start)/(view[1]-view[0])>.045?laps.indexOf(l)+1:''}</button>)}{!laps.length&&<span className="px-2 text-[10px] leading-8 text-muted-foreground">Not recorded</span>}<div className="pointer-events-none absolute inset-y-0 rounded-sm border-x-2 border-sky-500 bg-sky-500/10" style={{left:`${(statsRange[0]-view[0])/(view[1]-view[0])*100}%`,width:`${(statsRange[1]-statsRange[0])/(view[1]-view[0])*100}%`}}/></div></div>
     </div>
     <div aria-label="Highlighted segment averages" className="border-b px-4 py-3"><div className="grid grid-cols-3 gap-2 sm:grid-cols-5">{[
-      {label:'Avg pace',value:averages.speed!=null&&averages.speed>0?format(paceDistance/averages.speed,'pace'):'—',unit:unit('pace')},
+      {label:'Avg pace',value:averageSpeed!=null&&averageSpeed>0?format(paceDistance/averageSpeed,'pace'):'—',unit:unit('pace')},
       {label:'Avg speed',value:averages.speed==null?'—':(averages.speed*2.2369362920544).toFixed(1),unit:'mph'},
       {label:'Avg heart rate',value:averages.heartRate==null?'—':Math.round(averages.heartRate),unit:'bpm'},
       {label:'Avg power',value:averages.power==null?'—':Math.round(averages.power),unit:'W'},

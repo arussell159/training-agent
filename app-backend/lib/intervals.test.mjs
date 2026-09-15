@@ -2,6 +2,31 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createIntervalsClient,fetchIntervalsContext,moveIntervalsEvent,changeIntervalsEvent,applyIntervalsPatch,mapIntervalsWorkout,validDate} from './intervals.mjs';
 import {createIntervalsCoachAdapter} from './triathlon-coach-adapter.mjs';
+import {pairIntervalsWorkouts} from './intervals.mjs';
+
+test('unique same-day named swim pairs without upstream links and retains the plan and actual',async()=>{
+ const event={id:1,type:'Swim',category:'WORKOUT',name:'Aerobic Swim with Strong Repeats',start_date_local:'2026-09-15T00:00:00',moving_time:3231,description:'3 x 400y',distance:2651.76};
+ const activity={id:'i1',type:'Swim',name:event.name,start_date_local:'2026-09-15T16:22:49',moving_time:2930,distance:2651.76};
+ const context=await fetchIntervalsContext(async path=>path==='/athlete/0'?{id:'i1'}:path.includes('/activities')?[activity]:path.includes('/events')?[event]:[],{now:new Date('2026-09-15T23:00:00Z')});
+ assert.equal(context.history.length,1);
+ assert.equal(context.history[0].activity_id,'i1');
+ assert.equal(context.history[0].status,'completed');
+ assert.equal(context.history[0].details,'3 x 400y');
+ assert.equal(context.history[0].workout_summary.planned.duration_seconds,3231);
+ assert.equal(context.history[0].workout_summary.completed.duration_seconds,2930);
+});
+
+test('inferred pairing refuses ambiguous, different-day, different-sport and note matches',()=>{
+ const e={id:1,type:'Swim',category:'WORKOUT',name:'Swim',start_date_local:'2026-09-15'};
+ const a={id:'a1',type:'Swim',name:'Swim',start_date_local:'2026-09-15'};
+ assert.equal(pairIntervalsWorkouts([e,{...e,id:2}],[a]).size,0);
+ assert.equal(pairIntervalsWorkouts([e],[a,{...a,id:'a2'}]).size,0);
+ for(const change of [{start_date_local:'2026-09-14'},{type:'Run'},{name:'Other'}])assert.equal(pairIntervalsWorkouts([e],[{...a,...change}]).size,0);
+ assert.equal(pairIntervalsWorkouts([{...e,category:'NOTE'}],[a]).size,0);
+ assert.equal(pairIntervalsWorkouts([e],[{...a,paired_event_id:99}]).size,0);
+ assert.equal(pairIntervalsWorkouts([{...e,paired_activity_id:'missing'}],[a]).size,0);
+ assert.equal(pairIntervalsWorkouts([{...e,name:'Different'}],[{...a,paired_event_id:1}]).get('1').id,'a1');
+});
 
 test('historical and paired completed workouts retain actual Intervals summary values',()=>{
  const activity={id:'i123',start_date_local:'2026-09-06T08:00:00',type:'Ride',moving_time:6075,distance:49880.28,average_speed:8.205,max_speed:12.447,calories:910,total_elevation_gain:143,total_elevation_loss:141,icu_training_load:76,icu_intensity:52.8,icu_joules:764608,icu_average_watts:126,average_heartrate:151,max_heartrate:171};

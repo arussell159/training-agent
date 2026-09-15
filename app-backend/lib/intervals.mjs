@@ -112,10 +112,10 @@ export async function fetchIntervalsContext(request, {now = new Date(), timeZone
     request(`/athlete/0/wellness?oldest=${range ? new Date(Date.parse(`${range.start}T12:00:00Z`)-29*86400000).toISOString().slice(0,10) : shift(-89)}&newest=${range?.end || today}`),
     range ? request(`/athlete/0/wellness?oldest=${today}&newest=${today}`) : Promise.resolve(null),
   ]);
-  const byId = new Map((activities || []).map(a => [String(a.id),a]));
-  const paired = new Set((events || []).filter(e => e.paired_activity_id != null).map(e => String(e.paired_activity_id)));
+  const matches = pairIntervalsWorkouts(events || [], activities || []);
+  const paired = new Set([...matches.values()].map(a => String(a.id)));
   const sessions = [
-    ...(events || []).map(e => mapIntervalsWorkout(e,today,byId.get(String(e.paired_activity_id)))),
+    ...(events || []).map(e => mapIntervalsWorkout(e,today,matches.get(String(e.id)))),
     ...(activities || []).filter(a => !paired.has(String(a.id))).map(a => mapIntervalsWorkout(a,today,null,true)),
   ].sort((a,b) => a.workout_date.localeCompare(b.workout_date));
   const settings = athlete.sportSettings || athlete.sport_settings || [];
@@ -134,6 +134,34 @@ export async function fetchIntervalsContext(request, {now = new Date(), timeZone
     history:sessions.filter(w => w.workout_date <= today), planned:sessions.filter(w => w.workout_date >= today),
     source:'intervals',synced_at:new Date().toISOString(),retention_days:90,
   };
+}
+
+// Provider links win. Only infer a match when both sides uniquely agree on the
+// local day, discipline and non-empty workout title; never guess by proximity.
+export function pairIntervalsWorkouts(events, activities) {
+  const byId = new Map(activities.map(a => [String(a.id), a]));
+  const matches = new Map(), used = new Set();
+  const reserved = new Set(events.filter(e => e.paired_activity_id != null).map(e => String(e.paired_activity_id)));
+  for (const event of events) {
+    const activity = byId.get(String(event.paired_activity_id)) || activities.find(a => String(a.paired_event_id) === String(event.id));
+    if (activity && !used.has(String(activity.id))) {
+      matches.set(String(event.id), activity); used.add(String(activity.id));
+    }
+  }
+  const key = item => {
+    const title = String(item.name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const day = String(item.start_date_local || '').slice(0,10);
+    return title && /^\d{4}-\d{2}-\d{2}$/.test(day) && item.type ? `${day}|${sport(item.type)}|${title}` : null;
+  };
+  const availableEvents = events.filter(e => e.category === 'WORKOUT' && e.paired_activity_id == null && !matches.has(String(e.id)));
+  const availableActivities = activities.filter(a => a.paired_event_id == null && !used.has(String(a.id)) && !reserved.has(String(a.id)));
+  for (const event of availableEvents) {
+    const signature = key(event);
+    if (!signature || availableEvents.filter(e => key(e) === signature).length !== 1) continue;
+    const candidates = availableActivities.filter(a => key(a) === signature);
+    if (candidates.length === 1) matches.set(String(event.id), candidates[0]);
+  }
+  return matches;
 }
 
 export async function moveIntervalsEvent(request, id, date) {

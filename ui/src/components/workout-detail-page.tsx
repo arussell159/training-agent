@@ -137,10 +137,10 @@ export function WorkoutDetailPage({
         </div>
 
         <WorkoutProfile workout={workout} />
+        <WorkoutDescription workout={workout}/>
         <WorkoutSummary workout={workout} />
         <Suspense fallback={<div className="h-44 animate-pulse rounded-xl bg-muted/30"/>}><WorkoutAnalysis workout={workout}/></Suspense>
 
-        <WorkoutDescription workout={workout}/>
       </article>
     </div>
   )

@@ -5,7 +5,7 @@ import {Tooltip,TooltipTrigger,TooltipContent,TooltipProvider} from '@/component
 export function WorkoutProfile({workout,compact=false}:{workout:PlannedWorkout;compact?:boolean}){
  const segments=workoutProfileSegments(workout.structure)
  if(!segments.length)return null
- return <TooltipProvider><div className={compact?'relative flex h-8 items-end overflow-hidden':'relative flex h-28 items-end gap-px rounded-md border bg-slate-50 px-2 py-3 dark:bg-slate-900 sm:h-32'} aria-label="Intervals.icu workout profile">
+ return <TooltipProvider><div className={compact?'relative flex h-8 items-end overflow-hidden':'relative flex h-32 items-end gap-px rounded-md border bg-slate-50 px-2 py-3 dark:bg-slate-900 sm:h-32'} aria-label="Intervals.icu workout profile">
   {segments.map((segment,index)=>{
    const bar=<span className="absolute inset-x-0 bottom-0 border-t-2 border-blue-600 bg-slate-300 dark:bg-slate-600" style={{height:`${segment.intensity}%`}} />
    if(compact)return <span key={index} className="relative h-full min-w-px" style={{flexGrow:segment.width,flexBasis:0}}>{bar}</span>
