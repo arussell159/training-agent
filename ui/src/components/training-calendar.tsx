@@ -163,7 +163,7 @@ export function WorkoutCard({ workout, onClick, onAction, disabled = false }: { 
               <AlertDialogContent onClick={event => event.stopPropagation()}>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete workout?</AlertDialogTitle>
-                  <AlertDialogDescription>Delete “{workout.title}” from your TrainingPeaks calendar?</AlertDialogDescription>
+                  <AlertDialogDescription>Delete “{workout.title}” from your Intervals.icu calendar?</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -194,7 +194,7 @@ export function WorkoutCard({ workout, onClick, onAction, disabled = false }: { 
 function DraggableWorkout({ workout, onOpen, onAction, disabled }: { workout: PlannedWorkout; onOpen: () => void; onAction: (action: "copy" | "delete") => void; disabled: boolean }) {
   const {setNodeRef, listeners, isDragging} = useDraggable({id:workout.id, data:{workout}, disabled})
   return <div ref={setNodeRef} {...listeners} className={`select-none ${isDragging ? "opacity-30" : ""}`}>
-    <WorkoutCard workout={workout} onClick={onOpen} onAction={onAction} disabled={disabled} />
+    <WorkoutCard workout={workout} onClick={onOpen} onAction={workout.id.startsWith("event:") ? onAction : undefined} disabled={disabled} />
   </div>
 }
 
@@ -219,7 +219,7 @@ function DayMenu({day, count, disabled, onAction}: {day: Date; count:number; dis
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Delete this day’s workouts?</AlertDialogTitle>
-          <AlertDialogDescription>Delete all {count} workouts on {label} from your TrainingPeaks calendar?</AlertDialogDescription>
+          <AlertDialogDescription>Delete all {count} workouts on {label} from your Intervals.icu calendar?</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => onAction("delete")}>Delete workouts</AlertDialogAction></AlertDialogFooter>
       </AlertDialogContent>
@@ -251,6 +251,7 @@ export function TrainingCalendar({
   const [moving, setMoving] = useState(false)
   const [moveNotice, setMoveNotice] = useState("")
   const calendarWasDragged = useRef(false)
+  const calendarRevision = useRef(0)
   const sensors = useSensors(useSensor(MouseSensor, {activationConstraint:{distance:6}}), useSensor(TouchSensor, {activationConstraint:{delay:250,tolerance:6}}))
 
   const runWorkoutAction = async (workout: PlannedWorkout, action: "copy" | "delete") => {
@@ -262,7 +263,7 @@ export function TrainingCalendar({
       const result = await changeWorkout(workout.id, action)
       if (result.context) setContext(current => ({...current, ...result.context}))
       else if (action === "delete") setContext(current => ({...current, planned:current.planned.filter(item => item.id !== workout.id), history:current.history.filter(item => !("id" in item) || item.id !== workout.id)}))
-      setMoveNotice(`${workout.title} ${action === "copy" ? "copied to the same day" : "deleted"}.${!result.context ? " Refresh TrainingPeaks to reload the calendar." : ""}`)
+      setMoveNotice(`${workout.title} ${action === "copy" ? "copied to the same day" : "deleted"}.${!result.context ? " Refresh Intervals.icu to reload the calendar." : ""}`)
     } catch (error) {setMoveNotice(error instanceof Error ? error.message : `Unable to ${action} workout.`)}
     finally {setMoving(false)}
   }
@@ -279,7 +280,7 @@ export function TrainingCalendar({
         const ids = new Set(result.results.map(item => item.workoutId))
         setContext(current => ({...current, planned:current.planned.filter(item => !ids.has(item.id)),history:current.history.filter(item => !("id" in item) || !ids.has(String(item.id)))}))
       }
-      setMoveNotice(`${result.results.length} of ${result.total} workouts ${action === "copy" ? "copied to the same day" : "deleted"}.${result.failures.length ? ` ${result.failures[0].error} Refresh before retrying.` : !result.context ? " Refresh TrainingPeaks to reload the calendar." : ""}`)
+      setMoveNotice(`${result.results.length} of ${result.total} workouts ${action === "copy" ? "copied to the same day" : "deleted"}.${result.failures.length ? ` ${result.failures[0].error} Refresh before retrying.` : !result.context ? " Refresh Intervals.icu to reload the calendar." : ""}`)
     } catch(error) {setMoveNotice(error instanceof Error ? error.message : "Unable to update this day’s workouts.")}
     finally {setMoving(false)}
   }
@@ -287,10 +288,11 @@ export function TrainingCalendar({
   const finishDrag = async ({active, over}: DragEndEvent) => {
     setDragging(null)
     const workout = active.data.current?.workout as PlannedWorkout | undefined
-    if (!workout || !over || String(over.id) === workout.workout_date || moving) return
+    if (!workout || !workout.id.startsWith("event:") || !over || String(over.id) === workout.workout_date || moving) return
     const date = String(over.id)
     calendarWasDragged.current = true
     const snapshot = context
+    calendarRevision.current += 1
     const update = (item: PlannedWorkout) => item.id === workout.id ? {...item, workout_date:date,
       day:new Date(`${date}T12:00:00`).toLocaleDateString('en-US',{weekday:'short'}).toUpperCase(),
       date:new Date(`${date}T12:00:00`).toLocaleDateString('en-US',{month:'short',day:'numeric'}),
@@ -302,7 +304,7 @@ export function TrainingCalendar({
     try {
       const result = await moveWorkoutDate(workout.id, date)
       if (result.context) setContext(current => ({...current, ...result.context}))
-      setMoveNotice(`${workout.title} moved to ${new Date(`${date}T12:00:00`).toLocaleDateString('en-US',{month:'short',day:'numeric'})}.`)
+      setMoveNotice(`${workout.title} saved and moved to ${new Date(`${date}T12:00:00`).toLocaleDateString('en-US',{month:'short',day:'numeric'})}.`)
     } catch (error) {
       setContext(snapshot)
       setMoveNotice(error instanceof Error ? error.message : "Unable to move workout.")
@@ -315,7 +317,8 @@ export function TrainingCalendar({
 
   useEffect(() => {
     let active = true
-    loadTrainingContext().then((next) => active && setContext(next))
+    const revision = calendarRevision.current
+    loadTrainingContext().then((next) => active && revision === calendarRevision.current && setContext(next))
     return () => {
       active = false
     }
@@ -327,7 +330,8 @@ export function TrainingCalendar({
     const hydrateHistory = () => {
       if (started) return
       started = true
-      void loadFullTrainingContext().then((next) => active && setContext(next))
+      const revision = calendarRevision.current
+      void loadFullTrainingContext().then((next) => active && revision === calendarRevision.current && setContext(next))
     }
     window.addEventListener("scroll", hydrateHistory, { passive: true, once: true })
     const timer = window.setTimeout(hydrateHistory, 1200)
@@ -472,7 +476,7 @@ export function TrainingCalendar({
                           {isToday && <section aria-label="Performance Insights" className="mb-4 pt-2 md:hidden">
                             <div className="mb-1 flex items-center justify-between">
                               <p className="text-sm font-semibold text-primary">{day.toLocaleDateString("en-US", {weekday:"short"})} - {day.getDate()}</p>
-                              <DayMenu day={day} count={dayWorkouts.length} disabled={moving} onAction={action => void runDayAction(day,action)} />
+                              <DayMenu day={day} count={dayWorkouts.filter(w => w.id.startsWith("event:")).length} disabled={moving} onAction={action => void runDayAction(day,action)} />
                             </div>
                             <h2 className="mb-3 text-base font-semibold">Performance Insights</h2>
                             <div className="grid grid-cols-3 gap-1.5">
@@ -494,7 +498,7 @@ export function TrainingCalendar({
                             <DayMenu day={day} count={dayWorkouts.length} disabled={moving} onAction={action => void runDayAction(day,action)} />
                           </div>
                           <div className="space-y-2">
-                            {dayWorkouts.map((workout) => <DraggableWorkout key={workout.id} workout={workout} disabled={moving} onOpen={() => openWorkout(workout)} onAction={action => void runWorkoutAction(workout, action)} />)}
+                            {dayWorkouts.map((workout) => <DraggableWorkout key={workout.id} workout={workout} disabled={moving || !workout.id.startsWith("event:")} onOpen={() => openWorkout(workout)} onAction={action => void runWorkoutAction(workout, action)} />)}
                             <div aria-hidden="true" className="flex h-12 w-full items-center justify-center rounded-sm border border-muted-foreground/40 text-muted-foreground opacity-0 transition-opacity group-hover/day:opacity-100">
                               <Plus className="size-4" />
                             </div>

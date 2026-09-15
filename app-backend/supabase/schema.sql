@@ -1,6 +1,16 @@
 -- Run once in the Supabase SQL editor. All long-lived coaching context stays server-side.
 create extension if not exists pgcrypto;
 
+-- Settings credentials are encrypted by the backend and inaccessible to browser roles.
+create table if not exists public.app_settings (
+  scope text not null default 'default', name text not null,
+  encrypted_value text not null, updated_at timestamptz not null default now(),
+  primary key (scope, name)
+);
+alter table public.app_settings enable row level security;
+revoke all on table public.app_settings from public, anon, authenticated;
+grant select, insert, update on table public.app_settings to service_role;
+
 create table if not exists coaching_config (
   athlete_id text primary key,
   vision text not null,
@@ -42,7 +52,7 @@ create table if not exists workout_library (
   tags text[] default '{}', created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 create table if not exists sync_state (
-  athlete_id text primary key, last_trainingpeaks_sync timestamptz, last_backfill_at timestamptz,
+  athlete_id text primary key, last_backfill_at timestamptz,
   cursor jsonb default '{}', status text default 'idle', error text, updated_at timestamptz default now()
 );
 create table if not exists daily_workout_reviews (

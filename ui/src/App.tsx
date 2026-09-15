@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/api-client"
 import { SidebarNavigationSlim } from "@/components/application/app-navigation/sidebar-navigation/sidebar-slim"
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import {
@@ -36,7 +37,7 @@ import {
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
   loadCoachConversations,
-  refreshRecentTrainingPeaks,
+  refreshRecentIntervals,
   type CoachConversationSummary,
   type PlannedWorkout,
 } from "@/lib/training-context"
@@ -144,7 +145,7 @@ function AppWorkspace() {
   const [refreshRequest, setRefreshRequest] = useState(0)
   const [contextVersion, setContextVersion] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [trainingPeaksDisconnected, setTrainingPeaksDisconnected] =
+  const [intervalsDisconnected, setIntervalsDisconnected] =
     useState(false)
   const workoutReturnScroll = useRef(0)
   const isCoachConversation = activeItem === "Coach"
@@ -171,10 +172,10 @@ function AppWorkspace() {
   }, [activeItem])
 
   useEffect(() => {
-    const showReconnect = () => setTrainingPeaksDisconnected(true)
-    window.addEventListener("trainingpeaks-auth-expired", showReconnect)
+    const showReconnect = () => setIntervalsDisconnected(true)
+    window.addEventListener("intervals-auth-expired", showReconnect)
     return () =>
-      window.removeEventListener("trainingpeaks-auth-expired", showReconnect)
+      window.removeEventListener("intervals-auth-expired", showReconnect)
   }, [])
 
   useEffect(() => {
@@ -229,7 +230,7 @@ function AppWorkspace() {
   }
 
   const pinConversation = async (conversation: CoachConversationSummary) => {
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/conversations/${encodeURIComponent(conversation.id)}`,
       {
         method: "PATCH",
@@ -246,7 +247,7 @@ function AppWorkspace() {
   const deleteConversation = async () => {
     if (!conversationToDelete) return
     const deleted = conversationToDelete
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/conversations/${encodeURIComponent(deleted.id)}`,
       { method: "DELETE" }
     )
@@ -287,7 +288,7 @@ function AppWorkspace() {
   return (
     <MobileHeaderNavigation.Provider
       value={async () => {
-        const context = await refreshRecentTrainingPeaks()
+        const context = await refreshRecentIntervals()
         setSelectedWorkout((current) =>
           current
             ? ([...context.planned, ...context.history].find(
@@ -299,16 +300,16 @@ function AppWorkspace() {
       }}
     >
       <AlertDialog
-        open={trainingPeaksDisconnected}
-        onOpenChange={setTrainingPeaksDisconnected}
+        open={intervalsDisconnected}
+        onOpenChange={setIntervalsDisconnected}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reconnect TrainingPeaks</AlertDialogTitle>
+            <AlertDialogTitle>Reconnect Intervals.icu</AlertDialogTitle>
             <AlertDialogDescription>
-              Your TrainingPeaks session has expired. Your saved coaching
-              context remains available in Supabase. Sign in to TrainingPeaks,
-              then update the connection from Settings to resume syncing new
+              Your Intervals.icu API key is missing or no longer valid. Your saved coaching
+              context remains available in Supabase. Open Intervals.icu Settings,
+              then update the API key from Settings to resume syncing new
               workouts.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -317,7 +318,7 @@ function AppWorkspace() {
             <AlertDialogAction
               onClick={() => {
                 window.open(
-                  "https://app.trainingpeaks.com",
+                  "https://intervals.icu/settings",
                   "_blank",
                   "noopener,noreferrer"
                 )
@@ -475,7 +476,7 @@ function AppWorkspace() {
                     className={isRefreshing ? "animate-spin" : undefined}
                   />
                   <span className="hidden sm:inline">
-                    Refresh TrainingPeaks
+                    Refresh Intervals.icu
                   </span>
                   <span className="sm:hidden">Refresh</span>
                 </Button>

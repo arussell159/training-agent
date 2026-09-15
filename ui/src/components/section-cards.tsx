@@ -352,7 +352,7 @@ export function SectionCards({
 
       <Card className="col-span-2 min-w-0 [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-6">
         <CardHeader>
-          <CardTitle>TrainingPeaks fitness</CardTitle>
+          <CardTitle>Intervals.icu fitness</CardTitle>
           <CardAction>
             <Gauge className="size-4 text-muted-foreground" />
           </CardAction>

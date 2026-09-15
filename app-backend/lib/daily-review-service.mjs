@@ -79,7 +79,7 @@ const REVIEW_INSTRUCTIONS = `Perform a pre-workout daily endurance coaching revi
 Return the required JSON schema. Keep summary and notification_summary concise; proposed changes must sound like suggestions awaiting approval. Report available HRV and resting heart rate with personal trends, and identify fitness/fatigue/form as training-load estimates. Do not invent missing measurements. Include recent observations only when relevant to the decision.
 Every recommendation requires dated athlete facts, explicit reasoning, coaching_judgment, applicability limits, and server-verifiable calculations for personalized numerical adjustments. No verified published sources are supplied: leave published empty. The user's guide is a coaching framework, not verified quotations from its named books. Preserve the athlete's recorded zone system.
 Choose the supported action that best fits the guide and athlete context. Guidance must describe the actual main-set groups and use verified targets, distance, duration, and recovery with explicit units. Do not restrict decisions to a predetermined recovery-versus-target lever.
-The patch is the exact TrainingPeaks change applied only after approval. Use null for unchanged fields and a fully null patch for follow_as_written. totalTimePlanned is decimal hours. Preserve swimming work as distance-based meter lengths converted from prescribed yards with visualizationDistanceUnit yard; seconds are for passive rest. Supply a valid replacement structure when available and keep duration/TSS consistent. Never claim changes have already been applied.`
+The patch is the exact Intervals.icu change applied only after approval. Use null for unchanged fields and a fully null patch for follow_as_written. totalTimePlanned is decimal hours. Preserve swimming work as distance-based meter lengths converted from prescribed yards with visualizationDistanceUnit yard; seconds are for passive rest. Supply a valid replacement structure when available and keep duration/TSS consistent. Never claim changes have already been applied.`
 
 function outputText(data) {
   return data.output_text || data.output?.flatMap(item => item.content || []).find(item => item.type === "output_text")?.text || ""
@@ -154,7 +154,7 @@ async function requestStructuredRefinement(config, review, context, workouts, in
       max_output_tokens:5000,
       reasoning:{ effort:"low" },
       instructions:`${coachingInstructions}\n\n${REVIEW_INSTRUCTIONS}
-Revise the unresolved saved review using the athlete's latest reply. Treat that reply as a requested constraint, not approval. Change only the workout, interval group, targets, recovery, or fields explicitly named by the athlete. Preserve every unmentioned workout and main-set group exactly. The patch must contain the complete TrainingPeaks-ready replacement needed to apply the displayed revision, while leaving unmentioned intervals unchanged. Describe the revised workout as a suggestion awaiting approval.`,
+Revise the unresolved saved review using the athlete's latest reply. Treat that reply as a requested constraint, not approval. Change only the workout, interval group, targets, recovery, or fields explicitly named by the athlete. Preserve every unmentioned workout and main-set group exactly. The patch must contain the complete Intervals.icu-ready replacement needed to apply the displayed revision, while leaving unmentioned intervals unchanged. Describe the revised workout as a suggestion awaiting approval.`,
       input:JSON.stringify(evidence).slice(0,100000),
       text:{
         format:{ type:"json_schema", name:"daily_workout_review_refinement", strict:true, schema:dailyReviewSchema },
@@ -203,7 +203,7 @@ async function requestConditionReview(config, context, workouts, localDate) {
     headers:{ Authorization:`Bearer ${config.OPENAI_API_KEY}`, "Content-Type":"application/json" },
     body:JSON.stringify({
       model:config.OPENAI_MODEL || "gpt-5-mini", store:false, max_output_tokens:2000, reasoning:{ effort:"low" },
-      instructions:`${policy}\n\n${TRANSPORT_INSTRUCTIONS}\nDaily review delivery: return the required JSON with a brief condition assessment and up to three suggestions. This scheduled review is advisory only and does not modify workouts. Analyse the supplied TrainingPeaks snapshot using the upstream coaching policy.`,
+      instructions:`${policy}\n\n${TRANSPORT_INSTRUCTIONS}\nDaily review delivery: return the required JSON with a brief condition assessment and up to three suggestions. This scheduled review is advisory only and does not modify workouts. Analyse the supplied Intervals.icu snapshot using the upstream coaching policy.`,
       input:JSON.stringify({ local_date:localDate, athlete:context.athlete, metrics:context.metrics, wellness:context.wellness, comments:context.comments, recent_history:(context.history || context.workouts || []).slice(-90), today:workouts, upcoming:context.planned }).slice(0,100000),
       text:{ format:{ type:"json_schema", name:"daily_condition_review", strict:true, schema:{ type:"object", additionalProperties:false, properties:{ summary:{type:"string"}, condition:{type:"string"}, suggestions:{type:"array",maxItems:3,items:{type:"string"}}, uncertainty:{type:"string"} }, required:["summary","condition","suggestions","uncertainty"] } } },
     }),
@@ -428,7 +428,7 @@ export function createDailyReviewService({
     }
 
     const config = await readConfig()
-    if (!config.TP_AUTH_COOKIE) return { status:503, body:{ error:"TrainingPeaks is not connected, so no change was applied.", review } }
+    if (!config.INTERVALS_API_KEY) return { status:503, body:{ error:"Intervals.icu is not connected, so no change was applied.", review } }
     const latest = await getContext(config, { force:true, strict:true })
     const workouts = scheduledWorkouts(latest, review.local_date)
     const currentById = new Map(workouts.map(item => [String(item.id), item]))
@@ -471,7 +471,7 @@ export function createDailyReviewService({
     } catch (error) {
       log(`daily review apply failed: ${error.message}`)
       review = await updateDailyReview(id, current => ({ ...current, status:"apply_failed", operation_id:null, apply_error:error.message }))
-      return { status:502, body:{ error:`TrainingPeaks did not confirm every change: ${error.message}`, review } }
+      return { status:502, body:{ error:`Intervals.icu did not confirm every change: ${error.message}`, review } }
     }
   }
 

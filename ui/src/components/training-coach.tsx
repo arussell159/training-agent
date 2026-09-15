@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/api-client"
 import { createContext, useContext, useEffect, useRef, useState } from "react"
 import {
   AlertCircle,
@@ -696,7 +697,7 @@ export function TrainingCoach({
     const messageSignature = JSON.stringify(messages)
     if (messageSignature === lastSavedMessages.current) return
     const controller = new AbortController()
-    void fetch("/api/conversations", {
+    void apiFetch("/api/conversations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
@@ -770,7 +771,7 @@ export function TrainingCoach({
     setStreamingMessageId(assistantMessage.id)
 
     try {
-      const response = await fetch("/api/coach", {
+      const response = await apiFetch("/api/coach", {
         method: "POST",
         signal: request.signal,
         headers: {
@@ -938,7 +939,7 @@ export function TrainingCoach({
     if (!message.proposal) return
     updateProposal(message.id, "applying")
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/workouts/${encodeURIComponent(message.proposal.targetId)}`,
         {
           method: "PATCH",
@@ -969,7 +970,7 @@ export function TrainingCoach({
         current ? { ...current, status: "applying" } : current
       )
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/daily-reviews/${encodeURIComponent(dailyReview.id)}/${action}`,
         {
           method: "POST",
@@ -991,7 +992,7 @@ export function TrainingCoach({
       }
       setReviewMessage(
         action === "approve"
-          ? "TrainingPeaks confirmed the displayed changes."
+          ? "Intervals.icu confirmed the displayed changes."
           : "Decision recorded. The existing workout remains unchanged."
       )
       if (action === "approve") void loadTrainingContext(true).then(setContext)

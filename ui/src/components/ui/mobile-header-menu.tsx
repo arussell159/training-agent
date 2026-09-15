@@ -24,7 +24,7 @@ export function MobileHeaderMenu() {
       setError(
         failure instanceof Error
           ? failure.message
-          : "TrainingPeaks refresh failed."
+          : "Intervals.icu refresh failed."
       )
     } finally {
       setBusy(false)
@@ -46,7 +46,7 @@ export function MobileHeaderMenu() {
             onClick={() => void runRefresh()}
           >
             <RefreshCw className={busy ? "animate-spin" : undefined} />
-            {busy ? "Refreshing TrainingPeaks…" : "Refresh TrainingPeaks"}
+            {busy ? "Refreshing Intervals.icu…" : "Refresh Intervals.icu"}
           </DropdownMenuItem>
           {error && (
             <p

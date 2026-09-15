@@ -73,12 +73,12 @@ function fakeStorage(initialReview = null) {
   }
 }
 
-test("a failed TrainingPeaks write remains retryable and duplicate approval is idempotent", async () => {
+test("a failed Intervals.icu write remains retryable and duplicate approval is idempotent", async () => {
   const workout = { id:"42", workout_date:"2026-09-14", sport:"Bike", title:"Bike – Threshold", status:"today", plannedDurationMinutes:60, load:55, details:"3 x 8 min", goal:"Controlled threshold" }
   const context = { athlete:{ id:"athlete-1", phase:"base" }, metrics:{ recovery:30 }, wellness:{ hrv:50 }, history:[], planned:[workout], comments:[] }
   let attempts = 0
   const service = createDailyReviewService({
-    readConfig:async () => ({ TP_AUTH_COOKIE:"configured" }),
+    readConfig:async () => ({ INTERVALS_API_KEY:"configured" }),
     writeConfig:async () => {},
     getContext:async () => context,
     applyWorkoutPatch:async () => {

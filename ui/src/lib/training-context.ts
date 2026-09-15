@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/api-client"
 export interface TrainingHistoryItem {
   workout_date: string
   planned?: { duration_minutes?: number; tss?: number }
@@ -327,15 +328,16 @@ export const fallbackTrainingContext: TrainingContext = {
 
 const contextCache = new Map<"week" | "full", TrainingContext>()
 const contextRequests = new Map<"week" | "full", Promise<TrainingContext>>()
+let contextRevision = 0
 
-export async function refreshRecentTrainingPeaks() {
-  const response = await fetch("/api/training-context?scope=full&refresh=1&window=recent", {
+export async function refreshRecentIntervals() {
+  const response = await apiFetch("/api/training-context?scope=full&refresh=1&window=recent", {
     headers: { Accept: "application/json" },
   })
-  if (!response.ok) throw new Error(`TrainingPeaks refresh failed (${response.status})`)
+  if (!response.ok) throw new Error(`Intervals.icu refresh failed (${response.status})`)
   const context = (await response.json()) as TrainingContext
   if (context.sync_error) throw new Error(context.sync_error)
-  if (context.source !== "trainingpeaks") throw new Error("Connect TrainingPeaks in Settings before refreshing.")
+  if (context.source !== "intervals") throw new Error("Connect Intervals.icu in Settings before refreshing.")
   contextCache.clear()
   contextCache.set("full", context)
   contextCache.set("week", context)
@@ -343,11 +345,13 @@ export async function refreshRecentTrainingPeaks() {
 }
 
 export async function moveWorkoutDate(id: string, date: string) {
-  const response = await fetch(`/api/workouts/${encodeURIComponent(id)}/move`, {
+  const response = await apiFetch(`/api/workouts/${encodeURIComponent(id)}/move`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date }),
   })
   const result = await response.json() as { verified?: boolean; error?: string; context?: TrainingContext | null }
   if (!response.ok || !result.verified) throw new Error(result.error || "The workout move could not be confirmed.")
+  contextRevision += 1
+  contextRequests.clear()
   const previous = contextCache.get("full") || contextCache.get("week")
   contextCache.clear()
   if (result.context) {
@@ -359,7 +363,7 @@ export async function moveWorkoutDate(id: string, date: string) {
 }
 
 export async function changeWorkout(id: string, action: "copy" | "delete") {
-  const response = await fetch(`/api/workouts/${encodeURIComponent(id)}${action === "copy" ? "/copy" : ""}`, {
+  const response = await apiFetch(`/api/workouts/${encodeURIComponent(id)}${action === "copy" ? "/copy" : ""}`, {
     method: action === "copy" ? "POST" : "DELETE",
     headers: { Accept: "application/json" },
   })
@@ -376,7 +380,7 @@ export async function changeWorkout(id: string, action: "copy" | "delete") {
 }
 
 export async function changeWorkoutDay(date: string, action: "copy" | "delete") {
-  const response = await fetch("/api/calendar/day-actions", {
+  const response = await apiFetch("/api/calendar/day-actions", {
     method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({date,action}),
   })
   const result = await response.json() as {error?: string; results: Array<{workoutId:string}>; failures:Array<{error:string}>; total:number; context:TrainingContext | null}
@@ -391,25 +395,33 @@ export async function changeWorkoutDay(date: string, action: "copy" | "delete") 
   return result
 }
 
-export async function loadTrainingContext(forceRefresh = false, scope: "week" | "full" = "week") {
-  if (forceRefresh) contextCache.clear()
+export async function loadTrainingContext(forceRefresh = false, scope: "week" | "full" = "week"): Promise<TrainingContext> {
+  if (forceRefresh) {
+    contextRevision += 1
+    contextCache.clear()
+    contextRequests.clear()
+  }
   if (!forceRefresh) {
     const cached = contextCache.get(scope)
     if (cached) return cached
     const pending = contextRequests.get(scope)
     if (pending) return pending
   }
+  const revision = contextRevision
   const request = (async () => {
   try {
     const query = new URLSearchParams({ scope })
     if (forceRefresh) query.set("refresh", "1")
-    const response = await fetch(`/api/training-context?${query}`, {
+    const response = await apiFetch(`/api/training-context?${query}`, {
       headers: { Accept: "application/json" },
     })
     if (!response.ok) throw new Error(`Training context ${response.status}`)
     const context = (await response.json()) as TrainingContext
+    if (revision !== contextRevision) {
+      return contextCache.get("full") || contextCache.get("week") || loadTrainingContext(false, scope)
+    }
     if (context.sync_error && /authentication|401|403|expired|credential/i.test(context.sync_error)) {
-      window.dispatchEvent(new CustomEvent("trainingpeaks-auth-expired"))
+      window.dispatchEvent(new CustomEvent("intervals-auth-expired"))
     }
     contextCache.set(scope, context)
     if (scope === "full") contextCache.delete("week")
@@ -431,7 +443,7 @@ export function loadFullTrainingContext(forceRefresh = false) {
 }
 
 export async function loadDailyReview(id: string) {
-  const response = await fetch(`/api/daily-reviews/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/daily-reviews/${encodeURIComponent(id)}`, {
     headers: { Accept: "application/json" },
   })
   if (!response.ok) throw new Error(`Daily review ${response.status}`)
@@ -439,7 +451,7 @@ export async function loadDailyReview(id: string) {
 }
 
 export async function loadCoachConversations() {
-  const response = await fetch("/api/conversations?limit=500", {
+  const response = await apiFetch("/api/conversations?limit=500", {
     headers: { Accept: "application/json" },
   })
   if (!response.ok) throw new Error(`Conversation history ${response.status}`)
@@ -447,7 +459,7 @@ export async function loadCoachConversations() {
 }
 
 export async function loadCoachConversation(id: string) {
-  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}`, {
     headers: { Accept: "application/json" },
   })
   if (!response.ok) {

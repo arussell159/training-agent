@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/api-client"
 import { useEffect, useState } from "react"
 import { Bell, BellOff, Clock3, LoaderCircle } from "lucide-react"
 
@@ -14,13 +15,13 @@ function decodeApplicationKey(value: string) {
 }
 
 async function getPreferences() {
-  const response = await fetch("/api/notification-settings", { headers:{ Accept:"application/json" } })
+  const response = await apiFetch("/api/notification-settings", { headers:{ Accept:"application/json" } })
   if (!response.ok) throw new Error(`Notification settings ${response.status}`)
   return (await response.json()) as NotificationPreferences
 }
 
 async function patchPreferences(patch: Partial<Pick<NotificationPreferences,"enabled" | "reviewTime" | "timeZone">>) {
-  const response = await fetch("/api/notification-settings", {
+  const response = await apiFetch("/api/notification-settings", {
     method:"PATCH",
     headers:{ "Content-Type":"application/json", Accept:"application/json" },
     body:JSON.stringify(patch),
@@ -81,7 +82,7 @@ export function TrainingSettings({ embedded = false }: { embedded?: boolean }) {
         userVisibleOnly:true,
         applicationServerKey:decodeApplicationKey(current.publicKey),
       })
-      const subscriptionResponse = await fetch("/api/push-subscriptions", {
+      const subscriptionResponse = await apiFetch("/api/push-subscriptions", {
         method:"POST",
         headers:{ "Content-Type":"application/json", Accept:"application/json" },
         body:JSON.stringify(subscription.toJSON()),
@@ -105,7 +106,7 @@ export function TrainingSettings({ embedded = false }: { embedded?: boolean }) {
       const registration = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration("/") : undefined
       const subscription = await registration?.pushManager.getSubscription()
       if (subscription) {
-        await fetch("/api/push-subscriptions", {
+        await apiFetch("/api/push-subscriptions", {
           method:"DELETE",
           headers:{ "Content-Type":"application/json" },
           body:JSON.stringify({ endpoint:subscription.endpoint }),

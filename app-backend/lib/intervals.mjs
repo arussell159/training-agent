@@ -1,0 +1,182 @@
+import { athleteLocalDate } from './coach-training-context.mjs';
+
+export function createIntervalsClient(config, fetchImpl = fetch) {
+  const key = config.INTERVALS_API_KEY;
+  if (!key) throw new Error('Connect Intervals.icu in Settings first');
+  return async (pathname, options = {}) => {
+    if (!pathname.startsWith('/') || pathname.includes('..')) throw new Error('Invalid Intervals.icu path');
+    const response = await fetchImpl(`https://intervals.icu/api/v1${pathname}`, {
+      ...options,
+      signal:AbortSignal.timeout(30_000),
+      headers:{'Content-Type':'application/json', Accept:'application/json', ...options.headers,
+        Authorization:`Basic ${Buffer.from(`API_KEY:${key}`).toString('base64')}`},
+    });
+    if (!response.ok) {
+      const error = new Error(`Intervals.icu request failed (${response.status}). ${response.status === 401 || response.status === 403 ? 'Check your API key in Settings.' : response.status === 429 ? 'Rate limit reached; wait before refreshing.' : 'Refresh before retrying any change.'}`);
+      error.status = response.status;
+      throw error;
+    }
+    const text = await response.text();
+    return text ? redactSecrets(JSON.parse(text)) : null;
+  };
+}
+
+function redactSecrets(value) {
+  if (Array.isArray(value)) return value.map(redactSecrets);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !/api[_-]?key|token|secret|password|authorization/i.test(key))
+    .map(([key,item]) => [key,redactSecrets(item)]));
+  return value;
+}
+
+export function validDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value))) throw new Error('Choose a valid calendar date');
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0,10) !== value) throw new Error('Choose a valid calendar date');
+  return value;
+}
+
+export function eventId(id) {
+  const match = String(id).match(/^event:(\d+)$/);
+  if (!match) throw new Error('Only Intervals.icu calendar events can be changed; completed activities are read-only.');
+  return match[1];
+}
+
+function sport(type) {
+  return /Ride|Bike/i.test(type || '') ? 'Bike' : /Run/i.test(type || '') ? 'Run' : /Swim/i.test(type || '') ? 'Swim' : /Weight|Strength/i.test(type || '') ? 'Strength' : type || 'Other';
+}
+function duration(seconds) {
+  const minutes = Math.round(Number(seconds || 0) / 60);
+  return minutes ? `${minutes} min` : '—';
+}
+function pace(speed, distance, unit) {
+  if (!(Number(speed) > 0)) return null;
+  const seconds = Math.round(distance / speed);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2,'0')} ${unit}`;
+}
+
+export function mapIntervalsWorkout(item, today, activity = null, isActivity = false) {
+  const actual = isActivity ? item : activity;
+  const date = String(item.start_date_local || '').slice(0,10);
+  validDate(date);
+  const minutes = Math.round(Number(item.moving_time || item.workout_doc?.duration || 0) / 60);
+  const actualMinutes = actual ? Math.round(Number(actual.moving_time || 0) / 60) : 0;
+  const local = new Date(`${date}T12:00:00Z`);
+  return {
+    id:`${isActivity ? 'activity' : 'event'}:${item.id}`,
+    provider:'intervals', editable:!isActivity, activity_id:actual?.id || null, category:item.category || 'ACTIVITY',
+    workout_date:date, day:local.toLocaleDateString('en-US',{weekday:'short',timeZone:'UTC'}).toUpperCase(),
+    date:local.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}), sport:sport(item.type),
+    title:item.name || `${sport(item.type)} ${isActivity ? 'activity' : 'event'}`,
+    duration:duration(item.moving_time || item.workout_doc?.duration),
+    plannedDurationMinutes:isActivity ? 0 : minutes, actualDurationMinutes:actualMinutes,
+    goal:item.description || '', details:item.description || '',
+    status:actual ? 'completed' : date === today ? 'today' : 'upcoming', completed:Boolean(actual),
+    load:item.icu_training_load ?? item.load_target ?? 0,
+    planned:{duration_minutes:isActivity ? 0 : minutes, tss:isActivity ? 0 : item.icu_training_load ?? item.load_target ?? 0},
+    completed_data:actual ? {duration_minutes:actualMinutes, tss:actual.icu_training_load ?? 0,
+      distance:actual.distance, avg_hr:actual.average_heartrate, avg_power:actual.icu_average_watts,
+      power_watts:actual.icu_average_watts, normalized_power:actual.icu_weighted_avg_watts, rpe:actual.icu_rpe,
+      pace_seconds_per_unit:actual.distance > 0 ? actual.moving_time / actual.distance : undefined} : {},
+    // Calendar dates are local all-day values, not UTC timestamps.
+    scheduled_start_at:null, structure:item.workout_doc ? JSON.stringify(item.workout_doc) : null,
+    source_updated_at:item.updated || null, source:'intervals',
+    measurement_quality:{power_available:actual?.icu_average_watts != null,heart_rate_available:actual?.average_heartrate != null},
+    raw:item,
+  };
+}
+
+export async function fetchIntervalsContext(request, {now = new Date(), timeZone = 'America/Chicago'} = {}) {
+  const athlete = await request('/athlete/0');
+  timeZone = athlete.timezone || athlete.time_zone || timeZone;
+  const today = athleteLocalDate(now,timeZone);
+  const shift = days => new Date(Date.parse(`${today}T12:00:00Z`) + days * 86400000).toISOString().slice(0,10);
+  const query = `oldest=${shift(-89)}&newest=${shift(60)}`;
+  const [activities,events,wellness] = await Promise.all([
+    request(`/athlete/0/activities?${query}`), request(`/athlete/0/events?${query}`),
+    request(`/athlete/0/wellness?oldest=${shift(-89)}&newest=${today}`),
+  ]);
+  const byId = new Map((activities || []).map(a => [String(a.id),a]));
+  const paired = new Set((events || []).filter(e => e.paired_activity_id != null).map(e => String(e.paired_activity_id)));
+  const sessions = [
+    ...(events || []).map(e => mapIntervalsWorkout(e,today,byId.get(String(e.paired_activity_id)))),
+    ...(activities || []).filter(a => !paired.has(String(a.id))).map(a => mapIntervalsWorkout(a,today,null,true)),
+  ].sort((a,b) => a.workout_date.localeCompare(b.workout_date));
+  const settings = athlete.sportSettings || athlete.sport_settings || [];
+  const find = pattern => settings.find(s => (s.types || [s.type]).some(t => pattern.test(t || ''))) || {};
+  const bike = find(/Ride/), run = find(/Run/), swim = find(/Swim/);
+  const latest = [...(wellness || [])].sort((a,b) => String(a.id).localeCompare(String(b.id))).at(-1) || {};
+  return {
+    athlete:{id:String(athlete.id), name:athlete.name || [athlete.first_name,athlete.last_name].filter(Boolean).join(' '),
+      time_zone:timeZone, sport_settings:settings, thresholds:settings,
+      zones:{bike_ftp:bike.ftp ?? null,run_threshold_pace:pace(run.threshold_pace,1000,'min/km'),
+        swim_css:pace(swim.threshold_pace,100,'min/100 m'),threshold_hr:run.lthr ?? bike.lthr ?? null}},
+    metrics:{fitness:latest.ctl ?? null,fatigue:latest.atl ?? null,form:latest.ctl != null && latest.atl != null ? latest.ctl - latest.atl : null},
+    wellness:{hrv:latest.hrv ?? null,resting_hr:latest.restingHR ?? null,sleep:latest.sleepSecs ?? null},
+    wellness_history:(wellness || []).map(w => ({...w,date:w.id})),
+    performance:(wellness || []).map(w => ({...w,workoutDay:w.id,ctl:w.ctl,atl:w.atl,tsb:w.ctl != null && w.atl != null ? w.ctl-w.atl : null})),
+    history:sessions.filter(w => w.workout_date <= today), planned:sessions.filter(w => w.workout_date >= today),
+    source:'intervals',synced_at:new Date().toISOString(),retention_days:90,
+  };
+}
+
+export async function moveIntervalsEvent(request, id, date) {
+  validDate(date);
+  const path = `/athlete/0/events/${eventId(id)}`;
+  const existing = await request(path);
+  const old = String(existing.start_date_local).slice(0,10);
+  validDate(old);
+  const delta = Date.parse(`${date}T00:00:00Z`) - Date.parse(`${old}T00:00:00Z`);
+  const patch = {start_date_local:date + String(existing.start_date_local).slice(10)};
+  if (existing.end_date_local) {
+    const endDate = String(existing.end_date_local).slice(0,10);
+    validDate(endDate);
+    patch.end_date_local = new Date(Date.parse(`${endDate}T00:00:00Z`) + delta).toISOString().slice(0,10) + String(existing.end_date_local).slice(10);
+  }
+  await request(path,{method:'PUT',body:JSON.stringify(patch)});
+  const verified = await request(path);
+  if (verified.start_date_local !== patch.start_date_local || (patch.end_date_local && verified.end_date_local !== patch.end_date_local)) throw new Error('Intervals.icu did not confirm the move. Refresh before retrying.');
+  return {workoutId:id,date,verified:true,event:verified};
+}
+
+export async function changeIntervalsEvent(request,id,action) {
+  const path = `/athlete/0/events/${eventId(id)}`;
+  if (!['copy','delete'].includes(action)) throw new Error('Invalid calendar action');
+  const original = await request(path);
+  if (action === 'delete') {
+    await request(path,{method:'DELETE'});
+    try {await request(path);} catch (error) {
+      if (error.status === 404) return {workoutId:id,verified:true,action};
+      throw error;
+    }
+    throw new Error('Intervals.icu did not confirm deletion. Refresh before retrying.');
+  }
+  const fields = ['category','type','name','description','start_date_local','end_date_local','moving_time','icu_training_load','color'];
+  const body = Object.fromEntries(fields.filter(f => Object.hasOwn(original,f)).map(f => [f,original[f]]));
+  const created = await request('/athlete/0/events',{method:'POST',body:JSON.stringify(body)});
+  if (!created?.id || String(created.id) === eventId(id)) throw new Error('Copy could not be confirmed. Refresh before retrying.');
+  const verified = await request(`/athlete/0/events/${created.id}`);
+  if (verified.name !== original.name || verified.start_date_local !== original.start_date_local) throw new Error('Copy could not be confirmed. Refresh before retrying.');
+  return {workoutId:`event:${created.id}`,verified:true,action,event:verified};
+}
+
+export async function applyIntervalsPatch(request,id,patch) {
+  const path = `/athlete/0/events/${eventId(id)}`;
+  const existing = await request(path);
+  if (existing.paired_activity_id) throw new Error('Workout has already completed');
+  const athlete = await request('/athlete/0');
+  const date = String(existing.start_date_local || '').slice(0,10);
+  if (date < athleteLocalDate(new Date(),athlete.timezone || 'America/Chicago')) throw new Error('Past workouts cannot be revised through a saved daily review');
+  // Saved review patches use the application's historic internal fields, not provider payloads.
+  const body = {};
+  if (patch.title != null) body.name = patch.title;
+  if (patch.description != null) body.description = patch.description;
+  if (patch.totalTimePlanned != null) body.moving_time = Number(patch.totalTimePlanned) * 3600;
+  if (patch.tssPlanned != null) body.icu_training_load = patch.tssPlanned;
+  if (patch.structure != null || patch.coachComments != null) throw new Error('Legacy structured review patches cannot be applied to Intervals.icu. Request a fresh workout description.');
+  if (!Object.keys(body).length) throw new Error('No supported Intervals.icu change');
+  await request(path,{method:'PUT',body:JSON.stringify(body)});
+  const verified = await request(path);
+  if (Object.entries(body).some(([k,v]) => verified[k] !== v)) throw new Error('Intervals.icu did not confirm the change. Refresh before retrying.');
+  return {workoutId:id,verified:true,fields:Object.keys(body)};
+}

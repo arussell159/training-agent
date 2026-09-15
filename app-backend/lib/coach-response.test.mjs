@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import {generateCoachResponse} from './coach-response.mjs';
 import {loadCoachingInstructions} from './coaching-policy.mjs';
-import {createTrainingPeaksCoachAdapter,triathlonCoachTools} from './triathlon-coach-adapter.mjs';
+import {createIntervalsCoachAdapter,triathlonCoachTools} from './triathlon-coach-adapter.mjs';
 
 test('production policy is byte-for-byte upstream instructions',async()=>{
   assert.equal(await loadCoachingInstructions(),await fs.readFile(new URL('../vendor/open-triathlon-coach/API instructions.md',import.meta.url),'utf8'));
 });
-test('coach requests TrainingPeaks tools and excludes old memory and fixed context',async()=>{
+test('coach requests Intervals.icu tools and excludes old memory and fixed context',async()=>{
   const requests=[];
   const result=await generateCoachResponse({OPENAI_API_KEY:'test'},{guide:'Upstream policy',currentDate:'2026-09-15',context:{},memory:[{content:'OLD POLICY'}],history:[],message:'Review today',executeTool:async(name,args)=>({title:'Actual planned workout',name,args})},async(url,options)=>{
     requests.push(JSON.parse(options.body));
@@ -25,10 +25,11 @@ test('upstream operation catalogue is complete and includes write body schemas',
   assert.equal(tools.length,22);
   assert.ok(tools.find(tool=>tool.name==='createEvent').parameters.properties.body);
 });
-test('snapshot reads preserve source values, date range and avoid fabricated capabilities',async()=>{
-  const read=createTrainingPeaksCoachAdapter({athlete:{name:'Alex',phase:'legacy'},planned:[{id:'1',workout_date:'2026-09-15',title:'Today'}],history:[{id:'2',workout_date:'2026-09-01',status:'completed',completed_data:{duration_minutes:60}}]});
-  assert.equal((await read('listEvents',{oldest:'2026-09-15',newest:'2026-09-15'})).data.length,1);
-  assert.equal((await read('getAthleteProfile')).data.phase,undefined);
-  assert.match((await read('getPowerCurves')).unavailable,/no verified equivalent/);
-  assert.equal((await read('createEvent',{body:{category:'WORKOUT',type:'Ride',name:'Ride',start_date_local:'2026-09-16',moving_time:3600}})).trainingpeaks_payload.totalTimePlanned,1);
+test('unconnected reads and write previews do not fabricate or apply data',async()=>{
+  const read=createIntervalsCoachAdapter();
+  assert.match((await read('getAthlete')).unavailable,/Connect Intervals/);
+  const preview=await read('createEvent',{body:{category:'WORKOUT',type:'Ride',name:'Ride',start_date_local:'2026-09-16T00:00:00',moving_time:3600}});
+  assert.equal(preview.status,'preview_only');
+  assert.equal(preview.not_applied,true);
+  assert.equal(preview.proposed.moving_time,3600);
 });

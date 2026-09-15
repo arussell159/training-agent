@@ -1,8 +1,8 @@
-import {TRANSPORT_INSTRUCTIONS,triathlonCoachTools,createTrainingPeaksCoachAdapter} from './triathlon-coach-adapter.mjs';
+import {TRANSPORT_INSTRUCTIONS,triathlonCoachTools,createIntervalsCoachAdapter} from './triathlon-coach-adapter.mjs';
 
 export async function generateCoachResponse(config,{guide,currentDate,context,history = [],message,executeTool},fetchImpl = fetch) {
   const tools = await triathlonCoachTools();
-  const runTool = executeTool || createTrainingPeaksCoachAdapter(context);
+  const runTool = executeTool || createIntervalsCoachAdapter();
   const input = [...history.filter(item => ['user','assistant'].includes(item.role)).map(item => ({role:item.role,content:String(item.content || '')})),{role:'user',content:message}];
   let calls = 0;
   for (let round = 0; round < 8; round++) {
@@ -23,7 +23,7 @@ export async function generateCoachResponse(config,{guide,currentDate,context,hi
     for (const request of requests) {
       let result;
       try { result = ++calls > 12 ? {error:'Read budget reached. Answer using retrieved data.'} : await runTool(request.name,JSON.parse(request.arguments || '{}')); }
-      catch { result = {error:'TrainingPeaks read failed. Requested data is unavailable; do not invent it.'}; }
+      catch { result = {error:'Intervals.icu read failed. Requested data is unavailable; do not invent it.'}; }
       input.push({type:'function_call_output',call_id:request.call_id,output:JSON.stringify(result)});
     }
   }

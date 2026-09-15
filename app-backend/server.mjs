@@ -1,14 +1,14 @@
 import { generateCoachResponse } from './lib/coach-response.mjs';
-import { createTrainingPeaksCoachAdapter } from './lib/triathlon-coach-adapter.mjs';
+import { createIntervalsCoachAdapter } from './lib/triathlon-coach-adapter.mjs';
 import {athleteLocalDate} from './lib/coach-training-context.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createContextStore } from './lib/supabase-context.mjs';
+import { createSettingsService, publicSettings, STORED_SETTINGS } from './lib/settings-store.mjs';
+import { resolveApiRoute } from './lib/api-routing.mjs';
 import {
   addLocalComment,
   deleteLocalCoachConversation,
@@ -30,8 +30,7 @@ import {
 import { createDailyReviewService } from './lib/daily-review-service.mjs';
 import { loadCoachingInstructions } from './lib/coaching-policy.mjs';
 import { createConversationTitle } from './lib/conversation-title.mjs';
-import { moveTrainingPeaksWorkout } from './lib/move-workout.mjs';
-import { changeTrainingPeaksWorkout } from './lib/workout-actions.mjs';
+import { createIntervalsClient, fetchIntervalsContext, moveIntervalsEvent, changeIntervalsEvent, applyIntervalsPatch, mapIntervalsWorkout, validDate } from './lib/intervals.mjs';
 import { activeConversations, conversationContext, conversationSummary, normalizeConversation } from './lib/conversation-history.mjs';
 import {
 
@@ -49,7 +48,7 @@ const __dirname = path.dirname(__filename);
 const configPath = path.join(__dirname, 'config.json');
 const uiDistPath = path.resolve(__dirname, '..', 'ui', 'dist');
 const coachingConfigPath = path.join(__dirname, 'coaching-config.json');
-const trainingPeaksCachePath = path.join(__dirname, 'trainingpeaks.cache');
+const intervalsCachePath = path.join(process.env.VERCEL ? '/tmp' : __dirname, 'intervals.cache');
 const knowledgeSourcesPath = path.join(__dirname, 'knowledge-sources.json');
 
 const serverState = {
@@ -58,19 +57,26 @@ const serverState = {
   pid: null,
 };
 
-let trainingPeaksMemoryCache = null;
-let trainingPeaksRefreshPromise = null;
+let intervalsMemoryCache = null;
 
 const CONFIG_ENV_KEYS = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
-  'TP_AUTH_COOKIE',
+  'INTERVALS_API_KEY',
   'SUPABASE_URL',
   'SUPABASE_SECRET_KEY',
   'VAPID_PUBLIC_KEY',
   'VAPID_PRIVATE_KEY',
   'VAPID_SUBJECT',
+  'SETTINGS_ENCRYPTION_KEY',
+  'SETTINGS_SCOPE',
 ];
+
+const settingsService = createSettingsService({
+  readBootstrap:readBootstrapConfig,
+  writeBootstrap:writeBootstrapConfig,
+  hosted:Boolean(process.env.VERCEL),
+});
 
 function mergeEnvironmentConfig(config = {}) {
   const environment = Object.fromEntries(
@@ -302,10 +308,10 @@ async function persistTrainingContext(config, context) {
   const syncedAt = context.synced_at || new Date().toISOString();
   await store.upsert('sync_state', [{
     athlete_id:athleteId,
-    last_trainingpeaks_sync:syncedAt,
     last_backfill_at:new Date().toISOString(),
     cursor:{
       context:{
+        provider:'intervals',
         athlete:context.athlete,
         metrics:context.metrics,
         wellness:context.wellness,
@@ -331,7 +337,7 @@ async function loadSupabaseTrainingSnapshot(config, athleteId = null) {
     const preferredId = athleteId && athleteId !== 'default' ? String(athleteId) : null;
     const state = await store.getLatestSyncState(preferredId);
     const snapshot = state?.cursor?.context;
-    if (!snapshot || !Array.isArray(snapshot.history) || !Array.isArray(snapshot.planned)) return null;
+    if (!snapshot || snapshot.provider !== 'intervals' || !Array.isArray(snapshot.history) || !Array.isArray(snapshot.planned)) return null;
     return { ...snapshot, source:'supabase-cache' };
   } catch (error) {
     updateLogs(`Supabase training snapshot read failed: ${error.message}`);
@@ -369,33 +375,7 @@ function metricValue(days, type, label) {
   return null;
 }
 
-async function tpRequest(pathname, token, options = {}) {
-  const response = await fetch(`https://tpapi.trainingpeaks.com${pathname}`, {
-    ...options,
-    headers: { Authorization:`Bearer ${token}`, 'Content-Type':'application/json', ...(options.headers || {}) },
-  });
-  if (!response.ok) {
-    const error = new Error(`TrainingPeaks ${response.status} for ${pathname}`);
-    error.status = response.status;
-    throw error;
-  }
-  const text = await response.text();
-  return text ? JSON.parse(text) : null;
-}
 
-async function getTrainingPeaksSession(config) {
-  if (!config.TP_AUTH_COOKIE) throw new Error('TrainingPeaks credential is missing');
-  const response = await fetch('https://tpapi.trainingpeaks.com/users/v3/token', {
-    headers:{ Cookie:`Production_tpAuth=${config.TP_AUTH_COOKIE}` },
-  });
-  if (!response.ok) throw new Error(`TrainingPeaks authentication failed (${response.status})`);
-  const payload = await response.json();
-  if (!payload.success || !payload.token?.access_token) throw new Error('TrainingPeaks rejected the session credential');
-  let athleteId = payload.athleteId || payload.userId;
-  if (!athleteId) athleteId = (await tpRequest('/users/v3/user', payload.token.access_token))?.user?.userId;
-  if (!athleteId) throw new Error('TrainingPeaks athlete ID was not returned');
-  return { token:payload.token.access_token, athleteId };
-}
 
 function zonedDateTimeIso(date, time, timeZone) {
   const target = Date.parse(`${date}T${time}Z`);
@@ -432,141 +412,13 @@ function scheduledStart(workout, workoutDate, timeZone) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-async function fetchTrainingPeaksContext(config, { force = false, timeZone = 'America/Chicago', refreshWindow = false } = {}) {
-  if (!config.TP_AUTH_COOKIE) throw new Error('TrainingPeaks credential is missing');
-  if (!force && trainingPeaksMemoryCache && Date.now() - trainingPeaksMemoryCache.savedAt < 5 * 60_000) return trainingPeaksMemoryCache.data;
-  if (!force) {
-    const disk = await readTrainingPeaksCache();
-    if (disk?.history && disk?.planned) {
-      trainingPeaksMemoryCache = { savedAt:Date.now(), data:{ ...disk, source:'trainingpeaks-cache' } };
-      if (!trainingPeaksRefreshPromise) {
-        trainingPeaksRefreshPromise = fetchTrainingPeaksContext(config, { force:true, timeZone })
-          .catch(error => updateLogs(`background TrainingPeaks refresh failed: ${error.message}`))
-          .finally(() => { trainingPeaksRefreshPromise = null; });
-      }
-      return trainingPeaksMemoryCache.data;
-    }
-  }
-
-  const tokenResponse = await fetch('https://tpapi.trainingpeaks.com/users/v3/token', {
-    headers: { Cookie:`Production_tpAuth=${config.TP_AUTH_COOKIE}` },
-  });
-  if (!tokenResponse.ok) throw new Error(`TrainingPeaks authentication failed (${tokenResponse.status})`);
-  const tokenPayload = await tokenResponse.json();
-  if (!tokenPayload.success || !tokenPayload.token?.access_token) throw new Error('TrainingPeaks rejected the session credential');
-  const token = tokenPayload.token.access_token;
-  let athleteId = tokenPayload.athleteId || tokenPayload.userId;
-  let athleteName = tokenPayload.username;
-  if (!athleteId) {
-    const userPayload = await tpRequest('/users/v3/user', token);
-    athleteId = userPayload?.user?.userId;
-    athleteName = [userPayload?.user?.firstName, userPayload?.user?.lastName].filter(Boolean).join(' ') || athleteName;
-  }
-  if (!athleteId) throw new Error('TrainingPeaks athlete ID was not returned');
-
-  const today = new Date();
-  const todayDate = isoDate(today);
-  const weekStart = isoDate(shiftDate(today, -((today.getUTCDay() + 6) % 7)));
-  const weekEnd = isoDate(shiftDate(new Date(`${weekStart}T00:00:00Z`), 6));
-  const previous = refreshWindow ? (trainingPeaksMemoryCache?.data || await readTrainingPeaksCache()) : null;
-  const historyStart = isoDate(shiftDate(today, refreshWindow ? -3 : -89));
-  const futureEnd = isoDate(shiftDate(today, refreshWindow ? 7 : 60));
-  const [workouts, performance, wellness] = await Promise.all([
-    tpRequest(`/fitness/v6/athletes/${athleteId}/workouts/${historyStart}/${futureEnd}`, token),
-    tpRequest(`/fitness/v1/athletes/${athleteId}/reporting/performancedata/${historyStart}/${todayDate}`, token, {
-      method:'POST',
-      body:JSON.stringify({ atlConstant:7, atlStart:0, ctlConstant:42, ctlStart:0, workoutTypes:[] }),
-    }),
-    tpRequest(`/metrics/v3/athletes/${athleteId}/consolidatedtimedmetrics/${historyStart}/${todayDate}`, token),
-  ]);
-
-  const wellnessByDate = new Map((wellness || []).map(day => [String(day.timeStamp || '').slice(0, 10), day]));
-  const mapped = (workouts || []).map(workout => {
-    const workoutDate = String(workout.workoutDay || '').slice(0, 10);
-    const completed = Boolean(workout.completed || Number(workout.totalTime || 0) > 0);
-    const plannedHours = Number(workout.totalTimePlanned || 0);
-    const actualHours = Number(workout.totalTime || 0);
-    const sport = sportName(workout.workoutTypeValueId);
-    return {
-      id:String(workout.workoutId),
-      day:new Date(`${workoutDate}T12:00:00`).toLocaleDateString('en-US',{weekday:'short'}).toUpperCase(),
-      date:new Date(`${workoutDate}T12:00:00`).toLocaleDateString('en-US',{month:'short',day:'numeric'}),
-      workout_date:workoutDate,
-      sport,
-      title:workout.title || `${sport} workout`,
-      duration:formatDuration(plannedHours || actualHours),
-      plannedDurationMinutes:Math.round(plannedHours * 60),
-      actualDurationMinutes:Math.round(actualHours * 60),
-      goal:workout.coachComments || workout.description || 'Complete the planned session as prescribed.',
-      details:workout.description || workout.coachComments || 'Open TrainingPeaks for the full workout structure.',
-      status:completed ? 'completed' : workoutDate === todayDate ? 'today' : 'upcoming',
-      risk:'low',
-      load:Math.round(Number(workout.tssPlanned ?? workout.tssActual ?? 0)),
-      planned:{
-        duration_minutes:Math.round(plannedHours * 60), tss:Number(workout.tssPlanned || 0),
-        power_watts:Number(workout.powerAveragePlanned || 0) || undefined,
-        pace_seconds_per_unit:plannedHours > 0 && Number(workout.distancePlanned) > 0 ? plannedHours * 3600 / Number(workout.distancePlanned) : undefined,
-      },
-      completed_data:completed ? {
-        duration_minutes:Math.round(actualHours * 60),
-        tss:Number(workout.tssActual || 0),
-        distance:Number(workout.distance || 0),
-        avg_hr:Number(workout.heartRateAverage || 0) || null,
-        avg_power:Number(workout.powerAverage || 0) || null,
-        power_watts:Number(workout.powerAverage || 0) || undefined,
-        pace_seconds_per_unit:actualHours > 0 && Number(workout.distance) > 0 ? actualHours * 3600 / Number(workout.distance) : undefined,
-        normalized_power:Number(workout.normalizedPowerActual || 0) || null,
-        rpe:Number(workout.rpe || 0) || null,
-        feeling:Number(workout.feeling || 0) || null,
-      } : {},
-      scheduled_start_at:scheduledStart(workout, workoutDate, timeZone),
-      structure:typeof workout.structure === 'string' ? workout.structure : workout.structure ? JSON.stringify(workout.structure) : null,
-      source_updated_at:workout.modifiedDate || workout.lastModifiedDate || null,
-      completed,
-      compliance:plannedHours > 0 && completed ? Math.round((actualHours / plannedHours) * 100) : null,
-      failure_signals:completed && plannedHours > 0 && actualHours < plannedHours * 0.75 ? ['substantially_shortened'] : [],
-      post_comment:workout.athleteComments || '',
-      measurement_quality:{ power_available:Boolean(workout.powerAverage || workout.normalizedPowerActual), heart_rate_available:Boolean(workout.heartRateAverage) },
-      source:'trainingpeaks',
-    };
-  });
-  const latestFitness = performance?.at?.(-1) || {};
-  const history = mapped.filter(workout => workout.workout_date <= todayDate).slice(-90).map(workout => {
-    const day = wellnessByDate.get(workout.workout_date);
-    return {
-      ...workout,
-      completed:workout.completed_data,
-      recovery:{
-        hrv:metricValue(day ? [day] : [], 60, 'hrv'),
-        resting_hr:metricValue(day ? [day] : [], 5, 'pulse'),
-      },
-    };
-  });
-  const context = {
-    athlete:{ id:athleteId, name:athleteName || 'TrainingPeaks athlete' },
-    metrics:{ fitness:Math.round(Number(latestFitness.ctl || 0)), fatigue:Math.round(Number(latestFitness.atl || 0)), form:Math.round(Number(latestFitness.tsb || 0)) },
-    wellness:{ hrv:metricValue(wellness || [], 60, 'hrv'), resting_hr:metricValue(wellness || [], 5, 'pulse') },
-    wellness_history:wellness || [],
-    history,
-    planned:mapped.filter(workout => workout.workout_date >= isoDate(shiftDate(today, -1)) && workout.workout_date <= futureEnd),
-    performance,
-    source:'trainingpeaks',
-    synced_at:new Date().toISOString(),
-    retention_days:90,
-  };
-  if (refreshWindow && previous) {
-    // Replace the entire fetched date window, including workouts deleted in TrainingPeaks.
-    const outside = workout => workout.workout_date < historyStart || workout.workout_date > futureEnd;
-    context.history = [...(previous.history || []).filter(outside), ...context.history].sort((a, b) => a.workout_date.localeCompare(b.workout_date));
-    context.planned = [...(previous.planned || []).filter(outside), ...mapped.filter(workout => workout.workout_date >= todayDate)].sort((a, b) => a.workout_date.localeCompare(b.workout_date));
-    context.performance = [...(previous.performance || []).filter(day => String(day.workoutDay || '').slice(0, 10) < historyStart), ...(performance || [])];
-  }
-  trainingPeaksMemoryCache = { savedAt:Date.now(), data:context };
-  try {
-    await fs.writeFile(trainingPeaksCachePath, JSON.stringify(context));
-  } catch (error) {
-    updateLogs(`TrainingPeaks disk cache write skipped: ${error.message}`);
-  }
+async function fetchIntervalsTrainingContext(config, {force = false, timeZone = 'America/Chicago'} = {}) {
+  if (!config.INTERVALS_API_KEY) throw new Error('Connect Intervals.icu in Settings first');
+  if (!force && intervalsMemoryCache?.key === config.INTERVALS_API_KEY && Date.now() - intervalsMemoryCache.savedAt < 60_000) return intervalsMemoryCache.data;
+  const context = await fetchIntervalsContext(createIntervalsClient(config), {timeZone});
+  intervalsMemoryCache = {savedAt:Date.now(),key:config.INTERVALS_API_KEY,data:context};
+  try {await fs.writeFile(intervalsCachePath,JSON.stringify(context));}
+  catch(error) {updateLogs(`Intervals.icu cache write skipped: ${error.message}`);}
   return context;
 }
 
@@ -594,32 +446,13 @@ function sameField(actual, expected) {
   return actual === expected;
 }
 
-async function applyTrainingPeaksWorkoutPatch(config, workoutId, requestedPatch, { now = new Date(), timeZone = 'America/Chicago' } = {}) {
-  if (!/^\d+$/.test(String(workoutId))) throw new Error('TrainingPeaks workout ID is invalid');
-  const { token, athleteId } = await getTrainingPeaksSession(config);
-  const pathname = `/fitness/v6/athletes/${athleteId}/workouts/${workoutId}`;
-  const existing = await tpRequest(pathname, token);
-  if (existing.completed || Number(existing.totalTime || 0) > 0) throw new Error('Workout has already started or completed');
-  const workoutDate = String(existing.workoutDay || '').slice(0,10);
-  const plannedStart = scheduledStart(existing, workoutDate, timeZone);
-  const actualStartValue = existing.startTime ? scheduledStart({ startTimePlanned:existing.startTime }, workoutDate, timeZone) : null;
-  if ((plannedStart && now >= new Date(plannedStart)) || (actualStartValue && now >= new Date(actualStartValue))) throw new Error('Workout has reached its scheduled start time');
-  const allowed = ['title','description','coachComments','totalTimePlanned','tssPlanned','structure'];
-  const patch = Object.fromEntries(allowed.filter(field => Object.hasOwn(requestedPatch || {}, field)).map(field => [field, requestedPatch[field]]));
-  if (!Object.keys(patch).length) throw new Error('Proposal contains no applicable TrainingPeaks fields');
-  if (patch.structure && typeof patch.structure !== 'string') patch.structure = JSON.stringify(patch.structure);
-  const updated = await tpRequest(pathname, token, {
-    method:'PUT',
-    body:JSON.stringify({ ...existing, ...patch, athleteId:Number(athleteId) }),
-  });
-  const verified = await tpRequest(pathname, token);
-  const failedFields = Object.entries(patch).filter(([field, value]) => !sameField(verified[field], value)).map(([field]) => field);
-  if (failedFields.length) throw new Error(`TrainingPeaks verification failed for ${failedFields.join(', ')}`);
-  trainingPeaksMemoryCache = null;
-  return { workoutId:String(updated?.workoutId || verified?.workoutId || workoutId), verified:true, fields:Object.keys(patch) };
+async function applyIntervalsWorkoutPatch(config, workoutId, requestedPatch) {
+  const result = await applyIntervalsPatch(createIntervalsClient(config),workoutId,requestedPatch);
+  intervalsMemoryCache = null;
+  return result;
 }
 
-async function readConfig() {
+async function readBootstrapConfig() {
   try {
     const raw = await fs.readFile(configPath, 'utf8');
     return mergeEnvironmentConfig(JSON.parse(raw));
@@ -628,18 +461,23 @@ async function readConfig() {
   }
 }
 
-async function writeConfig(data) {
+async function writeBootstrapConfig(data) {
+  let local = {};
+  try {local = JSON.parse(await fs.readFile(configPath,'utf8'));} catch {}
   await fs.mkdir(__dirname, { recursive: true });
-  await fs.writeFile(configPath, JSON.stringify(data, null, 2));
+  await fs.writeFile(configPath, JSON.stringify({...local,...data}, null, 2));
+}
+
+async function readConfig() {
+  return settingsService.read();
+}
+
+async function writeConfig(data) {
+  return settingsService.save(data);
 }
 
 function buildConfigResponse(config) {
-  return {
-    trainingPeaksConnected: Boolean(config.TP_AUTH_COOKIE),
-    openAIConnected: Boolean(config.OPENAI_API_KEY),
-    supabaseConnected: Boolean(config.SUPABASE_URL && config.SUPABASE_SECRET_KEY),
-    supabaseNeedsUrl: Boolean(config.SUPABASE_SECRET_KEY && !config.SUPABASE_URL),
-  };
+  return publicSettings(config);
 }
 
 function readBody(req) {
@@ -650,9 +488,9 @@ function readBody(req) {
   });
 }
 
-async function readTrainingPeaksCache() {
+async function readIntervalsCache() {
   try {
-    return JSON.parse(await fs.readFile(trainingPeaksCachePath, 'utf8'));
+    return JSON.parse(await fs.readFile(intervalsCachePath, 'utf8'));
   } catch {
     return null;
   }
@@ -679,33 +517,33 @@ async function buildCoachContext(config, coach, { force = false, strict = false 
     }
   }
 
-  if (config.TP_AUTH_COOKIE) {
-    let trainingPeaks = null;
+  if (config.INTERVALS_API_KEY) {
+    let intervals = null;
     try {
-      trainingPeaks = await fetchTrainingPeaksContext(config, { force, timeZone });
+      intervals = await fetchIntervalsTrainingContext(config, { force, timeZone });
     } catch (error) {
-      updateLogs(`coach TrainingPeaks sync failed: ${error.message}`);
+      updateLogs(`coach Intervals.icu sync failed: ${error.message}`);
       if (strict) throw error;
-      trainingPeaks = await readTrainingPeaksCache();
-      if (trainingPeaks) trainingPeaks = { ...trainingPeaks, source:'trainingpeaks-cache', sync_error:error.message };
+      intervals = await readIntervalsCache();
+      if (intervals) intervals = { ...intervals, source:'intervals-cache', sync_error:error.message };
     }
 
-    if (trainingPeaks) {
+    if (intervals) {
       context = {
         ...context,
-        ...trainingPeaks,
+        ...intervals,
         athlete:{
           ...context.athlete,
-          ...trainingPeaks.athlete,
+          ...intervals.athlete,
           race:coach.race || context.athlete?.race,
           race_date:raceDate,
           phase:raceTiming.phase,
           days_to_race:raceTiming.daysToRace,
         },
-        metrics:{ ...context.metrics, ...trainingPeaks.metrics },
-        workouts:trainingPeaks.history,
-        history:trainingPeaks.history,
-        planned:trainingPeaks.planned,
+        metrics:{ ...context.metrics, ...intervals.metrics },
+        workouts:intervals.history,
+        history:intervals.history,
+        planned:intervals.planned,
         comments:context.comments || local.comments,
         library:context.library || local.library,
       };
@@ -731,30 +569,16 @@ async function buildCoachContext(config, coach, { force = false, strict = false 
 async function runCoach(message, history = [], conversationId = null) {
   const config = await readConfig();
   if (!config.OPENAI_API_KEY) throw new Error('OpenAI is not configured');
+  if (!config.INTERVALS_API_KEY) throw new Error('Connect Intervals.icu in Settings before using live coaching');
   const coach = JSON.parse(await fs.readFile(coachingConfigPath, 'utf8'));
-  const context = await buildCoachContext(config, coach, {force:true});
+  const context = await buildCoachContext(config, coach, {force:true,strict:true});
   const guide = await loadCoachingInstructions();
   return generateCoachResponse(config, {
     guide, currentDate:athleteLocalDate(new Date(),context.notification_preferences?.time_zone || context.athlete?.time_zone || 'America/Chicago'),
     context,
     history, message,
-    executeTool:createTrainingPeaksCoachAdapter(context, async id => {
-      if (!/^\d+$/.test(id)) throw new Error('Invalid TrainingPeaks workout ID');
-      const {token,athleteId} = await getTrainingPeaksSession(config);
-      return tpRequest(`/fitness/v6/athletes/${athleteId}/workouts/${id}`,token);
-    }, async (name,args) => {
-      const oldest = args.date || args.oldest;
-      const newest = args.date || args.newest;
-      if (![oldest,newest].every(date => /^\d{4}-\d{2}-\d{2}$/.test(date)) || oldest > newest) throw new Error('Invalid date range');
-      const {token,athleteId} = await getTrainingPeaksSession(config);
-      if (name === 'listWellness' || name === 'getWellnessForDate') {
-        const measurements = await tpRequest(`/metrics/v3/athletes/${athleteId}/consolidatedtimedmetrics/${oldest}/${newest}`,token);
-        const load = await tpRequest(`/fitness/v1/athletes/${athleteId}/reporting/performancedata/${oldest}/${newest}`,token,{method:'POST',body:JSON.stringify({atlConstant:7,atlStart:0,ctlConstant:42,ctlStart:0,workoutTypes:[]})});
-        return {measurements,load,load_model:{atlConstant:7,ctlConstant:42,atlStart:0,ctlStart:0},note:'Load is calculated using these explicit reporting parameters.'};
-      }
-      const workouts = await tpRequest(`/fitness/v6/athletes/${athleteId}/workouts/${oldest}/${newest}`,token);
-      return (workouts || []).filter(workout => name !== 'listActivities' || workout.completed || Number(workout.totalTime) > 0).slice(-Math.min(Number(args.limit) || 500,500));
-    }),
+    executeTool:createIntervalsCoachAdapter(createIntervalsClient(config)),
+
   });
 }
 async function streamCoach(message, history, res, conversationId = null) {
@@ -792,49 +616,7 @@ function stopProcess() {
 }
 
 function startServer() {
-  if (serverState.child) {
-    return { running: true, pid: serverState.pid, message: 'Server already running.' };
-  }
-
-  const projectRoot = path.resolve(__dirname, '..');
-  const child = spawn('node', ['dist/index.js'], {
-    cwd: projectRoot,
-    env: {
-      ...process.env,
-      ...(readConfigSync() || {}),
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  serverState.child = child;
-  serverState.pid = child.pid;
-
-  child.stdout.on('data', (data) => {
-    const text = data.toString();
-    updateLogs(text.trim());
-  });
-
-  child.stderr.on('data', (data) => {
-    const text = data.toString();
-    updateLogs(text.trim());
-  });
-
-  child.on('exit', (code, signal) => {
-    updateLogs(`Child exited with code=${code} signal=${signal ?? 'none'}`);
-    serverState.child = null;
-    serverState.pid = null;
-  });
-
-  return { running: true, pid: child.pid, message: 'Server started.' };
-}
-
-function readConfigSync() {
-  try {
-    const raw = fsSync.readFileSync(configPath, 'utf8');
-    return mergeEnvironmentConfig(JSON.parse(raw));
-  } catch {
-    return mergeEnvironmentConfig();
-  }
+  throw new Error('The standalone MCP process has been removed. Use the app connection in Settings.');
 }
 
 async function buildDailyReviewContext(config, options = {}) {
@@ -876,7 +658,7 @@ const dailyReviews = createDailyReviewService({
   readConfig,
   writeConfig,
   getContext:buildDailyReviewContext,
-  applyWorkoutPatch:applyTrainingPeaksWorkoutPatch,
+  applyWorkoutPatch:applyIntervalsWorkoutPatch,
   hydrateDailyReviewByDate:loadDailyReviewFromSupabaseByDate,
   log:updateLogs,
   storage:dailyReviewStorage,
@@ -913,6 +695,7 @@ async function listPersistentDailyReviews(limit = 30) {
 
 export async function handleRequest(req, res) {
   try {
+    req.url = resolveApiRoute(req.url || '/');
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     const pathname = requestUrl.pathname;
     if (pathname === '/api/notification-settings') {
@@ -990,38 +773,41 @@ export async function handleRequest(req, res) {
       return;
     }
 
-    if (req.url === '/api/config') {
+    if (pathname === '/api/config') {
       if (req.method === 'GET') {
         const config = await readConfig();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.writeHead(200, {'Content-Type':'application/json','Cache-Control':'no-store'});
         res.end(JSON.stringify(buildConfigResponse(config)));
         return;
       }
-
       if (req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => { body += chunk; });
-        req.on('end', async () => {
-          try {
-            const payload = JSON.parse(body || '{}');
-            const current = await readConfig();
-            const next = {
-              ...current,
-              ...(payload.TP_AUTH_COOKIE ? { TP_AUTH_COOKIE: payload.TP_AUTH_COOKIE } : {}),
-              ...(payload.OPENAI_API_KEY ? { OPENAI_API_KEY: payload.OPENAI_API_KEY } : {}),
-              ...(payload.SUPABASE_URL ? { SUPABASE_URL: payload.SUPABASE_URL } : {}),
-              ...(payload.SUPABASE_SECRET_KEY ? { SUPABASE_SECRET_KEY: payload.SUPABASE_SECRET_KEY } : {}),
-            };
-            await writeConfig(next);
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(buildConfigResponse(next)));
-          } catch (error) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: error.message }));
+        try {
+          const payload = await readBody(req);
+          const allowed = [...STORED_SETTINGS,'SUPABASE_URL','SUPABASE_SECRET_KEY'];
+          const patch = Object.fromEntries(allowed.filter(name => Object.hasOwn(payload,name)).map(name => {
+            if (typeof payload[name] !== 'string' || !payload[name].trim()) throw new Error('Settings values must be non-empty text.');
+            return [name,payload[name].trim()];
+          }));
+          if (!Object.keys(patch).length) throw new Error('Enter an updated setting first.');
+          if (patch.APP_THEME && !['light','dark','system'].includes(patch.APP_THEME)) throw new Error('Invalid appearance setting.');
+          const current = await readBootstrapConfig();
+          if (patch.INTERVALS_API_KEY) await createIntervalsClient({...current,...patch})('/athlete/0');
+          const saved = await writeConfig(patch);
+          if (patch.INTERVALS_API_KEY) {
+            intervalsMemoryCache = null;
+            try {await fs.rm(intervalsCachePath,{force:true});} catch {}
           }
-        });
+          res.writeHead(200, {'Content-Type':'application/json','Cache-Control':'no-store'});
+          res.end(JSON.stringify(buildConfigResponse(saved)));
+        } catch(error) {
+          res.writeHead(400, {'Content-Type':'application/json','Cache-Control':'no-store'});
+          res.end(JSON.stringify({error:error.message}));
+        }
         return;
       }
+      res.writeHead(405,{'Content-Type':'application/json',Allow:'GET, POST','Cache-Control':'no-store'});
+      res.end(JSON.stringify({error:'Method not allowed'}));
+      return;
     }
 
     if (pathname === '/api/evidence/sources' && req.method === 'GET') {
@@ -1083,9 +869,9 @@ export async function handleRequest(req, res) {
       const requestUrl = new URL(req.url, 'http://localhost');
       const forceRefresh = requestUrl.searchParams.get('refresh') === '1';
       const contextScope = requestUrl.searchParams.get('scope') === 'full' ? 'full' : 'week';
-      if (config.TP_AUTH_COOKIE) {
+      if (config.INTERVALS_API_KEY) {
         try {
-          const live = await fetchTrainingPeaksContext(config, { force:forceRefresh, timeZone, refreshWindow:forceRefresh && requestUrl.searchParams.get('window') === 'recent' });
+          const live = await fetchIntervalsTrainingContext(config, { force:forceRefresh, timeZone, refreshWindow:forceRefresh && requestUrl.searchParams.get('window') === 'recent' });
           const liveContext = {
             ...local,
             ...live,
@@ -1103,11 +889,11 @@ export async function handleRequest(req, res) {
           res.end(JSON.stringify(scopedTrainingContext(liveContext, contextScope)));
           return;
         } catch (error) {
-          updateLogs(`TrainingPeaks sync failed: ${error.message}`);
+          updateLogs(`Intervals.icu sync failed: ${error.message}`);
           try {
-            const cached = JSON.parse(await fs.readFile(trainingPeaksCachePath, 'utf8'));
+            const cached = JSON.parse(await fs.readFile(intervalsCachePath, 'utf8'));
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
-            res.end(JSON.stringify(scopedTrainingContext({ ...local, ...cached, athlete:athleteWithRace(cached.athlete), comments:local.comments, library:local.library, source:'trainingpeaks-cache', sync_error:error.message }, contextScope)));
+            res.end(JSON.stringify(scopedTrainingContext({ ...local, ...cached, athlete:athleteWithRace(cached.athlete), comments:local.comments, library:local.library, source:'intervals-cache', sync_error:error.message }, contextScope)));
             return;
           } catch {
             const remote = await loadSupabaseTrainingSnapshot(config, local.athlete?.id);
@@ -1129,104 +915,69 @@ export async function handleRequest(req, res) {
         return;
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(scopedTrainingContext({ ...local, athlete:athleteWithRace(local.athlete), source:'local-live', retention_days:90 }, contextScope)));
+      res.end(JSON.stringify(scopedTrainingContext({ ...local, athlete:{...athleteWithRace(local.athlete),zones:{}}, history:[],planned:[],metrics:{fitness:null,fatigue:null,form:null},wellness:{},source:'not-connected',sync_error:'Connect Intervals.icu in Settings to load your training.', retention_days:90 }, contextScope)));
       return;
     }
 
     if (pathname === '/api/calendar/day-actions' && req.method === 'POST') {
       const config = await readConfig();
-      const {date, action} = await readBody(req);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date)) || !['copy','delete'].includes(action)) throw new Error('Invalid calendar day action');
-      const session = await getTrainingPeaksSession(config);
-      const workouts = (await tpRequest(`/fitness/v6/athletes/${session.athleteId}/workouts/${date}/${date}`,session.token) || []).filter(workout => String(workout.workoutDay || '').slice(0,10) === date);
-      const results = [];
-      const failures = [];
-      for (const workout of workouts || []) {
-        try {
-          results.push(await changeTrainingPeaksWorkout({workoutId:workout.workoutId,action,getSession:async () => session,request:tpRequest}));
-        } catch (error) {failures.push({workoutId:String(workout.workoutId),error:error.message}); break;}
+      const {date,action} = await readBody(req);
+      validDate(date);
+      if (!['copy','delete'].includes(action)) throw new Error('Invalid calendar day action');
+      const request = createIntervalsClient(config);
+      const events = (await request(`/athlete/0/events?oldest=${date}&newest=${date}`) || []).filter(e => String(e.start_date_local).slice(0,10) === date);
+      const results = [], failures = [];
+      for (const event of events) {
+        try {results.push(await changeIntervalsEvent(request,`event:${event.id}`,action));}
+        catch(error) {failures.push({workoutId:`event:${event.id}`,error:error.message});break;}
       }
-      if (action === 'delete' && results.length) {
-        const ids = new Set(results.map(result => result.workoutId));
-        const cached = trainingPeaksMemoryCache?.data || await readTrainingPeaksCache();
-        if (cached) {
-          cached.history = cached.history.filter(workout => !ids.has(workout.id));
-          cached.planned = cached.planned.filter(workout => !ids.has(workout.id));
-          await fs.writeFile(trainingPeaksCachePath,JSON.stringify(cached));
-        }
-        const store = createContextStore(config,updateLogs);
-        if (store.ready) for (const id of ids) {
-          try {await store.deleteWorkout(id);} catch (error) {updateLogs(`day deletion cache persistence failed: ${error.message}`);}
-        }
-      }
-      trainingPeaksMemoryCache = null;
+      intervalsMemoryCache = null;
       let context = null;
-      try {context = await fetchTrainingPeaksContext(config,{force:true}); await persistTrainingContext(config,context);}
-      catch (error) {updateLogs(`post-day-action context refresh failed: ${error.message}`);}
-      res.writeHead(200, {'Content-Type':'application/json','Cache-Control':'no-store'});
-      res.end(JSON.stringify({results,failures,total:(workouts || []).length,context}));
+      try {context = await fetchIntervalsTrainingContext(config,{force:true});await persistTrainingContext(config,context);}
+      catch(error) {updateLogs(`Post-action refresh failed: ${error.message}`);}
+      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
+      res.end(JSON.stringify({results,failures,total:events.length,context}));
       return;
     }
 
-    if ((/^\/api\/workouts\/\d+\/copy$/.test(pathname) && req.method === 'POST') || (/^\/api\/workouts\/\d+$/.test(pathname) && req.method === 'DELETE')) {
+    const calendarAction = pathname.match(/^\/api\/workouts\/(event%3A\d+|event:\d+)\/(move|copy)$/i);
+    const calendarDelete = pathname.match(/^\/api\/workouts\/(event%3A\d+|event:\d+)$/i);
+    if ((calendarAction && req.method === 'POST') || (calendarDelete && req.method === 'DELETE')) {
       const config = await readConfig();
-      const workoutId = pathname.split('/')[3];
-      const action = req.method === 'DELETE' ? 'delete' : 'copy';
-      const result = await changeTrainingPeaksWorkout({workoutId, action, getSession:() => getTrainingPeaksSession(config),request:tpRequest});
-      if (action === 'delete') {
-        const cached = trainingPeaksMemoryCache?.data || await readTrainingPeaksCache();
-        if (cached) {
-          cached.history = cached.history.filter(workout => workout.id !== workoutId);
-          cached.planned = cached.planned.filter(workout => workout.id !== workoutId);
-          await fs.writeFile(trainingPeaksCachePath, JSON.stringify(cached));
+      const id = decodeURIComponent((calendarAction || calendarDelete)[1]);
+      const request = createIntervalsClient(config);
+      const action = calendarAction?.[2] || 'delete';
+      const payload = action === 'move' ? await readBody(req) : {};
+      const result = action === 'move'
+        ? await moveIntervalsEvent(request,id,payload.date)
+        : await changeIntervalsEvent(request,id,action);
+      // Immediately update the verified local snapshot before attempting a full refresh.
+      const cached = intervalsMemoryCache?.data || await readIntervalsCache();
+      let context = cached;
+      if (context) {
+        const today = athleteLocalDate(new Date(),context.athlete?.time_zone || 'America/Chicago');
+        const all = new Map([...context.history,...context.planned].map(w => [w.id,w]));
+        if (action === 'delete') all.delete(id);
+        else {
+          const prior = all.get(id);
+          const mapped = mapIntervalsWorkout(result.event,today);
+          all.set(result.workoutId,action === 'move' ? {...prior,...mapped,completed_data:prior?.completed_data || {},actualDurationMinutes:prior?.actualDurationMinutes || 0,status:prior?.status === 'completed' ? 'completed' : mapped.status} : mapped);
         }
-        const store = createContextStore(config, updateLogs);
-        if (store.ready) {
-          try {
-            await store.deleteWorkout(workoutId);
-            if (cached) await persistTrainingContext(config,cached);
-          } catch (error) {updateLogs(`deleted workout cache persistence failed: ${error.message}`);}
-        }
+        const workouts = [...all.values()].sort((a,b) => a.workout_date.localeCompare(b.workout_date));
+        context = {...context,history:workouts.filter(w => w.workout_date <= today),planned:workouts.filter(w => w.workout_date >= today)};
+        try {await fs.writeFile(intervalsCachePath,JSON.stringify(context));}
+        catch(error) {updateLogs(`Verified calendar cache write skipped: ${error.message}`);}
       }
-      trainingPeaksMemoryCache = null;
-      let context = null;
-      try {
-        context = await fetchTrainingPeaksContext(config, {force:true});
-        await persistTrainingContext(config,context);
-      } catch (error) {updateLogs(`post-${action} context refresh failed: ${error.message}`);}
-      res.writeHead(200, {'Content-Type':'application/json','Cache-Control':'no-store'});
+      intervalsMemoryCache = null;
+      try {context = await fetchIntervalsTrainingContext(config,{force:true});await persistTrainingContext(config,context);}
+      catch(error) {updateLogs(`Post-calendar refresh failed: ${error.message}`);}
+      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
       res.end(JSON.stringify({...result,context}));
       return;
     }
 
-    if (/^\/api\/workouts\/\d+\/move$/.test(pathname) && req.method === 'POST') {
-      const config = await readConfig();
-      const payload = await readBody(req);
-      const workoutId = pathname.split('/')[3];
-      const result = await moveTrainingPeaksWorkout({ workoutId, date:payload.date, getSession:() => getTrainingPeaksSession(config), request:tpRequest });
-      const cached = trainingPeaksMemoryCache?.data || await readTrainingPeaksCache();
-      if (cached) {
-        const today = isoDate(new Date());
-        const update = workout => workout.id === workoutId ? {...workout, workout_date:payload.date,
-          day:new Date(`${payload.date}T12:00:00`).toLocaleDateString('en-US',{weekday:'short'}).toUpperCase(),
-          date:new Date(`${payload.date}T12:00:00`).toLocaleDateString('en-US',{month:'short',day:'numeric'}),
-          status:workout.status === 'completed' ? 'completed' : payload.date === today ? 'today' : 'upcoming',
-          scheduled_start_at:null,
-        } : workout;
-        const all = new Map([...cached.history, ...cached.planned].map(workout => [workout.id, update(workout)]));
-        cached.history = [...all.values()].filter(workout => workout.workout_date <= today).sort((a,b) => a.workout_date.localeCompare(b.workout_date));
-        cached.planned = [...all.values()].filter(workout => workout.workout_date >= isoDate(shiftDate(new Date(), -1))).sort((a,b) => a.workout_date.localeCompare(b.workout_date));
-        await fs.writeFile(trainingPeaksCachePath, JSON.stringify(cached));
-      }
-      trainingPeaksMemoryCache = null;
-      let context = null;
-      try {
-        context = await fetchTrainingPeaksContext(config, {force:true});
-        await persistTrainingContext(config, context);
-      } catch (error) { updateLogs(`post-move context refresh failed: ${error.message}`); }
-      res.writeHead(200, {'Content-Type':'application/json','Cache-Control':'no-store'});
-      res.end(JSON.stringify({...result, context}));
-      return;
+    if (pathname.startsWith('/api/workouts/') && (req.method === 'POST' || req.method === 'DELETE' || req.method === 'PATCH')) {
+      throw new Error('Only Intervals.icu calendar events can be changed. Refresh the calendar first.');
     }
 
     if (req.url?.startsWith('/api/workouts/') && req.method === 'PATCH') {

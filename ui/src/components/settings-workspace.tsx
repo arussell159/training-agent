@@ -1,5 +1,6 @@
+import { apiFetch } from "@/lib/api-client"
 import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import {
   Activity,
@@ -36,7 +37,7 @@ import {
 } from "@/lib/training-context"
 
 type SettingsSection =
-  | "trainingpeaks"
+  | "intervals"
   | "openai"
   | "supabase"
   | "zones"
@@ -45,7 +46,8 @@ type SettingsSection =
   | "notifications"
 
 type ConfigStatus = {
-  trainingPeaksConnected: boolean
+  settingsError?: string | null
+  intervalsConnected: boolean
   openAIConnected: boolean
   supabaseConnected: boolean
   supabaseNeedsUrl: boolean
@@ -62,7 +64,7 @@ const groups: Array<{ label: string; items: SettingsItem[] }> = [
   {
     label: "Connections",
     items: [
-      { id: "trainingpeaks", label: "TrainingPeaks", description: "Workouts and recovery", icon: Activity },
+      { id: "intervals", label: "Intervals.icu", description: "Workouts and recovery", icon: Activity },
       { id: "openai", label: "OpenAI", description: "AI coaching", icon: Sparkles },
       { id: "supabase", label: "Supabase", description: "Training context storage", icon: Database },
     ],
@@ -112,7 +114,7 @@ function MobileRow({ item, value, onClick }: { item: SettingsItem; value: string
 
 export function SettingsWorkspace() {
   const [config, setConfig] = useState<ConfigStatus>({
-    trainingPeaksConnected: false,
+    intervalsConnected: false,
     openAIConnected: false,
     supabaseConnected: false,
     supabaseNeedsUrl: false,
@@ -121,36 +123,48 @@ export function SettingsWorkspace() {
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences | null>(null)
   const [mobileSection, setMobileSection] = useState<SettingsSection | null>(null)
   const [dialogSection, setDialogSection] = useState<SettingsSection | null>(null)
-  const [trainingPeaksCookie, setTrainingPeaksCookie] = useState("")
+  const [intervalsKey, setIntervalsKey] = useState("")
   const [openAIKey, setOpenAIKey] = useState("")
   const [supabaseUrl, setSupabaseUrl] = useState("")
   const [supabaseKey, setSupabaseKey] = useState("")
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState("")
+  const [loadError, setLoadError] = useState("")
+  const settingsRevision = useRef(0)
   const { theme, setTheme } = useTheme()
 
   useEffect(() => {
+    let active = true
+    const revision = settingsRevision.current
     void Promise.all([
-      fetch("/api/config", { headers: { Accept: "application/json" } })
-        .then((response) => response.json())
-        .then((value) => setConfig(value as ConfigStatus)),
+      apiFetch("/api/config", { cache: "no-store", headers: { Accept: "application/json" } })
+        .then(async response => {
+          const value = await response.json() as ConfigStatus & { error?: string }
+          if (!response.ok) throw new Error(value.error || "Saved Settings could not be loaded.")
+          if (active && revision === settingsRevision.current) {
+            setConfig(value)
+            setLoadError(value.settingsError || "")
+          }
+        }).catch(error => { if (active && revision === settingsRevision.current) setLoadError(error instanceof Error ? error.message : "Saved Settings could not be loaded.") }),
       loadTrainingContext().then(setContext),
-      fetch("/api/notification-settings", { headers: { Accept: "application/json" } })
+      apiFetch("/api/notification-settings", { headers: { Accept: "application/json" } })
         .then((response) => response.json())
         .then((value) => setNotificationPreferences(value as NotificationPreferences))
         .catch(() => undefined),
     ])
+    return () => { active = false }
   }, [])
 
   function connectionStatus(section: SettingsSection) {
-    if (section === "trainingpeaks") return config.trainingPeaksConnected ? "Connected" : "Not connected"
+    if (loadError && ["intervals", "openai", "supabase"].includes(section)) return "Unavailable"
+    if (section === "intervals") return config.intervalsConnected ? "Connected" : "Not connected"
     if (section === "openai") return config.openAIConnected ? "Connected" : "Not connected"
     if (section === "supabase") return config.supabaseConnected ? "Connected" : config.supabaseNeedsUrl ? "URL needed" : "Not connected"
     return ""
   }
 
   function summary(section: SettingsSection) {
-    if (["trainingpeaks", "openai", "supabase"].includes(section)) return connectionStatus(section)
+    if (["intervals", "openai", "supabase"].includes(section)) return connectionStatus(section)
     if (section === "zones") return "Configured"
     if (section === "race") return context.athlete.race ?? "Not set"
     if (section === "appearance") return theme[0].toUpperCase() + theme.slice(1)
@@ -160,7 +174,7 @@ export function SettingsWorkspace() {
 
   async function saveConnection(section: SettingsSection) {
     const payload: Record<string, string> = {}
-    if (section === "trainingpeaks" && trainingPeaksCookie.trim()) payload.TP_AUTH_COOKIE = trainingPeaksCookie.trim()
+    if (section === "intervals" && intervalsKey.trim()) payload.INTERVALS_API_KEY = intervalsKey.trim()
     if (section === "openai" && openAIKey.trim()) payload.OPENAI_API_KEY = openAIKey.trim()
     if (section === "supabase") {
       if (supabaseUrl.trim()) payload.SUPABASE_URL = supabaseUrl.trim()
@@ -172,9 +186,10 @@ export function SettingsWorkspace() {
     }
 
     setSaving(true)
+    settingsRevision.current += 1
     setFeedback("")
     try {
-      const response = await fetch("/api/config", {
+      const response = await apiFetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(payload),
@@ -182,11 +197,13 @@ export function SettingsWorkspace() {
       const result = (await response.json()) as ConfigStatus & { error?: string }
       if (!response.ok) throw new Error(result.error || "Could not save the connection.")
       setConfig(result)
-      setTrainingPeaksCookie("")
+      setLoadError("")
+      setIntervalsKey("")
       setOpenAIKey("")
       setSupabaseUrl("")
       setSupabaseKey("")
-      setFeedback("Connection saved.")
+      if (section === "intervals") setContext(await loadTrainingContext(true, "full"))
+      setFeedback(section === "intervals" ? "Intervals.icu connection verified and saved to Supabase." : "Settings saved to Supabase.")
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Could not save the connection.")
     } finally {
@@ -194,21 +211,31 @@ export function SettingsWorkspace() {
     }
   }
 
+  async function saveAppearance(value: "light" | "dark" | "system") {
+    setSaving(true)
+    setFeedback("")
+    try {
+      await setTheme(value)
+      setFeedback("Appearance saved to Supabase.")
+    } catch (error) { setFeedback(error instanceof Error ? error.message : "Appearance could not be saved.") }
+    finally { setSaving(false) }
+  }
+
   function renderPanel(section: SettingsSection) {
     const athlete = context.athlete
     const zones = athlete.zones
-    if (["trainingpeaks", "openai", "supabase"].includes(section)) {
+    if (["intervals", "openai", "supabase"].includes(section)) {
       const connected = connectionStatus(section) === "Connected"
       return (
         <div className="space-y-5">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">Credentials stay in the local backend and are never returned to this page.</p>
+            <p className="text-sm text-muted-foreground">Settings are saved in Supabase. Credentials are encrypted and only accessed by the backend; stored keys are never returned to this page.</p>
             <Badge variant={connected ? "secondary" : "outline"}>{connectionStatus(section)}</Badge>
           </div>
-          {section === "trainingpeaks" && (
+          {section === "intervals" && (
             <div className="space-y-2">
-              <Label htmlFor="trainingpeaks-cookie">TrainingPeaks authentication cookie</Label>
-              <Input id="trainingpeaks-cookie" type="password" value={trainingPeaksCookie} onChange={(event) => setTrainingPeaksCookie(event.target.value)} placeholder="Paste an updated cookie" />
+              <Label htmlFor="intervals-key">Intervals.icu API key</Label>
+              <Input id="intervals-key" type="password" value={intervalsKey} onChange={(event) => setIntervalsKey(event.target.value)} placeholder="Paste your personal API key" />
             </div>
           )}
           {section === "openai" && (
@@ -219,6 +246,7 @@ export function SettingsWorkspace() {
           )}
           {section === "supabase" && (
             <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">The database connection bootstraps Settings storage. On a deployment, configure SUPABASE_URL and SUPABASE_SECRET_KEY in the server environment; these cannot be saved inside the database they unlock.</p>
               <div className="space-y-2">
                 <Label htmlFor="supabase-url">Project URL</Label>
                 <Input id="supabase-url" value={supabaseUrl} onChange={(event) => setSupabaseUrl(event.target.value)} placeholder="https://project.supabase.co" />
@@ -258,13 +286,13 @@ export function SettingsWorkspace() {
     }
     if (section === "appearance") {
       return (
-        <div className="grid grid-cols-3 gap-2">
+        <div className="space-y-3"><div className="grid grid-cols-3 gap-2">
           {(["light", "dark", "system"] as const).map((value) => (
-            <Button key={value} variant={theme === value ? "default" : "outline"} onClick={() => setTheme(value)}>
+            <Button key={value} disabled={saving} variant={theme === value ? "default" : "outline"} onClick={() => void saveAppearance(value)}>
               {value[0].toUpperCase() + value.slice(1)}
             </Button>
           ))}
-        </div>
+        </div>{feedback && <p role="status" className="text-sm text-muted-foreground">{feedback}</p>}</div>
       )
     }
     return <NotificationSettings embedded />
@@ -275,6 +303,7 @@ export function SettingsWorkspace() {
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col bg-background">
+      {loadError && <p role="alert" className="border-b px-4 py-3 text-sm text-destructive">{loadError}</p>}
       <div className="flex min-h-0 flex-1 flex-col md:hidden">
         <header className="mobile-site-header z-50 flex h-14 shrink-0 items-center border-b px-4">
           {mobileSection ? (

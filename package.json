@@ -1,31 +1,25 @@
 {
-  "name": "training-peaks-mcp",
+  "name": "open-triathlon-coach-app",
   "version": "1.0.0",
-  "description": "MCP server for TrainingPeaks",
+  "description": "Triathlon coaching app connected to Intervals.icu",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "app-backend/server.mjs",
   "scripts": {
-    "build": "npm run build:mcp && npm run build:ui && node -e \"require('fs').cpSync('ui/dist', 'dist', { recursive: true })\"",
-    "build:mcp": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\" && tsc",
+    "build": "npm --prefix ui run build",
     "build:ui": "npm run ui:build",
     "start": "node app-backend/server.mjs",
-    "dev": "ts-node --esm src/index.ts",
-    "watch": "tsc --watch",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint src",
-    "format": "prettier --write src *.md",
-    "format:check": "prettier --check src *.md",
-    "test": "tsc && node --test dist/api/workouts.test.js app-backend/lib/conversation-history.test.mjs app-backend/lib/daily-review.test.mjs app-backend/lib/daily-review-service.test.mjs app-backend/lib/evidence.test.mjs",
-    "inspector": "npx @modelcontextprotocol/inspector node dist/index.js",
+    "dev": "npm --prefix ui run dev",
+    "typecheck": "npm --prefix ui run build",
+    "lint": "npm --prefix ui run lint",
+    "format": "prettier --write app-backend/lib/*.mjs *.md",
+    "format:check": "prettier --check app-backend/lib/*.mjs *.md",
+    "test": "node --test app-backend/lib/*.test.mjs",
     "app:server": "node app-backend/server.mjs",
     "ui:dev": "npm --prefix ui run dev",
     "ui:build": "npm ci --prefix ui --include=dev && npm --prefix ui run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.1",
-    "axios": "^1.13.6",
-    "web-push": "^3.6.7",
-    "zod": "^4.3.6"
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

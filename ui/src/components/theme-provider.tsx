@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/api-client"
 /* eslint-disable react-refresh/only-export-components */
 import * as React from "react"
 
@@ -13,7 +14,7 @@ type ThemeProviderProps = {
 
 type ThemeProviderState = {
   theme: Theme
-  setTheme: (theme: Theme) => void
+  setTheme: (theme: Theme) => Promise<void>
 }
 
 const COLOR_SCHEME_QUERY = "(prefers-color-scheme: dark)"
@@ -92,9 +93,33 @@ export function ThemeProvider({
 
     return defaultTheme
   })
+  const themeRevision = React.useRef(0)
+
+  React.useEffect(() => {
+    let active = true
+    const revision = themeRevision.current
+    void apiFetch("/api/config", { cache: "no-store" })
+      .then(async response => {
+        if (!response.ok) return
+        const saved = await response.json() as { theme?: string }
+        if (active && revision === themeRevision.current && isTheme(saved.theme ?? null)) {
+          localStorage.setItem(storageKey, saved.theme!)
+          setThemeState(saved.theme as Theme)
+        }
+      }).catch(() => undefined)
+    return () => { active = false }
+  }, [storageKey])
 
   const setTheme = React.useCallback(
-    (nextTheme: Theme) => {
+    async (nextTheme: Theme) => {
+      const revision = ++themeRevision.current
+      const response = await apiFetch("/api/config", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ APP_THEME: nextTheme }),
+      })
+      const result = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(result.error || "Appearance could not be saved to Supabase.")
+      if (revision !== themeRevision.current) return
       localStorage.setItem(storageKey, nextTheme)
       setThemeState(nextTheme)
     },
@@ -157,19 +182,18 @@ export function ThemeProvider({
         return
       }
 
-      setThemeState((currentTheme) => {
+      {
         const nextTheme =
-          currentTheme === "dark"
+          theme === "dark"
             ? "light"
-            : currentTheme === "light"
+            : theme === "light"
               ? "dark"
               : getSystemTheme() === "dark"
                 ? "light"
                 : "dark"
 
-        localStorage.setItem(storageKey, nextTheme)
-        return nextTheme
-      })
+        void setTheme(nextTheme).catch(() => undefined)
+      }
     }
 
     window.addEventListener("keydown", handleKeyDown)
@@ -177,7 +201,7 @@ export function ThemeProvider({
     return () => {
       window.removeEventListener("keydown", handleKeyDown)
     }
-  }, [storageKey])
+  }, [theme, setTheme])
 
   React.useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {
