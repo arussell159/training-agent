@@ -1,3 +1,4 @@
+import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
 import { useEffect, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import {
@@ -11,7 +12,6 @@ import {
   Sparkles,
   SunMoon,
   Trophy,
-  X,
 } from "lucide-react"
 
 import { TrainingSettings as NotificationSettings } from "@/components/training-settings"
@@ -110,7 +110,7 @@ function MobileRow({ item, value, onClick }: { item: SettingsItem; value: string
   )
 }
 
-export function SettingsWorkspace({ onClose }: { onClose: () => void }) {
+export function SettingsWorkspace() {
   const [config, setConfig] = useState<ConfigStatus>({
     trainingPeaksConnected: false,
     openAIConnected: false,
@@ -276,15 +276,14 @@ export function SettingsWorkspace({ onClose }: { onClose: () => void }) {
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col bg-background">
       <div className="flex min-h-0 flex-1 flex-col md:hidden">
-        <header className="flex h-14 shrink-0 items-center border-b px-4">
+        <header className="mobile-site-header z-50 flex h-14 shrink-0 items-center border-b px-4">
           {mobileSection ? (
             <Button variant="ghost" size="icon-sm" aria-label="Back to settings menu" onClick={() => { setMobileSection(null); setFeedback("") }}><ChevronLeft /></Button>
           ) : (
-            <h1 className="text-sm font-semibold">Menu</h1>
+            <h1 className="mobile-header-title text-sm font-semibold">Menu</h1>
           )}
-          {mobileItem && <h1 className="ml-2 truncate text-sm font-semibold">{mobileItem.label}</h1>}
-          <Button variant="secondary" size="icon-sm" className="ml-auto rounded-full" aria-label="Close settings" onClick={onClose}><X /></Button>
-        </header>
+          {mobileItem && <h1 className="mobile-header-title ml-2 truncate text-sm font-semibold">{mobileItem.label}</h1>}
+        <MobileHeaderMenu /></header>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
           {mobileSection ? renderPanel(mobileSection) : (
             <div className="space-y-5">

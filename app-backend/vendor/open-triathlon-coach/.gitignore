@@ -1,0 +1,17 @@
+.env
+.env.*
+secrets.*
+credentials.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.token
+*.log
+__pycache__/
+.DS_Store
+Thumbs.db
+private/
+dev/
+*basic-auth*
+*api-key*

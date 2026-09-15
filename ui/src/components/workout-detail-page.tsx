@@ -1,3 +1,5 @@
+import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
+import { hasWorkoutStructure } from "@/lib/workout-structure"
 import {
   ArrowLeft,
   Bike,
@@ -118,14 +120,14 @@ export function WorkoutDetailPage({
 
   return (
     <div className="min-h-svh w-full min-w-0 bg-background">
-      <header className="sticky top-0 z-40 flex h-14 items-center border-b bg-background/95 px-2 backdrop-blur md:px-4">
-        <Button type="button" variant="ghost" onClick={onBack} className="gap-2 px-2">
+      <header className="mobile-site-header sticky top-0 z-40 flex h-14 items-center border-b bg-background/95 px-2 backdrop-blur md:px-4">
+        <Button type="button" variant="ghost" onClick={onBack} className="gap-2 px-2" aria-label="Back">
           <ArrowLeft className="size-4" />
-          Back
+          <span className="hidden md:inline">Back</span>
         </Button>
-        <Separator orientation="vertical" className="mx-2 h-5" />
-        <span className="truncate text-sm font-semibold">Workout</span>
-      </header>
+        <Separator orientation="vertical" className="mx-2 hidden h-5 md:block" />
+        <span className="mobile-header-title truncate text-sm font-semibold">Workout</span>
+      <MobileHeaderMenu /></header>
 
       <article className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-3 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:p-5 md:gap-6 md:p-6">
         <section className="space-y-3 px-1 pt-2">
@@ -188,7 +190,7 @@ export function WorkoutDetailPage({
           </Card>
         )}
 
-        <Card size="sm">
+        {hasWorkoutStructure(workout.structure) && <Card size="sm">
           <CardHeader>
             <CardTitle>Workout profile</CardTitle>
           </CardHeader>
@@ -212,7 +214,7 @@ export function WorkoutDetailPage({
               </AreaChart>
             </ChartContainer>
           </CardContent>
-        </Card>
+        </Card>}
 
         <section className="space-y-3" aria-labelledby="workout-instructions">
           <div className="flex items-center justify-between px-1">

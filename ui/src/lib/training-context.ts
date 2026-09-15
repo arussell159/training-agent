@@ -19,8 +19,8 @@ export interface PlannedWorkout {
   load?: number
   plannedDurationMinutes?: number
   actualDurationMinutes?: number
-  planned?: { duration_minutes?: number; tss?: number }
-  completed_data?: { duration_minutes?: number; tss?: number }
+  planned?: { duration_minutes?: number; tss?: number; power_watts?: number; pace_seconds_per_unit?: number }
+  completed_data?: { duration_minutes?: number; tss?: number; power_watts?: number; pace_seconds_per_unit?: number }
   scheduled_start_at?: string | null
   structure?: string | null
 }
@@ -101,6 +101,7 @@ export interface DailyWorkoutReviewItem {
 }
 
 export interface DailyWorkoutReview {
+  advisory?: { condition: string; suggestions: string[]; uncertainty: string }
   id: string
   conversation_id: string
   local_date: string
@@ -327,6 +328,69 @@ export const fallbackTrainingContext: TrainingContext = {
 const contextCache = new Map<"week" | "full", TrainingContext>()
 const contextRequests = new Map<"week" | "full", Promise<TrainingContext>>()
 
+export async function refreshRecentTrainingPeaks() {
+  const response = await fetch("/api/training-context?scope=full&refresh=1&window=recent", {
+    headers: { Accept: "application/json" },
+  })
+  if (!response.ok) throw new Error(`TrainingPeaks refresh failed (${response.status})`)
+  const context = (await response.json()) as TrainingContext
+  if (context.sync_error) throw new Error(context.sync_error)
+  if (context.source !== "trainingpeaks") throw new Error("Connect TrainingPeaks in Settings before refreshing.")
+  contextCache.clear()
+  contextCache.set("full", context)
+  contextCache.set("week", context)
+  return context
+}
+
+export async function moveWorkoutDate(id: string, date: string) {
+  const response = await fetch(`/api/workouts/${encodeURIComponent(id)}/move`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date }),
+  })
+  const result = await response.json() as { verified?: boolean; error?: string; context?: TrainingContext | null }
+  if (!response.ok || !result.verified) throw new Error(result.error || "The workout move could not be confirmed.")
+  const previous = contextCache.get("full") || contextCache.get("week")
+  contextCache.clear()
+  if (result.context) {
+    const context = { ...previous, ...result.context } as TrainingContext
+    contextCache.set("full", context)
+    contextCache.set("week", context)
+  }
+  return result
+}
+
+export async function changeWorkout(id: string, action: "copy" | "delete") {
+  const response = await fetch(`/api/workouts/${encodeURIComponent(id)}${action === "copy" ? "/copy" : ""}`, {
+    method: action === "copy" ? "POST" : "DELETE",
+    headers: { Accept: "application/json" },
+  })
+  const result = await response.json() as {verified?: boolean; error?: string; context?: TrainingContext | null}
+  if (!response.ok || !result.verified) throw new Error(result.error || `Unable to ${action} workout.`)
+  const previous = contextCache.get("full") || contextCache.get("week")
+  contextCache.clear()
+  if (result.context) {
+    const context = {...previous, ...result.context} as TrainingContext
+    contextCache.set("full", context)
+    contextCache.set("week", context)
+  }
+  return result
+}
+
+export async function changeWorkoutDay(date: string, action: "copy" | "delete") {
+  const response = await fetch("/api/calendar/day-actions", {
+    method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({date,action}),
+  })
+  const result = await response.json() as {error?: string; results: Array<{workoutId:string}>; failures:Array<{error:string}>; total:number; context:TrainingContext | null}
+  if (!response.ok) throw new Error(result.error || "Unable to update workouts for this day.")
+  const previous = contextCache.get("full") || contextCache.get("week")
+  contextCache.clear()
+  if (result.context) {
+    const context = {...previous,...result.context} as TrainingContext
+    contextCache.set("full",context)
+    contextCache.set("week",context)
+  }
+  return result
+}
+
 export async function loadTrainingContext(forceRefresh = false, scope: "week" | "full" = "week") {
   if (forceRefresh) contextCache.clear()
   if (!forceRefresh) {
@@ -386,7 +450,12 @@ export async function loadCoachConversation(id: string) {
   const response = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
     headers: { Accept: "application/json" },
   })
-  if (!response.ok) throw new Error(`Conversation ${response.status}`)
+  if (!response.ok) {
+    const data = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(data?.error || `Conversation request failed (${response.status})`)
+  }
+  if (!response.headers.get("content-type")?.includes("application/json"))
+    throw new Error("The conversation API returned a page instead of saved messages")
   return (await response.json()) as CoachConversation
 }
 

@@ -2,6 +2,57 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import { createDailyReviewService } from "./daily-review-service.mjs"
 
+test("advisory reviews cover rest days and cannot apply workout changes", async (t) => {
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    const request = JSON.parse(options.body)
+    assert.equal(request.text.format.name, "daily_condition_review")
+    assert.match(request.instructions, /Never generate workout patches/)
+    return { ok:true, json:async () => ({ output_text:JSON.stringify({ summary:"Recovery deserves attention", condition:"Recent fatigue suggests protecting recovery today.", suggestions:["Consider keeping tomorrow's session easy if fatigue persists."], uncertainty:"Current sleep data is unavailable." }) }) }
+  })
+  let writes = 0
+  const service = createDailyReviewService({
+    advisoryOnly:true,
+    readConfig:async () => ({ OPENAI_API_KEY:"test-only" }),
+    writeConfig:async () => {},
+    getContext:async () => ({ athlete:{id:"athlete-1"}, metrics:{recovery:30}, planned:[], history:[], comments:[] }),
+    applyWorkoutPatch:async () => { writes++ },
+    storage:fakeStorage(),
+  })
+  const review = await service.runDue(new Date("2026-09-14T12:00:00Z"), {force:true})
+  assert.ok(review.advisory)
+  assert.equal(review.changes_proposed, false)
+  assert.deepEqual(review.workouts, [])
+  assert.equal((await service.approve(review.id)).status, 409)
+  assert.equal((await service.refine(review.id, "Reduce tomorrow's workout")).status, 409)
+  assert.equal(writes, 0)
+})
+
+test("default reviews send the supplied guide and athlete facts without legacy source or verdict overrides", async (t) => {
+  let request
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    request = JSON.parse(options.body)
+    throw new Error("Simulated model outage")
+  })
+  const workout = { id:"42", workout_date:"2026-09-14", sport:"Bike", title:"Bike – Threshold", status:"today", plannedDurationMinutes:60, details:"3 x 8 min", goal:"Controlled threshold" }
+  const context = { athlete:{ id:"athlete-1" }, metrics:{ recovery:30 }, history:[], planned:[workout], comments:[] }
+  const service = createDailyReviewService({
+    readConfig:async () => ({ OPENAI_API_KEY:"test-only" }),
+    writeConfig:async () => {},
+    getContext:async () => context,
+    applyWorkoutPatch:async () => { throw new Error("Must not apply a workout") },
+    storage:fakeStorage(),
+  })
+  const review = await service.runDue(new Date("2026-09-14T12:00:00Z"), { force:true })
+  assert.match(request.instructions, /Open Triathlon Coach for ChatGPT/)
+  assert.match(request.instructions, /Source-data dependency/)
+  const input = JSON.parse(request.input)
+  assert.equal(input.athlete.id, "athlete-1")
+  assert.ok(input.athlete_facts.length)
+  assert.deepEqual(input.retrieved_sources, [])
+  assert.equal(input.verdict_lock, undefined)
+  assert.equal(review.changes_proposed, false)
+})
+
 function fakeStorage(initialReview = null) {
   let review = initialReview
   let preferences = { enabled:false, review_time:"06:00", time_zone:"UTC", subscriptions:[] }
@@ -132,3 +183,4 @@ test("an athlete reply creates a new pending revision without sending another no
   assert.deepEqual(result.body.review.notification, originalNotification)
   assert.equal(result.body.review.refinements.at(-1).instruction, "Only change the 100s rest from 15 to 20 seconds; leave every other interval the same.")
 })
+

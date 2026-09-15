@@ -1,7 +1,7 @@
 import {
-  ClipboardList,
-  Folder,
-  MessageCircle,
+
+
+
   MoreHorizontal,
   Pin,
   PinOff,
@@ -17,16 +17,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import type { CoachConversationSummary } from "@/lib/training-context"
-
-function formatConversationDate(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ""
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    ...(date.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}),
-  })
-}
 
 function displayConversationTitle(conversation: CoachConversationSummary) {
   if (conversation.kind !== "daily_review") return conversation.title
@@ -59,23 +49,10 @@ function ConversationRow({
     >
       <button
         type="button"
-        className="flex h-11 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2 pr-10 text-left text-sm outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+        className="flex h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md pl-4 pr-10 text-left text-sm outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
         onClick={onOpen}
       >
-        {conversation.kind === "daily_review" ? (
-          <ClipboardList className="size-4 shrink-0 text-primary" />
-        ) : (
-          <MessageCircle className="size-4 shrink-0 text-muted-foreground" />
-        )}
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5">
-            <span className="block truncate font-medium">{title}</span>
-            {conversation.pinned && <Pin className="size-3 shrink-0 fill-current text-primary" aria-label="Pinned" />}
-          </span>
-          <span className="block truncate text-[11px] text-muted-foreground">
-            {formatConversationDate(conversation.updated_at)} · {conversation.preview}
-          </span>
-        </span>
+        <span className="block min-w-0 flex-1 truncate font-normal">{title}</span>
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -125,12 +102,11 @@ function ConversationFolder({
 }) {
   const items = conversations.filter((conversation) => conversation.kind === kind)
   return (
-    <section aria-label={label} className="space-y-1">
-      <div className="flex h-8 items-center gap-2 px-2 text-xs font-medium text-muted-foreground">
-        <Folder className="size-4" />
+    <details open aria-label={label} className="group/history space-y-1">
+      <summary className="flex h-9 cursor-pointer list-none items-center justify-between px-2 text-xs font-medium text-muted-foreground md:text-sm [&::-webkit-details-marker]:hidden">
         <span>{label}</span>
-        <span className="ml-auto tabular-nums">{items.length}</span>
-      </div>
+        <span aria-hidden="true" className="transition-transform group-open/history:rotate-90">›</span>
+      </summary>
       {items.length ? (
         items.map((conversation) => (
           <ConversationRow
@@ -147,7 +123,7 @@ function ConversationFolder({
           {kind === "daily_review" ? "Daily reviews will appear here." : "Your coach conversations will appear here."}
         </p>
       )}
-    </section>
+    </details>
   )
 }
 
@@ -167,7 +143,7 @@ export function ConversationHistory({
   return (
     <div className="space-y-4">
       <ConversationFolder
-        label="Daily reviews"
+        label="Daily Reviews"
         kind="daily_review"
         conversations={conversations}
         activeConversationId={activeConversationId}

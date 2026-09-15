@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useRef, useState } from "react"
 import {
   AlertCircle,
   Bell,
   Check,
   Dumbbell,
   LoaderCircle,
-  Send,
   Sparkles,
   X,
 } from "lucide-react"
@@ -14,14 +13,18 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  MessageScroller,
-  MessageScrollerButton,
-  MessageScrollerContent,
-  MessageScrollerItem,
-  MessageScrollerProvider,
-  MessageScrollerViewport,
-} from "@/components/ui/message-scroller"
-import { Textarea } from "@/components/ui/textarea"
+  AssistantRuntimeProvider,
+  useExternalStoreRuntime,
+  useAuiState,
+  type ThreadMessageLike,
+} from "@assistant-ui/react"
+import { Thread } from "@/components/assistant-ui/elements/thread.aui"
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@/components/ai-elements/reasoning"
+import { CoachCitation } from "@/components/coach-citation"
 import {
   fallbackTrainingContext,
   loadCoachConversation,
@@ -55,81 +58,30 @@ type CoachMessage = {
   error?: boolean
 }
 
-function inlineMarkdown(value: string): ReactNode[] {
-  return value
-    .split(/(\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^)]+\))/g)
-    .filter(Boolean)
-    .map((part, index) => {
-      const link = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/)
-      if (link) return <a key={index} href={link[2]} target="_blank" rel="noreferrer" className="font-medium text-primary underline underline-offset-2">{link[1]}</a>
-      return part.startsWith("**") && part.endsWith("**") ? (
-        <strong key={index}>{part.slice(2, -2)}</strong>
-      ) : (
-        part
-      )
-    })
-}
+const CoachActionsContext = createContext<{
+  messages: CoachMessage[]
+  approve: (message: CoachMessage) => Promise<void>
+  reject: (id: string) => void
+} | null>(null)
 
-function FormattedCoachText({ content }: { content: string }) {
-  const blocks: ReactNode[] = []
-  let paragraph: string[] = []
-  let bullets: string[] = []
-  const flushParagraph = () => {
-    if (!paragraph.length) return
-    blocks.push(
-      <p key={`p-${blocks.length}`} className="whitespace-pre-wrap">
-        {inlineMarkdown(paragraph.join("\n"))}
-      </p>
-    )
-    paragraph = []
-  }
-  const flushBullets = () => {
-    if (!bullets.length) return
-    blocks.push(
-      <ul key={`ul-${blocks.length}`} className="list-disc space-y-2 pl-5">
-        {bullets.map((item, index) => (
-          <li key={index}>{inlineMarkdown(item)}</li>
-        ))}
-      </ul>
-    )
-    bullets = []
-  }
-  for (const line of content.split(/\r?\n/)) {
-    const bullet = line.match(/^\s*[-*]\s+(.+)$/)
-    if (bullet) {
-      flushParagraph()
-      bullets.push(bullet[1])
-    } else if (!line.trim()) {
-      flushParagraph()
-      flushBullets()
-    } else {
-      flushBullets()
-      paragraph.push(
-        line.replace(/^#{1,6}\s+/, "**") + (/^#{1,6}\s+/.test(line) ? "**" : "")
-      )
-    }
-  }
-  flushParagraph()
-  flushBullets()
-  return <div className="space-y-3">{blocks}</div>
+function CoachMessageFooter() {
+  const id = useAuiState((state) => state.message.id)
+  const actions = useContext(CoachActionsContext)
+  const message = actions?.messages.find((message) => message.id === id)
+  if (!actions || !message?.proposal) return null
+  return (
+    <ProposalCard
+      proposal={message.proposal}
+      onApprove={() => void actions.approve(message)}
+      onReject={() => actions.reject(id)}
+    />
+  )
 }
 
 function messageId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random()}`
-}
-
-function initialMessage(conversationTitle: string): CoachMessage {
-  return {
-    id: messageId(),
-    role: "assistant",
-    created_at: new Date().toISOString(),
-    content:
-      conversationTitle === "Coach"
-        ? "Tell me what’s going on. I’ll use your recent training, recovery, comments, current plan, and race context—not generic advice."
-        : `Continuing “${conversationTitle}.” What do you want to work through?`,
-  }
 }
 
 function storageKey(conversationTitle: string, reviewId?: string | null) {
@@ -146,7 +98,7 @@ function loadMessages(conversationTitle: string, reviewId?: string | null) {
   } catch {
     // Start a clean local conversation if saved data is invalid.
   }
-  return reviewId ? [] : [initialMessage(conversationTitle)]
+  return []
 }
 
 function conversationTitleFromPrompt(prompt: string) {
@@ -213,17 +165,6 @@ function isWorkoutChangeRequest(prompt: string, response: string) {
       response
     )
   return asksForChange && proposesChange
-}
-
-function isDailyReviewRefinementRequest(prompt: string) {
-  const value = prompt.trim()
-  return (
-    /^(?:please\s+)?(?:only\s+)?(?:allow|change|keep|leave|set|make|update|reduce|increase|remove|restore|shorten|swap|revise)\b/i.test(
-      value
-    ) ||
-    /\b(?:leave|keep)\s+(?:all|the)\s+other\b/i.test(value) ||
-    /\binstead\b/i.test(value)
-  )
 }
 
 function normalizeRecoveryWording(value: string) {
@@ -373,11 +314,28 @@ function DailyReviewCard({
   onApprove: () => void
   onDeny: () => void
 }) {
-  const canResolve =
-    review.changes_proposed &&
-    review.evidence_status === "verified" &&
-    ["pending_approval", "apply_failed"].includes(review.status)
+  const canResolve = false
 
+  if (review.advisory)
+    return (
+      <section className="space-y-4 px-1 py-2 text-sm leading-6">
+        <h2 className="text-xl font-semibold">{review.summary}</h2>
+        <p>{review.advisory.condition}</p>
+        {review.advisory.suggestions.length > 0 && (
+          <div>
+            <h3 className="mb-2 font-medium">Possible adjustments</h3>
+            <ul className="list-disc space-y-2 pl-5">
+              {review.advisory.suggestions.map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {review.advisory.uncertainty && (
+          <p className="text-muted-foreground">{review.advisory.uncertainty}</p>
+        )}
+      </section>
+    )
   return (
     <div className="space-y-8 py-1 text-[15px] leading-7 sm:text-base">
       <div className="space-y-2">
@@ -387,7 +345,8 @@ function DailyReviewCard({
         <p className="text-muted-foreground">{review.reason}</p>
         {review.evidence_status === "insufficient" ? (
           <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
-            No prescription is being presented. Missing evidence is not evidence that everything is normal.
+            No prescription is being presented. Missing evidence is not evidence
+            that everything is normal.
           </p>
         ) : null}
       </div>
@@ -493,48 +452,80 @@ function DailyReviewCard({
                     {workout.target_flexibility}
                   </p>
                 </div>
-                {review.evidence_status === "verified" && targetRanges.length > 0 && (
-                  <div>
-                    <h3 className="font-semibold">Pace and rest guidance</h3>
-                    <ul className="mt-3 list-disc space-y-3 pl-5 text-muted-foreground marker:text-foreground">
-                      {targetRanges.map((range, index) => {
-                        const cleanedRange = normalizeRecoveryWording(
-                          range.replace(/,\s*\((build|steady|strong)\),/i, ",")
-                        )
-                        const parts = cleanedRange.match(
-                          /^(\d+\s*[x×]\s*\d+\s*(?:yds?|yards?|m|meters?|km|min|minutes?|sec|seconds?)?)\s*(?:[,—–-]\s*)?(.*)$/i
-                        )
-                        const set = parts?.[1] || cleanedRange
-                        const guidance = parts?.[2]
-                        return (
-                          <li key={index}>
-                            <strong className="text-foreground">{set}</strong>
-                            {guidance ? (
-                              <span className="mt-0.5 block">— {guidance}</span>
-                            ) : null}
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  </div>
-                )}
-                {workout.evidence ? (
-                  <details className="rounded-lg border bg-muted/25 px-4 py-3 text-sm">
-                    <summary className="cursor-pointer font-semibold">Evidence</summary>
-                    <div className="mt-3 space-y-3 text-muted-foreground">
-                      <p>{workout.evidence.reasoning}</p>
-                      <p><span className="font-semibold text-foreground">Coaching judgment: </span>{workout.evidence.coaching_judgment}</p>
-                      <p><span className="font-semibold text-foreground">Applicability: </span>{workout.evidence.applicability}</p>
-                      {!workout.evidence.published.length ? <p className="text-xs">No published source was applied; this recommendation is identified as coaching judgment.</p> : null}
-                      <div className="flex flex-wrap gap-2">
-                        {workout.evidence.published.map((source) => source.url ? (
-                          <a key={`${source.source_id}:${source.passage_id}`} href={source.url} target="_blank" rel="noreferrer" className="rounded-full border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:text-primary">
-                            {source.title || source.source_id}{source.locator ? ` · ${source.locator}` : ""}
-                          </a>
-                        ) : null)}
-                      </div>
+                {review.evidence_status === "verified" &&
+                  targetRanges.length > 0 && (
+                    <div>
+                      <h3 className="font-semibold">Pace and rest guidance</h3>
+                      <ul className="mt-3 list-disc space-y-3 pl-5 text-muted-foreground marker:text-foreground">
+                        {targetRanges.map((range, index) => {
+                          const cleanedRange = normalizeRecoveryWording(
+                            range.replace(
+                              /,\s*\((build|steady|strong)\),/i,
+                              ","
+                            )
+                          )
+                          const parts = cleanedRange.match(
+                            /^(\d+\s*[x×]\s*\d+\s*(?:yds?|yards?|m|meters?|km|min|minutes?|sec|seconds?)?)\s*(?:[,—–-]\s*)?(.*)$/i
+                          )
+                          const set = parts?.[1] || cleanedRange
+                          const guidance = parts?.[2]
+                          return (
+                            <li key={index}>
+                              <strong className="text-foreground">{set}</strong>
+                              {guidance ? (
+                                <span className="mt-0.5 block">
+                                  — {guidance}
+                                </span>
+                              ) : null}
+                            </li>
+                          )
+                        })}
+                      </ul>
                     </div>
-                  </details>
+                  )}
+                {workout.evidence ? (
+                  <Reasoning className="rounded-lg border bg-muted/25 px-4 py-3 text-sm">
+                    <ReasoningTrigger
+                      getThinkingMessage={() =>
+                        "Evidence and coaching judgment"
+                      }
+                    />
+                    <ReasoningContent>
+                      <div className="mt-3 space-y-3 text-muted-foreground">
+                        <p>{workout.evidence.reasoning}</p>
+                        <p>
+                          <span className="font-semibold text-foreground">
+                            Coaching judgment:{" "}
+                          </span>
+                          {workout.evidence.coaching_judgment}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-foreground">
+                            Applicability:{" "}
+                          </span>
+                          {workout.evidence.applicability}
+                        </p>
+                        {!workout.evidence.published.length ? (
+                          <p className="text-xs">
+                            No published source was applied; this recommendation
+                            is identified as coaching judgment.
+                          </p>
+                        ) : null}
+                        <div className="flex flex-wrap gap-2">
+                          {workout.evidence.published.map((source) =>
+                            source.url ? (
+                              <CoachCitation
+                                key={`${source.source_id}:${source.passage_id}`}
+                                url={source.url}
+                                title={source.title || source.source_id}
+                                description={source.locator}
+                              />
+                            ) : null
+                          )}
+                        </div>
+                      </div>
+                    </ReasoningContent>
+                  </Reasoning>
                 ) : null}
               </div>
             </section>
@@ -604,12 +595,13 @@ export function TrainingCoach({
   onConversationSaved?: (conversation: CoachConversationSummary) => void
 }) {
   const [messages, setMessages] = useState<CoachMessage[]>(() =>
-    loadMessages(conversationId || conversationTitle, reviewId)
+    conversationId || reviewId
+      ? loadMessages(conversationId || conversationTitle, reviewId)
+      : []
   )
   const [localConversationId] = useState(() => conversationId || messageId())
   const [resolvedTitle, setResolvedTitle] = useState(conversationTitle)
   const [context, setContext] = useState(fallbackTrainingContext)
-  const [draft, setDraft] = useState("")
   const [sending, setSending] = useState(false)
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(
     null
@@ -622,13 +614,9 @@ export function TrainingCoach({
   const [saveError, setSaveError] = useState<string | null>(null)
   const lastSavedMessages = useRef("")
   const shouldPersistMessages = useRef(false)
-  const reviewViewportRef = useRef<HTMLDivElement>(null)
+  const coachRequest = useRef<AbortController | null>(null)
   const persistentConversationId =
     conversationId || dailyReview?.conversation_id || localConversationId
-  const dailyReviewRevision = dailyReview?.revision
-  const hasReviewChatMessages = messages.some(
-    (message) => message.role === "user"
-  )
 
   useEffect(() => {
     setResolvedTitle(conversationTitle)
@@ -654,26 +642,8 @@ export function TrainingCoach({
   }, [reviewId])
 
   useEffect(() => {
-    if (!reviewId || dailyReviewRevision == null) return
-    const startedAt = performance.now()
-    let frame = 0
-    const setInitialReviewPosition = () => {
-      const viewport = reviewViewportRef.current
-      if (viewport) {
-        viewport.scrollTop = hasReviewChatMessages ? viewport.scrollHeight : 0
-      }
-      if (performance.now() - startedAt < 1000)
-        frame = window.requestAnimationFrame(setInitialReviewPosition)
-    }
-    frame = window.requestAnimationFrame(setInitialReviewPosition)
-    return () => {
-      window.cancelAnimationFrame(frame)
-    }
-  }, [reviewId, dailyReviewRevision, hasReviewChatMessages])
-
-  useEffect(() => {
     if (!conversationId && !(reviewId && dailyReview?.conversation_id)) {
-      setMessages(loadMessages(conversationTitle, reviewId))
+      setMessages([])
       return
     }
     let cancelled = false
@@ -693,10 +663,10 @@ export function TrainingCoach({
         setResolvedTitle(conversation.title)
         setSaveError(null)
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled)
           setSaveError(
-            "Saved messages could not be loaded. New messages are still available on this device."
+            `Saved messages could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}. New messages are still available on this device.`
           )
       })
     return () => {
@@ -745,6 +715,7 @@ export function TrainingCoach({
             data?.error || "Supabase did not confirm the conversation save."
           )
         lastSavedMessages.current = messageSignature
+        setResolvedTitle(data.title)
         setSaveError(null)
         onConversationSaved?.(data)
       })
@@ -770,70 +741,14 @@ export function TrainingCoach({
     const prompt = value.trim()
     if (!prompt || sending) return
     shouldPersistMessages.current = true
+    const request = new AbortController()
+    coachRequest.current = request
 
     const userMessage: CoachMessage = {
       id: messageId(),
       role: "user",
       content: prompt,
       created_at: new Date().toISOString(),
-    }
-    const isReviewRefinement = Boolean(
-      reviewId &&
-      dailyReview &&
-      ["pending_approval", "proceed_as_planned", "apply_failed"].includes(
-        dailyReview.status
-      ) &&
-      isDailyReviewRefinementRequest(prompt)
-    )
-    if (isReviewRefinement && dailyReview) {
-      setMessages((current) => [...current, userMessage])
-      setDraft("")
-      setSending(true)
-      setReviewMessage(null)
-      try {
-        const response = await fetch(
-          `/api/daily-reviews/${encodeURIComponent(dailyReview.id)}/refine`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            body: JSON.stringify({ message: prompt }),
-          }
-        )
-        const data = (await response.json().catch(() => null)) as {
-          review?: DailyWorkoutReview
-          error?: string
-        } | null
-        if (!response.ok || !data?.review)
-          throw new Error(
-            data?.error || "The daily review could not be revised."
-          )
-        setDailyReview(data.review)
-        setReviewMessage(
-          data.review.changes_proposed
-            ? "Updated from your reply. Review the revised workout, then approve or deny it."
-            : "Updated from your reply. No workout change requires approval."
-        )
-      } catch (error) {
-        setMessages((current) => [
-          ...current,
-          {
-            id: messageId(),
-            role: "assistant",
-            content:
-              error instanceof Error
-                ? error.message
-                : "The daily review could not be revised.",
-            created_at: new Date().toISOString(),
-            error: true,
-          },
-        ])
-      } finally {
-        setSending(false)
-      }
-      return
     }
     const assistantMessage: CoachMessage = {
       id: messageId(),
@@ -851,13 +766,13 @@ export function TrainingCoach({
       ...messages.slice(-9).map(({ role, content }) => ({ role, content })),
     ]
     setMessages((current) => [...current, userMessage, assistantMessage])
-    setDraft("")
     setSending(true)
     setStreamingMessageId(assistantMessage.id)
 
     try {
       const response = await fetch("/api/coach", {
         method: "POST",
+        signal: request.signal,
         headers: {
           "Content-Type": "application/json",
           Accept: "text/event-stream",
@@ -878,6 +793,34 @@ export function TrainingCoach({
       }
       if (!response.body)
         throw new Error("The coach returned an empty response.")
+
+      const contentType = response.headers.get("content-type") || ""
+      if (contentType.includes("application/json")) {
+        const data = (await response.json()) as {
+          message?: string
+          error?: string
+        }
+        if (data.error || !data.message?.trim())
+          throw new Error(data.error || "The coach returned an empty response.")
+        const content = data.message.trim()
+        const target = reviewId ? null : selectTargetWorkout(context, prompt)
+        const proposal =
+          target && isWorkoutChangeRequest(prompt, content)
+            ? createProposal(target, content, context)
+            : undefined
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantMessage.id
+              ? { ...message, content, proposal }
+              : message
+          )
+        )
+        return
+      }
+      if (!contentType.includes("text/event-stream"))
+        throw new Error(
+          "The coach API returned an unexpected response. Check the site’s backend deployment."
+        )
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
@@ -933,8 +876,12 @@ export function TrainingCoach({
       buffer += decoder.decode()
       if (buffer.trim()) applyFrame(buffer)
 
-      content = content.trim() || "I couldn’t generate a coaching response."
-      const target = selectTargetWorkout(context, prompt)
+      content = content.trim()
+      if (!content)
+        throw new Error(
+          "The coach returned an empty response. Please try again."
+        )
+      const target = reviewId ? null : selectTargetWorkout(context, prompt)
       const proposal =
         target && isWorkoutChangeRequest(prompt, content)
           ? createProposal(target, content, context)
@@ -947,6 +894,16 @@ export function TrainingCoach({
         )
       )
     } catch (error) {
+      if (request.signal.aborted) {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantMessage.id
+              ? { ...message, content: message.content || "Response stopped." }
+              : message
+          )
+        )
+        return
+      }
       setMessages((current) => [
         ...current.map((message) =>
           message.id === assistantMessage.id
@@ -1050,47 +1007,71 @@ export function TrainingCoach({
     }
   }
 
+  const runtime = useExternalStoreRuntime<CoachMessage>({
+    isRunning: sending,
+    suggestions: [
+      { prompt: "Review my training this week" },
+      { prompt: "Plan my next workout" },
+      { prompt: "How is my recovery looking?" },
+    ],
+    messages,
+    convertMessage: (message): ThreadMessageLike => ({
+      id: message.id,
+      role: message.role,
+      content: [{ type: "text", text: message.content }],
+      createdAt: new Date(message.created_at),
+      ...(message.role === "assistant"
+        ? {
+            status: message.error
+              ? {
+                  type: "incomplete" as const,
+                  reason: "error" as const,
+                  error: message.content,
+                }
+              : message.id === streamingMessageId
+                ? { type: "running" as const }
+                : { type: "complete" as const, reason: "stop" as const },
+          }
+        : {}),
+    }),
+    onNew: async (message) => {
+      const text = message.content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+      await sendMessage(text)
+    },
+    onCancel: async () => {
+      coachRequest.current?.abort()
+    },
+  })
+
   return (
-    <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-background">
-      <MessageScrollerProvider
-        autoScroll={!reviewId || messages.length > 0 || sending}
-        defaultScrollPosition={
-          reviewId
-            ? hasReviewChatMessages
-              ? "end"
-              : "start"
-            : conversationId
-              ? "end"
-              : "last-anchor"
-        }
-        scrollPreviousItemPeek={56}
+    <AssistantRuntimeProvider runtime={runtime}>
+      <CoachActionsContext.Provider
+        value={{
+          messages,
+          approve: approveProposal,
+          reject: (id) => updateProposal(id, "rejected"),
+        }}
       >
-        <MessageScroller className="min-h-0 flex-1">
-          <MessageScrollerViewport
-            ref={reviewViewportRef}
-            aria-label="Coach conversation"
-            className="[scrollbar-width:none] [scrollbar-gutter:auto] [&::-webkit-scrollbar]:hidden"
-          >
-            <MessageScrollerContent
-              aria-busy={sending}
-              className="mx-auto w-full max-w-3xl px-3 py-5 sm:px-5 md:px-8 md:py-8"
-            >
-              {reviewId && !dailyReview && !reviewMessage && (
-                <MessageScrollerItem messageId="daily-review-loading">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Thread
+          autoFocus={false}
+          components={{ MessageFooter: CoachMessageFooter }}
+          header={
+            reviewId ? (
+              <div className="mb-6 px-2">
+                {!dailyReview && !reviewMessage && (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
                     <LoaderCircle className="size-4 animate-spin" /> Loading the
                     saved daily review…
-                  </div>
-                </MessageScrollerItem>
-              )}
-              {reviewId && !dailyReview && reviewMessage && (
-                <MessageScrollerItem messageId="daily-review-error">
+                  </p>
+                )}
+                {!dailyReview && reviewMessage && (
                   <p className="text-sm text-destructive">{reviewMessage}</p>
-                </MessageScrollerItem>
-              )}
-              {dailyReview && (
-                <MessageScrollerItem messageId={dailyReview.id}>
-                  <div className="mr-auto w-full max-w-none sm:max-w-2xl">
+                )}
+                {dailyReview && (
+                  <>
                     <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
                       <Sparkles className="size-3.5 text-primary" /> AR
                       Performance · {dailyReview.local_date}
@@ -1102,116 +1083,20 @@ export function TrainingCoach({
                       onApprove={() => void resolveDailyReview("approve")}
                       onDeny={() => void resolveDailyReview("deny")}
                     />
-                  </div>
-                </MessageScrollerItem>
-              )}
-              {messages.map((message) => (
-                <MessageScrollerItem
-                  key={message.id}
-                  messageId={message.id}
-                  scrollAnchor={message.role === "user"}
-                >
-                  <div
-                    className={
-                      message.role === "user"
-                        ? "ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-primary-foreground"
-                        : "mr-auto max-w-[92%] sm:max-w-[85%]"
-                    }
-                  >
-                    {message.role === "assistant" && (
-                      <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                        <Sparkles className="size-3.5 text-primary" /> AR
-                        Performance
-                      </div>
-                    )}
-                    <div
-                      aria-live={
-                        message.role === "assistant" ? "polite" : undefined
-                      }
-                      className={`text-sm leading-6 ${message.error ? "text-destructive" : ""}`}
-                    >
-                      {message.role === "assistant" ? (
-                        <FormattedCoachText content={message.content} />
-                      ) : (
-                        <p className="whitespace-pre-wrap">{message.content}</p>
-                      )}
-                      {message.id === streamingMessageId && (
-                        <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-current align-[-2px]" />
-                      )}
-                    </div>
-                    {message.proposal && (
-                      <ProposalCard
-                        proposal={message.proposal}
-                        onApprove={() => void approveProposal(message)}
-                        onReject={() => updateProposal(message.id, "rejected")}
-                      />
-                    )}
-                  </div>
-                </MessageScrollerItem>
-              ))}
-
-              {sending &&
-                !messages.some(
-                  (message) =>
-                    message.id === streamingMessageId && message.content
-                ) && (
-                  <MessageScrollerItem messageId="coach-thinking">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <LoaderCircle className="size-4 animate-spin" /> Reviewing
-                      your training context…
-                    </div>
-                  </MessageScrollerItem>
+                  </>
                 )}
-            </MessageScrollerContent>
-          </MessageScrollerViewport>
-          <MessageScrollerButton />
-        </MessageScroller>
-      </MessageScrollerProvider>
-
-      <footer className="shrink-0 bg-background px-3 pt-2 pb-2 sm:px-4 sm:pt-3 sm:pb-3">
-        <div className="mx-auto w-full max-w-3xl">
-          {saveError && (
-            <p role="status" className="mb-2 text-xs text-destructive">
-              {saveError}
-            </p>
-          )}
-          <form
-            className="flex items-end gap-2 rounded-xl border bg-card p-2 shadow-sm"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void sendMessage(draft)
-            }}
-          >
-            <Textarea
-              value={draft}
-              rows={1}
-              disabled={sending}
-              aria-label="Message your coach"
-              placeholder="Ask about training..."
-              className="max-h-[6.5rem] min-h-10 resize-none overflow-y-auto border-0 bg-transparent px-2 py-2 leading-5 shadow-none focus-visible:ring-0"
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault()
-                  void sendMessage(draft)
-                }
-              }}
-            />
-            <Button
-              type="submit"
-              size="icon-lg"
-              aria-label="Send message"
-              disabled={sending || !draft.trim()}
-            >
-              {sending ? (
-                <LoaderCircle className="size-4 animate-spin" />
-              ) : (
-                <Send className="size-4" />
-              )}
-            </Button>
-          </form>
-        </div>
-      </footer>
-    </div>
+              </div>
+            ) : undefined
+          }
+          notice={
+            saveError ? (
+              <p role="status" className="px-2 text-xs text-destructive">
+                {saveError}
+              </p>
+            ) : undefined
+          }
+        />
+      </CoachActionsContext.Provider>
+    </AssistantRuntimeProvider>
   )
 }

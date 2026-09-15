@@ -255,6 +255,8 @@ function RecoveryTrendCard({
   )
 }
 
+import { hasWorkoutStructure } from "@/lib/workout-structure"
+
 export function SectionCards({
   context,
   onWorkoutOpen,
@@ -300,7 +302,7 @@ export function SectionCards({
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-1 flex-col justify-end gap-3">
-          <div>
+          {hasWorkoutStructure(today?.structure) && <div>
             <ChartContainer
               config={workoutChartConfig}
               className="h-20 w-full"
@@ -324,7 +326,7 @@ export function SectionCards({
                 />
               </AreaChart>
             </ChartContainer>
-          </div>
+          </div>}
           <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
             {today?.goal ?? "Keep the day easy and protect recovery."}
           </p>

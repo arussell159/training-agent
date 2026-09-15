@@ -3,12 +3,13 @@
   "buildCommand": "npm run ui:build",
   "outputDirectory": "ui/dist",
   "functions": {
-    "api/[...path].mjs": {
+    "api/handler.mjs": {
       "includeFiles": "app-backend/**",
       "maxDuration": 60
     }
   },
   "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/handler?__api_route=:path*" },
     { "source": "/coach", "destination": "/index.html" },
     { "source": "/calendar", "destination": "/index.html" },
     { "source": "/week", "destination": "/index.html" },

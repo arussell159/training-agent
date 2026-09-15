@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Privacy policy for Open Triathlon Coach for ChatGPT.">
+  <title>Privacy Policy — Open Triathlon Coach for ChatGPT</title>
+  <style>
+:root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+body { margin: 0; background: #f6f7f9; color: #20242a; line-height: 1.6; }
+main { max-width: 860px; margin: 0 auto; padding: 48px 22px 72px; }
+.card { background: white; border: 1px solid #dfe3e8; border-radius: 16px; padding: 28px; box-shadow: 0 8px 30px rgba(0,0,0,.05); margin-bottom: 20px; }
+.hero { text-align: center; }
+.logo { width: 150px; height: 150px; border-radius: 28px; }
+h1, h2 { line-height: 1.2; }
+a { color: #145dbf; }
+code { background: #eef1f5; padding: .12rem .35rem; border-radius: 5px; overflow-wrap: anywhere; }
+.notice { border-left: 5px solid #3c70b4; padding-left: 16px; }
+.small { font-size: .92rem; color: #5e6670; }
+nav a { margin: 0 .45rem; }
+@media (prefers-color-scheme: dark) {
+  body { background: #111418; color: #e7e9ec; }
+  .card { background: #1a1f25; border-color: #333b45; }
+  a { color: #82b7ff; }
+  code { background: #2a313a; }
+  .small { color: #b5bbc3; }
+}
+</style>
+</head>
+<body>
+  <main>
+    <article class="card">
+      <h1>Privacy Policy for Open Triathlon Coach for ChatGPT</h1>
+      <p><strong>Policy version:</strong> 1.0.0<br>
+      <strong>Effective and last reviewed:</strong> 21 July 2026</p>
+
+      <h2>Operator and independence</h2>
+      <p>This service is operated as the Open Triathlon Coach for ChatGPT open-source project. Privacy and security enquiries may be sent to <a href="mailto:triathlon-gpt-intervals-icu@proton.me">triathlon-gpt-intervals-icu@proton.me</a>.</p>
+      <p>The project is independent and is not owned, operated, affiliated with, or endorsed by Intervals.icu or OpenAI.</p>
+
+      <h2>Purpose</h2>
+      <p>The GPT connects to the authorised user's own Intervals.icu account to provide requested triathlon training analysis, planning, recovery context, and related coaching assistance.</p>
+
+      <h2>Authentication and permissions</h2>
+      <p>Users connect through Intervals.icu OAuth. They should never paste a password, personal API key, access token, Authorization header, or client secret into a conversation.</p>
+      <p>The production scope string is:</p>
+      <p><code>ACTIVITY:READ,WELLNESS:WRITE,CALENDAR:WRITE,LIBRARY:READ,SETTINGS:READ</code></p>
+      <p>Intervals.icu WRITE access includes READ access for the same category. These permissions allow completed-activity reading; athlete settings and threshold reading; wellness reading and selected updates; calendar reading and event creation; and workout-library reading. The Action does not request activity-write or chat scopes and exposes no delete operation.</p>
+
+      <h2>Information that may be accessed</h2>
+      <p>Depending on the user's request, permissions, and available source data, the Action may access athlete settings, timezone, units, training zones, completed activities, intervals, power and pace data, performance curves, wellness and recovery information, body weight, sleep, HRV, resting heart rate, subjective entries, planned workouts, races, injury or sickness markers, workout-library items, routes, and account-linked weather information.</p>
+      <p>Some of this information may be sensitive. Users should avoid entering unnecessary medical details or other personal information.</p>
+
+      <h2>Changes the Action may make</h2>
+      <p>After explicit user intent and required confirmation, the Action may create a planned workout or calendar event and update selected wellness fields. These operations are marked consequential. No delete operation is available.</p>
+
+      <h2>Data flow and project storage</h2>
+      <p>Relevant parts of a user's request and authorised Intervals.icu data may be exchanged between ChatGPT/OpenAI and Intervals.icu to perform the requested Action.</p>
+      <p>The project operator does not run a separate database, OAuth proxy, analytics service, or API server for athlete data and does not receive a separate copy of individual GPT conversations through the GPT builder. This does not mean that OpenAI or Intervals.icu never processes or retains information; their own terms, privacy policies, security processing, retention rules, and user settings apply.</p>
+      <p>The project operator does not sell personal data or use it to serve advertising.</p>
+
+      <h2>OpenAI model improvement and conversation access</h2>
+      <p>The builder has disabled the GPT-level setting labelled <strong>“Use conversation data in your GPT to improve our models”</strong> for this GPT.</p>
+      <p>This builder setting is not a blanket guarantee that OpenAI never processes, retains, or uses content. Under OpenAI's current public guidance, whether consumer-plan conversations may be used for model improvement also depends on the user's account-level Data Controls. Business, Enterprise, and Edu data is not used for training by default. Users on consumer plans may turn off <strong>Improve the model for everyone</strong> or use Temporary Chat where available. Deliberately submitted feedback may be handled separately.</p>
+      <p>OpenAI states that GPT builders cannot view individual conversations users have with their GPTs. Data sent through an external Action remains subject to the recipient's privacy practices.</p>
+
+      <h2>User controls</h2>
+      <p>Users may decline an Action request, stop using the GPT, delete ChatGPT conversations through ChatGPT controls, and review or revoke the connected Intervals.icu account through the controls offered by ChatGPT and/or Intervals.icu. Deleting a conversation does not by itself guarantee that an OAuth connection has been revoked.</p>
+
+      <h2>Security</h2>
+      <p>Access is limited by the OAuth permissions granted by the user. No method of internet transmission or electronic storage can be guaranteed completely secure. Suspected credential exposure should be reported privately and the affected credential or connection revoked promptly.</p>
+
+      <h2>Medical and safety limitation</h2>
+      <p>This project is a training-analysis and planning tool, not a medical device. Its outputs may be wrong. It does not diagnose injury, illness, overtraining, or any medical condition and is not a substitute for professional medical care.</p>
+
+      <h2>Children</h2>
+      <p>The project is not intentionally directed at children. Users must meet the age and consent requirements of ChatGPT and Intervals.icu.</p>
+
+      <h2>Static website</h2>
+      <p>This project page does not add project-controlled analytics, advertising scripts, or cookies. GitHub may process website access information under GitHub's own policies because the page is hosted on GitHub Pages.</p>
+
+      <h2>Changes to this policy</h2>
+      <p>This policy may change when the GPT's functionality, permissions, external platform rules, or data practices change. Material changes will update the policy version and effective date.</p>
+
+      <h2>External policies</h2>
+      <ul>
+        <li><a href="https://help.openai.com/en/articles/8554407-gpts-in-chatgpt">OpenAI: GPTs in ChatGPT</a></li>
+        <li><a href="https://help.openai.com/en/articles/7730893-data-controls-faq">OpenAI: Data Controls FAQ</a></li>
+        <li><a href="https://help.openai.com/en/articles/8914046-temporary-chat-faq">OpenAI: Temporary Chat FAQ</a></li>
+        <li><a href="https://intervals.icu/privacy">Intervals.icu privacy information</a></li>
+      </ul>
+
+      <h2>Contact</h2>
+      <p><a href="mailto:triathlon-gpt-intervals-icu@proton.me">triathlon-gpt-intervals-icu@proton.me</a></p>
+      <p><a href="index.html">Return to the project page</a></p>
+    </article>
+  </main>
+</body>
+</html>

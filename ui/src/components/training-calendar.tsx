@@ -1,10 +1,18 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { gradeWorkoutCompletion, type CompletionGrade } from "@/lib/workout-completion"
+import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
+import { hasWorkoutStructure } from "@/lib/workout-structure"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, useSensor, useSensors, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/core"
 import {
   Bike,
   CalendarDays,
-  CheckCircle2,
   Dumbbell,
   Footprints,
+  Ellipsis,
+  Copy,
+  Trash2,
+  Plus,
+  Crosshair,
   PanelRightClose,
   PanelRightOpen,
   Waves,
@@ -13,6 +21,8 @@ import { Pie, PieChart } from "recharts"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
@@ -35,14 +45,18 @@ import {
   fallbackTrainingContext,
   loadFullTrainingContext,
   loadTrainingContext,
+  moveWorkoutDate,
+  changeWorkout,
+  changeWorkoutDay,
   type PlannedWorkout,
+  type TrainingHistoryItem,
 } from "@/lib/training-context"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { workoutProfile } from "@/components/section-cards"
 
 function SportIcon({ sport }: { sport: string }) {
   const value = sport.toLowerCase()
-  const base = "size-4 shrink-0"
+  const base = "size-5 shrink-0"
   if (value.includes("swim")) return <Waves className={`${base} text-cyan-600`} />
   if (value.includes("bike")) return <Bike className={`${base} text-violet-600`} />
   if (value.includes("run")) return <Footprints className={`${base} text-lime-600`} />
@@ -50,31 +64,15 @@ function SportIcon({ sport }: { sport: string }) {
   return <CalendarDays className={`${base} text-slate-500`} />
 }
 
-type CompletionGrade = "good" | "medium" | "failed" | "planned"
-
-function completionGrade(workout: PlannedWorkout): CompletionGrade {
-  if (workout.status !== "completed") return "planned"
-  const plannedDuration = durationMinutes(workout)
-  const actualDuration = completedMinutes(workout)
-  const plannedTss = Number(workout.planned?.tss ?? workout.load ?? 0)
-  const actualTss = Number(workout.completed_data?.tss ?? 0)
-  const durationRatio = plannedDuration > 0 ? actualDuration / plannedDuration : 1
-  const loadRatio = plannedTss > 0 && actualTss > 0 ? actualTss / plannedTss : 1
-
-  if (actualDuration <= 0) return "failed"
-  if (durationRatio >= 0.9 && durationRatio <= 1.1 && loadRatio >= 0.85 && loadRatio <= 1.15) return "good"
-  if (durationRatio >= 0.75 && durationRatio <= 1.25 && loadRatio >= 0.7 && loadRatio <= 1.3) return "medium"
-  return "failed"
-}
-
 const gradeStyles: Record<CompletionGrade, string> = {
   planned: "border-border bg-card text-card-foreground hover:bg-accent/50",
-  good: "border-border bg-card text-card-foreground hover:bg-accent/50",
-  medium: "border-border bg-card text-card-foreground hover:bg-accent/50",
-  failed: "border-border bg-card text-card-foreground hover:bg-accent/50",
+  unknown: "border-border bg-card text-card-foreground hover:bg-accent/50",
+  good: "border-green-500/50 bg-green-50 text-green-950 hover:bg-green-100 dark:bg-green-950/30 dark:text-green-100",
+  medium: "border-orange-500/50 bg-orange-50 text-orange-950 hover:bg-orange-100 dark:bg-orange-950/30 dark:text-orange-100",
+  failed: "border-red-500/50 bg-red-50 text-red-950 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-100",
 }
-
 function WorkoutPreview({ workout, large = false }: { workout: PlannedWorkout; large?: boolean }) {
+  if (!hasWorkoutStructure(workout.structure)) return null
   const source = workout.details ?? workout.goal ?? workout.title
   const points = workoutProfile(workout.title, workout.sport, source)
   const profile = Array.from({ length: Math.floor(points.length / 2) }, (_, index) => {
@@ -86,11 +84,11 @@ function WorkoutPreview({ workout, large = false }: { workout: PlannedWorkout; l
     }
   })
   return (
-    <div className={`mt-auto flex items-end overflow-hidden opacity-70 ${large ? "h-20 gap-1 rounded-md border p-2" : "h-8 gap-0.5 pt-2"}`} aria-label="Workout profile preview">
+    <div className={`mt-auto flex items-end overflow-hidden opacity-70 ${large ? "h-20 gap-1 rounded-md border p-2" : "-mx-2.5 -mb-3 h-8 gap-0 pt-2"}`} aria-label="Workout profile preview">
       {profile.map((segment, index) => (
         <span
           key={index}
-          className={`min-w-px bg-muted-foreground/40 ${large ? "rounded-sm" : "rounded-[1px]"}`}
+          className={`min-w-px bg-muted-foreground/40 ${large ? "rounded-sm" : ""}`}
           style={{
             flexBasis: 0,
             flexGrow: segment.width,
@@ -134,8 +132,9 @@ function workoutDate(value?: string) {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-export function WorkoutCard({ workout, onClick }: { workout: PlannedWorkout; onClick: () => void }) {
-  const grade = completionGrade(workout)
+export function WorkoutCard({ workout, onClick, onAction, disabled = false }: { workout: PlannedWorkout; onClick: () => void; onAction?: (action: "copy" | "delete") => void; disabled?: boolean }) {
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const grade = gradeWorkoutCompletion(workout.status, { ...workout.planned, duration_minutes: workout.planned?.duration_minutes ?? workout.plannedDurationMinutes }, { ...workout.completed_data, duration_minutes: completedMinutes(workout) })
   const displayedMinutes = workout.status === "completed" && completedMinutes(workout) > 0
     ? completedMinutes(workout)
     : durationMinutes(workout)
@@ -144,12 +143,37 @@ export function WorkoutCard({ workout, onClick }: { workout: PlannedWorkout; onC
       role="button"
       tabIndex={0}
       onClick={onClick}
-      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onClick() }}
+      onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onClick() } }}
       className={`w-full cursor-pointer gap-2 rounded-md px-2.5 py-3 shadow-sm transition-colors ${gradeStyles[grade]}`}
     >
-      <div className="flex min-w-0 items-start gap-1.5">
-        <SportIcon sport={workout.sport} />
-        <span className="line-clamp-2 text-xs font-semibold leading-4">
+      <div className="flex min-w-0 flex-col items-start gap-2">
+        <div className="flex w-full items-center justify-between">
+          <SportIcon sport={workout.sport} />
+          {onAction && <div onClick={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()} onTouchStart={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-sm" className="-my-1 -mr-1 size-7" disabled={disabled} aria-label={`Options for ${workout.title}`} />}>
+                <Ellipsis className="size-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-36" onClick={event => event.stopPropagation()}>
+                <DropdownMenuItem onClick={() => onAction("copy")}><Copy />Copy</DropdownMenuItem>
+                <DropdownMenuItem variant="destructive" onClick={() => setDeleteOpen(true)}><Trash2 />Delete</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+              <AlertDialogContent onClick={event => event.stopPropagation()}>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete workout?</AlertDialogTitle>
+                  <AlertDialogDescription>Delete “{workout.title}” from your TrainingPeaks calendar?</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction variant="destructive" onClick={() => onAction("delete")}>Delete workout</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>}
+        </div>
+        <span className="line-clamp-2 w-full text-left text-sm font-semibold leading-tight md:text-base">
           {workout.title}
         </span>
       </div>
@@ -157,14 +181,50 @@ export function WorkoutCard({ workout, onClick }: { workout: PlannedWorkout; onC
         {displayedMinutes > 0 && <span>{formatDuration(displayedMinutes)}</span>}
         {estimatedDistance(workout) && <span>· {estimatedDistance(workout)}</span>}
       </div>
-      {workout.status === "completed" && (
+      {workout.status === "completed" && grade !== "unknown" && (
         <span className="flex items-center gap-1 text-[10px] font-medium">
-          <CheckCircle2 className="size-3" /> {grade === "good" ? "Completed well" : grade === "medium" ? "Partially achieved" : "Missed target"}
+          {grade === "good" ? "On target" : grade === "medium" ? "Near target" : "Outside target"}
         </span>
       )}
       <WorkoutPreview workout={workout} />
     </Card>
   )
+}
+
+function DraggableWorkout({ workout, onOpen, onAction, disabled }: { workout: PlannedWorkout; onOpen: () => void; onAction: (action: "copy" | "delete") => void; disabled: boolean }) {
+  const {setNodeRef, listeners, isDragging} = useDraggable({id:workout.id, data:{workout}, disabled})
+  return <div ref={setNodeRef} {...listeners} className={`select-none ${isDragging ? "opacity-30" : ""}`}>
+    <WorkoutCard workout={workout} onClick={onOpen} onAction={onAction} disabled={disabled} />
+  </div>
+}
+
+function CalendarDay({ date, className, children, disabled }: { date: string; className: string; children: ReactNode; disabled: boolean }) {
+  const {setNodeRef, isOver} = useDroppable({id:date, disabled})
+  return <div ref={setNodeRef} data-calendar-date={date} className={`group/day ${className} ${isOver ? "bg-primary/10 ring-2 ring-inset ring-primary" : ""}`}>{children}</div>
+}
+
+function DayMenu({day, count, disabled, onAction}: {day: Date; count:number; disabled:boolean; onAction:(action:"copy"|"delete") => void}) {
+  const [open,setOpen] = useState(false)
+  const [deleteOpen,setDeleteOpen] = useState(false)
+  const label = day.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+  return <div className={`transition-opacity group-hover/day:opacity-100 focus-within:opacity-100 ${open || deleteOpen ? "opacity-100" : "opacity-0"}`}>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" disabled={disabled || count === 0} aria-label={`Workout actions for ${label}`} />}><Ellipsis className="size-4" /></DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-36">
+        <DropdownMenuItem onClick={() => onAction("copy")}><Copy />Copy</DropdownMenuItem>
+        <DropdownMenuItem variant="destructive" onClick={() => setDeleteOpen(true)}><Trash2 />Delete</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+    <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this day’s workouts?</AlertDialogTitle>
+          <AlertDialogDescription>Delete all {count} workouts on {label} from your TrainingPeaks calendar?</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => onAction("delete")}>Delete workouts</AlertDialogAction></AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  </div>
 }
 
 function startOfMonday(date: Date) {
@@ -187,9 +247,71 @@ export function TrainingCalendar({
   const [context, setContext] = useState(fallbackTrainingContext)
   const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(null)
   const [activeWeekKey, setActiveWeekKey] = useState("")
+  const [dragging, setDragging] = useState<PlannedWorkout | null>(null)
+  const [moving, setMoving] = useState(false)
+  const [moveNotice, setMoveNotice] = useState("")
+  const calendarWasDragged = useRef(false)
+  const sensors = useSensors(useSensor(MouseSensor, {activationConstraint:{distance:6}}), useSensor(TouchSensor, {activationConstraint:{delay:250,tolerance:6}}))
+
+  const runWorkoutAction = async (workout: PlannedWorkout, action: "copy" | "delete") => {
+    if (moving) return
+    calendarWasDragged.current = true
+    setMoving(true)
+    setMoveNotice(action === "copy" ? "Copying workout…" : "Deleting workout…")
+    try {
+      const result = await changeWorkout(workout.id, action)
+      if (result.context) setContext(current => ({...current, ...result.context}))
+      else if (action === "delete") setContext(current => ({...current, planned:current.planned.filter(item => item.id !== workout.id), history:current.history.filter(item => !("id" in item) || item.id !== workout.id)}))
+      setMoveNotice(`${workout.title} ${action === "copy" ? "copied to the same day" : "deleted"}.${!result.context ? " Refresh TrainingPeaks to reload the calendar." : ""}`)
+    } catch (error) {setMoveNotice(error instanceof Error ? error.message : `Unable to ${action} workout.`)}
+    finally {setMoving(false)}
+  }
+
+  const runDayAction = async (day: Date, action: "copy"|"delete") => {
+    if (moving) return
+    calendarWasDragged.current = true
+    setMoving(true)
+    setMoveNotice(action === "copy" ? "Copying this day’s workouts…" : "Deleting this day’s workouts…")
+    try {
+      const result = await changeWorkoutDay(dateKey(day),action)
+      if (result.context) setContext(current => ({...current,...result.context}))
+      else if (action === "delete") {
+        const ids = new Set(result.results.map(item => item.workoutId))
+        setContext(current => ({...current, planned:current.planned.filter(item => !ids.has(item.id)),history:current.history.filter(item => !("id" in item) || !ids.has(String(item.id)))}))
+      }
+      setMoveNotice(`${result.results.length} of ${result.total} workouts ${action === "copy" ? "copied to the same day" : "deleted"}.${result.failures.length ? ` ${result.failures[0].error} Refresh before retrying.` : !result.context ? " Refresh TrainingPeaks to reload the calendar." : ""}`)
+    } catch(error) {setMoveNotice(error instanceof Error ? error.message : "Unable to update this day’s workouts.")}
+    finally {setMoving(false)}
+  }
+
+  const finishDrag = async ({active, over}: DragEndEvent) => {
+    setDragging(null)
+    const workout = active.data.current?.workout as PlannedWorkout | undefined
+    if (!workout || !over || String(over.id) === workout.workout_date || moving) return
+    const date = String(over.id)
+    calendarWasDragged.current = true
+    const snapshot = context
+    const update = (item: PlannedWorkout) => item.id === workout.id ? {...item, workout_date:date,
+      day:new Date(`${date}T12:00:00`).toLocaleDateString('en-US',{weekday:'short'}).toUpperCase(),
+      date:new Date(`${date}T12:00:00`).toLocaleDateString('en-US',{month:'short',day:'numeric'}),
+      status:item.status === 'completed' ? 'completed' as const : date === dateKey(new Date()) ? 'today' as const : 'upcoming' as const,
+    } : item
+    setMoving(true)
+    setMoveNotice("Saving workout date…")
+    setContext(current => ({...current, planned:current.planned.map(update), history:(current.history as PlannedWorkout[]).map(update) as TrainingHistoryItem[]}))
+    try {
+      const result = await moveWorkoutDate(workout.id, date)
+      if (result.context) setContext(current => ({...current, ...result.context}))
+      setMoveNotice(`${workout.title} moved to ${new Date(`${date}T12:00:00`).toLocaleDateString('en-US',{month:'short',day:'numeric'})}.`)
+    } catch (error) {
+      setContext(snapshot)
+      setMoveNotice(error instanceof Error ? error.message : "Unable to move workout.")
+    } finally {setMoving(false)}
+  }
   const [summaryOpen, setSummaryOpen] = useState(() => localStorage.getItem("training-calendar-summary-open") !== "false")
   const isMobile = useIsMobile()
   const weekRefs = useRef(new Map<string, HTMLElement>())
+  const calendarRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let active = true
@@ -243,18 +365,20 @@ export function TrainingCalendar({
   }, [workouts])
 
   useLayoutEffect(() => {
-    if (!weeks.length) return
+    if (!weeks.length || calendarWasDragged.current) return
     const previousRestoration = history.scrollRestoration
     history.scrollRestoration = "manual"
     const todayWeek = dateKey(startOfMonday(new Date()))
     const target = weeks.some((week) => week.key === todayWeek) ? todayWeek : weeks[weeks.length - 1].key
-    setActiveWeekKey(target)
     const alignToday = () => {
-      const element = weekRefs.current.get(target)
+      if (calendarWasDragged.current) return
+      setActiveWeekKey(target)
+      const element = isMobile
+        ? calendarRef.current?.querySelector(`[data-calendar-date="${dateKey(new Date())}"]`) || weekRefs.current.get(target)
+        : weekRefs.current.get(target)
       if (!element) return
-      window.scrollTo({ top: Math.max(0, window.scrollY + element.getBoundingClientRect().top - 56), behavior: "instant" })
+      window.scrollTo({ top: Math.max(0, window.scrollY + element.getBoundingClientRect().top - (isMobile ? 56 : 84)), behavior: "instant" })
     }
-    alignToday()
     const frame = requestAnimationFrame(() => requestAnimationFrame(alignToday))
     const timer = window.setTimeout(alignToday, 250)
     return () => {
@@ -262,12 +386,12 @@ export function TrainingCalendar({
       window.clearTimeout(timer)
       history.scrollRestoration = previousRestoration
     }
-  }, [weeks])
+  }, [weeks, isMobile])
 
   const scrollToWeek = (key: string, behavior: ScrollBehavior = "smooth") => {
     const element = weekRefs.current.get(key)
     if (!element) return
-    window.scrollTo({ top: window.scrollY + element.getBoundingClientRect().top - 56, behavior })
+    window.scrollTo({ top: window.scrollY + element.getBoundingClientRect().top - (isMobile ? 56 : 84), behavior })
     setActiveWeekKey(key)
   }
 
@@ -286,8 +410,16 @@ export function TrainingCalendar({
 
   const goToToday = () => {
     const target = dateKey(startOfMonday(new Date()))
-    scrollToWeek(target, "instant")
-    requestAnimationFrame(() => scrollToWeek(target, "instant"))
+    calendarWasDragged.current = true
+    const scrollToToday = () => {
+      if (!isMobile) { scrollToWeek(target, "instant"); return }
+      const element = calendarRef.current?.querySelector(`[data-calendar-date="${dateKey(new Date())}"]`)
+      if (!element) return
+      window.scrollTo({ top: Math.max(0, window.scrollY + element.getBoundingClientRect().top - 56), behavior: "instant" })
+      setActiveWeekKey(target)
+    }
+    scrollToToday()
+    requestAnimationFrame(scrollToToday)
   }
 
   const activeWeek = weeks.find((week) => week.key === activeWeekKey) ?? weeks[0]
@@ -302,13 +434,22 @@ export function TrainingCalendar({
   }
 
   return (
-    <div className="flex w-full min-w-0 flex-1 flex-col">
-      <header className="sticky top-0 z-50 flex h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur">
-        <h1 className="min-w-0 truncate text-sm font-semibold">{activeMonth}</h1>
-        <div className="ml-4 flex items-center gap-1">
-          <Button size="sm" onClick={goToToday}>Today</Button>
+    <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={({active}) => setDragging(active.data.current?.workout || null)} onDragCancel={() => setDragging(null)} onDragEnd={event => void finishDrag(event)}>
+    <div ref={calendarRef} className="flex w-full min-w-0 flex-1 flex-col">
+      <header className="mobile-site-header sticky top-0 z-50 flex h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:shadow-none">
+        <h1 className="mobile-header-title min-w-0 truncate text-sm font-semibold">{activeMonth}</h1>
+        <div className="flex items-center gap-1 md:ml-4">
+          <Button variant="ghost" size="icon" className="md:hidden" onClick={goToToday} aria-label="Go to today" title="Go to today"><Crosshair className="size-5" /></Button>
+          <Button size="sm" className="hidden md:inline-flex" onClick={goToToday}>Today</Button>
         </div>
-      </header>
+      <MobileHeaderMenu /></header>
+      <div className="sticky top-14 z-40 hidden h-7 shrink-0 border-b bg-background shadow-sm md:flex">
+        <div className="grid min-w-0 flex-1 grid-cols-7 divide-x">
+          {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(day => <div key={day} className="flex items-center px-2 text-[11px] font-medium uppercase text-muted-foreground">{day}</div>)}
+        </div>
+        <div className={`hidden shrink-0 border-l xl:block ${summaryOpen ? "w-72" : "w-10"}`} />
+      </div>
+      {moveNotice && <p role="status" className="border-b bg-background px-4 py-2 text-xs text-muted-foreground">{moveNotice}</p>}
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="min-w-0 flex-1 bg-muted/20">
           <div className="divide-y">
@@ -327,15 +468,38 @@ export function TrainingCalendar({
                       const dayWorkouts = week.workouts.filter((workout) => workout.workout_date === dateKey(day))
                       const isToday = dateKey(day) === dateKey(new Date())
                       return (
-                        <div key={dateKey(day)} className={isToday ? "min-w-0 bg-primary/5 px-1.5 py-2" : "min-w-0 px-1.5 py-2"}>
-                          <div className="mb-3 flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-medium uppercase text-muted-foreground">{day.toLocaleDateString("en-US", { weekday: "short" })}</span>
-                            <Badge variant={isToday ? "default" : "outline"}>{day.getDate()}</Badge>
+                        <CalendarDay key={dateKey(day)} date={dateKey(day)} disabled={moving} className={isToday ? "min-w-0 bg-primary/5 px-1.5 py-2" : "min-w-0 px-1.5 py-2"}>
+                          {isToday && <section aria-label="Performance Insights" className="mb-4 pt-2 md:hidden">
+                            <div className="mb-1 flex items-center justify-between">
+                              <p className="text-sm font-semibold text-primary">{day.toLocaleDateString("en-US", {weekday:"short"})} - {day.getDate()}</p>
+                              <DayMenu day={day} count={dayWorkouts.length} disabled={moving} onAction={action => void runDayAction(day,action)} />
+                            </div>
+                            <h2 className="mb-3 text-base font-semibold">Performance Insights</h2>
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {[
+                                {label:"Fitness", value:context.metrics.fitness, color:"text-blue-600 dark:text-blue-400"},
+                                {label:"Form", value:context.metrics.form, color:"text-emerald-600 dark:text-emerald-400"},
+                                {label:"Fatigue", value:context.metrics.fatigue, color:"text-orange-600 dark:text-orange-400"},
+                              ].map(metric => <Card key={metric.label} className={`min-w-0 gap-1 rounded-md px-2.5 py-3 text-left shadow-none ${metric.color}`}>
+                                <p className="text-base font-semibold tabular-nums">{Number.isFinite(metric.value) ? Math.round(metric.value!) : "—"}</p>
+                                <div className="border-t border-current" />
+                                <p className="text-[11px]">{metric.label}</p>
+                              </Card>)}
+                            </div>
+                          </section>}
+                          <div className={`mb-3 items-center justify-between gap-2 ${isToday ? "hidden md:flex" : "flex"}`}>
+                            <span className={`px-0.5 text-sm ${isToday ? "hidden font-semibold text-primary md:inline" : "text-foreground"}`}>
+                              <span className="md:hidden">{day.toLocaleDateString("en-US", {weekday:"short"})} - </span>{day.getDate()}
+                            </span>
+                            <DayMenu day={day} count={dayWorkouts.length} disabled={moving} onAction={action => void runDayAction(day,action)} />
                           </div>
                           <div className="space-y-2">
-                            {dayWorkouts.map((workout) => <WorkoutCard key={workout.id} workout={workout} onClick={() => openWorkout(workout)} />)}
+                            {dayWorkouts.map((workout) => <DraggableWorkout key={workout.id} workout={workout} disabled={moving} onOpen={() => openWorkout(workout)} onAction={action => void runWorkoutAction(workout, action)} />)}
+                            <div aria-hidden="true" className="flex h-12 w-full items-center justify-center rounded-sm border border-muted-foreground/40 text-muted-foreground opacity-0 transition-opacity group-hover/day:opacity-100">
+                              <Plus className="size-4" />
+                            </div>
                           </div>
-                        </div>
+                        </CalendarDay>
                       )
                     })}
                 </div>
@@ -361,6 +525,8 @@ export function TrainingCalendar({
       </div>
       <WorkoutDialog workout={selectedWorkout} onOpenChange={(open) => !open && setSelectedWorkout(null)} />
     </div>
+    <DragOverlay>{dragging ? <div className="max-w-sm cursor-grabbing shadow-xl"><WorkoutCard workout={dragging} onClick={() => {}} /></div> : null}</DragOverlay>
+    </DndContext>
   )
 }
 

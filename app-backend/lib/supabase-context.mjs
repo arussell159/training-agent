@@ -17,6 +17,9 @@ export function createContextStore(config, log = () => {}) {
   }
   return {
     ready,
+    async deleteWorkout(id) {
+      return request('workout_context', {method:'DELETE',query:`?id=eq.${encodeURIComponent(id)}`});
+    },
     async getContext(athleteId = "default") {
       const cutoff = new Date(Date.now() - 90 * 86400000).toISOString()
       const [configRows, workouts, comments] = await Promise.all([
