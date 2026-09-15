@@ -82,7 +82,9 @@ function mergeEnvironmentConfig(config = {}) {
   const environment = Object.fromEntries(
     CONFIG_ENV_KEYS.filter(key => typeof process.env[key] === 'string' && process.env[key]).map(key => [key, process.env[key]])
   );
-  return { ...config, ...environment };
+  // Local Settings edits must survive inherited stale environment credentials.
+  // Hosted deployments still use their explicitly configured environment.
+  return process.env.VERCEL ? { ...config, ...environment } : { ...environment, ...config };
 }
 
 function stableUuid(value) {
