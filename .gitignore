@@ -5,6 +5,7 @@ build/
 *.log
 *.tmp
 *.cache
+__pycache__/
 .DS_Store
 .vscode/
 *.env
@@ -15,4 +16,6 @@ build/
 app-backend/config.json
 app-backend/local-data*.json
 app-backend/trainingpeaks.cache
+app-backend/section-11-data/
+app-backend/.section11-python/
 tools/trainingpeaks-mcp-server/

@@ -1,7 +1,7 @@
 {
-  "name": "open-triathlon-coach-app",
+  "name": "section-11-training-app",
   "version": "1.0.0",
-  "description": "Triathlon coaching app connected to Intervals.icu",
+  "description": "Section 11 endurance coaching app connected to Intervals.icu",
   "type": "module",
   "main": "app-backend/server.mjs",
   "scripts": {
@@ -15,6 +15,8 @@
     "format:check": "prettier --check app-backend/lib/*.mjs *.md",
     "test": "node --test app-backend/lib/*.test.mjs",
     "app:server": "node app-backend/server.mjs",
+    "section11:update": "node app-backend/scripts/update-section-11.mjs",
+    "section11:setup": "node app-backend/scripts/setup-section-11-python.mjs",
     "ui:dev": "npm --prefix ui run dev",
     "ui:build": "npm ci --prefix ui --include=dev && npm --prefix ui run build"
   },

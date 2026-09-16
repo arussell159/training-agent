@@ -1,6 +1,6 @@
-# Open Triathlon Coach app
+# Section 11 training app
 
-AR Performance's training app connects to your own Intervals.icu account using its official public API. The coaching policy and Action operation catalogue come from [Open Triathlon Coach for ChatGPT](https://github.com/Takethis88/Open-Triathlon-Coach-for-ChatGPT), retained under its MIT licence. This is a local API-runtime adaptation, not the author's hosted custom GPT.
+This training app connects to your own Intervals.icu account using its official public API. The coach chat follows the [Section 11 AI Coaching Protocol](https://github.com/CrankAddict/section-11), vendored under its MIT licence. The application supplies live Intervals.icu data directly, so it does not require a separate ChatGPT/Claude Project or a GitHub data-mirror workflow.
 
 ## Setup
 
@@ -34,11 +34,11 @@ Never paste credentials into coach chat. Stored settings are AES-256-GCM encrypt
 - Paired planned/completed sessions are combined to avoid counting the same activity twice.
 - Drag a planned calendar event to save its new date to Intervals.icu. Time and multiday duration are preserved, and the saved date is read back to verify success.
 - Calendar event copy/delete controls also verify results. Completed activities themselves are read-only.
-- Chat uses upstream Intervals.icu read operations. Chat calendar creation/wellness changes return previews only; they are not silently applied.
+- Chat uses a fresh Section 11 compatibility snapshot plus read-only Intervals.icu detail operations. It cannot silently modify calendar or wellness data.
 - Scheduled reviews remain advisory. Old provider-specific structured review patches are refused.
 - Missing data is unavailable, not an invented measurement. Sync failures are labelled; stored training data is not a live connection.
 
-The old TrainingPeaks MCP source and transports have been removed. Existing local coaching conversations and historical data are preserved; old TrainingPeaks cache files are not read. No private GPT Knowledge files were supplied by the upstream repository.
+The old TrainingPeaks MCP source, Open Triathlon Coach prompt bundle, Endurance Coach AI guide, and legacy coaching evidence library have been removed from the runtime. Existing local conversations and historical workout data remain application records; they are not cross-chat metric sources.
 
 ## Development and tests
 

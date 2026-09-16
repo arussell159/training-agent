@@ -381,7 +381,7 @@ function AppWorkspace() {
           <SheetHeader className="sr-only">
             <SheetTitle>Chat history</SheetTitle>
             <SheetDescription>
-              Recent coach conversations and daily reviews.
+              Recent coach conversations.
             </SheetDescription>
           </SheetHeader>
           <div className="p-2 pt-4">
@@ -405,16 +405,18 @@ function AppWorkspace() {
               onDelete={setConversationToDelete}
             />
           </div>
-          <Button
-            variant="ghost"
-            className="m-2 justify-start"
-            onClick={() => {
-              setHistoryOpen(false)
-              selectItem("Home")
-            }}
-          >
-            <Home className="size-4" /> Home
-          </Button>{" "}
+          <div className="px-2 pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+            <Button
+              variant="ghost"
+              className="w-full justify-start"
+              onClick={() => {
+                setHistoryOpen(false)
+                selectItem("Home")
+              }}
+            >
+              <Home className="size-4" /> Home
+            </Button>
+          </div>
         </SheetContent>
       </Sheet>
 
@@ -430,13 +432,14 @@ function AppWorkspace() {
 
       <SidebarInset
         className={
-          (isCoachConversation || activeItem === "Settings") && !selectedWorkout
+          (isCoachConversation || activeItem === "Settings" || activeItem === "Annual Plan") && !selectedWorkout
             ? "h-svh min-h-0 overflow-hidden"
             : undefined
         }
       >
         {!selectedWorkout &&
           activeItem !== "Calendar" &&
+          activeItem !== "Annual Plan" &&
           activeItem !== "Settings" && (
             <header
               className="mobile-site-header sticky top-0 z-50 flex h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur"
@@ -446,7 +449,7 @@ function AppWorkspace() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="mr-2 md:hidden"
+                    className="mr-2 size-9 rounded-full bg-white/50 p-0 shadow-sm backdrop-blur-sm hover:bg-white/70 md:hidden"
                     aria-label="Open chat history"
                     onClick={() => setHistoryOpen(true)}
                   >
@@ -454,21 +457,8 @@ function AppWorkspace() {
                   </Button>
                   <div className="min-w-0 flex-1 pr-2">
                     <h1 className="mobile-header-title truncate text-sm font-semibold">
-                      <span className="md:hidden">Chat</span>
-                      <span className="hidden md:inline">Coach</span>
+                      Coach
                     </h1>
-                  </div>
-                  <div className="ml-auto flex items-center gap-2">
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      aria-label="New chat"
-                      className="md:hidden"
-                      onClick={() => selectItem("Coach")}
-                    >
-                      <SquarePen className="size-5" />
-                    </Button>
                   </div>
                 </>
               ) : (
@@ -497,7 +487,11 @@ function AppWorkspace() {
                   <span className="sm:hidden">Refresh</span>
                 </Button>
               )}
-              <MobileHeaderMenu />
+              <MobileHeaderMenu
+                onNewChat={
+                  isCoachConversation ? () => selectItem("Coach") : undefined
+                }
+              />
             </header>
           )}
         <main
@@ -511,6 +505,8 @@ function AppWorkspace() {
                 ? "overflow-hidden"
                 : activeItem === "Settings"
                   ? "overflow-hidden pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
+                  : activeItem === "Annual Plan"
+                    ? "w-full overflow-hidden pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
                   : "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
           }`}
         >

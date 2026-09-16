@@ -6,7 +6,6 @@ import {
   UserMessageAttachments,
 } from "@/components/assistant-ui/elements/attachment.aui"
 import { File } from "@/components/file"
-import { ThreadFollowupSuggestions } from "@/components/assistant-ui/elements/follow-up-suggestions.aui"
 import { Image } from "@/components/image"
 import { MarkdownText } from "@/components/markdown-text"
 import { Reasoning } from "@/components/assistant-ui/elements/reasoning.aui"
@@ -35,7 +34,6 @@ import {
   ErrorPrimitive,
   groupPartByType,
   MessagePrimitive,
-  SuggestionPrimitive,
   ThreadPrimitive,
   type FileMessagePartComponent,
   type ImageMessagePartComponent,
@@ -75,6 +73,7 @@ export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart
  * `ToolFallback`.
  */
 export type ThreadComponents = {
+  MessageHeader?: ComponentType | undefined
   MessageFooter?: ComponentType | undefined
   AssistantMessage?: ComponentType | undefined
   Welcome?: ComponentType | undefined
@@ -204,12 +203,8 @@ const ThreadRoot: FC<{
             )}
           >
             <ThreadScrollToBottom />
-            <ThreadFollowupSuggestions />
             {notice}
             <Composer autoFocus={autoFocus} />
-            <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
-              <ThreadSuggestions />
-            </AuiIf>
           </ThreadPrimitive.ViewportFooter>
         </div>
       </ThreadPrimitive.Viewport>
@@ -250,35 +245,6 @@ const ThreadWelcome: FC = () => {
       <h1 className="aui-thread-welcome-message-inner max-w-64 animate-in text-2xl font-semibold tracking-tight duration-200 fill-mode-both fade-in slide-in-from-bottom-1">
         How can I help you today?
       </h1>
-    </div>
-  )
-}
-
-const ThreadSuggestions: FC = () => {
-  return (
-    <div className="aui-thread-welcome-suggestions flex w-full flex-col items-center justify-center gap-2 px-0 md:flex-row md:flex-wrap">
-      <ThreadPrimitive.Suggestions>
-        {() => <ThreadSuggestionItem />}
-      </ThreadPrimitive.Suggestions>
-    </div>
-  )
-}
-
-const ThreadSuggestionItem: FC = () => {
-  return (
-    <div className="aui-thread-welcome-suggestion-display animate-in duration-200 fill-mode-both fade-in slide-in-from-bottom-2">
-      <SuggestionPrimitive.Trigger
-        send
-        render={
-          <Button
-            variant="ghost"
-            className="aui-thread-welcome-suggestion h-auto gap-1.5 rounded-full border border-border/60 px-3.5 py-1.5 text-sm font-normal whitespace-nowrap text-foreground transition-colors hover:bg-muted"
-          />
-        }
-      >
-        <SuggestionPrimitive.Title className="aui-thread-welcome-suggestion-text-1" />
-        <SuggestionPrimitive.Description className="aui-thread-welcome-suggestion-text-2 empty:hidden" />
-      </SuggestionPrimitive.Trigger>
     </div>
   )
 }
@@ -401,6 +367,7 @@ const MessageError: FC = () => {
 
 const AssistantMessage: FC = () => {
   const {
+    MessageHeader,
     MessageFooter,
     ToolFallback: ToolFallbackComponent = ToolFallback,
     ToolGroup,
@@ -421,8 +388,10 @@ const AssistantMessage: FC = () => {
         data-slot="aui_assistant-message-content"
         className="px-2 leading-relaxed wrap-break-word text-foreground"
       >
+        {MessageHeader && <MessageHeader />}
         <AuiIf
           condition={(s) =>
+            !MessageHeader &&
             s.message.status?.type === "running" &&
             s.message.content.every(
               (part) => part.type === "text" && !part.text

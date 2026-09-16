@@ -1,15 +1,16 @@
 import { useContext, useState } from "react"
 import { MobileHeaderNavigation } from "@/components/ui/mobile-header-navigation"
-import { Ellipsis, RefreshCw } from "lucide-react"
+import { Ellipsis, RefreshCw, SquarePen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-export function MobileHeaderMenu() {
+export function MobileHeaderMenu({ onNewChat }: { onNewChat?: () => void }) {
   const refresh = useContext(MobileHeaderNavigation)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -39,6 +40,21 @@ export function MobileHeaderMenu() {
           <Ellipsis className="size-5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-max min-w-40">
+          {onNewChat && (
+            <>
+              <DropdownMenuItem
+                className="whitespace-nowrap"
+                onClick={() => {
+                  onNewChat()
+                  setOpen(false)
+                }}
+              >
+                <SquarePen />
+                New chat
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuItem
             className="whitespace-nowrap"
             disabled={busy}

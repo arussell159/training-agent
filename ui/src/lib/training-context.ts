@@ -190,11 +190,12 @@ export interface TrainingContext {
     days_to_race?: number | null
     phase?: string
     zones?: {
-      bike_ftp?: number
-      run_threshold_pace?: string
-      swim_css?: string
-      threshold_hr?: number
+      bike_ftp?: number | null
+      run_threshold_pace?: string | null
+      swim_css?: string | null
+      threshold_hr?: number | null
     }
+    zone_history?: Array<{recorded_at:string;bike_ftp?:number|null;run_threshold_pace?:string|null;swim_css?:string|null;threshold_hr?:number|null}>
   }
   metrics: {
     fitness?: number
@@ -245,7 +246,9 @@ if(typeof window!=='undefined')window.addEventListener('training-cache-reset',()
 const STARTUP_KEY='training-agent-startup-v2'
 type CachedContext = TrainingContext & {cache_scope?:string;version?:string;display_range?:{start:string;end:string}}
 export function cachedTrainingContext(): TrainingContext {
-  const memory=contextCache.get('week') || contextCache.get('full')
+  // Prefer the complete archive once it has loaded. A later fast-week update
+  // must not replace history charts with the short startup window.
+  const memory=contextCache.get('full') || contextCache.get('week')
   if(memory)return memory
   try {
     const saved=JSON.parse(localStorage.getItem(STARTUP_KEY) || 'null') as TrainingContext | null

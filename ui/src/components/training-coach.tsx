@@ -1,10 +1,11 @@
 import {formatDuration} from '@/lib/duration'
-import {durationMinutes} from '@/lib/training-context'
+import {workoutStepLabel, type WorkoutStep} from '@/lib/workout-structure'
 import { apiFetch } from "@/lib/api-client"
 import { createContext, useContext, useEffect, useRef, useState } from "react"
 import {
   AlertCircle,
   Bell,
+  Brain,
   Check,
   Dumbbell,
   LoaderCircle,
@@ -28,21 +29,21 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning"
 import { CoachCitation } from "@/components/coach-citation"
+import { Shimmer } from "@/components/ai-elements/shimmer"
 import {
-  fallbackTrainingContext,
   loadCoachConversation,
   loadDailyReview,
   loadTrainingContext,
   type CoachConversationSummary,
   type DailyWorkoutReview,
-  type PlannedWorkout,
-  type TrainingContext,
 } from "@/lib/training-context"
 
 type ProposalStatus =
   "pending" | "applying" | "approved" | "rejected" | "failed"
 
 type WorkoutProposal = {
+  operation: "create_workout" | "create_workouts" | "update_annual_plan"
+  action: Record<string, unknown>
   targetId: string
   targetTitle: string
   current: string
@@ -59,25 +60,115 @@ type CoachMessage = {
   created_at: string
   proposal?: WorkoutProposal
   error?: boolean
+  contextReviewStartedAt?: number
+  contextReviewSeconds?: number
+  contextReviewStatus?: string
+  contextReviewProgress?: number
+  contextReviewKind?: "coach" | "formatter"
 }
 
 const CoachActionsContext = createContext<{
   messages: CoachMessage[]
+  streamingMessageId: string | null
   approve: (message: CoachMessage) => Promise<void>
   reject: (id: string) => void
+  createFromFeedback: (
+    message: CoachMessage,
+    actionMode: "workouts" | "annual_plan"
+  ) => Promise<void>
 } | null>(null)
+
+function CoachContextStatus() {
+  const id = useAuiState((state) => state.message.id)
+  const actions = useContext(CoachActionsContext)
+  const message = actions?.messages.find((item) => item.id === id)
+  if (
+    !message ||
+    (message.contextReviewStartedAt === undefined &&
+      message.contextReviewSeconds === undefined)
+  )
+    return null
+
+  const isReviewing = actions?.streamingMessageId === id
+  return (
+    <div className="mb-4 py-1.5 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2">
+        <Brain className="size-4 shrink-0" />
+        {isReviewing ? (
+          <Shimmer duration={1}>
+            {message.contextReviewStatus ?? "Reviewing workout context…"}
+          </Shimmer>
+        ) : (
+          <span>
+            {message.contextReviewKind === "formatter"
+              ? "Prepared the application change"
+              : "Reviewed Section 11 training context"}{" "}
+            in {message.contextReviewSeconds ?? 1}s
+          </span>
+        )}
+      </div>
+      {isReviewing && (
+        <div
+          className="mt-2 h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-label="Section 11 coaching progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={message.contextReviewProgress ?? 5}
+        >
+          <div
+            className="h-full rounded-full bg-primary transition-[width] duration-700 ease-out"
+            style={{ width: `${message.contextReviewProgress ?? 5}%` }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
 
 function CoachMessageFooter() {
   const id = useAuiState((state) => state.message.id)
   const actions = useContext(CoachActionsContext)
   const message = actions?.messages.find((message) => message.id === id)
-  if (!actions || !message?.proposal) return null
+  if (!actions || !message) return null
+  if (message.proposal)
+    return (
+      <ProposalCard
+        proposal={message.proposal}
+        onApprove={() => void actions.approve(message)}
+        onReject={() => actions.reject(id)}
+      />
+    )
+  const latestAssistant = [...actions.messages]
+    .reverse()
+    .find((item) => item.role === "assistant")
+  if (
+    message.role !== "assistant" ||
+    message.error ||
+    !message.content.trim() ||
+    latestAssistant?.id !== message.id ||
+    actions.streamingMessageId === message.id
+  )
+    return null
   return (
-    <ProposalCard
-      proposal={message.proposal}
-      onApprove={() => void actions.approve(message)}
-      onReject={() => actions.reject(id)}
-    />
+    <div className="mt-4 flex flex-wrap gap-2 border-t pt-4">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => void actions.createFromFeedback(message, "workouts")}
+      >
+        Create structured workouts from this feedback
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => void actions.createFromFeedback(message, "annual_plan")}
+      >
+        Update annual plan from this feedback
+      </Button>
+    </div>
   )
 }
 
@@ -110,66 +201,6 @@ function conversationTitleFromPrompt(prompt: string) {
   return firstPhrase.slice(0, 56) || "New conversation"
 }
 
-function selectTargetWorkout(context: TrainingContext, prompt: string) {
-  const normalized = prompt.toLowerCase()
-  const candidates = [...context.planned]
-    .filter((workout) => workout.status !== "completed")
-    .sort((a, b) =>
-      String(a.workout_date).localeCompare(String(b.workout_date))
-    )
-  if (!candidates.length) return undefined
-
-  const today = context.planned.find((workout) => workout.status === "today")
-  if (normalized.includes("today") && today) return today
-
-  const dayNames: Array<[string, string]> = [
-    ["monday", "MON"],
-    ["tuesday", "TUE"],
-    ["wednesday", "WED"],
-    ["thursday", "THU"],
-    ["friday", "FRI"],
-    ["saturday", "SAT"],
-    ["sunday", "SUN"],
-  ]
-  const requestedDay = dayNames.find(([name]) => normalized.includes(name))?.[1]
-  const dayMatch = requestedDay
-    ? candidates.find((workout) => workout.day.toUpperCase() === requestedDay)
-    : undefined
-  if (dayMatch) return dayMatch
-
-  const requestedSport = ["swim", "bike", "run", "brick", "strength"].find(
-    (sport) => normalized.includes(sport)
-  )
-  const sportMatch = requestedSport
-    ? candidates.find((workout) =>
-        workout.sport.toLowerCase().includes(requestedSport)
-      )
-    : undefined
-  if (sportMatch) return sportMatch
-
-  if (normalized.includes("tomorrow") && today?.workout_date) {
-    const todayDate = today.workout_date
-    return (
-      candidates.find((workout) =>
-        Boolean(workout.workout_date && workout.workout_date > todayDate)
-      ) ?? candidates[0]
-    )
-  }
-  return today ?? candidates[0]
-}
-
-function isWorkoutChangeRequest(prompt: string, response: string) {
-  const asksForChange =
-    /\b(adjust|change|shorten|reduce|increase|replace|swap|move|skip|cancel|make|create|build|write|plan)\b/i.test(
-      prompt
-    ) && /\b(workout|session|swim|bike|ride|run|brick|strength)\b/i.test(prompt)
-  const proposesChange =
-    /\b(propose|recommend|adjust|change|replace|swap|shorten|reduce|increase|workout)\b/i.test(
-      response
-    )
-  return asksForChange && proposesChange
-}
-
 function normalizeRecoveryWording(value: string) {
   const allowance = value.match(
     /(?:add no more than|allow up to\s*\+?)\s*(\d+)\s*(?:seconds?|secs?|sec)\s*(?:of\s*)?(?:recovery|rest)\b/i
@@ -189,28 +220,87 @@ function normalizeRecoveryWording(value: string) {
   return `${base}; maintain the target and increase rest by no more than ${seconds} seconds if needed.`
 }
 
-function proposalRisk(response: string): WorkoutProposal["risk"] {
-  if (/\b(max|all-out|very high risk|race simulation)\b/i.test(response))
-    return "High"
-  if (/\b(threshold|vo2|hard|longer|increase|medium risk)\b/i.test(response))
-    return "Medium"
-  return "Low"
+function structuredWorkoutLines(value: unknown, sport: string) {
+  if (!value || typeof value !== "object") return []
+  const steps = (value as { steps?: WorkoutStep[] }).steps
+  if (!Array.isArray(steps)) return []
+  const render = (step: WorkoutStep, depth = 0): string[] => {
+    if (depth > 8) return []
+    if (Array.isArray(step.steps) && step.steps.length) {
+      const repetitions = Math.max(1, Number(step.reps || 1))
+      const children = step.steps.flatMap((child) => render(child, depth + 1))
+      return [`${repetitions}× ${children.join(" / ")}`]
+    }
+    const label = workoutStepLabel(step, sport)
+    return [step.text ? `${label} — ${step.text}` : label]
+  }
+  return steps.flatMap((step) => render(step))
 }
 
-function createProposal(
-  workout: PlannedWorkout,
-  response: string,
-  context: TrainingContext
-): WorkoutProposal {
-  return {
-    targetId: workout.id,
-    targetTitle: workout.title,
-    current: `${workout.date} · ${workout.title} · ${formatDuration(durationMinutes(workout))}`,
-    change: response,
-    reason: `Based on your request, recent execution and recovery, and the ${context.athlete.phase ?? "current"} phase for ${context.athlete.race ?? "your goal event"}.`,
-    risk: proposalRisk(response),
-    status: "pending",
+function workoutPreviewText(workout: Record<string, unknown>) {
+  const seconds = Number(workout.moving_time || 0)
+  const sport = String(workout.type || "Workout")
+  const structure = structuredWorkoutLines(workout.workout_doc, sport)
+  if (!structure.length) return undefined
+  return `${String(workout.date || "Date not set")} · ${sport} · ${formatDuration(Math.round(seconds / 60))}\n${String(workout.name || "Planned workout")}\n\n${String(workout.description || "")}\n\nStructured steps\n${structure.join("\n")}`.trim()
+}
+
+function actionProposal(action: Record<string, unknown>): WorkoutProposal | undefined {
+  if (action.operation === "create_workout") {
+    const workout = action.workout as Record<string, unknown> | undefined
+    if (!workout) return undefined
+    const change = workoutPreviewText(workout)
+    if (!change) return undefined
+    return {
+      operation: "create_workout",
+      action,
+      targetId: String(workout.external_id || workout.date || "new-workout"),
+      targetTitle: String(workout.name || "Planned workout"),
+      current: "No new workout has been uploaded.",
+      change,
+      reason: "Approval uploads this complete structured workout directly to Intervals.icu.",
+      risk: /\b(threshold|vo2|max|all-out)\b/i.test(String(workout.description || "")) ? "Medium" : "Low",
+      status: "pending",
+    }
   }
+  if (action.operation === "create_workouts") {
+    const workouts = Array.isArray(action.workouts)
+      ? action.workouts as Array<Record<string, unknown>>
+      : []
+    if (workouts.length < 2) return undefined
+    const previews = workouts.map(workoutPreviewText)
+    if (previews.some((preview) => !preview)) return undefined
+    const dates = workouts.map((workout) => String(workout.date || "")).sort()
+    return {
+      operation: "create_workouts",
+      action,
+      targetId: `workout-batch:${dates[0]}:${dates.at(-1)}`,
+      targetTitle: `${workouts.length} structured workouts · ${dates[0]}–${dates.at(-1)}`,
+      current: "None of these new workouts has been uploaded.",
+      change: previews.map((preview, index) => `Workout ${index + 1}\n${preview}`).join("\n\n——————————\n\n"),
+      reason: String(action.reason || "Approval uploads this complete workout batch directly to Intervals.icu."),
+      risk: workouts.some((workout) => /\b(threshold|vo2|max|all-out)\b/i.test(String(workout.description || ""))) ? "Medium" : "Low",
+      status: "pending",
+    }
+  }
+  if (action.operation === "update_annual_plan") {
+    const changes = Array.isArray(action.changes) ? action.changes as Array<Record<string, unknown>> : []
+    return {
+      operation: "update_annual_plan",
+      action,
+      targetId: String(action.plan_id || "annual-plan"),
+      targetTitle: "Annual training plan",
+      current: "Your saved annual training plan remains unchanged.",
+      change: changes.map((change) => {
+        const { week_id: weekId, ...fields } = change
+        return `${String(weekId)}: ${Object.entries(fields).map(([key, value]) => `${key.replaceAll("_", " ")} ${typeof value === "object" ? JSON.stringify(value) : String(value)}`).join(" · ")}`
+      }).join("\n"),
+      reason: String(action.reason || "Apply the requested annual training plan change."),
+      risk: "Low",
+      status: "pending",
+    }
+  }
+  return undefined
 }
 
 function ProposalCard({
@@ -230,28 +320,22 @@ function ProposalCard({
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="flex items-center gap-2 text-sm">
-            <Dumbbell className="size-4 text-primary" /> Proposed workout change
+            <Dumbbell className="size-4 text-primary" /> {proposal.targetTitle}
           </CardTitle>
           <Badge variant="outline">{proposal.risk} risk</Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
-          <p className="text-xs font-medium text-muted-foreground">
-            Current plan
-          </p>
+          <p className="text-xs font-medium text-muted-foreground">Current</p>
           <p className="mt-1 text-sm">{proposal.current}</p>
         </div>
         <div>
-          <p className="text-xs font-medium text-muted-foreground">
-            Proposed change
-          </p>
-          <p className="mt-1 text-sm leading-6 whitespace-pre-wrap">
-            {proposal.change}
-          </p>
+          <p className="text-xs font-medium text-muted-foreground">Proposed</p>
+          <p className="mt-1 text-sm leading-6 whitespace-pre-wrap">{proposal.change}</p>
         </div>
         <div>
-          <p className="text-xs font-medium text-muted-foreground">Reason</p>
+          <p className="text-xs font-medium text-muted-foreground">Why</p>
           <p className="mt-1 text-sm leading-6">{proposal.reason}</p>
         </div>
 
@@ -263,8 +347,8 @@ function ProposalCard({
               <X className="size-4 text-muted-foreground" />
             )}
             {proposal.status === "approved"
-              ? "Approved and saved"
-              : "Rejected — original workout kept"}
+              ? proposal.operation === "create_workout" || proposal.operation === "create_workouts" ? "Approved and uploaded to Intervals.icu" : "Approved and saved in the application"
+              : "Denied — no changes made"}
           </div>
         ) : (
           <div className="flex gap-2 border-t pt-3">
@@ -343,8 +427,9 @@ function DailyReviewCard({
     <div className="space-y-8 py-1 text-[15px] leading-7 sm:text-base">
       <div className="space-y-2">
         <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
-          {review.summary}
+          Today’s recommendation: {review.evidence_status === "insufficient" ? "Wait for more data" : review.changes_proposed ? "Modify" : "Go"}
         </h2>
+        <p className="font-semibold">{review.summary}</p>
         <p className="text-muted-foreground">{review.reason}</p>
         {review.evidence_status === "insufficient" ? (
           <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
@@ -604,7 +689,6 @@ export function TrainingCoach({
   )
   const [localConversationId] = useState(() => conversationId || messageId())
   const [resolvedTitle, setResolvedTitle] = useState(conversationTitle)
-  const [context, setContext] = useState(fallbackTrainingContext)
   const [sending, setSending] = useState(false)
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(
     null
@@ -624,10 +708,6 @@ export function TrainingCoach({
   useEffect(() => {
     setResolvedTitle(conversationTitle)
   }, [conversationTitle])
-
-  useEffect(() => {
-    void loadTrainingContext().then(setContext)
-  }, [])
 
   useEffect(() => {
     if (!reviewId) {
@@ -740,11 +820,25 @@ export function TrainingCoach({
     sending,
   ])
 
-  async function sendMessage(value: string) {
+  async function sendMessage(
+    value: string,
+    action?: {
+      actionMode: "workouts" | "annual_plan"
+      sourceFeedback: string
+    }
+  ) {
     const prompt = value.trim()
     if (!prompt || sending) return
     shouldPersistMessages.current = true
     const request = new AbortController()
+    let requestTimeout = window.setTimeout(() => request.abort("coach-timeout"), 45_000)
+    const keepRequestAlive = () => {
+      window.clearTimeout(requestTimeout)
+      requestTimeout = window.setTimeout(
+        () => request.abort("coach-timeout"),
+        45_000
+      )
+    }
     coachRequest.current = request
 
     const userMessage: CoachMessage = {
@@ -758,6 +852,12 @@ export function TrainingCoach({
       role: "assistant",
       content: "",
       created_at: new Date().toISOString(),
+      contextReviewStartedAt: Date.now(),
+      contextReviewStatus: action
+        ? "Starting the application formatter…"
+        : "Starting the official Section 11 coach…",
+      contextReviewProgress: 5,
+      contextReviewKind: action ? "formatter" : "coach",
     }
     if (!reviewId && resolvedTitle === "Coach")
       setResolvedTitle(conversationTitleFromPrompt(prompt))
@@ -782,8 +882,9 @@ export function TrainingCoach({
         },
         body: JSON.stringify({
           message: prompt,
-          history: recentHistory,
+          history: action ? [] : recentHistory,
           conversationId: persistentConversationId,
+          ...(action ?? {}),
         }),
       })
       if (!response.ok) {
@@ -796,6 +897,7 @@ export function TrainingCoach({
       }
       if (!response.body)
         throw new Error("The coach returned an empty response.")
+      keepRequestAlive()
 
       const contentType = response.headers.get("content-type") || ""
       if (contentType.includes("application/json")) {
@@ -806,15 +908,10 @@ export function TrainingCoach({
         if (data.error || !data.message?.trim())
           throw new Error(data.error || "The coach returned an empty response.")
         const content = data.message.trim()
-        const target = reviewId ? null : selectTargetWorkout(context, prompt)
-        const proposal =
-          target && isWorkoutChangeRequest(prompt, content)
-            ? createProposal(target, content, context)
-            : undefined
         setMessages((current) =>
           current.map((message) =>
             message.id === assistantMessage.id
-              ? { ...message, content, proposal }
+              ? { ...message, content }
               : message
           )
         )
@@ -841,7 +938,36 @@ export function TrainingCoach({
           type?: string
           delta?: string
           message?: string
+          proposal?: Record<string, unknown>
+          progress?: number
           response?: { error?: { message?: string } }
+        }
+        if (event.type === "coach.status" && event.message) {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === assistantMessage.id
+                ? {
+                    ...message,
+                    contextReviewStatus: event.message,
+                    contextReviewProgress:
+                      typeof event.progress === "number"
+                        ? Math.min(95, Math.max(5, event.progress))
+                        : message.contextReviewProgress,
+                  }
+                : message
+            )
+          )
+        }
+        if (event.type === "coach.action.preview" && event.proposal) {
+          const proposal = actionProposal(event.proposal)
+          if (proposal)
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantMessage.id
+                  ? { ...message, proposal }
+                  : message
+              )
+            )
         }
         if (event.type === "response.output_text.delta" && event.delta) {
           content += event.delta
@@ -871,6 +997,7 @@ export function TrainingCoach({
       while (true) {
         const { value: chunk, done } = await reader.read()
         if (done) break
+        keepRequestAlive()
         buffer += decoder.decode(chunk, { stream: true })
         const frames = buffer.split(/\r?\n\r?\n/)
         buffer = frames.pop() ?? ""
@@ -884,24 +1011,22 @@ export function TrainingCoach({
         throw new Error(
           "The coach returned an empty response. Please try again."
         )
-      const target = reviewId ? null : selectTargetWorkout(context, prompt)
-      const proposal =
-        target && isWorkoutChangeRequest(prompt, content)
-          ? createProposal(target, content, context)
-          : undefined
       setMessages((current) =>
         current.map((message) =>
           message.id === assistantMessage.id
-            ? { ...message, content, proposal }
+            ? { ...message, content }
             : message
         )
       )
     } catch (error) {
       if (request.signal.aborted) {
+        const timedOut=request.signal.reason === "coach-timeout"
         setMessages((current) =>
           current.map((message) =>
             message.id === assistantMessage.id
-              ? { ...message, content: message.content || "Response stopped." }
+              ? message.content.trim()
+                ? { ...message, error: false }
+                : { ...message, content: timedOut ? "The coach took too long to respond. Please try again." : "Response stopped.", error: true }
               : message
           )
         )
@@ -910,18 +1035,36 @@ export function TrainingCoach({
       setMessages((current) => [
         ...current.map((message) =>
           message.id === assistantMessage.id
-            ? {
-                ...message,
-                content:
-                  error instanceof Error
-                    ? error.message
-                    : "The coach is unavailable right now. Please try again.",
-                error: true,
-              }
+            ? message.content.trim()
+              ? { ...message, error: false }
+              : {
+                  ...message,
+                  content:
+                    error instanceof Error
+                      ? error.message
+                      : "The coach is unavailable right now. Please try again.",
+                  error: true,
+                }
             : message
         ),
       ])
     } finally {
+      window.clearTimeout(requestTimeout)
+      const contextReviewSeconds = Math.max(
+        1,
+        Math.ceil((Date.now() - assistantMessage.contextReviewStartedAt!) / 1000)
+      )
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantMessage.id
+            ? {
+                ...message,
+                contextReviewStartedAt: undefined,
+                contextReviewSeconds,
+              }
+            : message
+        )
+      )
       setStreamingMessageId(null)
       setSending(false)
     }
@@ -941,23 +1084,20 @@ export function TrainingCoach({
     if (!message.proposal) return
     updateProposal(message.id, "applying")
     try {
-      const response = await apiFetch(
-        `/api/workouts/${encodeURIComponent(message.proposal.targetId)}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            change: message.proposal.change,
-            title: message.proposal.targetTitle,
-          }),
-        }
-      )
+      const response = await apiFetch("/api/coach/actions/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          conversationId: persistentConversationId,
+          proposal: message.proposal.action,
+        }),
+      })
       if (!response.ok)
-        throw new Error(`Workout update failed (${response.status})`)
+        throw new Error(`Coach action failed (${response.status})`)
       updateProposal(message.id, "approved")
+      if (message.proposal.operation === "create_workout" || message.proposal.operation === "create_workouts")
+        void loadTrainingContext(true)
+      else window.dispatchEvent(new Event("annual-plan-updated"))
     } catch {
       updateProposal(message.id, "failed")
     }
@@ -997,7 +1137,7 @@ export function TrainingCoach({
           ? "Intervals.icu confirmed the displayed changes."
           : "Decision recorded. The existing workout remains unchanged."
       )
-      if (action === "approve") void loadTrainingContext(true).then(setContext)
+      if (action === "approve") void loadTrainingContext(true)
     } catch (error) {
       setDailyReview(dailyReview)
       setReviewMessage(
@@ -1012,11 +1152,6 @@ export function TrainingCoach({
 
   const runtime = useExternalStoreRuntime<CoachMessage>({
     isRunning: sending,
-    suggestions: [
-      { prompt: "Review my training this week" },
-      { prompt: "Plan my next workout" },
-      { prompt: "How is my recovery looking?" },
-    ],
     messages,
     convertMessage: (message): ThreadMessageLike => ({
       id: message.id,
@@ -1054,13 +1189,25 @@ export function TrainingCoach({
       <CoachActionsContext.Provider
         value={{
           messages,
+          streamingMessageId,
           approve: approveProposal,
           reject: (id) => updateProposal(id, "rejected"),
+          createFromFeedback: async (message, actionMode) => {
+            await sendMessage(
+              actionMode === "workouts"
+                ? "Create structured workouts from this feedback"
+                : "Update my annual training plan from this feedback",
+              { actionMode, sourceFeedback: message.content }
+            )
+          },
         }}
       >
         <Thread
           autoFocus={false}
-          components={{ MessageFooter: CoachMessageFooter }}
+          components={{
+            MessageHeader: CoachContextStatus,
+            MessageFooter: CoachMessageFooter,
+          }}
           header={
             reviewId ? (
               <div className="mb-6 px-2">

@@ -36,9 +36,13 @@ export function TrainingDashboard({
   }
   useEffect(() => {
     let active = true
-    loadTrainingContext().then((nextContext) => {
+    // Render the fast weekly view first, then replace it with the complete
+    // archive. Running these in sequence prevents the short request from
+    // winning the race and erasing the history chart.
+    void loadTrainingContext().then((nextContext) => {
       if (active) setContext(nextContext)
-    })
+      return loadFullTrainingContext()
+    }).then((nextContext)=>{if(active)setContext(nextContext)})
     return () => {
       active = false
     }

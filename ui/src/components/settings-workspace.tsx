@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 
 import { TrainingSettings as NotificationSettings } from "@/components/training-settings"
+import { displayRunThreshold, displaySwimCss, ThresholdHistory } from "@/components/training-zones-display"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -281,12 +282,15 @@ export function SettingsWorkspace() {
     }
     if (section === "zones") {
       return (
-        <Card className="gap-0 divide-y py-0 shadow-none">
-          <SettingValue label="Bike FTP" value={zones?.bike_ftp ? `${zones.bike_ftp} W` : "—"} />
-          <SettingValue label="Run threshold pace" value={zones?.run_threshold_pace ?? "—"} />
-          <SettingValue label="Swim CSS" value={zones?.swim_css ?? "—"} />
-          <SettingValue label="Threshold heart rate" value={zones?.threshold_hr ? `${zones.threshold_hr} bpm` : "—"} />
-        </Card>
+        <div className="space-y-6">
+          <Card className="gap-0 divide-y py-0 shadow-none">
+            <SettingValue label="Bike FTP" value={zones?.bike_ftp ? `${zones.bike_ftp} W` : "—"} />
+            <SettingValue label="Run threshold pace" value={displayRunThreshold(zones?.run_threshold_pace) ?? "—"} />
+            <SettingValue label="Swim CSS" value={displaySwimCss(zones?.swim_css) ?? "—"} />
+            <SettingValue label="Threshold heart rate" value={zones?.threshold_hr ? `${zones.threshold_hr} bpm` : "—"} />
+          </Card>
+          <ThresholdHistory history={athlete.zone_history}/>
+        </div>
       )
     }
     if (section === "race") {

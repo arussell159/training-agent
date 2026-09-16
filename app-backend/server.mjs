@@ -1,6 +1,7 @@
-import {loadWorkoutEditor,saveWorkoutEditor,loadNewWorkoutEditor,createWorkoutEditor} from './lib/workout-editor.mjs';
 import { generateCoachResponse } from './lib/coach-response.mjs';
-import { createIntervalsCoachAdapter } from './lib/triathlon-coach-adapter.mjs';
+import { createSection11Adapter } from './lib/section-11-adapter.mjs';
+import {loadSection11Artifacts,section11SyncStatus} from './lib/section-11-sync.mjs';
+import {section11UpstreamStatus} from './lib/section-11-upstream.mjs';
 import {athleteLocalDate} from './lib/coach-training-context.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
@@ -19,48 +20,43 @@ import {createMutationQueue,validateMutation,pendingMutationContext} from './lib
 import {createRequestCache} from './lib/request-cache.mjs';
 import {compressAsset} from './lib/asset-compression.mjs';
 import {updateWorkoutDescription} from './lib/workout-description.mjs';
+import {loadWorkoutEditor,saveWorkoutEditor,loadNewWorkoutEditor,createWorkoutEditor} from './lib/workout-editor.mjs';
 import {applyCompletionConfirmation} from './lib/completion-confirmation.mjs';
+import {duplicateAnnualPlan,generateAnnualPlan,mergeRegeneratedPlan,recordPlanRevision} from './lib/annual-plan.mjs';
 import {
   addLocalComment,
+  deleteAnnualPlanRecord,
   deleteLocalCoachConversation,
   getDailyReview,
   getDailyReviewByDate,
   getNotificationPreferences as getLocalNotificationPreferences,
   getLocalCoachConversation,
   listDailyReviews,
+  listAnnualPlans,
   listLocalCoachConversations,
   readLocalContext,
   removePushSubscription as removeLocalPushSubscription,
   saveDailyReview,
+  saveAnnualPlanRecord,
   saveLocalCoachConversation,
   updateDailyReview,
   updateNotificationPreferences as updateLocalNotificationPreferences,
+  updateTrainingPreferences,
   updateLocalWorkout,
   upsertPushSubscription as upsertLocalPushSubscription,
 } from './lib/local-context.mjs';
 import { createDailyReviewService } from './lib/daily-review-service.mjs';
 import { loadCoachingInstructions } from './lib/coaching-policy.mjs';
 import { createConversationTitle } from './lib/conversation-title.mjs';
-import { createIntervalsClient, fetchIntervalsContext, moveIntervalsEvent, changeIntervalsEvent, applyIntervalsPatch, mapIntervalsWorkout, validDate } from './lib/intervals.mjs';
+import { createIntervalsClient, fetchIntervalsContext, moveIntervalsEvent, changeIntervalsEvent, createIntervalsRaceEvent, updateIntervalsRaceEvent, createIntervalsWorkoutEvent, applyIntervalsPatch, mapIntervalsWorkout, validDate } from './lib/intervals.mjs';
 import { activeConversations, conversationContext, conversationSummary, normalizeConversation } from './lib/conversation-history.mjs';
-import {
-
-
-
-  import8020BookPortions,
-  readKnowledgeBase,
-
-  verifiedPassages,
-  writeKnowledgeBase,
-} from './lib/evidence.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const configPath = path.join(__dirname, 'config.json');
 const uiDistPath = path.resolve(__dirname, '..', 'ui', 'dist');
-const coachingConfigPath = path.join(__dirname, 'coaching-config.json');
+const SECTION_11_CONFIG = Object.freeze({version:11.69,coach_name:'Section 11',protocol:'section-11',rules:[],retention_days:90});
 const intervalsCachePath = path.join(process.env.VERCEL ? '/tmp' : __dirname, 'intervals.cache');
-const knowledgeSourcesPath = path.join(__dirname, 'knowledge-sources.json');
 let completionConfirmation=null;
 try{completionConfirmation=await readDurableState('COMPLETION_CONFIRMATION',path.join(__dirname,'completion-confirmation.cache'),null);}catch(error){console.error('Completion confirmation unavailable:',error.message);}
 
@@ -71,6 +67,7 @@ const serverState = {
 };
 
 let intervalsMemoryCache = null;
+const coachCommentJobs=new Map();
 const providerReads=createRequestCache({ttl:60000,maxEntries:32});
 function sendJson(req,res,value,cacheControl='no-store'){
  const payload=compressAsset(Buffer.from(JSON.stringify(value)),'.js',req.headers['accept-encoding']);
@@ -295,10 +292,29 @@ async function currentConversationAthleteId() {
   return String(local.athlete?.id || 'default');
 }
 
+function withZoneHistory(previous,incoming) {
+  const keys=['bike_ftp','run_threshold_pace','swim_css','threshold_hr'];
+  const clean=zones=>Object.fromEntries(keys.map(key=>[key,zones?.[key] ?? null]));
+  const present=zones=>keys.some(key=>zones[key]!=null && zones[key]!=='');
+  const same=(a,b)=>keys.every(key=>(a?.[key] ?? null)===(b?.[key] ?? null));
+  const current=clean(incoming.athlete?.zones);
+  if(!present(current))return incoming;
+  const history=[...(previous?.athlete?.zone_history || [])];
+  const add=(zones,recordedAt)=>{
+    const value=clean(zones);
+    if(!present(value)||same(history.at(-1),value))return;
+    history.push({...value,recorded_at:recordedAt || new Date().toISOString()});
+  };
+  if(!history.length&&previous?.athlete?.zones)add(previous.athlete.zones,previous.synced_at);
+  add(current,incoming.synced_at);
+  return {...incoming,athlete:{...incoming.athlete,zone_history:history.slice(-50)}};
+}
+
 export async function persistTrainingContext(config, context, {archiveActivities=true} = {}) {
   const store = createContextStore(config, updateLogs);
   if (!store.ready) return;
   const previous=await loadSupabaseTrainingSnapshot(config,context.athlete?.id);
+  context=withZoneHistory(previous,context);
   context=mergeTrainingSnapshot(previous,context);
   const archive=createCompletedWorkoutStore(config,store);
   await archive.saveWorkouts(context);
@@ -316,7 +332,6 @@ export async function persistTrainingContext(config, context, {archiveActivities
     }));
   }
   const athleteId = String(context.athlete?.id || 'default');
-  const coach = await readDurableState('COACHING_CONFIG',coachingConfigPath,{});
   const workouts = [...(context.history || context.workouts || []), ...(context.planned || [])];
   const uniqueWorkouts = [...new Map(workouts.filter(item => item?.id && item?.workout_date).map(item => [String(item.id), item])).values()];
   const workoutRows = uniqueWorkouts.map(workout => ({
@@ -336,16 +351,8 @@ export async function persistTrainingContext(config, context, {archiveActivities
     comment_type:['pre','post','chat','coach_note'].includes(item.comment_type || item.type) ? (item.comment_type || item.type) : 'post',
     body:String(item.body), created_at:item.created_at || new Date().toISOString(),
   }));
-  const libraryRows = (context.library || []).filter(item => item?.title).map(item => ({
-    id:stableUuid(`library:${item.id || item.title}`), athlete_id:athleteId,
-    title:String(item.title), sport:String(item.sport || 'Other'), purpose:item.purpose || null,
-    description:item.description || null, structure:item.structure || {}, tags:item.tags || [],
-    updated_at:item.updated_at || new Date().toISOString(),
-  }));
-  await store.upsert('coaching_config', [{ athlete_id:athleteId, vision:coach.vision, instructions:coach.rules || [], race:{ name:context.athlete?.race, date:context.athlete?.race_date, phase:context.athlete?.phase }, zones:context.athlete?.zones || {}, updated_at:new Date().toISOString() }]);
   if (workoutRows.length) await store.upsert('workout_context', workoutRows);
   if (commentRows.length) await store.upsert('athlete_comments', commentRows);
-  if (libraryRows.length) await store.upsert('workout_library', libraryRows);
   const syncedAt = context.synced_at || new Date().toISOString();
   await store.upsert('sync_state', [{
     athlete_id:athleteId,
@@ -611,7 +618,7 @@ async function writeBootstrapConfig(data) {
 }
 
 async function readConfig() {
-  return settingsService.read(STORED_SETTINGS.filter(name=>!['APP_DATA','HISTORICAL_ARCHIVE','COACHING_CONFIG','KNOWLEDGE_BASE','TRAININGPEAKS_IMPORT_REPORT','RACE_PLAN_IMPORT_REPORT','COMPLETION_CONFIRMATION'].includes(name)));
+  return settingsService.read(STORED_SETTINGS.filter(name=>!['APP_DATA','HISTORICAL_ARCHIVE','TRAININGPEAKS_IMPORT_REPORT','RACE_PLAN_IMPORT_REPORT','COMPLETION_CONFIRMATION'].includes(name)));
 }
 
 async function writeConfig(data) {
@@ -638,22 +645,39 @@ async function readIntervalsCache() {
   }
 }
 
-async function buildCoachContext(config, coach, { force = false, strict = false } = {}) {
+async function boundedContextRead(promise, milliseconds, fallback) {
+  let timer
+  try {
+    return await Promise.race([promise,new Promise(resolve=>{timer=setTimeout(()=>resolve(fallback),milliseconds)})])
+  } finally { clearTimeout(timer) }
+}
+
+async function buildCoachContext(config, { force = false, strict = false, cacheOnly = false } = {}) {
   const contextStore = createContextStore(config, updateLogs);
+  if(cacheOnly) {
+    const fallback={athlete:{id:'default',time_zone:'America/Chicago'},metrics:{},wellness:{},history:[],planned:[],comments:[],annual_plans:[],notification_preferences:{time_zone:'America/Chicago'}}
+    const [local,fastView,fileCache]=await Promise.all([
+      boundedContextRead(readLocalContext(),2500,fallback),
+      contextStore.ready?boundedContextRead(contextStore.getSyncRecord(fastViewId(config)),3000,null):null,
+      readIntervalsCache(),
+    ])
+    const cached=fastView || (intervalsMemoryCache?.key===config.INTERVALS_API_KEY?intervalsMemoryCache.data:null) || fileCache || {}
+    return intervalsOnlyContext({...fallback,...local,...cached,coaching:SECTION_11_CONFIG,
+      athlete:{...fallback.athlete,...local.athlete,...cached.athlete},metrics:{...local.metrics,...cached.metrics},
+      comments:local.comments || [],annual_plans:local.annual_plans || [],history:cached.history || [],planned:cached.planned || [],workouts:cached.history || []})
+  }
   const local = await readLocalContext();
   const timeZone = local.notification_preferences?.time_zone || local.athlete?.time_zone || 'America/Chicago';
-  const raceDate = coach.race_date || local.athlete?.race_date;
-  const raceTiming = assessRaceTiming(raceDate, timeZone);
   let context = {
     ...local,
-    coaching:coach,
+    coaching:SECTION_11_CONFIG,
     history:[],planned:[],workouts:[],
   };
 
   if (contextStore.ready) {
     try {
       const snapshot = await loadSupabaseTrainingSnapshot(config,local.athlete?.id);
-      if (snapshot) context = {...context,...snapshot,athlete:{...context.athlete,...snapshot.athlete},workouts:snapshot.history};
+      if (snapshot) context = {...context,...snapshot,coaching:SECTION_11_CONFIG,athlete:{...context.athlete,...snapshot.athlete},workouts:snapshot.history};
     } catch (error) {
       updateLogs(`context read failed: ${error.message}`);
     }
@@ -674,20 +698,13 @@ async function buildCoachContext(config, coach, { force = false, strict = false 
       context = {
         ...context,
         ...intervals,
-        athlete:{
-          ...context.athlete,
-          ...intervals.athlete,
-          race:coach.race || context.athlete?.race,
-          race_date:raceDate,
-          phase:raceTiming.phase,
-          days_to_race:raceTiming.daysToRace,
-        },
+        athlete:{...intervals.athlete},
         metrics:{ ...context.metrics, ...intervals.metrics },
         workouts:intervals.history,
         history:intervals.history,
         planned:intervals.planned,
         comments:context.comments || local.comments,
-        library:context.library || local.library,
+        library:[],
       };
       try {
         await persistTrainingContext(config, context);
@@ -697,34 +714,75 @@ async function buildCoachContext(config, coach, { force = false, strict = false 
     }
   }
 
-  context.athlete = {
-    ...(context.athlete || {}),
-    race:coach.race || context.athlete?.race,
-    race_date:raceDate,
-    phase:raceTiming.phase,
-    days_to_race:raceTiming.daysToRace,
-  };
+  context.coaching = SECTION_11_CONFIG;
 
   return intervalsOnlyContext(context);
 }
 
-async function runCoach(message, history = [], conversationId = null) {
+async function createCoachWorkout(config,workout,conversationId,currentDate) {
+    const request=intervalsClient(config);
+    const stable=JSON.stringify({conversationId,date:workout.date,type:workout.type,name:workout.name,moving_time:workout.moving_time,description:workout.description,workout_doc:workout.workout_doc || null});
+    const event=await createIntervalsWorkoutEvent(request,{...workout,external_id:workout.external_id || `training-agent-coach:${createHash('sha256').update(stable).digest('hex').slice(0,32)}`});
+    intervalsMemoryCache=null;
+    const snapshot=await loadSupabaseTrainingSnapshot(config);
+    if(snapshot) {
+      const mapped=mapIntervalsWorkout(event,currentDate);
+      await saveVerifiedSnapshot(config,applyVerifiedEvent(snapshot,mapped.id,{event},'copy'));
+    }
+    return event;
+}
+async function applyCoachAnnualPlan(args) {
+    const plans=await listAnnualPlans(),existing=plans.find(plan=>plan.id===args.plan_id);
+    if(!existing)throw new Error('Annual plan not found');
+    const phases=new Set(['Not Set','Preparation','Base 1','Base 2','Base 3','Build 1','Build 2','Peak','Race','Transition']);
+    const byWeek=new Map((args.changes || []).map(change=>[String(change.week_id),change]));
+    if(!byWeek.size)throw new Error('At least one annual-plan week change is required');
+    validDate(args.range_start);validDate(args.range_end);
+    if(args.range_end<args.range_start)throw new Error('Annual-plan range end must not precede its start');
+    const affected=existing.weeks.filter(week=>week.endDate>=args.range_start&&week.startDate<=args.range_end);
+    if(!affected.length)throw new Error('The requested annual-plan range does not overlap the plan');
+    const missing=affected.filter(week=>!byWeek.has(week.id));
+    if(missing.length)throw new Error(`The preview must include every week in the requested range: ${missing.map(week=>week.id).join(', ')}`);
+    for(const id of byWeek.keys())if(!existing.weeks.some(week=>week.id===id))throw new Error(`Annual-plan week not found: ${id}`);
+    const weeks=existing.weeks.map(week=>{
+      const change=byWeek.get(week.id);if(!change)return week;
+      if(week.locked)throw new Error(`Week ${week.id} is locked and was not changed`);
+      if(!phases.has(change.phase))throw new Error(`Invalid or missing phase for ${week.id}`);
+      if(!Number.isFinite(Number(change.target_hours))||Number(change.target_hours)<0)throw new Error(`Invalid or missing planned hours for ${week.id}`);
+      if(typeof change.notes!=='string'||!change.notes.trim())throw new Error(`Week details are required for ${week.id}`);
+      const allocation=change.allocation?Object.fromEntries(['swim','bike','run','strength'].map(key=>[key,Math.max(0,Number(change.allocation[key] ?? week.allocation?.[key] ?? 0))])):week.allocation;
+      return {...week,
+        ...(change.phase!=null?{phase:change.phase}:{}),...(Object.hasOwn(change,'phase_week')?{phaseWeek:change.phase_week}:{}),
+        ...(change.recovery!=null?{recovery:Boolean(change.recovery)}:{}),...(Object.hasOwn(change,'target_hours')?{targetHours:change.target_hours}:{}),
+        ...(Object.hasOwn(change,'target_tss')?{targetTss:change.target_tss}:{}),...(change.focus!=null?{focus:String(change.focus)}:{}),
+        ...(change.notes!=null?{notes:String(change.notes)}:{}),allocation,manual:true};
+    });
+    return saveAnnualPlanRecord(recordPlanRevision({...existing,weeks},String(args.reason || 'Section 11 coach update')));
+}
+
+async function runCoach(message, history = [], conversationId = null, onDelta = null, options = {}) {
   const config = await readConfig();
   if (!config.OPENAI_API_KEY) throw new Error('OpenAI is not configured');
   if (!config.INTERVALS_API_KEY) throw new Error('Connect Intervals.icu in Settings before using live coaching');
-  const coach = await readDurableState('COACHING_CONFIG',coachingConfigPath,{});
-  const context = await buildCoachContext(config, coach, {force:true,strict:true});
-  const guide = await loadCoachingInstructions();
+  const actionMode=options.actionMode || null;
+  options.onStatus?.({message:actionMode?'Loading the current application data…':'Reading current Intervals.icu training data…',progress:15});
+  const baseContext = options.context || await buildCoachContext(config, {cacheOnly:true});
+  options.onStatus?.({message:'Reading official Section 11 metric artifacts…',progress:32});
+  const section11Artifacts=await loadSection11Artifacts(config,baseContext.athlete?.id);
+  const context={...baseContext,section11_artifacts:section11Artifacts};
+  const coachIntent=[...history.slice(-4).map(item=>String(item.content || '')),message].join('\n');
+  options.onStatus?.({message:actionMode?'Loading the selected Section 11 feedback…':'Loading the fresh official Section 11 installation…',progress:50});
+  const guide=actionMode?'':await loadCoachingInstructions(coachIntent);
+  const currentDate = athleteLocalDate(new Date(),context.notification_preferences?.time_zone || context.athlete?.time_zone || 'America/Chicago');
   return generateCoachResponse(config, {
-    guide, currentDate:athleteLocalDate(new Date(),context.notification_preferences?.time_zone || context.athlete?.time_zone || 'America/Chicago'),
+    guide, currentDate,
     context,
-    history, message,
-    executeTool:createIntervalsCoachAdapter(intervalsClient(config)),
+    history, message, onDelta, onStatus:options.onStatus, actionMode, sourceFeedback:options.sourceFeedback,
+    executeTool:createSection11Adapter({request:intervalsClient(config),context,currentDate,userMessage:message,createWorkout:workout=>createCoachWorkout(config,workout,conversationId,currentDate),getAnnualPlans:async()=>({plans:await listAnnualPlans()}),updateAnnualPlan:applyCoachAnnualPlan,onPreview:options.onPreview,allowConfirmedWrites:false}),
 
   });
 }
-async function streamCoach(message, history, res, conversationId = null) {
-  const content = await runCoach(message, history, conversationId);
+async function streamCoach(message, history, res, conversationId = null, options = {}) {
   res.writeHead(200, {
     'Content-Type':'text/event-stream; charset=utf-8',
     'Cache-Control':'no-cache, no-transform',
@@ -732,9 +790,20 @@ async function streamCoach(message, history, res, conversationId = null) {
     'X-Accel-Buffering':'no',
   });
   res.flushHeaders?.();
-  res.write(`data: ${JSON.stringify({ type:'response.output_text.delta', delta:content })}\n\n`);
-  res.write('data: [DONE]\n\n');
-  res.end();
+  const sendStatus=status=>{if(!res.writableEnded)res.write(`data: ${JSON.stringify({type:'coach.status',...status})}\n\n`)};
+  sendStatus({message:options.actionMode?'Starting the application formatter…':'Starting the official Section 11 coach…',progress:5});
+  const heartbeat=setInterval(()=>{if(!res.writableEnded)res.write(': keepalive\n\n')},15_000);
+  let streamed=false;
+  try {
+    const content = await runCoach(message, history, conversationId,delta=>{streamed=true;if(!res.writableEnded)res.write(`data: ${JSON.stringify({type:'response.output_text.delta',delta})}\n\n`)},{...options,onStatus:sendStatus,onPreview:proposal=>{if(!res.writableEnded)res.write(`data: ${JSON.stringify({type:'coach.action.preview',proposal})}\n\n`)}});
+    if(!streamed)res.write(`data: ${JSON.stringify({ type:'response.output_text.delta', delta:content })}\n\n`);
+  } catch(error) {
+    // A late provider timeout must not erase a response the athlete has already read.
+    if(!streamed)res.write(`data: ${JSON.stringify({type:'error',message:error instanceof Error?error.message:'The coach is unavailable right now.'})}\n\n`);
+  } finally {
+    clearInterval(heartbeat);
+    if(!res.writableEnded){res.write('data: [DONE]\n\n');res.end();}
+  }
 }
 
 function updateLogs(message) {
@@ -762,8 +831,7 @@ function startServer() {
 }
 
 async function buildDailyReviewContext(config, options = {}) {
-  const coach = await readDurableState('COACHING_CONFIG',coachingConfigPath,{});
-  return buildCoachContext(config, coach, options);
+  return buildCoachContext(config, options);
 }
 
 async function notificationContextStore() {
@@ -840,6 +908,92 @@ export async function handleRequest(req, res) {
     req.url = resolveApiRoute(req.url || '/');
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     const pathname = requestUrl.pathname;
+    if(pathname==='/api/annual-plans' && req.method==='GET') {
+      const local=await readLocalContext(),plans=Array.isArray(local.annual_plans)?local.annual_plans:[];
+      sendJson(req,res,{plans,activeId:local.active_annual_plan_id || plans[0]?.id || null});return;
+    }
+    if(pathname==='/api/annual-plans/preview' && req.method==='POST') {
+      const payload=await readBody(req);
+      const generated=generateAnnualPlan(payload.settings || {},payload.athlete || {});
+      const plan=payload.existing?.id?mergeRegeneratedPlan(payload.existing,generated,Array.isArray(payload.selectedWeekIds)?payload.selectedWeekIds:null):generated;
+      sendJson(req,res,{plan});return;
+    }
+    if(pathname==='/api/annual-plans/duplicate' && req.method==='POST') {
+      const payload=await readBody(req),plans=await listAnnualPlans();
+      const source=plans.find(plan=>plan.id===payload.id);
+      if(!source)throw Error('Annual plan not found.');
+      const plan=await saveAnnualPlanRecord(duplicateAnnualPlan(source));
+      res.writeHead(201,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({plan}));return;
+    }
+    if(pathname==='/api/annual-plans' && req.method==='POST') {
+      const payload=await readBody(req);
+      const plan=await saveAnnualPlanRecord(recordPlanRevision(payload.plan,payload.reason || 'Saved changes'));
+      sendJson(req,res,{plan});return;
+    }
+    const annualPlanEventMatch=pathname.match(/^\/api\/annual-plans\/([^/]+)\/events$/);
+    if(annualPlanEventMatch && req.method==='POST') {
+      const planId=decodeURIComponent(annualPlanEventMatch[1]),payload=await readBody(req),plans=await listAnnualPlans();
+      const existing=plans.find(plan=>plan.id===planId);
+      if(!existing)throw Error('Annual plan not found.');
+      const priority=String(payload.priority || '').toUpperCase(),name=String(payload.name || '').trim(),eventDate=validDate(payload.date);
+      if(existing.events.some(event=>event.date===eventDate&&event.priority===priority&&event.name.toLowerCase()===name.toLowerCase()))throw Error('That race is already in this plan.');
+      const config=await readConfig(),request=intervalsClient(config);
+      const externalId=`training-agent-atp:${createHash('sha256').update(`${planId}|${priority}|${eventDate}|${name}`).digest('hex').slice(0,24)}`;
+      const providerEvent=await createIntervalsRaceEvent(request,{name,date:eventDate,priority,externalId});
+      const planEvent={id:`event:${providerEvent.id}`,name,date:eventDate,sport:'Other',distance:'',priority,goal:'',targetCtl:null,source:'intervals-calendar'};
+      const snapshot=await loadSupabaseTrainingSnapshot(config);
+      const generated=generateAnnualPlan({...existing,mode:'automatic',methodology:'hours',events:[...existing.events,planEvent]},snapshot?.metrics || {});
+      const plan=await saveAnnualPlanRecord({...mergeRegeneratedPlan(existing,generated),updatedAt:new Date().toISOString()});
+      const today=athleteLocalDate(new Date(),snapshot?.athlete?.time_zone || 'America/Chicago');
+      const workout=mapIntervalsWorkout(providerEvent,today);
+      const context=snapshot?await saveVerifiedSnapshot(config,applyVerifiedEvent(snapshot,workout.id,{event:providerEvent},'copy')):null;
+      sendJson(req,res,{plan,event:planEvent,workout,context});return;
+    }
+    const annualPlanEventItemMatch=pathname.match(/^\/api\/annual-plans\/([^/]+)\/events\/([^/]+)$/);
+    if(annualPlanEventItemMatch && (req.method==='PATCH' || req.method==='DELETE')) {
+      const planId=decodeURIComponent(annualPlanEventItemMatch[1]),eventIdValue=decodeURIComponent(annualPlanEventItemMatch[2]),plans=await listAnnualPlans();
+      const existing=plans.find(plan=>plan.id===planId);
+      if(!existing)throw Error('Annual plan not found.');
+      const planEvent=existing.events.find(event=>event.id===eventIdValue);
+      if(!planEvent)throw Error('Race event not found in this plan.');
+      const config=await readConfig(),request=intervalsClient(config);
+      let providerEvent=null,result=null,nextEvents=[],deletedResults=[];
+      if(req.method==='DELETE') {
+        const sameDay=await request(`/athlete/0/events?oldest=${planEvent.date}&newest=${planEvent.date}`);
+        const category=`RACE_${String(planEvent.priority || '').toUpperCase()}`;
+        const matching=Array.isArray(sameDay)?sameDay.filter(event=>String(event.category || '')===category):[];
+        const ids=[...new Set([eventIdValue,...matching.map(event=>`event:${event.id}`)])];
+        for(const id of ids)deletedResults.push(await changeIntervalsEvent(request,id,'delete'));
+        result=deletedResults.find(item=>item.workoutId===eventIdValue) || deletedResults[0];
+        nextEvents=existing.events.filter(event=>event.id!==eventIdValue);
+      } else {
+        const payload=await readBody(req),priority=String(payload.priority || '').toUpperCase(),name=String(payload.name || '').trim(),eventDate=validDate(payload.date);
+        providerEvent=await updateIntervalsRaceEvent(request,eventIdValue,{name,date:eventDate,priority});
+        result={workoutId:eventIdValue,verified:true,action:'update',event:providerEvent};
+        nextEvents=existing.events.map(event=>event.id===eventIdValue?{...event,name,date:eventDate,priority}:event);
+      }
+      intervalsMemoryCache=null;
+      const snapshot=await loadSupabaseTrainingSnapshot(config);
+      const generated=generateAnnualPlan({...existing,mode:'automatic',methodology:'hours',events:nextEvents},snapshot?.metrics || {});
+      const plan=await saveAnnualPlanRecord({...mergeRegeneratedPlan(existing,generated),updatedAt:new Date().toISOString()});
+      const verifiedSnapshot=req.method==='DELETE'
+        ? snapshot?deletedResults.reduce((current,item)=>applyVerifiedEvent(current,item.workoutId,item,'delete'),snapshot):null
+        : snapshot?applyVerifiedEvent(snapshot,eventIdValue,result,'update'):null;
+      const context=verifiedSnapshot?await saveVerifiedSnapshot(config,verifiedSnapshot):null;
+      const workout=providerEvent?mapIntervalsWorkout(providerEvent,athleteLocalDate(new Date(),snapshot?.athlete?.time_zone || 'America/Chicago')):null;
+      sendJson(req,res,{plan,event:nextEvents.find(event=>event.id===eventIdValue) || null,workout,context});return;
+    }
+    const annualPlanMatch=pathname.match(/^\/api\/annual-plans\/([^/]+)$/);
+    if(annualPlanMatch && req.method==='PATCH') {
+      const id=decodeURIComponent(annualPlanMatch[1]),payload=await readBody(req);
+      if(!payload.plan || payload.plan.id!==id)throw Error('Annual plan ID does not match the saved plan.');
+      const plan=await saveAnnualPlanRecord({...payload.plan,updatedAt:new Date().toISOString()});
+      sendJson(req,res,{plan});return;
+    }
+    if(annualPlanMatch && req.method==='DELETE') {
+      await deleteAnnualPlanRecord(decodeURIComponent(annualPlanMatch[1]));
+      res.writeHead(204,{'Cache-Control':'no-store'});res.end();return;
+    }
     if(pathname==='/api/mutations' && req.method==='POST') {
       const config=await readConfig(),mutation=validateMutation(await readBody(req));
       const snapshot=await loadSupabaseTrainingSnapshot(config);
@@ -996,20 +1150,20 @@ export async function handleRequest(req, res) {
       return;
     }
 
-    if (pathname === '/api/evidence/sources' && req.method === 'GET') {
-      const knowledge = await readDurableState('KNOWLEDGE_BASE',knowledgeSourcesPath,()=>readKnowledgeBase(knowledgeSourcesPath));
-      res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
-      res.end(JSON.stringify({ version:knowledge.version, retrieved_at:knowledge.retrieved_at, sources:[...knowledge.sources, ...knowledge.imports] }));
-      return;
+    if (req.url === '/api/training-preferences' && req.method === 'GET') {
+      const local=await readLocalContext();sendJson(req,res,{training_preferences:local.training_preferences || {}});return;
+    }
+    if (req.url === '/api/training-preferences' && req.method === 'POST') {
+      const payload=await readBody(req),training_preferences=await updateTrainingPreferences(payload?.training_preferences);
+      sendJson(req,res,{training_preferences});return;
     }
 
-    if (pathname === '/api/evidence/import/8020-triathlon' && req.method === 'POST') {
-      const imported = import8020BookPortions(await readBody(req));
-      const knowledge = await readDurableState('KNOWLEDGE_BASE',knowledgeSourcesPath,()=>readKnowledgeBase(knowledgeSourcesPath));
-      const imports = [...knowledge.imports.filter(item => item.id !== imported.id), imported];
-      await writeDurableState('KNOWLEDGE_BASE',{ ...knowledge, imports },knowledgeSourcesPath);
-      res.writeHead(201, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
-      res.end(JSON.stringify({ imported:{ id:imported.id, title:imported.title, authors:imported.authors, edition:imported.edition, imported_at:imported.imported_at, scope_note:imported.scope_note, portions:imported.passages.map(item => ({ id:item.id, locator:item.locator, content_hash:item.content_hash })) } }));
+    if (req.url?.startsWith('/api/section-11/status') && req.method === 'GET') {
+      const config=await readConfig();
+      const context=await buildCoachContext(config,{cacheOnly:true});
+      const refresh=new URL(req.url,'http://localhost').searchParams.get('refresh')==='1';
+      const artifacts=await loadSection11Artifacts(config,context.athlete?.id,{force:refresh,waitForRefresh:refresh});
+      sendJson(req,res,{...section11SyncStatus(artifacts),upstream:await section11UpstreamStatus()});
       return;
     }
 
@@ -1020,14 +1174,42 @@ export async function handleRequest(req, res) {
         ? payload.history.slice(-10).filter(item => item && (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string').map(item => ({ role:item.role, content:item.content.slice(0, 4000) }))
         : [];
       const conversationId = typeof payload.conversationId === 'string' ? payload.conversationId : null;
+      const actionMode=['workouts','annual_plan'].includes(payload.actionMode) ? payload.actionMode : null;
+      const sourceFeedback=actionMode && typeof payload.sourceFeedback==='string' ? payload.sourceFeedback.slice(0,20000).trim() : '';
+      if(actionMode && !sourceFeedback)throw new Error('Section 11 feedback is required for an application action');
       if (String(req.headers.accept || '').includes('text/event-stream')) {
-        await streamCoach(payload.message.trim(), history, res, conversationId);
+        await streamCoach(payload.message.trim(), actionMode?[]:history, res, conversationId,{actionMode,sourceFeedback});
         return;
       }
-      const message = await runCoach(payload.message.trim(), history, conversationId);
+      const message = await runCoach(payload.message.trim(), actionMode?[]:history, conversationId,null,{actionMode,sourceFeedback});
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ message }));
       return;
+    }
+
+    if (req.url === '/api/coach/actions/approve' && req.method === 'POST') {
+      const payload=await readBody(req),proposal=payload?.proposal || {};
+      const config=await readConfig();
+      if(proposal.operation==='create_workout') {
+        if(!proposal.workout || typeof proposal.workout!=='object')throw new Error('A complete workout preview is required');
+        const context=await buildCoachContext(config,{cacheOnly:true});
+        const currentDate=athleteLocalDate(new Date(),context.notification_preferences?.time_zone || context.athlete?.time_zone || 'America/Chicago');
+        const event=await createCoachWorkout(config,proposal.workout,String(payload.conversationId || 'coach-action'),currentDate);
+        sendJson(req,res,{operation:proposal.operation,destination:'intervals.icu',verified:true,event});return;
+      }
+      if(proposal.operation==='create_workouts') {
+        if(!Array.isArray(proposal.workouts) || proposal.workouts.length<2 || proposal.workouts.length>14)throw new Error('A complete multi-workout preview is required');
+        const context=await buildCoachContext(config,{cacheOnly:true});
+        const currentDate=athleteLocalDate(new Date(),context.notification_preferences?.time_zone || context.athlete?.time_zone || 'America/Chicago');
+        const events=[];
+        for(const workout of proposal.workouts)events.push(await createCoachWorkout(config,workout,String(payload.conversationId || 'coach-action'),currentDate));
+        sendJson(req,res,{operation:proposal.operation,destination:'intervals.icu',verified:true,events});return;
+      }
+      if(proposal.operation==='update_annual_plan') {
+        const plan=await applyCoachAnnualPlan(proposal);
+        sendJson(req,res,{operation:proposal.operation,destination:'application',verified:true,plan});return;
+      }
+      throw new Error('Unsupported coach action preview');
     }
 
     if (req.url === '/api/context/status') {
@@ -1040,20 +1222,8 @@ export async function handleRequest(req, res) {
     if (req.url?.startsWith('/api/training-context') && req.method === 'GET') {
       const config = await readConfig();
       const local = await readLocalContext();
-      let coach={};
-      try { coach=await readDurableState('COACHING_CONFIG',coachingConfigPath,{}); }
-      catch { try { coach=JSON.parse(await fs.readFile(coachingConfigPath,'utf8')); } catch {} }
       const timeZone = local.notification_preferences?.time_zone || local.athlete?.time_zone || 'America/Chicago';
-      const raceDate = coach.race_date || local.athlete?.race_date;
-      const raceTiming = assessRaceTiming(raceDate, timeZone);
-      const athleteWithRace = athlete => ({
-        ...local.athlete,
-        ...(athlete || {}),
-        race:coach.race || local.athlete?.race,
-        race_date:raceDate,
-        phase:raceTiming.phase,
-        days_to_race:raceTiming.daysToRace,
-      });
+      const athleteWithRace = athlete => ({...(athlete || {})});
       const requestUrl = new URL(req.url, 'http://localhost');
       const forceRefresh = requestUrl.searchParams.get('refresh') === '1';
       if(forceRefresh)providerReads.clear();
@@ -1250,6 +1420,39 @@ export async function handleRequest(req, res) {
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
       res.end(JSON.stringify({...result,context}));
       return;
+    }
+
+    const coachInputMatch=pathname.match(/^\/api\/workouts\/([^/]+)\/coach-input$/);
+    if(coachInputMatch && (req.method==='GET' || req.method==='POST')) {
+      const workoutId=decodeURIComponent(coachInputMatch[1]),payload=req.method==='POST'?await readBody(req):{};
+      const config=await readConfig();
+      const context=await buildCoachContext(config,{cacheOnly:true});
+      const workout=[...(context.history || []),...(context.planned || [])].find(item=>String(item.id)===workoutId);
+      if(!workout)throw new Error('Workout not found in the current Intervals.icu calendar');
+      const completed=Boolean(workout.completed || workout.status==='completed' || workout.activity_id);
+      const commentType=completed?'coach_note_completed':'coach_note_planned';
+      const existing=(context.comments || []).find(item=>item.workout_id===workoutId&&item.type===commentType&&(completed||!workout.source_updated_at||Date.parse(item.created_at)>=Date.parse(workout.source_updated_at)));
+      if(req.method==='GET'){sendJson(req,res,{comment:existing || null,cached:Boolean(existing)});return;}
+      // Planned-workout guidance is a single durable recommendation. A client
+      // cannot regenerate it by sending refresh=true after it has been saved.
+      if(existing&&(!payload.refresh||!completed)){sendJson(req,res,{comment:existing,cached:true});return;}
+      const prompt=completed
+        ? `Review the completed workout ${workoutId} (${workout.title}) using fresh data. Write a concise coach comment for the workout page in natural Markdown. Lead with the main takeaway in one or two sentences. Compare execution with the prescription when both exist; state plainly what was executed well or missed, what it suggests about progression, and one or two actionable considerations for upcoming training. Include only decision-relevant data, do not invent unavailable metrics, and do not add a confidence or raw-data section. Return only the comment.`
+        : `Review the planned workout ${workoutId} (${workout.title}) using fresh current context. Write a concise pre-workout coach comment for the workout page in natural Markdown. Begin with **Today’s recommendation: Go**, **Today’s recommendation: Modify**, or **Today’s recommendation: Skip**, followed by the main reason. Explain its purpose, give the most important execution cues, and briefly state material uncertainty only when it changes the advice. Include only decision-relevant data, do not invent unavailable metrics, and clearly describe any change as proposed rather than saved. Return only the comment.`;
+      const jobKey=`${workoutId}:${commentType}`;
+      let job=coachCommentJobs.get(jobKey);
+      if(!job) {
+        job=(async()=>{
+          const body=await runCoach(prompt,[],`workout-comment:${workoutId}`,null,{context,disableTools:true});
+          const comment=await addLocalComment(workoutId,body,commentType);
+          const store=createContextStore(config,updateLogs);
+          if(store.ready)await store.upsert('athlete_comments',[{id:stableUuid(`comment:${comment.id}`),athlete_id:String(context.athlete?.id || 'default'),workout_id:workoutId,comment_type:'coach_note',body:comment.body,created_at:comment.created_at}]);
+          return comment;
+        })().finally(()=>coachCommentJobs.delete(jobKey));
+        coachCommentJobs.set(jobKey,job);
+      }
+      const comment=await job;
+      sendJson(req,res,{comment,cached:false});return;
     }
 
     if (pathname.startsWith('/api/workouts/') && (req.method === 'POST' || req.method === 'DELETE' || req.method === 'PATCH')) {

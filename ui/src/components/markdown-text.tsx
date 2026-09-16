@@ -12,6 +12,7 @@ import remarkGfm from "remark-gfm"
 import { type FC, memo, useMemo } from "react"
 import type { TextMessagePartProps } from "@assistant-ui/react"
 import { CheckIcon, CopyIcon } from "lucide-react"
+import { Streamdown } from "streamdown"
 
 import { TooltipIconButton } from "@/components/tooltip-icon-button"
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
@@ -48,6 +49,20 @@ const MarkdownTextImpl: FC<MarkdownTextProps> = ({ components }) => {
 }
 
 export const MarkdownText = memo(MarkdownTextImpl)
+
+export const StaticMarkdownText: FC<{ children: string; className?: string }> = ({
+  children,
+  className,
+}) => (
+  <Streamdown
+    mode="static"
+    controls={false}
+    className={cn("aui-md", className)}
+    components={defaultComponents}
+  >
+    {children}
+  </Streamdown>
+)
 
 const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   const { isCopied, copyToClipboard } = useCopyToClipboard()

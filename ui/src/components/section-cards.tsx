@@ -27,6 +27,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import type { PlannedWorkout, TrainingContext } from "@/lib/training-context"
+import { EventsCard } from "@/components/race-events"
 
 const recoveryChartConfig = {
   value: { label: "Daily value", color: "var(--primary)" },
@@ -130,9 +131,9 @@ function RecoveryTrendCard({
   const high = Math.max(...data.map((item) => Math.max(item.baselineHigh, item.value)), current ?? 1)
 
   return (
-    <Card className="min-w-0 overflow-hidden [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-3">
+    <Card className="min-w-0 overflow-hidden [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-2">
       <CardHeader className="pb-0">
-        <CardDescription>{isHrv ? "HRV" : "Resting heart rate"}</CardDescription>
+        <CardDescription>{isHrv ? "HRV" : "RHR"}</CardDescription>
         <CardTitle className="text-2xl tabular-nums sm:text-3xl">
           {current ?? '—'}
           <span className="ml-1 text-sm font-normal text-muted-foreground">
@@ -323,6 +324,7 @@ export function SectionCards({
         </CardContent>
       </Card>
 
+      <EventsCard context={context} />
       <RecoveryTrendCard context={context} metric="hrv" />
       <RecoveryTrendCard context={context} metric="resting_hr" />
 

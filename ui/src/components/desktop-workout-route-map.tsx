@@ -19,7 +19,7 @@ function FitRoute({points}:{points:LatLngExpression[]}){
  return null
 }
 
-export function DesktopWorkoutRouteMap({workout,timedPoints,highlightRange}:{workout:PlannedWorkout;timedPoints?:TimedRoutePoint[];highlightRange?:[number,number]|null}){
+export function DesktopWorkoutRouteMap({workout,timedPoints}:{workout:PlannedWorkout;timedPoints?:TimedRoutePoint[]}){
  const id=workout.activity_id || (workout.id.startsWith('activity:')?workout.id.slice(9):null)
  const revision=(workout as PlannedWorkout & {activity_revision?:string}).activity_revision || ''
  const [fallback,setFallback]=useState<Coordinate[]>([])
@@ -34,16 +34,14 @@ export function DesktopWorkoutRouteMap({workout,timedPoints,highlightRange}:{wor
   return()=>controller.abort()
  },[id,revision,validTimed.length])
  const route=useMemo<LatLngExpression[]>(()=>validTimed.length>1?validTimed.map(point=>[point.latitude,point.longitude]):fallback,[validTimed,fallback])
- const highlighted=useMemo<LatLngExpression[]>(()=>highlightRange&&validTimed.length>1?validTimed.filter(point=>point.time>=highlightRange[0]&&point.time<=highlightRange[1]).map(point=>[point.latitude,point.longitude]):[],[highlightRange,validTimed])
  if(route.length<2)return <div className="flex h-[320px] items-center justify-center bg-muted/25 text-xs text-muted-foreground">Loading route…</div>
  const start=route[0],finish=route.at(-1)!
  return <div className="relative h-[320px] min-w-0 overflow-hidden bg-[#eef2ed]">
   <MapContainer center={start} zoom={13} className="h-full w-full" zoomControl attributionControl scrollWheelZoom>
    <TileLayer attribution={'&copy; OpenStreetMap contributors &copy; CARTO'} url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" maxZoom={20}/>
-   <FitRoute points={highlighted.length>1?highlighted:route}/>
+   <FitRoute points={route}/>
    <Polyline positions={route} pathOptions={{color:'#ffffff',weight:8,opacity:.95,lineCap:'round',lineJoin:'round'}}/>
    <Polyline positions={route} pathOptions={{color:'#1677b8',weight:4,opacity:1,lineCap:'round',lineJoin:'round'}}/>
-   {highlighted.length>1&&<><Polyline positions={highlighted} pathOptions={{color:'#ffffff',weight:9,opacity:1,lineCap:'round',lineJoin:'round'}}/><Polyline positions={highlighted} pathOptions={{color:'#f4511e',weight:5,opacity:1,lineCap:'round',lineJoin:'round'}}/></>}
    <CircleMarker center={start} radius={7} pathOptions={{color:'#ffffff',weight:3,fillColor:'#65a30d',fillOpacity:1}}/>
    <CircleMarker center={finish} radius={7} pathOptions={{color:'#ffffff',weight:3,fillColor:'#111827',fillOpacity:1}}/>
   </MapContainer>

@@ -1,5 +1,6 @@
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
+import {useState} from "react"
 import {formatDuration} from '@/lib/duration'
 import {workoutDurations} from '@/lib/dashboard-metrics'
 import {
@@ -17,6 +18,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   completedMinutes,
   durationMinutes,
@@ -29,7 +31,7 @@ const currentWeekChartConfig = {
 } satisfies ChartConfig
 
 const historyChartConfig = {
-  completed: { label: "Duration", color: "var(--chart-2)" },
+  completed: { label: "Completed", color: "var(--chart-2)" },
 } satisfies ChartConfig
 
 function formatHours(hours: number) {
@@ -106,21 +108,51 @@ function currentWeekByDay(context: TrainingContext) {
 }
 
 function groupHistoryByWeek(context: TrainingContext) {
-  const weeks = new Map<string, { week: string; completed: number }>()
+  type WeekRow={week:string;completed:number}
+  const empty=(week:string):WeekRow=>({week,completed:0})
+  const weeks = new Map<string, WeekRow>()
 
-  for (const item of context.history.slice(-90)) {
+  for (const item of context.history) {
     const key = weekStart(item.workout_date)
-    const current = weeks.get(key) ?? { week: key, completed: 0 }
-    current.completed += Number(item.completed?.duration_minutes ?? 0) / 60
+    const current = weeks.get(key) ?? empty(key)
+    const raw = item as unknown as Record<string, unknown>
+    const completed = raw.completed as Record<string, unknown> | undefined
+    const completedData = raw.completed_data as Record<string, unknown> | undefined
+    const workoutSummary = raw.workout_summary as Record<string, unknown> | undefined
+    const summaryCompleted = workoutSummary?.completed as Record<string, unknown> | undefined
+    const numeric = (value: unknown) => {
+      const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN
+      return Number.isFinite(parsed) ? parsed : undefined
+    }
+    const minutes = [raw.actualDurationMinutes, completedData?.duration_minutes, completed?.duration_minutes, summaryCompleted?.duration_minutes, raw.duration_minutes]
+      .map(numeric).find(value => value != null)
+    const seconds = [completedData?.duration_seconds, completed?.duration_seconds, summaryCompleted?.duration_seconds, raw.duration_seconds]
+      .map(numeric).find(value => value != null)
+    // Prefer the provider's completed moving-time seconds. Minute fields are
+    // rounded and are only a fallback for older archived activities.
+    const hours=seconds != null ? Number(seconds) / 3600 : minutes != null ? Number(minutes) / 60 : 0
+    if(!(hours>0))continue
+    current.completed+=hours
     weeks.set(key, current)
   }
 
-  return [...weeks.values()].sort((a, b) => a.week.localeCompare(b.week))
+  const today = new Date()
+  const current = weekStart(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`)
+  const currentDate = new Date(`${current}T12:00:00Z`)
+  const visibleWeeks = Array.from({ length: 16 }, (_, index) => {
+    const date = new Date(currentDate)
+    date.setUTCDate(currentDate.getUTCDate() - (15 - index) * 7)
+    const key = date.toISOString().slice(0, 10)
+    return weeks.get(key) ?? empty(key)
+  })
+  return visibleWeeks
 }
 
 export function ChartAreaInteractive({ context }: { context: TrainingContext }) {
+  const [historyWeeks, setHistoryWeeks] = useState("8")
   const currentWeek = currentWeekByDay(context)
   const weeklyHistory = groupHistoryByWeek(context)
+  const displayedHistory = weeklyHistory.slice(-Number(historyWeeks))
   const plannedTotal = currentWeek.reduce((sum, item) => sum + item.planned, 0)
   const completedTotal = currentWeek.reduce(
     (sum, item) => sum + item.completed,
@@ -227,7 +259,16 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
         <CardHeader>
           <CardTitle>Training history</CardTitle>
           <CardAction>
-            <span className="text-xs text-muted-foreground">Hours</span>
+            <div className="flex items-center">
+              <Select value={historyWeeks} onValueChange={(value) => { if (value) setHistoryWeeks(value) }}>
+                <SelectTrigger size="sm" className="h-7 w-[92px] rounded-md border px-2 text-xs font-medium shadow-none">
+                  <SelectValue>{historyWeeks} weeks</SelectValue>
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {[4, 8, 16].map((weeks) => <SelectItem key={weeks} value={String(weeks)}>{weeks} weeks</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </CardAction>
         </CardHeader>
         <CardContent>
@@ -235,7 +276,7 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
             config={historyChartConfig}
             className="aspect-auto h-[240px] w-full sm:h-[330px]"
           >
-            <BarChart data={weeklyHistory} accessibilityLayer>
+            <BarChart data={displayedHistory} accessibilityLayer>
               <CartesianGrid vertical={false} />
               <XAxis
                 dataKey="week"
@@ -271,7 +312,7 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
                     }
                     formatter={(value) => (
                       <div className="flex min-w-32 flex-1 justify-between gap-4">
-                        <span className="text-muted-foreground">Duration</span>
+                        <span className="text-muted-foreground">Completed</span>
                         <span className="font-mono font-medium tabular-nums">
                           {formatHours(Number(value))}
                         </span>
@@ -280,11 +321,7 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
                   />
                 }
               />
-              <Bar
-                dataKey="completed"
-                fill="var(--color-completed)"
-                radius={[4, 4, 0, 0]}
-              />
+              <Bar dataKey="completed" fill="var(--color-completed)" radius={[4,4,0,0]} />
             </BarChart>
           </ChartContainer>
         </CardContent>
