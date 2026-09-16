@@ -74,7 +74,9 @@ export function mapIntervalsWorkout(item, today, activity = null, isActivity = f
       intensity_factor:value.icu_intensity!=null?value.icu_intensity/100:null,
       work_kj:value.icu_joules!=null?value.icu_joules/1000:null,
       average_power:value.icu_average_watts ?? value.workout_doc?.average_watts ?? null,
-      average_hr:value.average_heartrate ?? null,max_hr:value.max_heartrate ?? null,average_cadence:value.average_cadence ?? null};
+      average_hr:value.average_heartrate ?? null,max_hr:value.max_heartrate ?? null,average_cadence:value.average_cadence ?? null,
+      elapsed_time_seconds:value.elapsed_time ?? (value===actual?null:durationSeconds),
+      elapsed_speed:value.elapsed_time>0&&distanceMeters>0?distanceMeters/value.elapsed_time:value!==actual&&durationSeconds>0&&distanceMeters>0?distanceMeters/durationSeconds:null};
   };
   return {
     id:`${isActivity ? 'activity' : 'event'}:${item.id}`,

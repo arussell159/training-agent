@@ -68,10 +68,10 @@ export function WorkoutDetailPage({
 
         <section aria-label="Workout highlights" className="grid grid-cols-2 gap-x-6 gap-y-7 py-3 text-center">{stats.map(stat=><div key={stat.label}><p className="text-xs text-muted-foreground sm:text-sm">{stat.label}</p><p className="mt-1.5 text-lg font-bold tracking-tight tabular-nums sm:text-2xl">{stat.value}</p></div>)}</section>
 
-        <WorkoutDescription workout={workout}/>
-        <WorkoutProfile workout={workout} />
+        {workout.status!=='completed'&&<><WorkoutDescription workout={workout}/><WorkoutProfile workout={workout}/></>}
         <WorkoutSummary workout={workout} />
         <Suspense fallback={<div className="h-44 animate-pulse rounded-xl bg-muted/30"/>}><WorkoutAnalysis workout={workout}/></Suspense>
+        {workout.status==='completed'&&<><WorkoutDescription workout={workout}/><WorkoutProfile workout={workout}/></>}
 
       </article>
       </div>

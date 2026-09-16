@@ -20,12 +20,16 @@ export function WorkoutSummary({workout}:{workout:PlannedWorkout}){
   }).then(values=>{if(!controller.signal.aborted)setRecorded(values)}).catch(e=>{if(e.name!=='AbortError')setError(e.message)}).finally(()=>{if(!controller.signal.aborted)setLoading(false)})
   return()=>controller.abort()
  },[id,retry,revision])
- const planned=data?.planned,completed=recorded || data?.completed
+ const planned=data?.planned,completed=recorded?{...data?.completed,...recorded,elapsed_time_seconds:recorded.elapsed_time_seconds ?? data?.completed?.elapsed_time_seconds,elapsed_speed:recorded.elapsed_speed ?? data?.completed?.elapsed_speed}:data?.completed
  const number=(v:number|null|undefined,digits=0)=>v==null || !Number.isFinite(v)?'':v.toLocaleString('en-US',{maximumFractionDigits:digits,minimumFractionDigits:digits})
  const clock=(v:number|null|undefined)=>v==null?'':formatDuration(v/60)
  const pace=(v:number|null|undefined)=>{if(!(Number(v)>0))return '';const s=Math.round((swim?91.44:1609.344)/Number(v));return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`}
  const rows:{label:string;unit:string;value:(v:WorkoutSummaryValues|undefined|null)=>string}[]=[
   {label:'Duration',unit:'',value:v=>clock(v?.duration_seconds)},
+  ...(/swim|run/i.test(workout.sport)?[
+    {label:'Elapsed time',unit:'',value:(v:WorkoutSummaryValues|undefined|null)=>v?.elapsed_time_seconds==null?'':`${Math.floor(Math.round(v.elapsed_time_seconds)/60)}:${String(Math.round(v.elapsed_time_seconds)%60).padStart(2,'0')}`},
+    {label:'Elapsed pace',unit:swim?'min:sec/100y':'min/mi',value:(v:WorkoutSummaryValues|undefined|null)=>pace(v?.elapsed_speed)},
+  ]:[]),
   {label:'Distance',unit:swim?'yds':'mi',value:v=>number(v?.distance_meters==null?null:v.distance_meters/(swim?.9144:1609.344),swim?0:2)},
   {label:bike?'Avg power':'Avg pace',unit:bike?'watts':swim?'min:sec/100y':'min/mi',value:v=>bike?number(v?.average_power):pace(v?.average_speed)},
   {label:'Calories',unit:'kcal',value:v=>number(v?.calories)},

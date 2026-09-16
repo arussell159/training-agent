@@ -3,6 +3,7 @@ import {readFitLaps,normalizeAnalysis} from './activity-analysis.mjs';
 import {activityRoute} from './activity-route.mjs';
 import {recordedExtremes} from './recorded-extremes.mjs';
 import {mapIntervalsWorkout} from './intervals.mjs';
+import {elapsedSummary} from './elapsed-summary.mjs';
 
 export async function downloadOriginalActivityFile(config,id,fetchImpl=fetch) {
   const response=await fetchImpl(`https://intervals.icu/api/v1/activity/${id}/file`,{
@@ -37,6 +38,12 @@ export async function loadActivityBundle(archive,config,request,id) {
   return bundle;
 }
 
-export function loadActivityView(archive,config,request,id,kind) {
-  return archive.loadView(id,kind,async()=> (await loadActivityBundle(archive,config,request,id))[kind]);
+export async function loadActivityView(archive,config,request,id,kind) {
+  const view=await archive.loadView(id,kind,async()=> (await loadActivityBundle(archive,config,request,id))[kind]);
+  if(kind==='summary'&&view.elapsed_time_seconds===undefined){
+    const bundle=await archive.load(id,'bundle',()=>downloadActivityBundle(request,id,fileId=>downloadOriginalActivityFile(config,fileId)));
+    Object.assign(view,elapsedSummary(bundle.activity));
+    if(archive.ready)await archive.saveViews(id,{analysis:bundle.analysis,summary:view,route:bundle.route});
+  }
+  return view;
 }
