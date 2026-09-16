@@ -1,4 +1,4 @@
-export type RecordedPoint={time:number;power:number|null;heartRate:number|null;speed:number|null;distance:number|null;cadence?:number|null}
+export type RecordedPoint={time:number;power:number|null;heartRate:number|null;speed:number|null;distance:number|null;cadence?:number|null;elevation?:number|null;latitude?:number|null;longitude?:number|null}
 
 // Time-weight samples, including recorded zeros. Missing signals never become zeros.
 export function segmentStatistics(points:RecordedPoint[],start:number,end:number){

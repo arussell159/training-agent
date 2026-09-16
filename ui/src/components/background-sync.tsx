@@ -18,8 +18,8 @@ export function BackgroundSync() {
         retryNow=false
         const result=await response.json() as {context?:TrainingContext;error?:string;sync_error?:string;queue?:{pending:number;failed:number}}
         if(!response.ok || !result.context)throw Error(result.error || 'Updates could not be checked.')
-        if(active && revision===trainingMutationState().revision && !trainingMutationState().busy){rememberTrainingContext(result.context);setPending(result.queue?.pending || 0);setError(result.sync_error || (result.queue?.failed?'An edit needs a sync retry.':''))}
-      }catch(e){if(active && !controller.signal.aborted)setError(e instanceof Error?e.message:'Updates could not be checked.')}
+        if(active && revision===trainingMutationState().revision && !trainingMutationState().busy){rememberTrainingContext(result.context);setPending(result.queue?.pending || 0);setError(result.queue?.failed?'An edit needs a sync retry.':'')}
+      }catch(e){if(active && !controller.signal.aborted && !trainingMutationState().revision)setError(e instanceof Error?e.message:'Updates could not be checked.')}
       finally{busy=false}
     }
     void revalidateTrainingContext()

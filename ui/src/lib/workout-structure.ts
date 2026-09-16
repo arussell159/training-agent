@@ -10,7 +10,7 @@ export function hasWorkoutStructure(value?: string | null): boolean {
 }
 
 type Target = { value?: number; start?: number; end?: number; units?: string }
-export type WorkoutStep = { duration?: number; distance?: number; reps?: number; steps?: WorkoutStep[]; power?: Target; pace?: Target; intensity?: string; ramp?: boolean; text?: string }
+export type WorkoutStep = { duration?: number; distance?: number; distance_meters?: number; distance_units?: string; length?: number; reps?: number; steps?: WorkoutStep[]; power?: Target; pace?: Target; intensity?: string; ramp?: boolean; text?: string }
 type Step = WorkoutStep
 
 // Render the provider's actual steps. Descriptions and titles are never used to
@@ -57,16 +57,22 @@ export function structuredWorkoutProfile(value?: string | null): {position:numbe
 
 export function workoutProfileSegments(value?:string|null){
   const points=structuredWorkoutProfile(value)
-  const metadata:{step:Step;repeatCount:number;group:Step[]}[]=[]
+  const metadata:{step:Step;repeatCount:number;group:Step[];setId:string}[]=[]
   try {
     const parsed=JSON.parse(value || 'null'),steps:Step[]=Array.isArray(parsed)?parsed:parsed?.steps ?? parsed?.structure
     if(!Array.isArray(steps))return []
-    const walk=(items:Step[],repeatCount=1,group:Step[]=[],depth=0)=>{
+    let nextSetId=0
+    const walk=(items:Step[],repeatCount=1,group:Step[]=[],setId='',depth=0)=>{
       if(depth>8 || metadata.length>20000)return
       for(const step of items){
-        if(step.steps){for(let i=0;i<Math.min(1000,Math.max(1,Number(step.reps || 1)));i++)walk(step.steps,Number(step.reps || 1),step.steps,depth+1);continue}
+        if(step.steps){
+          const repeatSetId=setId||`repeat-${nextSetId++}`
+          for(let i=0;i<Math.min(1000,Math.max(1,Number(step.reps || 1)));i++)walk(step.steps,Number(step.reps || 1),group.length?group:step.steps,repeatSetId,depth+1)
+          continue
+        }
         if(!(Number(step.duration)>0))continue
-        for(let i=0;i<(step.ramp?8:1);i++)metadata.push({step,repeatCount,group:group.length?group:[step]})
+        const leafSetId=setId||`step-${nextSetId++}`
+        for(let i=0;i<(step.ramp?8:1);i++)metadata.push({step,repeatCount,group:group.length?group:[step],setId:leafSetId})
       }
     }
     walk(steps)
@@ -76,13 +82,20 @@ export function workoutProfileSegments(value?:string|null){
 
 export function workoutStepLabel(step:WorkoutStep,sport:string){
   const clock=(n:number)=>{const secs=Math.round(n);return `${Math.floor(secs/60)}:${String(secs%60).padStart(2,'0')}`}
+  const intervalTime=(n:number)=>{const secs=Math.max(0,Math.round(n));if(secs<60)return `${secs} ${secs===1?'sec':'secs'}`;if(secs%60===0)return `${secs/60} min`;return clock(secs)}
   const duration=Number(step.duration || 0)
-  const amount=step.distance?(/swim/i.test(sport)?`${Math.round(step.distance/.9144).toLocaleString()} yd`:`${(step.distance/1609.344).toFixed(2)} mi`):duration%60===0?`${duration/60} min`:`${Math.round(duration)} secs`
+  const swim=/swim/i.test(sport)
+  const distance=Number(step.distance ?? step.distance_meters ?? step.length)
+  const parsedYards=swim&&(step.distance_units==='yards'||step.pace?.units==='secs')
+  // ICU swim steps may carry a duration for execution but their prescription
+  // is distance-based. Never present that execution duration as the interval
+  // amount when ICU supplied no usable distance.
+  const amount=distance>0?(swim?`${Math.round(parsedYards?distance:distance/.9144).toLocaleString()} yd`:`${(distance/1609.344).toFixed(2)} mi`):step.intensity==='rest'?intervalTime(duration):swim?'Distance unavailable':intervalTime(duration)
   if(step.intensity==='rest')return `${amount} rest`
   const target=step.power ?? step.pace
   if(!target)return amount
   const format=(n:number)=>target.units?.includes('zone')?`Z${n}`:step.power?`${Math.round(n)}w`:target.units?.startsWith('secs')?clock(n):`${Math.round(n)}%`
   const goal=target.value!=null?format(target.value):`${format(target.start || 0)}${step.ramp?' → ':'–'}${format(target.end || 0)}`
-  const unit=target.units==='secs/mi'?' min/mile':target.units==='secs/km'?' min/km':target.units==='secs/100y'?' /100yd':''
+  const unit=target.units==='secs/mi'?' min/mile':target.units==='secs/km'?' min/km':target.units==='secs/100y'||swim&&target.units==='secs'?' /100 yd':''
   return `${amount} at ${goal}${unit}`
 }

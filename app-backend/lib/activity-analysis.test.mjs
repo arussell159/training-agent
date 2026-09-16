@@ -15,10 +15,13 @@ test('swim selects whole recorded work repeats, not individual lengths or recove
  assert.equal(91.44/result.laps[0].speed,100);
  assert.equal(91.44/result.laps[1].speed,105);
 });
-test('analysis keeps zero watts, gaps and real sample times; laps align to activity start',()=>{
+test('analysis keeps zero watts, gaps, elevation, GPS and real sample times; laps align to activity start',()=>{
   const start='2026-09-14T12:00:00Z',timestamp=Date.parse(start)/1000-Date.UTC(1989,11,31)/1000;
-  const result=normalizeAnalysis({id:'i1',start_date:start,icu_intervals:[{start_time:0,end_time:40,type:'WORK'}]},[{type:'time',data:[0,2,5]},{type:'watts',data:[0,null,240]},{type:'heartrate',data:[100,101,102]}],[{timestamp:timestamp+2,duration:3,power:200,heartRate:102}]);
+  const result=normalizeAnalysis({id:'i1',start_date:start,icu_intervals:[{start_time:0,end_time:40,type:'WORK'}]},[{type:'time',data:[0,2,5]},{type:'watts',data:[0,null,240]},{type:'heartrate',data:[100,101,102]},{type:'altitude',data:[120,121.5,null]},{type:'latlng',data:[[30,-97],[30.1,-97.1],[null,-97.2]]}],[{timestamp:timestamp+2,duration:3,power:200,heartRate:102}]);
   assert.equal(result.points[0].power,0);assert.equal(result.points[1].power,null);assert.equal(result.points[2].speed,null);
+  assert.equal(result.points[0].elevation,120);assert.equal(result.points[1].elevation,121.5);assert.equal(result.points[2].elevation,null);
+  assert.deepEqual([result.points[0].latitude,result.points[0].longitude],[30,-97]);assert.equal(result.points[2].latitude,null);
+  assert.equal(result.version,3);
   assert.equal(result.laps[0].start,2);assert.equal(result.laps[0].end,5);assert.equal(result.intervals[0].kind,'interval');
 });
 test('reads recorded FIT lap fields from gzipped binary',()=>{

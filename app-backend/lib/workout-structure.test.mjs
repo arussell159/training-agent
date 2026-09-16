@@ -15,8 +15,14 @@ test('hover metadata retains actual repetition groups and sport-specific target 
  assert.equal(segments.length,6);
  assert.equal(segments[2].repeatCount,3);
  assert.equal(segments[2].group.length,2);
+ assert.ok(segments.every(segment=>segment.repeatCount===3&&segment.group.length===2));
+ assert.equal(new Set(segments.map(segment=>segment.setId)).size,1);
  assert.equal(workoutStepLabel(work,'Swim'),'400 yd at Z3');
+ assert.equal(workoutStepLabel({distance:400,duration:439,pace:{value:100,units:'secs'}},'Swim'),'400 yd at 1:40 /100 yd');
  assert.equal(workoutStepLabel(rest,'Swim'),'30 secs rest');
+ assert.equal(workoutStepLabel({duration:60,intensity:'rest'},'Swim'),'1 min rest');
+ assert.equal(workoutStepLabel({duration:75,intensity:'rest'},'Swim'),'1:15 rest');
+ assert.equal(workoutStepLabel({duration:90,power:{value:173,units:'w'}},'Bike'),'1:30 at 173w');
  assert.equal(workoutStepLabel({duration:120,pace:{value:450,units:'secs/mi'}},'Run'),'2 min at 7:30 min/mile');
  assert.equal(workoutStepLabel({duration:300,power:{value:180,units:'w'}},'Bike'),'5 min at 180w');
 });
@@ -32,6 +38,6 @@ test('every imported plan has a real profile and swim native definitions use yar
  for(const p of racePlan){const points=structuredWorkoutProfile(JSON.stringify(p.workout_doc));assert.ok(points.length>0);assert.ok(Math.abs(points.at(-1).position-p.workout_doc.duration)<.01);}
  const swim=racePlan.find(p=>p.name==='CSS Swim Repeats');
  assert.match(nativeWorkoutDefinition(swim),/Pool length: 25y/);
- assert.match(nativeWorkoutDefinition(swim),/100y Z5 Pace/);
+ assert.match(nativeWorkoutDefinition(swim),/100mtr 1:32 Pace/);
  assert.match(nativeWorkoutDefinition(swim),/Rest 20s intensity=rest/);
 });

@@ -5,7 +5,9 @@ import { gradeWorkoutCompletion, type CompletionGrade } from "@/lib/workout-comp
 import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
 import { WorkoutProfile } from "@/components/workout-profile"
 import { WorkoutSummary } from "@/components/workout-summary"
+import { WorkoutMapSplits } from "@/components/workout-map-splits"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
+import {forgetOpenWorkout,rememberOpenWorkout,restoreOpenWorkout} from '@/lib/workout-navigation'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, useSensor, useSensors, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/core"
 import {
@@ -23,7 +25,6 @@ import {
 } from "lucide-react"
 import { Pie, PieChart } from "recharts"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog"
@@ -93,7 +94,11 @@ function workoutDate(value?: string) {
 
 export function WorkoutCard({ workout, onClick, onAction, disabled = false }: { workout: PlannedWorkout; onClick: () => void; onAction?: (action: "copy" | "delete") => void; disabled?: boolean }) {
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const grade = workout.status==='completed' && workout.completion_grade ? workout.completion_grade : gradeWorkoutCompletion(workout.status, { ...workout.planned, duration_minutes: workout.planned?.duration_minutes ?? workout.plannedDurationMinutes }, { ...workout.completed_data, duration_minutes: completedMinutes(workout) })
+  // Activity rows are historical records, not planned-event completions. Keep
+  // the historical archive consistently green; only a completed planned event
+  // is graded against its prescription.
+  const historical = workout.id.startsWith('activity:')
+  const grade = historical && workout.status==='completed' ? 'good' : workout.status==='completed' && workout.completion_grade ? workout.completion_grade : gradeWorkoutCompletion(workout.status, { ...workout.planned, duration_minutes: workout.planned?.duration_minutes ?? workout.plannedDurationMinutes }, { ...workout.completed_data, duration_minutes: completedMinutes(workout) })
   const displayedMinutes = workout.status === "completed" && completedMinutes(workout) > 0
     ? completedMinutes(workout)
     : durationMinutes(workout)
@@ -213,7 +218,7 @@ export function TrainingCalendar({
   const [historyReady,setHistoryReady] = useState(false)
   const loadedWeeks = useRef(new Set<string>())
   const pendingWeeks = useRef(new Set<string>())
-  const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(null)
+  const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(()=>restoreOpenWorkout([...cachedTrainingContext().planned,...cachedTrainingContext().history]))
   const [metricsDate, setMetricsDate] = useState<string | null>(null)
   const [activeWeekKey, setActiveWeekKey] = useState("")
   const [dragging, setDragging] = useState<PlannedWorkout | null>(null)
@@ -235,6 +240,11 @@ export function TrainingCalendar({
     window.addEventListener('training-context-updated',update)
     return()=>{active=false;window.removeEventListener('training-context-updated',update)}
   },[])
+  useEffect(()=>{
+    const restore=()=>setSelectedWorkout(restoreOpenWorkout([...context.planned,...context.history]))
+    window.addEventListener('popstate',restore)
+    return()=>window.removeEventListener('popstate',restore)
+  },[context])
 
   const runWorkoutAction = async (workout: PlannedWorkout, action: "copy" | "delete") => {
     if (moving) return
@@ -302,10 +312,11 @@ export function TrainingCalendar({
   const weekRefs = useRef(new Map<string, HTMLElement>())
   const calendarRef = useRef<HTMLDivElement>(null)
   const calendarUserScrolled = useRef(false)
+  const initialAlignmentDone = useRef(false)
   const viewportAnchor = useRef<{element:Element;top:number;scrollY:number} | null>(null)
 
   useEffect(() => {
-    const mark = () => { calendarUserScrolled.current = true }
+    const mark = () => { if (initialAlignmentDone.current) calendarUserScrolled.current = true }
     const key = (event: KeyboardEvent) => { if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) mark() }
     window.addEventListener('wheel', mark, {passive:true})
     window.addEventListener('touchmove', mark, {passive:true})
@@ -313,12 +324,27 @@ export function TrainingCalendar({
     return () => { window.removeEventListener('wheel', mark); window.removeEventListener('touchmove', mark); window.removeEventListener('keydown', key) }
   }, [])
 
-  // Programmatic initial scrolling is not user scrolling. Re-align after rows
-  // and preferences hydrate, until the user actually moves away from today.
+  // The calendar always starts at today, so do not let the browser restore a
+  // stale document offset after the async rows have rendered.
   useLayoutEffect(() => {
-    if (calendarUserScrolled.current || calendarWasDragged.current || !window.matchMedia('(max-width: 767px)').matches) return
-    const day = calendarRef.current?.querySelector(`[data-calendar-date="${dateKey(new Date())}"]`)
-    if (day) window.scrollTo({top:Math.max(0, window.scrollY + day.getBoundingClientRect().top - 56), behavior:'instant'})
+    const previousRestoration = window.history.scrollRestoration
+    window.history.scrollRestoration = "manual"
+    return () => { window.history.scrollRestoration = previousRestoration }
+  }, [])
+
+  // IndexedDB hydration can add taller historical weeks above today without
+  // changing the set of week keys. Keep today anchored during that startup
+  // work on desktop as well as mobile, until the user actually moves away.
+  useLayoutEffect(() => {
+    if (calendarUserScrolled.current || calendarWasDragged.current) return
+    const mobileViewport = window.matchMedia('(max-width: 767px)').matches
+    const today = new Date()
+    const element = mobileViewport
+      ? calendarRef.current?.querySelector(`[data-calendar-date="${dateKey(today)}"]`)
+      : weekRefs.current.get(dateKey(startOfMonday(today)))
+    if (!element) return
+    window.scrollTo({top:Math.max(0, window.scrollY + element.getBoundingClientRect().top - (mobileViewport ? 0 : 84)), behavior:'instant'})
+    initialAlignmentDone.current = true
   }, [context, summaryOpen, isMobile])
 
   // Correct layout growth before paint, rather than letting newly loaded rows
@@ -441,25 +467,30 @@ export function TrainingCalendar({
 
   useLayoutEffect(() => {
     if (!weeks.length || calendarWasDragged.current || calendarUserScrolled.current) return
-    const previousRestoration = history.scrollRestoration
-    history.scrollRestoration = "manual"
     const todayWeek = dateKey(startOfMonday(new Date()))
     const target = weeks.some((week) => week.key === todayWeek) ? todayWeek : weeks[weeks.length - 1].key
     const alignToday = () => {
       if (calendarWasDragged.current || calendarUserScrolled.current) return
+      const mobileViewport = window.matchMedia('(max-width: 767px)').matches
       setActiveWeekKey(target)
-      const element = isMobile
+      const element = mobileViewport
         ? calendarRef.current?.querySelector(`[data-calendar-date="${dateKey(new Date())}"]`) || weekRefs.current.get(target)
         : weekRefs.current.get(target)
       if (!element) return
-      window.scrollTo({ top: Math.max(0, window.scrollY + element.getBoundingClientRect().top - (isMobile ? 56 : 84)), behavior: "instant" })
+      window.scrollTo({ top: Math.max(0, window.scrollY + element.getBoundingClientRect().top - (mobileViewport ? 0 : 84)), behavior: "instant" })
+      initialAlignmentDone.current = true
     }
-    const frame = requestAnimationFrame(() => requestAnimationFrame(alignToday))
+    alignToday()
+    let secondFrame = 0
+    const firstFrame = requestAnimationFrame(() => {
+      alignToday()
+      secondFrame = requestAnimationFrame(alignToday)
+    })
     const timer = window.setTimeout(alignToday, 250)
     return () => {
-      cancelAnimationFrame(frame)
+      cancelAnimationFrame(firstFrame)
+      cancelAnimationFrame(secondFrame)
       window.clearTimeout(timer)
-      history.scrollRestoration = previousRestoration
     }
   }, [weekKeys, isMobile])
 
@@ -490,7 +521,7 @@ export function TrainingCalendar({
       if (!isMobile) { scrollToWeek(target, "instant"); return }
       const element = calendarRef.current?.querySelector(`[data-calendar-date="${dateKey(new Date())}"]`)
       if (!element) return
-      window.scrollTo({ top: Math.max(0, window.scrollY + element.getBoundingClientRect().top - 56), behavior: "instant" })
+      window.scrollTo({ top: Math.max(0, window.scrollY + element.getBoundingClientRect().top), behavior: "instant" })
       setActiveWeekKey(target)
     }
     scrollToToday()
@@ -505,13 +536,14 @@ export function TrainingCalendar({
       onWorkoutOpen(workout)
       return
     }
+    rememberOpenWorkout(workout)
     setSelectedWorkout(workout)
   }
 
   return (
     <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={({active}) => setDragging(active.data.current?.workout || null)} onDragCancel={() => setDragging(null)} onDragEnd={event => void finishDrag(event)}>
     <div ref={calendarRef} style={{overflowAnchor:'none'}} className="flex w-full min-w-0 flex-1 flex-col">
-      <header className="mobile-site-header sticky top-0 z-50 flex h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:shadow-none">
+      <header className="mobile-site-header calendar-scroll-header sticky top-0 z-50 flex h-14 w-full shrink-0 items-center px-4 md:bg-background md:shadow-none">
         <h1 className="mobile-header-title min-w-0 truncate text-sm font-semibold">{activeMonth}</h1>
         <div className="flex items-center gap-1 md:ml-4">
           <Button size="sm" className="hidden md:inline-flex" onClick={goToToday}>Today</Button>
@@ -547,11 +579,10 @@ export function TrainingCalendar({
                       const dayWorkouts = week.workouts.filter((workout) => workout.workout_date === dateKey(day))
                       const isToday = dateKey(day) === dateKey(new Date())
                       return (
-                        <CalendarDay key={dateKey(day)} date={dateKey(day)} disabled={moving} className={isToday ? "min-w-0 bg-primary/5 px-1.5 py-2" : "min-w-0 px-1.5 py-2"}>
+                        <CalendarDay key={dateKey(day)} date={dateKey(day)} disabled={moving} className={isToday ? "min-w-0 bg-primary/5 px-1.5 pb-2 pt-16 md:py-2" : "min-w-0 px-1.5 py-2"}>
                           {isToday && <section aria-label="Performance Insights" className="mb-4 pt-2 md:hidden">
                             <div className="mb-1 flex items-center justify-between">
                               <p className="text-sm font-semibold text-primary">{day.toLocaleDateString("en-US", {weekday:"short"})} - {day.getDate()}</p>
-                              <DayMenu day={day} count={dayWorkouts.filter(w => w.id.startsWith("event:")).length} disabled={moving} onAction={action => void runDayAction(day,action)} />
                             </div>
                             <h2 className="mb-3 text-base font-semibold">Performance Insights</h2>
                             <div className="grid grid-cols-3 gap-1.5">
@@ -570,7 +601,7 @@ export function TrainingCalendar({
                             <span className={`px-0.5 text-sm ${isToday ? "hidden font-semibold text-primary md:inline" : "text-foreground"}`}>
                               <span className="md:hidden">{day.toLocaleDateString("en-US", {weekday:"short"})} - </span>{day.getDate()}
                             </span>
-                            <DayMenu day={day} count={dayWorkouts.length} disabled={moving} onAction={action => void runDayAction(day,action)} />
+                            {!isToday&&<DayMenu day={day} count={dayWorkouts.length} disabled={moving} onAction={action => void runDayAction(day,action)} />}
                           </div>
                           <div className="space-y-2">
                             <DailyMetricsCard date={dateKey(day)} rows={context.wellness_history || []} onOpen={() => setMetricsDate(dateKey(day))} />
@@ -598,7 +629,7 @@ export function TrainingCalendar({
         </div>
 
       </div>
-      <WorkoutDialog workout={selectedWorkout} onOpenChange={(open) => !open && setSelectedWorkout(null)} />
+      <WorkoutDialog workout={selectedWorkout} onOpenChange={(open) => {if(!open){forgetOpenWorkout();setSelectedWorkout(null)}}} />
       <DailyMetricsDialog date={metricsDate} rows={context.wellness_history || []} onClose={() => setMetricsDate(null)} />
     </div>
     <DragOverlay>{dragging ? <div className="max-w-sm cursor-grabbing shadow-xl"><WorkoutCard workout={dragging} onClick={() => {}} /></div> : null}</DragOverlay>
@@ -673,43 +704,50 @@ function WeekSummary({ title, workouts }: { title: string; workouts: PlannedWork
 }
 
 export function WorkoutDialog({ workout, onOpenChange }: { workout: PlannedWorkout | null; onOpenChange: (open: boolean) => void }) {
+  const [mapHighlight, setMapHighlight] = useState<[number, number] | null>(null)
   if (!workout) return null
   const completed = completedMinutes(workout)
+  const completedValues = workout.workout_summary?.completed
+  const plannedValues = workout.workout_summary?.planned
+  const values = workout.status === "completed" ? completedValues : plannedValues
+  const durationSeconds = values?.duration_seconds
+  const duration = durationSeconds != null ? formatDuration(durationSeconds / 60) : workout.status === "completed" && completed ? formatDuration(completed) : formatDuration(durationMinutes(workout))
+  const load = values?.tss ?? workout.load
+  const startValue = workout.recorded_start_local || workout.scheduled_start_at
+  const start = startValue ? new Date(startValue) : null
+  const time = start && !Number.isNaN(start.getTime()) ? start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : null
   const date = workout.workout_date
     ? new Date(`${workout.workout_date}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
     : workout.date
 
   return (
     <Dialog open={Boolean(workout)} onOpenChange={onOpenChange}>
-      <DialogContent className="no-scrollbar max-h-[90vh] overflow-y-auto sm:max-w-5xl">
-        <DialogHeader className="pr-8">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={workout.status === "completed" ? "default" : "secondary"}>
-              {workout.status === "completed" ? "Completed" : workout.status === "today" ? "Today" : "Planned"}
-            </Badge>
-            <DialogDescription>{date}</DialogDescription>
-          </div>
-          <DialogTitle className="flex items-center gap-2 text-xl">
-            <span className="text-muted-foreground"><SportIcon sport={workout.sport} /></span>
-            {workout.title}
-          </DialogTitle>
+      <DialogContent className="no-scrollbar max-h-[94vh] gap-4 overflow-y-auto p-0 sm:max-w-5xl">
+        <DialogHeader className="border-b px-5 pt-5 pb-4 pr-12">
+          <DialogDescription className="text-sm font-semibold text-blue-600 dark:text-blue-400">{date}{time&&<span className="ml-2 tabular-nums">{time}</span>}</DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-2">
-          <StatCard label="Duration" value={workout.status === "completed" && completed ? formatDuration(completed) : formatDuration(durationMinutes(workout))} />
-          <StatCard label={workout.status === "completed" ? "Distance" : "Estimated distance"} value={plannedDistanceLabel(workout)} />
+        <div className="space-y-4 px-5 pb-6">
+          <section className={`rounded-xl border px-4 py-3 shadow-sm ${workout.status === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100" : "border-sky-200 bg-sky-50 text-sky-950 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100"}`} aria-label="Workout overview">
+            <DialogTitle className="min-w-0 truncate text-base font-bold">{workout.title}</DialogTitle>
+            <div className="mt-3 flex flex-wrap items-center gap-x-7 gap-y-2">
+              <SportIcon sport={workout.sport}/>
+              <span className="text-[1.65rem] font-bold leading-none tabular-nums">{duration}</span>
+              <span className="text-[1.4rem] font-semibold leading-none tabular-nums">{plannedDistanceLabel(workout)}</span>
+              {load!=null&&<span className="text-[1.4rem] font-semibold leading-none tabular-nums">{Math.round(load).toLocaleString()} <span className="text-xs">TSS</span></span>}
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-4 text-xs font-medium opacity-80"><span>{workout.sport}</span><span>{workout.status === "completed" ? "Completed" : workout.status === "today" ? "Today" : "Planned"}</span></div>
+          </section>
+
+          {workout.structure&&<div className="overflow-hidden rounded-lg border bg-muted/20 px-2 pt-2"><WorkoutProfile workout={workout} compact desktopDetail/></div>}
+          <div className="grid items-start gap-5 lg:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)]">
+            <WorkoutSummary workout={workout} showElapsed={false} embedded/>
+            <div className="min-w-0 rounded-xl border bg-card p-4 shadow-sm"><WorkoutDescription workout={workout} title="Description"/></div>
+          </div>
+          {workout.status==='completed'&&<WorkoutMapSplits workout={workout} highlightRange={mapHighlight}/>}
+          <Suspense fallback={<div className="h-44 animate-pulse rounded-xl bg-muted/30"/>}><WorkoutAnalysis workout={workout} onLapSelection={setMapHighlight}/></Suspense>
         </div>
-
-        <WorkoutPreview workout={workout} large />
-        <WorkoutSummary workout={workout} />
-        <Suspense fallback={<div className="h-44 animate-pulse rounded-xl bg-muted/30"/>}><WorkoutAnalysis workout={workout}/></Suspense>
-
-        <WorkoutDescription workout={workout}/>
       </DialogContent>
     </Dialog>
   )
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return <Card className="gap-1 p-3"><span className="text-xs text-muted-foreground">{label}</span><strong className="text-sm">{value}</strong></Card>
 }

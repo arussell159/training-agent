@@ -12,14 +12,17 @@ test('FIT pool metadata distinguishes yards from meters while storing pool lengt
  assert.equal(readFitWorkoutMetadata(fit)[0].poolLengthUnit,'meters');
 });
 test('requested swim uses explicit repetitions with rest after the last work step and exact yards',()=>{
- assert.doesNotMatch(swimDefinition,/\d+x/);
- assert.equal((swimDefinition.match(/- Freestyle 400y/g) || []).length,3);
- assert.equal((swimDefinition.match(/- Rest 30s/g) || []).length,3);
- assert.equal((swimDefinition.match(/- Rest 15s/g) || []).length,12);
- assert.match(swimDefinition,/- Freestyle 400y Z3 Pace\n- Rest 30s intensity=rest\n\nMain Set/);
- assert.match(swimDefinition,/- Freestyle 100y Z4 Pace\n- Rest 15s intensity=rest\n\nWarm Down/);
+ assert.match(swimDefinition,/2x\n- 50mtr 1:43 Pace drill\n- 50mtr 1:43 Pace swim/);
+ assert.equal((swimDefinition.match(/- 400mtr 1:39 Pace freestyle/g) || []).length,1);
+ assert.equal((swimDefinition.match(/- Rest 30s/g) || []).length,1);
+ assert.equal((swimDefinition.match(/- Rest 15s/g) || []).length,2);
+ assert.match(swimDefinition,/Main Set 3x\n- 400mtr 1:39 Pace freestyle\n- Rest 30s intensity=rest/);
+ assert.match(swimDefinition,/Main Set 8x\n- 100mtr 1:36 Pace freestyle\n- Rest 15s intensity=rest/);
  assert.match(swimDefinition,/Pool length: 25y/);
+ assert.doesNotMatch(swimDefinition,/\\n|\bZ[1-5] Pace|\d+y\b(?!\n)/);
  assert.match(swimDescription,/2,900 yd/);
+ assert.match(swimDescription,/^Warm Up:\n[\s\S]+\n\nMain Set:\n[\s\S]+\n\nWarm Down:\n/);
+ assert.doesNotMatch(swimDescription,/\*\*|\d+ yd freestyle/);
 });
 test('FIT repetition control records expand work and rest the correct number of times',()=>{
  const work={index:0,durationType:1,durationValue:9144};

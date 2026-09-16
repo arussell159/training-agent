@@ -4,7 +4,7 @@ import {createIntervalsClient} from './intervals.mjs';
 
 const easy='10:30-11:00',race='9:50-10:00';
 const seconds=p=>p.split(':').reduce((m,v)=>m*60+Number(v),0);
-const clock=n=>n%60===0?`${n/60} min`:`${n} secs`;
+const clock=n=>n%60===0?`${n/60} ${n===60?'min':'mins'}`:`${n} secs`;
 const power=(n,w,end,extra={})=>({duration:n,power:end?{start:w,end,units:'w'}:{value:w,units:'w'},...(end?{ramp:true}:{}),...extra});
 const run=(n,p=easy)=>({duration:n,pace:p.includes('-')?{start:seconds(p.split('-')[0]),end:seconds(p.split('-')[1]),units:'secs/mi'}:{value:seconds(p),units:'secs/mi'}});
 const swim=(y,z,text='')=>({distance:y*.9144,duration:y/100*[0,110,103,99,96,92][z],pace:{value:z,units:'pace_zone'},text});
@@ -16,21 +16,38 @@ const sw=(reps,y,z,r,text='')=>repeat(reps,swim(y,z,text),rest(r));
 const ramp=(n,a=112,b=132)=>bp(n,a,b);
 const cool=n=>ramp(n,112,102);
 
-function segmentText(s,type){
-  if(s.steps)return `${s.reps} x (${s.steps.map(x=>segmentText(x,type)).join(' + ')})`;
-  if(s.intensity==='rest')return `${s.duration} secs rest`;
-  if(type==='Swim')return `${Math.round(s.distance/.9144)} yd Z${s.pace.value}${s.text?` ${s.text}`:''}`;
+function swimStroke(text=''){
+  if(!text)return 'FS';
+  if(text==='free with fins')return 'FS with fins';
+  if(text==='drill')return 'Drill';
+  if(text==='build')return 'FS Build';
+  if(text.startsWith('descend'))return `FS ${text[0].toUpperCase()}${text.slice(1)}`;
+  if(text.startsWith('sight'))return `FS, ${text}`;
+  return `FS ${text}`;
+}
+function segmentText(s,type,{recovery=false}={}){
+  if(s.steps)return `${s.reps} x (${s.steps.map((x,index)=>segmentText(x,type,{recovery:index>0})).join(' + ')})`;
+  if(s.intensity==='rest')return `${s.duration} sec ${recovery?'rests':'rest'}`;
+  if(type==='Swim')return `${Math.round(s.distance/.9144)} ${swimStroke(s.text)} in Z${s.pace.value}`;
   const amount=s.distance?`${s.distance/1609.344} mi`:clock(s.duration);
   const t=s.power || s.pace;
-  const v=t.value ?? `${t.start}${s.ramp?' →':'–'}${t.end}`;
-  const target=s.power?`${v}w`:t.value!=null?`${Math.floor(v/60)}:${String(v%60).padStart(2,'0')}`:
+  const v=t.value ?? (s.power?`${t.start}${s.ramp?' → ':'–'}${t.end}`:`${t.start}–${t.end}`);
+  const target=s.power?`${v}`:t.value!=null?`${Math.floor(v/60)}:${String(v%60).padStart(2,'0')}`:
     [t.start,t.end].map(x=>`${Math.floor(x/60)}:${String(x%60).padStart(2,'0')}`).join('–');
-  return `${amount} at ${target}${s.power?'':' min/mile'}${s.cadence?` (${s.cadence.value} rpm)`:''}`;
+  const easyRange=easy.split('-').map(seconds);
+  const isEasyRun=type==='Run'&&t.value==null&&t.start===easyRange[0]&&t.end===easyRange[1];
+  const purpose=type==='Run'&&recovery&&isEasyRun?' recovery':isEasyRun?' easy jog':'';
+  return `${amount}${purpose} at ${target}${s.power?' W':' min/mile'}${s.cadence?` (${s.cadence.value} rpm)`:''}`;
+}
+function sectionInstructions(steps,type){
+  if(!steps.length)return 'None; continue into the adjacent section.';
+  const lines=steps.map(step=>step.steps?segmentText(step,type):type==='Swim'?`1 x (${segmentText(step,type)})`:segmentText(step,type));
+  return lines.map((line,index)=>`${line}${index===lines.length-1?'.':','}`).join('\n');
 }
 function totals(steps){return steps.reduce((a,s)=>{const t=s.steps?totals(s.steps):{duration:s.duration || 0,distance:s.distance || 0};return {duration:a.duration+t.duration*(s.reps || 1),distance:a.distance+t.distance*(s.reps || 1)};},{duration:0,distance:0});}
 function workout(date,type,name,warm,main,down,notes=''){
   const groups=[warm,main,down];
-  const description=groups.map((g,i)=>`**${['Warm Up:','Main Set:','Warm Down:'][i]}**\n${g.length?g.map(s=>s.steps?segmentText(s,type):`1 x (${segmentText(s,type)})`).join('\n'):'None; continuous with adjacent section.'}`).join('\n\n')+(notes?`\n\n${notes}`:'');
+  const description=groups.map((group,index)=>`${['Warm Up:','Main Set:','Warm Down:'][index]}\n${sectionInstructions(group,type)}`).join('\n\n')+(notes?`\n\n${notes.trim()}`:'');
   const steps=[...warm.map(s=>({...s,warmup:true})),...main,...down.map(s=>({...s,cooldown:true}))];
   return {category:'WORKOUT',type,name,start_date_local:date+'T00:00:00',description,external_id:`alex-waco-plan:${date}:${type}`,workout_doc:{steps,...totals(steps),options:type==='Swim'?{pool_length:'25y'}:{}},...(type==='Swim'?{distance:totals(steps).distance}:{} )};
 }
@@ -66,17 +83,32 @@ R('2026-10-03','Pre-Race Run Shakeout',[rp(4)],[repeat(3,run(20,race),run(60))],
 
 export const racePlan=plans;
 export const DEVICE_DEFINITION_MARKER='\n\nIntervals.icu device definition:\n';
+const expandNestedSteps=(steps,depth=0)=>{
+ if(depth>8)throw new Error('Workout repeat nesting is too deep');
+ return steps.flatMap(step=>step.steps?Array.from({length:step.reps || 1},()=>expandNestedSteps(step.steps,depth+1)).flat():[step]);
+};
+// Intervals.icu supports one repeat level. Preserve every top-level set as a
+// real repeat and expand only repeats nested inside that set.
+export function deviceWorkoutSteps(p){
+ return p.workout_doc.steps.map(step=>step.steps?{...step,steps:expandNestedSteps(step.steps)}:step);
+}
 export function nativeWorkoutDefinition(p){
- const expand=steps=>steps.flatMap(s=>s.steps?Array.from({length:s.reps},()=>expand(s.steps)).flat():[s]);
- return (p.type==='Swim'?'Pool length: 25y\n\n':'')+expand(p.workout_doc.steps).map(s=>{
+ const line=s=>{
   if(s.intensity==='rest')return `- Rest ${s.duration}s intensity=rest`;
-  const amount=s.distance?`${Math.round(s.distance/.9144)}y`:`${s.duration}s`;
+  const yardDistance=s.distance?Math.round(s.distance/.9144):null;
+  const amount=yardDistance?`${yardDistance}${p.type==='Swim'?'mtr':'y'}`:`${s.duration}s`;
   const t=s.power || s.pace;
   const paceClock=n=>`${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`;
+  // Intervals.icu currently needs the `mtr` token to parse pool steps for
+  // Garmin, even when the pool and the numeric amounts are yards. Keep the
+  // athlete's intended seconds-per-100-yard number unchanged: do not perform
+  // a metres-to-yards pace conversion here.
   const target=s.power?(t.value!=null?`${t.value}w`:`${s.ramp?'ramp ':''}${t.start}-${t.end}w`):
-   p.type==='Swim'?`Z${t.value} Pace`:(t.value!=null?paceClock(t.value):`${paceClock(t.start)}-${paceClock(t.end)}`)+'/mi Pace';
-  return `- ${s.text || ''} ${amount} ${target}${s.cadence?` ${s.cadence.value}rpm`:''}${s.warmup?' intensity=warmup':s.cooldown?' intensity=cooldown':''}`;
- }).join('\n');
+   p.type==='Swim'?`${paceClock(Math.round(s.duration*100/yardDistance))} Pace`:(t.value!=null?paceClock(t.value):`${paceClock(t.start)}-${paceClock(t.end)}`)+'/mi Pace';
+  return `- ${amount} ${target}${s.text?` ${s.text}`:''}${s.cadence?` ${s.cadence.value}rpm`:''}${s.warmup?' intensity=warmup':s.cooldown?' intensity=cooldown':''}`;
+ };
+ const blocks=deviceWorkoutSteps(p).map(step=>step.steps?`${step.reps}x\n${step.steps.map(line).join('\n')}`:line(step));
+ return (p.type==='Swim'?'Pool length: 25y\n\n':'')+blocks.join('\n\n');
 }
 export async function importRacePlan(apply=false){
  const bootstrap=JSON.parse(await fs.readFile('app-backend/config.json','utf8'));
@@ -92,13 +124,16 @@ export async function importRacePlan(apply=false){
  const event=await request(match?`/athlete/0/events/${match.id}`:'/athlete/0/events',{method:match?'PUT':'POST',body:JSON.stringify(metadata)});
  const verified=await request(`/athlete/0/events/${event.id}`);
  const expand=steps=>steps.flatMap(s=>s.steps?Array.from({length:s.reps},()=>expand(s.steps)).flat():[s]);
+ const repeatOutline=steps=>(steps || []).flatMap((step,index)=>step.steps?[{index,reps:step.reps || 1,steps:expand(step.steps).length}]:[]);
  const expected=expand(workout_doc.steps),actual=expand(verified.workout_doc?.steps || []);
  if(verified.description!==metadata.description || actual.length!==expected.length)throw new Error('Workout verification failed '+p.name);
+ if(JSON.stringify(repeatOutline(verified.workout_doc?.steps))!==JSON.stringify(repeatOutline(deviceWorkoutSteps(p))))throw new Error('Repeat verification failed '+p.name);
  for(let i=0;i<expected.length;i++){
   const e=expected[i],a=actual[i];
-  if(e.distance?Math.abs(a.distance-e.distance)>.001:a.duration!==e.duration)throw new Error('Interval units verification failed '+p.name+' '+i);
+  if(e.distance?(p.type==='Swim'?Math.abs(a.distance-Math.round(e.distance/.9144))>.001:Math.abs(a.distance-e.distance)>.001):a.duration!==e.duration)throw new Error('Interval units verification failed '+p.name+' '+i);
   if(e.intensity==='rest' && a.intensity!=='rest')throw new Error('Rest verification failed '+p.name+' '+i);
-  for(const key of ['pace','power'])if(e[key] && (a[key]?.units!==e[key].units || (e[key].value!=null?!equal(a[key]?.value,e[key].value):!equal(a[key]?.start,e[key].start)||!equal(a[key]?.end,e[key].end))))throw new Error('Target verification failed '+p.name+' '+i);
+  if(p.type==='Swim'&&e.pace){const yards=Math.round(e.distance/.9144),pace=Math.round(e.duration*100/yards);if(a.pace?.units!=='secs'||a.pace?.value!==pace)throw new Error('Target verification failed '+p.name+' '+i);}
+  else for(const key of ['pace','power'])if(e[key] && (a[key]?.units!==e[key].units || (e[key].value!=null?!equal(a[key]?.value,e[key].value):!equal(a[key]?.start,e[key].start)||!equal(a[key]?.end,e[key].end))))throw new Error('Target verification failed '+p.name+' '+i);
  }
  imported.push({id:event.id,date:p.start_date_local,type:p.type,name:p.name});}
  const raceEvent={category:'RACE_A',type:'Other',name:'IRONMAN 70.3 Waco',start_date_local:'2026-10-04T00:00:00',external_id:'alex-waco-race:2026-10-04',moving_time:21300,

@@ -1039,7 +1039,9 @@ export async function handleRequest(req, res) {
     if (req.url?.startsWith('/api/training-context') && req.method === 'GET') {
       const config = await readConfig();
       const local = await readLocalContext();
-      const coach = await readDurableState('COACHING_CONFIG',coachingConfigPath,{});
+      let coach={};
+      try { coach=await readDurableState('COACHING_CONFIG',coachingConfigPath,{}); }
+      catch { try { coach=JSON.parse(await fs.readFile(coachingConfigPath,'utf8')); } catch {} }
       const timeZone = local.notification_preferences?.time_zone || local.athlete?.time_zone || 'America/Chicago';
       const raceDate = coach.race_date || local.athlete?.race_date;
       const raceTiming = assessRaceTiming(raceDate, timeZone);
@@ -1104,6 +1106,15 @@ export async function handleRequest(req, res) {
             return;
           }
         }
+      }
+      // A local development session may temporarily be unable to reach the
+      // settings store. Keep the last verified Intervals snapshot visible so
+      // the app is usable offline instead of appearing completely empty.
+      const cachedIntervals = await readIntervalsCache();
+      if (cachedIntervals) {
+        res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
+        res.end(JSON.stringify(scopedTrainingContext({ ...local, ...cachedIntervals, athlete:athleteWithRace(cachedIntervals.athlete), comments:local.comments, library:local.library, source:'intervals-cache', sync_error:null }, contextScope)));
+        return;
       }
       const remote = await loadSupabaseTrainingSnapshot(config, local.athlete?.id);
       if (remote) {
@@ -1395,12 +1406,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   const server = http.createServer(handleRequest);
   server.listen(port, () => {
     console.log(`Application service listening on http://localhost:${port}`);
-    if (process.env.DAILY_REVIEW_SCHEDULER_DISABLED !== '1') {
-      const runScheduledReview = () => dailyReviews.runDue()
-        .then(review => syncDailyReviewToSupabase(review))
-        .catch(error => updateLogs(`daily review scheduler failed: ${error.message}`));
-      setTimeout(runScheduledReview, 2_000).unref();
-      setInterval(runScheduledReview, 60_000).unref();
-    }
   });
 }

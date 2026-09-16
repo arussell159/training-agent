@@ -1,52 +1,101 @@
-import {useEffect, useState} from 'react'
+import {useEffect,useMemo,useRef,useState,type PointerEvent} from 'react'
 import {apiFetch} from '@/lib/api-client'
 import type {PlannedWorkout,WorkoutSummaryValues} from '@/lib/training-context'
-import type {RecordedPoint} from '@/lib/segment-statistics'
-import type {RecordedLap} from '@/lib/interval-signals'
 import {Button} from '@/components/ui/button'
+import {RotateCcw} from 'lucide-react'
+import {segmentStatistics,type RecordedPoint} from '@/lib/segment-statistics'
 import {MobileWorkoutSignals} from '@/components/mobile-workout-signals'
 
-type Analysis = {points:RecordedPoint[]; laps:RecordedLap[]; duration:number}
-const cache = new Map<string, Analysis>()
-
-export function WorkoutAnalysis({workout}:{workout:PlannedWorkout}) {
-  const id = workout.activity_id || (workout.id.startsWith('activity:') ? workout.id.slice(9) : null)
+type Point=RecordedPoint
+type Lap={id:string;label:string;start:number;end:number;power:number|null;heartRate:number|null;distance:number|null;kind:string;speed?:number|null}
+type Analysis={version?:number;points:Point[];laps:Lap[];intervals:Lap[];duration:number}
+const cache=new Map<string,Analysis>()
+const clock=(seconds:number)=>{const s=Math.max(0,Math.round(seconds));return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`}
+const pace=(seconds:number)=>seconds>0&&Number.isFinite(seconds)?clock(seconds):'—'
+export function WorkoutAnalysis({workout,onLapSelection}:{workout:PlannedWorkout;onLapSelection?:(range:[number,number]|null)=>void}){
+  const id=workout.activity_id || (workout.id.startsWith('activity:')?workout.id.slice(9):null)
   const revision=(workout as PlannedWorkout & {activity_revision?:string}).activity_revision || ''
-  return id ? <ActivityGraph key={id+revision} id={id} revision={revision} sport={workout.sport} summary={workout.workout_summary?.completed}/> : null
+  return id?<ActivityGraph key={id+revision} id={id} revision={revision} workout={workout} summary={workout.workout_summary?.completed} onLapSelection={onLapSelection}/>:null
 }
-
-function ActivityGraph({id, sport,revision,summary}:{id:string; sport:string;revision:string;summary?:WorkoutSummaryValues|null}) {
-  const key=id+revision
-  const [data, setData] = useState<Analysis | null>(cache.get(key) || null)
-  const [error, setError] = useState('')
-  const [retry, setRetry] = useState(0)
+function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;revision:string;workout:PlannedWorkout;summary?:WorkoutSummaryValues|null;onLapSelection?:(range:[number,number]|null)=>void}){
+  const sport=workout.sport
+  const cacheKey=id+revision
+  const [data,setData]=useState<Analysis|null>(cache.get(cacheKey)||null),[error,setError]=useState(''),[retry,setRetry]=useState(0)
   const [totals,setTotals]=useState<WorkoutSummaryValues|null>(summary || null)
+  const [range,setRange]=useState<[number,number]|null>(null),[cursor,setCursor]=useState<number|null>(null),[selection,setSelection]=useState<[number,number]|null>(null),[selected,setSelected]=useState(''),[hovered,setHovered]=useState<Lap|null>(null)
+  const gesture=useRef<{x:number;time:number;range:[number,number];overview:boolean;pan:boolean}|null>(null)
+  useEffect(()=>{const controller=new AbortController();void apiFetch(`/api/activities/${encodeURIComponent(id)}/summary?v=${encodeURIComponent(revision)}`,{signal:controller.signal}).then(async response=>{if(!response.ok)throw Error();return await response.json() as WorkoutSummaryValues}).then(values=>{if(!controller.signal.aborted)setTotals({...summary,...values})}).catch(()=>{});return()=>controller.abort()},[id,revision,summary])
+  useEffect(()=>{if(cache.has(cacheKey)){setData(cache.get(cacheKey)!);return}const controller=new AbortController();setError('');void apiFetch(`/api/activities/${encodeURIComponent(id)}/analysis?v=${encodeURIComponent(revision)}`,{signal:controller.signal}).then(async r=>{if(!r.ok)throw Error('The recording could not be loaded.');return await r.json() as Analysis}).then(d=>{cache.set(cacheKey,d);if(cache.size>20)cache.delete(cache.keys().next().value!);if(!controller.signal.aborted)setData(d)}).catch(e=>{if(e.name!=='AbortError')setError(e.message)});return()=>controller.abort()},[id,retry,revision,cacheKey])
+  const duration=data?.duration||1,view=range||[0,duration],swim=sport.toLowerCase().includes('swim'),run=sport.toLowerCase().includes('run')
+  const available=useMemo(()=>({elevation:data?.points.some(p=>p.elevation!=null),power:data?.points.some(p=>p.power!=null),speed:data?.points.some(p=>p.speed!=null),heartRate:data?.points.some(p=>p.heartRate!=null),cadence:data?.points.some(p=>p.cadence!=null)}),[data])
+  const paceDistance=swim?91.44:1609.344
+  const value=(p:Point,key:string)=>key==='elevation'?(p.elevation==null?null:p.elevation*3.280839895):key==='pace'?(p.speed!=null&&p.speed>0.15?paceDistance/p.speed:null):key==='speed'?(p.speed==null?null:p.speed*2.2369362920544):key==='power'?p.power:key==='cadence'?(p.cadence??null):p.heartRate
+  const unit=(key:string)=>key==='elevation'?'ft':key==='power'?'W':key==='heartRate'?'bpm':key==='cadence'?(run?'spm':swim?'strokes/min':'rpm'):key==='pace'?(swim?'/100 yd':'/mi'):'mph'
+  const label=(key:string)=>key==='heartRate'?'Heart rate':key[0].toUpperCase()+key.slice(1)
+  const format=(v:number|null|undefined,key:string)=>v==null?'—':key==='pace'?pace(v):String(Math.round(v))
+  const tracks=[...(available.elevation?['elevation']:[]),...(available.speed?[run||swim?'pace':'speed']:[]),...(available.power?['power']:[]),...(available.heartRate?['heartRate']:[]),...(available.cadence?['cadence']:[])]
+  const signalTracks=tracks.filter(key=>key!=='elevation')
+  const viewStart=view[0],viewEnd=view[1]
+  const visible=useMemo(()=>data?.points.filter(p=>p.time>=viewStart&&p.time<=viewEnd)||[],[data,viewStart,viewEnd])
+  const nearest=cursor==null?null:visible.reduce<Point|null>((best,p)=>!best||Math.abs(p.time-cursor)<Math.abs(best.time-cursor)?p:best,null)
+  const statsRange=selection?[Math.max(0,Math.min(...selection)),Math.min(duration,Math.max(...selection))]:view
+  const statsStart=statsRange[0],statsEnd=statsRange[1]
+  const averages=useMemo(()=>segmentStatistics(data?.points || [],statsStart,statsEnd),[data,statsStart,statsEnd])
+  const displayedAverages=!range&&!selection&&totals?{
+    ...averages,
+    speed:totals.average_speed ?? averages.speed,
+    heartRate:totals.average_hr ?? averages.heartRate,
+    power:totals.average_power ?? averages.power,
+    cadence:totals.average_cadence ?? averages.cadence,
+  }:averages
+  const focusSegment=(l:Lap)=>{const start=Math.max(0,l.start),end=Math.min(duration,l.end);if(end<=start)return;setRange([start,end]);setSelected(l.id)}
+  const selectedLap=data?.laps.find(l=>l.id===selected) || null
+  const inspectedLap=hovered || selectedLap
+  useEffect(()=>{onLapSelection?.(selectedLap?[selectedLap.start,selectedLap.end]:null)},[selectedLap,onLapSelection])
+  const inspectedAverages=inspectedLap?segmentStatistics(data?.points || [],inspectedLap.start,inspectedLap.end):displayedAverages
+  const statCards=[
+    {label:inspectedLap?'Interval time':range||selection?'Selected time':'Moving time',value:clock(inspectedLap?inspectedLap.end-inspectedLap.start:!range&&!selection&&totals?.duration_seconds!=null?totals.duration_seconds:averages.duration),unit:''},
+    ...(inspectedLap?.distance!=null&&inspectedLap.distance>0?[{label:'Distance',value:swim?String(Math.round(inspectedLap.distance/.9144)):(inspectedLap.distance/1609.344).toFixed(2),unit:swim?'yd':'mi'}]:[]),
+    ...(available.speed?[{label:run||swim?'Avg moving pace':'Avg speed',value:inspectedAverages.speed!=null&&inspectedAverages.speed>0?(run||swim?format(paceDistance/inspectedAverages.speed,'pace'):(inspectedAverages.speed*2.2369362920544).toFixed(1)):'',unit:run||swim?unit('pace'):'mph'}]:[]),
+    ...(available.power&&inspectedAverages.power!=null?[{label:'Avg power',value:String(Math.round(inspectedAverages.power)),unit:'W'}]:[]),
+    ...(available.heartRate&&inspectedAverages.heartRate!=null?[{label:'Avg heart rate',value:String(Math.round(inspectedAverages.heartRate)),unit:'bpm'}]:[]),
+    ...(available.cadence&&inspectedAverages.cadence!=null?[{label:'Avg cadence',value:String(Math.round(inspectedAverages.cadence)),unit:unit('cadence')}]:[]),
+    ...(!inspectedLap&&!range&&!selection&&totals?.elevation_gain!=null?[{label:'Elevation gain',value:String(Math.round(totals.elevation_gain/.3048)),unit:'ft'}]:[]),
+  ].filter(card=>card.value)
   useEffect(()=>{
-    const controller=new AbortController()
-    void apiFetch(`/api/activities/${encodeURIComponent(id)}/summary?v=${encodeURIComponent(revision)}`,{signal:controller.signal})
-      .then(async response=>{if(!response.ok)throw Error('Summary unavailable');return await response.json() as WorkoutSummaryValues})
-      .then(values=>{if(!controller.signal.aborted)setTotals({...summary,...values,elapsed_time_seconds:values.elapsed_time_seconds ?? summary?.elapsed_time_seconds,elapsed_speed:values.elapsed_speed ?? summary?.elapsed_speed})})
-      .catch(()=>{/* Retain verified calendar totals when a refresh fails. */})
-    return()=>controller.abort()
-  },[id,revision,summary])
-  useEffect(() => {
-    if (cache.has(key)) return
-    const controller = new AbortController()
-    void apiFetch(`/api/activities/${encodeURIComponent(id)}/analysis?v=${encodeURIComponent(revision)}`, {signal:controller.signal})
-      .then(async response => {
-        if (!response.ok) throw Error('The recording could not be loaded.')
-        return await response.json() as Analysis
-      }).then(recording => {
-        if (controller.signal.aborted) return
-        cache.set(key, recording)
-        if (cache.size > 20) cache.delete(cache.keys().next().value!)
-        setData(recording)
-      }).catch(error => { if (error.name !== 'AbortError') setError(error.message) })
-    return () => controller.abort()
-  }, [id, retry,key,revision])
-  if (error) return <div role="alert" className="rounded-xl border p-4 text-sm">{error}<Button variant="outline" size="sm" className="ml-3" onClick={() => {setError(''); setRetry(value => value + 1)}}>Retry</Button></div>
-  if (!data) return <div role="status" className="animate-pulse rounded-xl border bg-muted/30 p-8 text-center text-sm text-muted-foreground">Loading recorded signals and intervals…</div>
-  if (!data.points.length) return <div className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">No recorded signals are available.</div>
-  // Selection highlights the interval, never changing the chart scale.
-  return <MobileWorkoutSignals points={data.points} laps={data.laps} duration={data.duration} sport={sport} summary={totals}/>
+    if(!selected || !range || !data)return
+    const segment=data.laps.find(l=>l.id===selected)
+    if(segment && (Math.abs(range[0]-Math.max(0,segment.start))>.5 || Math.abs(range[1]-Math.min(duration,segment.end))>.5))setSelected('')
+  },[range,selected,data,duration])
+  const plotLeft=128,plotWidth=850,plotRight=plotLeft+plotWidth,unitLeft=998
+  const x=(time:number,overview=false)=>plotLeft+(time-(overview?0:view[0]))/(overview?duration:Math.max(1,view[1]-view[0]))*plotWidth
+  const timeAt=(e:PointerEvent<SVGSVGElement>,overview=false)=>{const b=e.currentTarget.getBoundingClientRect(),fraction=Math.max(0,Math.min(1,((e.clientX-b.left)/b.width*1080-plotLeft)/plotWidth));return (overview?0:view[0])+fraction*(overview?duration:view[1]-view[0])}
+  const move=(e:PointerEvent<SVGSVGElement>,overview=false)=>{const t=timeAt(e,overview);setCursor(t);const g=gesture.current;if(!g)return;if(g.pan){const bounds=e.currentTarget.getBoundingClientRect(),delta=(g.overview?1:-1)*(e.clientX-g.x)/bounds.width*1080/plotWidth*(g.overview?duration:g.range[1]-g.range[0]),width=g.range[1]-g.range[0],start=Math.max(0,Math.min(duration-width,g.range[0]+delta));setRange([start,start+width])}else setSelection([g.time,t])}
+  const down=(e:PointerEvent<SVGSVGElement>,overview=false)=>{if(e.button!==0)return;e.currentTarget.setPointerCapture(e.pointerId);const t=timeAt(e,overview);const pan=overview&&Boolean(range)&&t>=view[0]&&t<=view[1];gesture.current={x:e.clientX,time:t,range:[view[0],view[1]],overview,pan};if(!pan)setSelection([t,t]);setSelected('')}
+  const up=(e:PointerEvent<SVGSVGElement>)=>{const g=gesture.current;if(!g)return;const t=timeAt(e,g.overview);if(!g.pan&&Math.abs(e.clientX-g.x)>5&&Math.abs(t-g.time)>=2){setRange([Math.min(t,g.time),Math.max(t,g.time)])}gesture.current=null;setSelection(null);if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId)}
+  const reset=()=>{setRange(null);setSelected('');setHovered(null);setSelection(null);setCursor(null)}
+  if(error)return <div className="border p-4 text-sm">{error}<Button variant="outline" size="sm" className="ml-3" onClick={()=>setRetry(r=>r+1)}>Retry</Button></div>
+  if(!data)return <div role="status" className="animate-pulse border bg-muted/30 p-8 text-center text-sm text-muted-foreground">Loading recorded signals and laps…</div>
+  if(!data.points.length||!tracks.length)return <div className="border border-dashed p-5 text-sm text-muted-foreground">No recorded signal stream is available for this activity.</div>
+  const laps=data.laps,height=signalTracks.length*104+34
+  const colors:Record<string,string>={elevation:'#65a30d',pace:'#0284c7',speed:'#0284c7',power:'#6d28d9',heartRate:'#dc2626',cadence:'#c026d3'}
+  const hoverStart=hovered?Math.max(view[0],hovered.start):0,hoverEnd=hovered?Math.min(view[1],hovered.end):0
+  return <><div className="space-y-5 md:hidden"><MobileWorkoutSignals points={data.points} laps={laps} duration={duration} sport={sport} onLapSelect={lap=>setSelected(lap?.id || '')}/></div><section aria-label="Recorded workout analysis" className="workout-analysis-desktop hidden w-full min-w-0 overflow-hidden rounded-xl border bg-card p-4 shadow-sm md:block"><style>{`.workout-analysis-desktop svg text { font-size: .85em !important; }`}</style>
+    {available.elevation&&<svg viewBox="0 0 1080 126" preserveAspectRatio="none" className="block h-32 w-full touch-none select-none cursor-crosshair" role="img" aria-label="Elevation profile" onPointerDown={e=>down(e)} onPointerMove={e=>move(e)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}} onPointerLeave={()=>{if(!gesture.current)setCursor(null)}}>
+      {(()=>{const values=visible.map(p=>value(p,'elevation')).filter((v):v is number=>v!=null),min=Math.min(...values),max=Math.max(...values),span=Math.max(1,max-min),y=(v:number)=>88-(v-min)/span*68;let d='',firstX=0,lastX=0,previous=false;for(const p of visible){const v=value(p,'elevation');if(v==null){previous=false;continue}const px=x(p.time);if(!d)firstX=px;lastX=px;d+=`${previous?'L':'M'}${px.toFixed(1)},${y(v).toFixed(1)} `;previous=true}return <><rect x={plotLeft} y="12" width={plotWidth} height="80" fill={colors.elevation} fillOpacity=".025"/>{[0,.5,1].map(f=><line key={f} x1={plotLeft} x2={plotRight} y1={88-f*68} y2={88-f*68} stroke="currentColor" opacity=".08"/>)}<text x="14" y="28" fontSize="12" fontWeight="600" fill={colors.elevation}>Elevation</text><text x="14" y="51" fontSize="9" fill="currentColor" opacity=".55">Max</text><text x="42" y="51" fontSize="12" fontWeight="600" fill="currentColor">{format(max,'elevation')}</text><text x="14" y="72" fontSize="9" fill="currentColor" opacity=".55">Avg</text><text x="42" y="72" fontSize="12" fontWeight="600" fill="currentColor">{format(values.reduce((sum,item)=>sum+item,0)/values.length,'elevation')}</text><text x={unitLeft} y="55" textAnchor="start" fontSize="10" fill="currentColor" opacity=".55">ft</text>{d&&<path d={`${d}L${lastX.toFixed(1)},88 L${firstX.toFixed(1)},88 Z`} fill={colors.elevation} fillOpacity=".16"/>}<path d={d} fill="none" stroke={colors.elevation} strokeWidth="2"/>{hovered&&hoverEnd>hoverStart&&<rect x={x(hoverStart)} y="12" width={x(hoverEnd)-x(hoverStart)} height="80" fill="#64748b" fillOpacity=".16"/>}{nearest&&<line x1={x(nearest.time)} x2={x(nearest.time)} y1="12" y2="92" stroke="currentColor" opacity=".35" strokeDasharray="3 3"/>}{selection&&<rect x={Math.min(x(selection[0]),x(selection[1]))} y="12" width={Math.abs(x(selection[1])-x(selection[0]))} height="80" fill="currentColor" fillOpacity=".055" stroke="currentColor" strokeOpacity=".25"/>}{Array.from({length:6},(_,i)=>view[0]+(view[1]-view[0])*i/5).map(t=><text key={t} x={x(t)} y="116" fontSize="10" textAnchor="middle" fill="currentColor" opacity=".55">{clock(t)}</text>)}</>})()}
+    </svg>}
+    <div className="space-y-2 border-b py-3" aria-label="Recorded lap timeline">
+      <div className="flex min-h-7 items-center justify-between gap-3 px-4 text-xs"><span className="font-medium">{inspectedLap?.label || 'Workout laps'}</span><div className="flex items-center gap-3"><span className="text-muted-foreground">Hover to preview · Click to zoom</span><Button size="sm" variant="ghost" className={`h-7 px-2 text-xs ${range?'':'invisible pointer-events-none'}`} onClick={reset} aria-hidden={!range} tabIndex={range?0:-1} aria-label="Reset zoom to full workout"><RotateCcw className="size-3.5"/>Reset zoom</Button></div></div>
+      <div className="flex items-center"><div style={{marginLeft:`${plotLeft/1080*100}%`,marginRight:`${(1080-plotRight)/1080*100}%`}} className="relative h-8 flex-1 overflow-hidden rounded-sm bg-muted/35">{laps.filter(l=>l.end>view[0]&&l.start<view[1]).map(l=><button key={l.id} aria-label={`Zoom to ${l.label}`} title={`${l.label} · ${clock(l.start)}–${clock(l.end)}`} aria-pressed={selected===l.id} onMouseEnter={()=>setHovered(l)} onMouseLeave={()=>setHovered(null)} onFocus={()=>setHovered(l)} onBlur={()=>setHovered(null)} onClick={()=>focusSegment(l)} style={{left:`${(Math.max(view[0],l.start)-view[0])/(view[1]-view[0])*100}%`,width:`${Math.max(0,Math.min(view[1],l.end)-Math.max(view[0],l.start))/(view[1]-view[0])*100}%`}} className={`absolute inset-y-1 overflow-hidden border border-background bg-slate-300 transition hover:z-10 hover:bg-slate-400 focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-500 dark:bg-slate-600 dark:hover:bg-slate-500 ${selected===l.id?'z-10 ring-2 ring-slate-500 ring-inset':''}`}/>) }{!laps.length&&<span className="px-2 text-[10px] leading-8 text-muted-foreground">No recorded laps</span>}</div></div>
+    </div>
+    <div aria-label={inspectedLap?'Hovered lap statistics':'Workout averages'} className="flex min-h-16 divide-x border-b bg-background px-3 py-2 text-center">{statCards.map(card=><div key={card.label} className="flex min-w-0 flex-1 flex-col items-center justify-center px-3"><p className="w-full truncate text-[10px] text-muted-foreground">{card.label}</p><p className="mt-1 text-base font-semibold tabular-nums">{card.value} {card.unit&&<span className="text-[10px] font-normal text-muted-foreground">{card.unit}</span>}</p></div>)}</div>
+    {!!signalTracks.length&&<svg viewBox={`0 0 1080 ${height}`} preserveAspectRatio="none" className="block min-h-44 w-full cursor-crosshair touch-none select-none" role="img" aria-label="Recorded signals. Drag to zoom. Use the navigator below or arrow keys to pan." tabIndex={0} onKeyDown={e=>{if(!range || !['ArrowLeft','ArrowRight'].includes(e.key))return;e.preventDefault();const width=range[1]-range[0],start=Math.max(0,Math.min(duration-width,range[0]+width*.1*(e.key==='ArrowRight'?1:-1)));setRange([start,start+width])}} onPointerDown={e=>down(e)} onPointerMove={e=>move(e)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}} onPointerLeave={()=>{if(!gesture.current)setCursor(null)}}>
+      {signalTracks.map((key,lane)=>{const values=visible.map(p=>value(p,key)).filter((v):v is number=>v!=null),rawMin=Math.min(...values),rawMax=Math.max(...values),padding=Math.max((rawMax-rawMin)*.08,key==='pace'?1:.5),min=rawMin-padding,max=rawMax+padding,span=Math.max(1,max-min),top=lane*104+8;const y=(v:number)=>top+82-(key==='pace'?max-v:v-min)/span*68;let d='',previous=false;const stride=Math.max(1,Math.floor(visible.length/1800));for(let i=0;i<visible.length;i+=stride){const p=visible[i],v=value(p,key);if(v==null){previous=false;continue}const px=x(p.time);d+=`${previous?'L':'M'}${px.toFixed(1)},${y(v).toFixed(1)} `;previous=true}const arithmetic=values.reduce((sum,item)=>sum+item,0)/values.length;const average=key==='pace'?(displayedAverages.speed?paceDistance/displayedAverages.speed:arithmetic):key==='speed'?(displayedAverages.speed!=null?displayedAverages.speed*2.2369362920544:arithmetic):key==='power'?(displayedAverages.power??arithmetic):key==='heartRate'?(displayedAverages.heartRate??arithmetic):(displayedAverages.cadence??arithmetic);const maximum=key==='pace'?rawMin:rawMax;return <g key={key}><rect x={plotLeft} y={top} width={plotWidth} height="90" fill={colors[key]} fillOpacity=".025"/>{[0,.5,1].map(f=><line key={f} x1={plotLeft} x2={plotRight} y1={top+82-f*68} y2={top+82-f*68} stroke="currentColor" opacity=".08"/>)}<text x="14" y={top+22} fontSize="16" fontWeight="600" fill={colors[key]}>{label(key)}</text><text x="14" y={top+48} fontSize="13" fill="currentColor" opacity=".65">{key==='pace'?'Fastest':'Max'}</text><text x="70" y={top+48} fontSize="18" fontWeight="700" fill="currentColor">{format(maximum,key)}</text><text x="14" y={top+76} fontSize="13" fill="currentColor" opacity=".65">Avg</text><text x="70" y={top+76} fontSize="18" fontWeight="700" fill="currentColor">{format(average,key)}</text><text x={unitLeft} y={top+54} textAnchor="start" fontSize="13" fill="currentColor" opacity=".65">{unit(key)}</text>{laps.filter(l=>l.start>=view[0]&&l.start<=view[1]).map(l=><line key={l.id} x1={x(l.start)} x2={x(l.start)} y1={top} y2={top+90} stroke="currentColor" opacity=".1" strokeDasharray="3 3"/>)}<path d={d} fill="none" stroke={colors[key]} strokeWidth="1.5" strokeLinejoin="round"/></g>})}
+      {hovered&&hoverEnd>hoverStart&&<rect x={x(hoverStart)} y="0" width={x(hoverEnd)-x(hoverStart)} height={height-25} fill="#64748b" fillOpacity=".16"/>}
+      {selection&&<rect x={Math.min(x(selection[0]),x(selection[1]))} y="0" width={Math.abs(x(selection[1])-x(selection[0]))} height={height-25} fill="currentColor" fillOpacity=".055" stroke="currentColor" strokeOpacity=".25"/>}
+      {nearest&&<line x1={x(nearest.time)} x2={x(nearest.time)} y1="0" y2={height-25} stroke="currentColor" opacity=".4" strokeDasharray="3 3"/>}
+      {Array.from({length:6},(_,i)=>view[0]+(view[1]-view[0])*i/5).map(t=><text key={t} x={x(t)} y={height-5} fontSize="11" textAnchor="middle" fill="currentColor" opacity=".6">{clock(t)}</text>)}
+    </svg>}
+    {range&&<div className="border-t px-4 py-1" aria-label="Pan selected chart range"><svg viewBox="0 0 1080 20" preserveAspectRatio="none" className="block h-5 w-full cursor-grab touch-none active:cursor-grabbing" role="slider" aria-label="Drag the selected range to pan across the workout" aria-valuemin={0} aria-valuemax={Math.round(duration)} aria-valuenow={Math.round(view[0])} aria-valuetext={`${clock(view[0])} to ${clock(view[1])}`} onPointerDown={event=>down(event,true)} onPointerMove={event=>move(event,true)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}}><rect x={plotLeft} y="7" width={plotWidth} height="6" rx="3" fill="currentColor" opacity=".08"/><rect x={x(view[0],true)} y="4" width={Math.max(8,x(view[1],true)-x(view[0],true))} height="12" rx="3" fill="#64748b" fillOpacity=".35" stroke="#475569" strokeWidth="1"/></svg></div>}
+  </section></>
 }

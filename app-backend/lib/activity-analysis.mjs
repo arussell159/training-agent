@@ -12,8 +12,10 @@ export function readFitLaps(buffer){
 
 export function normalizeAnalysis(activity,streams,fitLaps=[]){
   const byType=new Map(streams.map(s=>[s.type,s.data || []])),times=byType.get('time') || [];
+  const location=streams.find(stream=>stream.type==='latlng');
   const numeric=v=>typeof v==='number' && Number.isFinite(v)?v:null;
-  const points=times.map((time,i)=>({time:numeric(time),power:numeric(byType.get('watts')?.[i]),heartRate:numeric(byType.get('heartrate')?.[i]),cadence:numeric(byType.get('cadence')?.[i]),speed:numeric(byType.get('velocity_smooth')?.[i]),distance:numeric(byType.get('distance')?.[i])})).filter(p=>p.time!==null);
+  const coordinate=i=>Array.isArray(location?.data?.[i])?location.data[i]:[location?.data?.[i],location?.data2?.[i]];
+  const points=times.map((time,i)=>{const position=coordinate(i),latitude=numeric(position?.[0]),longitude=numeric(position?.[1]);return {time:numeric(time),power:numeric(byType.get('watts')?.[i]),heartRate:numeric(byType.get('heartrate')?.[i]),cadence:numeric(byType.get('cadence')?.[i]),speed:numeric(byType.get('velocity_smooth')?.[i]),distance:numeric(byType.get('distance')?.[i]),elevation:numeric(byType.get('altitude')?.[i]),latitude:latitude!=null&&Math.abs(latitude)<=85?latitude:null,longitude:longitude!=null&&Math.abs(longitude)<=180?longitude:null}}).filter(p=>p.time!==null);
   const epoch=Date.UTC(1989,11,31)/1000,start=Date.parse(activity.start_date)/1000-epoch;
   const laps=fitLaps.filter(l=>Number.isFinite(start)).map((l,i)=>({id:`lap-${i}`,label:`Lap ${i+1}`,start:Math.max(0,l.timestamp-start),end:l.timestamp-start+l.duration,power:l.power,heartRate:l.heartRate,distance:l.distance,kind:'lap'}));
   const intervals=(activity.icu_intervals || []).filter(l=>Number.isFinite(l.start_time)&&Number.isFinite(l.end_time)).map((l,i)=>({id:`interval-${i}`,label:l.label || `${l.type==='WORK'?'Work':'Recovery'} ${i+1}`,start:l.start_time,end:l.end_time,power:l.average_watts??null,heartRate:l.average_heartrate??null,distance:l.distance??null,kind:'interval'}));
@@ -26,5 +28,5 @@ export function normalizeAnalysis(activity,streams,fitLaps=[]){
     ...l,label:l.distance>0?`${Math.round(l.distance/.9144)} yd · Interval ${i+1}`:`Interval ${i+1}`,
     speed:l.distance>0 && l.end>l.start?l.distance/(l.end-l.start):null,
   })):laps;
-  return {activityId:activity.id,points,laps:displayedLaps,intervals,duration:points.at(-1)?.time || 0};
+  return {version:3,activityId:activity.id,points,laps:displayedLaps,intervals,duration:points.at(-1)?.time || 0};
 }

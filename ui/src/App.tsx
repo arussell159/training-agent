@@ -11,6 +11,7 @@ import {
   SquarePen,
   RefreshCw,
   Settings,
+  CalendarRange,
 } from "lucide-react"
 
 import {
@@ -39,9 +40,11 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
   loadCoachConversations,
   refreshRecentIntervals,
+  cachedTrainingContext,
   type CoachConversationSummary,
   type PlannedWorkout,
 } from "@/lib/training-context"
+import {forgetOpenWorkout,rememberOpenWorkout,restoreOpenWorkout} from '@/lib/workout-navigation'
 
 const SettingsWorkspace = lazy(() =>
   import("@/components/settings-workspace").then((module) => ({
@@ -68,6 +71,7 @@ const TrainingLibrary = lazy(() =>
     default: module.TrainingLibrary,
   }))
 )
+const AnnualPlanCreator = lazy(() => import("@/components/annual-plan-creator").then((module) => ({ default: module.AnnualPlanCreator })))
 const WorkoutDetailPage = lazy(() =>
   import("@/components/workout-detail-page").then((module) => ({
     default: module.WorkoutDetailPage,
@@ -88,6 +92,7 @@ const navigation = [
   { label: "Calendar", icon: CalendarDays },
   { label: "Coach", icon: MessageCircle },
   { label: "Library", icon: Library },
+  { label: "Annual Plan", icon: CalendarRange },
   { label: "Settings", icon: Settings },
 ]
 
@@ -99,6 +104,7 @@ function routeItem() {
   )
     return "Calendar"
   if (window.location.pathname === "/library") return "Library"
+  if (window.location.pathname === "/annual-plan") return "Annual Plan"
   if (window.location.pathname === "/settings") return "Settings"
   return "Home"
 }
@@ -111,6 +117,7 @@ function itemPath(item: string) {
         Coach: "/coach",
         Calendar: "/calendar",
         Library: "/library",
+        "Annual Plan": "/annual-plan",
         Settings: "/settings",
       } as Record<string, string>
     )[item] || "/coach"
@@ -141,9 +148,7 @@ function AppWorkspace() {
   const [newChatVersion, setNewChatVersion] = useState(0)
   const [conversationToDelete, setConversationToDelete] =
     useState<CoachConversationSummary | null>(null)
-  const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(
-    null
-  )
+  const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(()=>window.matchMedia('(max-width: 767px)').matches?restoreOpenWorkout([...cachedTrainingContext().planned,...cachedTrainingContext().history]):null)
   const [refreshRequest, setRefreshRequest] = useState(0)
   const [contextVersion, setContextVersion] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -192,7 +197,7 @@ function AppWorkspace() {
   useEffect(() => {
     const handlePopState = () => {
       const route = routeConversation()
-      setSelectedWorkout(null)
+      setSelectedWorkout(window.matchMedia('(max-width: 767px)').matches?restoreOpenWorkout([...cachedTrainingContext().planned,...cachedTrainingContext().history]):null)
       setActiveItem(routeItem())
       setConversationId(route.conversationId)
       setReviewId(route.reviewId)
@@ -283,12 +288,14 @@ function AppWorkspace() {
 
   const openWorkout = (workout: PlannedWorkout) => {
     workoutReturnScroll.current = window.scrollY
+    rememberOpenWorkout(workout)
     setSelectedWorkout(workout)
     requestAnimationFrame(() => window.scrollTo({ top: 0 }))
   }
 
   const closeWorkout = () => {
     const returnTo = workoutReturnScroll.current
+    forgetOpenWorkout()
     setSelectedWorkout(null)
     requestAnimationFrame(() => window.scrollTo({ top: returnTo }))
   }
@@ -537,6 +544,8 @@ function AppWorkspace() {
               <SettingsWorkspace />
             ) : activeItem === "Library" ? (
               <TrainingLibrary onWorkoutOpen={openWorkout} />
+            ) : activeItem === "Annual Plan" ? (
+              <AnnualPlanCreator />
             ) : null}
           </Suspense>
         </main>

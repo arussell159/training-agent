@@ -55,9 +55,17 @@ function pace(speed, distance, unit) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2,'0')} ${unit}`;
 }
 
+function appWorkoutDoc(doc,type) {
+  if(!doc || !/Swim/i.test(type || '') || !/y$/i.test(String(doc.options?.pool_length || '')))return doc;
+  const normalize=steps=>(steps || []).map(step=>step.steps?{...step,steps:normalize(step.steps)}:
+    step.distance>0&&step.pace?.units==='secs'?{...step,distance_units:'yards'}:step);
+  return {...doc,steps:normalize(doc.steps)};
+}
+
 export function mapIntervalsWorkout(item, today, activity = null, isActivity = false) {
   const actual = isActivity ? item : activity;
-  const description=String(item.description || '').split('\n\nIntervals.icu device definition:\n')[0];
+  const description=String(item.description || '').split('\n\nIntervals.icu device definition:\n')[0]
+    .replace(/^\*\*(Warm Up:|Main Set:|Warm Down:)\*\*$/gm,'$1').trim();
   const date = String(item.start_date_local || '').slice(0,10);
   validDate(date);
   const minutes = Math.round(Number(item.moving_time || item.workout_doc?.duration || 0) / 60);
@@ -95,7 +103,7 @@ export function mapIntervalsWorkout(item, today, activity = null, isActivity = f
       power_watts:actual.icu_average_watts, normalized_power:actual.icu_weighted_avg_watts, rpe:actual.icu_rpe,
       pace_seconds_per_unit:actual.distance > 0 ? actual.moving_time / actual.distance : undefined} : {},
     // Calendar dates are local all-day values, not UTC timestamps.
-    scheduled_start_at:null, structure:item.workout_doc ? JSON.stringify(item.workout_doc) : null,
+    scheduled_start_at:null, structure:item.workout_doc ? JSON.stringify(appWorkoutDoc(item.workout_doc,item.type)) : null,
     source_updated_at:item.updated || null, source:'intervals',
     measurement_quality:{power_available:actual?.icu_average_watts != null,heart_rate_available:actual?.average_heartrate != null},
     workout_summary:{planned:isActivity?null:summary(item),completed:summary(actual)},
@@ -129,7 +137,7 @@ export async function fetchIntervalsContext(request, {now = new Date(), timeZone
     athlete:{id:String(athlete.id), name:athlete.name || [athlete.first_name,athlete.last_name].filter(Boolean).join(' '),
       time_zone:timeZone, sport_settings:settings, thresholds:settings,
       zones:{bike_ftp:bike.ftp ?? null,run_threshold_pace:pace(run.threshold_pace,1000,'min/km'),
-        swim_css:pace(swim.threshold_pace,100,'min/100 m'),threshold_hr:run.lthr ?? bike.lthr ?? null}},
+        swim_css:pace(swim.threshold_pace,91.44,'min/100 yd'),threshold_hr:run.lthr ?? bike.lthr ?? null}},
     metrics:{fitness:latest.ctl ?? null,fatigue:latest.atl ?? null,form:latest.ctl != null && latest.atl != null ? latest.ctl - latest.atl : null},
     wellness:{hrv:latest.hrv ?? null,resting_hr:latest.restingHR ?? null,sleep:latest.sleepSecs ?? null},
     wellness_history:(wellness || []).map(w => ({...w,date:w.id})),

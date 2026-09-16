@@ -44,6 +44,23 @@ test('historical and paired completed workouts retain actual Intervals summary v
  assert.equal(paired.planned.calories,null);
 });
 
+test('app descriptions hide device definitions and use plain workout section headings',()=>{
+ const description='**Warm Up:**\n10 mins in Z2.\n\n**Main Set:**\n4 x (2 mins in Z4 + 2 mins recovery in Z2).\n\n**Warm Down:**\n5 mins in Z2.\n\nIntervals.icu device definition:\n- 600s Z2';
+ const mapped=mapIntervalsWorkout({id:42,start_date_local:'2026-09-16T00:00:00',type:'Ride',description},'2026-09-16');
+ assert.equal(mapped.details,'Warm Up:\n10 mins in Z2.\n\nMain Set:\n4 x (2 mins in Z4 + 2 mins recovery in Z2).\n\nWarm Down:\n5 mins in Z2.');
+ assert.equal(mapped.goal,mapped.details);
+});
+
+test('app structure retains repeat sets and normalizes parsed yard distances for hover details',()=>{
+ const workout_doc={options:{pool_length:'25y'},steps:[{reps:3,steps:[{distance:400,duration:439,pace:{value:100,units:'secs'}},{duration:20,intensity:'rest'}]}]};
+ const mapped=mapIntervalsWorkout({id:43,start_date_local:'2026-09-16T00:00:00',type:'Swim',workout_doc},'2026-09-16');
+ const structure=JSON.parse(mapped.structure);
+ assert.equal(structure.steps[0].reps,3);
+ assert.equal(structure.steps[0].steps.length,2);
+ assert.equal(structure.steps[0].steps[0].distance,400);
+ assert.equal(structure.steps[0].steps[0].distance_units,'yards');
+});
+
 test('calendar range fetches only the requested week of workouts',async()=>{
   const paths=[];
   await fetchIntervalsContext(async path=>{paths.push(path);return path==='/athlete/0'?{id:'i1'}:[];},{range:{start:'2026-09-14',end:'2026-09-20'}});
@@ -81,7 +98,7 @@ test('context maps seconds and m/s, deduplicates paired activities and uses athl
   const activity=context.planned.find(w=>w.id==='activity:a2');
   assert.equal(activity.editable,false);
   assert.equal(context.athlete.zones.run_threshold_pace,'4:52 min/km');
-  assert.equal(context.athlete.zones.swim_css,'1:40 min/100 m');
+  assert.equal(context.athlete.zones.swim_css,'1:31 min/100 yd');
   assert.equal(context.metrics.form,-10);
 });
 

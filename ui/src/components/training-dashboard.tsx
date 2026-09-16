@@ -9,6 +9,7 @@ import {
   cachedTrainingContext,
   type PlannedWorkout,
 } from "@/lib/training-context"
+import {forgetOpenWorkout,rememberOpenWorkout,restoreOpenWorkout} from '@/lib/workout-navigation'
 
 const WorkoutDialog = lazy(() => import("@/components/training-calendar").then((module) => ({ default:module.WorkoutDialog })))
 
@@ -22,7 +23,7 @@ export function TrainingDashboard({
   onRefreshComplete?: () => void
 }) {
   const [context, setContext] = useState(cachedTrainingContext)
-  const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(null)
+  const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(()=>restoreOpenWorkout([...cachedTrainingContext().planned,...cachedTrainingContext().history]))
   const isMobile = useIsMobile()
 
   const openWorkout = (workout: PlannedWorkout) => {
@@ -30,6 +31,7 @@ export function TrainingDashboard({
       onWorkoutOpen(workout)
       return
     }
+    rememberOpenWorkout(workout)
     setSelectedWorkout(workout)
   }
   useEffect(() => {
@@ -41,6 +43,12 @@ export function TrainingDashboard({
       active = false
     }
   }, [])
+
+  useEffect(()=>{
+    const restore=()=>setSelectedWorkout(restoreOpenWorkout([...context.planned,...context.history]))
+    window.addEventListener('popstate',restore)
+    return()=>window.removeEventListener('popstate',restore)
+  },[context])
 
   useEffect(() => {
     let active = true
@@ -76,7 +84,7 @@ export function TrainingDashboard({
         <Suspense fallback={null}>
           <WorkoutDialog
             workout={selectedWorkout}
-            onOpenChange={(open) => !open && setSelectedWorkout(null)}
+            onOpenChange={(open) => {if(!open){forgetOpenWorkout();setSelectedWorkout(null)}}}
           />
         </Suspense>
       ) : null}

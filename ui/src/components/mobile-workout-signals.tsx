@@ -1,4 +1,4 @@
-import {useMemo,useState,type PointerEvent} from 'react'
+import {useEffect,useMemo,useState,type PointerEvent} from 'react'
 import type {RecordedPoint} from '@/lib/segment-statistics'
 import {formatSignalClock,intervalSignals,tooltipPosition} from '@/lib/interval-signals'
 import {WorkoutLapChart} from '@/components/workout-lap-chart'
@@ -6,7 +6,7 @@ import {WorkoutChartStats} from '@/components/workout-chart-stats'
 import type {WorkoutSummaryValues} from '@/lib/training-context'
 
 type Lap={id:string;label:string;start:number;end:number;distance?:number|null;speed?:number|null}
-export function MobileWorkoutSignals({points,laps,duration,sport,summary}:{points:RecordedPoint[];laps:Lap[];duration:number;sport:string;summary?:WorkoutSummaryValues|null}){
+export function MobileWorkoutSignals({points,laps,duration,sport,summary,onLapSelect}:{points:RecordedPoint[];laps:Lap[];duration:number;sport:string;summary?:WorkoutSummaryValues|null;onLapSelect?:(lap:Lap|null)=>void}){
  const [time,setTime]=useState<number|null>(null),[lap,setLap]=useState<Lap|null>(null)
  const swim=/swim/i.test(sport),run=/run/i.test(sport)
  const primary=run||swim?'pace':'power'
@@ -20,10 +20,20 @@ export function MobileWorkoutSignals({points,laps,duration,sport,summary}:{point
  const nearest=time==null?null:points.reduce<RecordedPoint|null>((best,p)=>!best||Math.abs(p.time-time)<Math.abs(best.time-time)?p:best,null)
  const interval=intervals.find(i=>lap?i.lap.id===lap.id:time!=null&&time>=i.lap.start&&time<i.lap.end)
  const averagePoint=interval?.point
- const move=(e:PointerEvent<SVGSVGElement>)=>{if(!e.isPrimary)return;setLap(null);const b=e.currentTarget.getBoundingClientRect();setTime(Math.max(0,Math.min(duration,((e.clientX-b.left)/b.width*400-40)/344*duration)))}
+ const move=(e:PointerEvent<SVGSVGElement>)=>{if(!e.isPrimary)return;setLap(null);onLapSelect?.(null);const b=e.currentTarget.getBoundingClientRect();setTime(Math.max(0,Math.min(duration,((e.clientX-b.left)/b.width*400-40)/344*duration)))}
+ useEffect(()=>{
+  if(!lap)return
+  const clear=(event:globalThis.PointerEvent)=>{
+   const target=event.target
+   if(target instanceof Element&&target.closest('[data-workout-lap-control]'))return
+   setLap(null);setTime(null);onLapSelect?.(null)
+  }
+  document.addEventListener('pointerdown',clear,true)
+  return()=>document.removeEventListener('pointerdown',clear,true)
+ },[lap,onLapSelect])
  const x=(t:number)=>40+t/Math.max(1,duration)*344
  return <section className="mx-auto w-full max-w-2xl space-y-5" aria-label="Recorded workout graphs">
-  <WorkoutLapChart points={points} laps={laps} sport={sport} selected={lap} onSelect={selected=>{setLap(selected);setTime((selected.start+selected.end)/2)}}/>
+  <WorkoutLapChart points={points} laps={laps} sport={sport} selected={lap} onSelect={selected=>{setLap(selected);setTime((selected.start+selected.end)/2);onLapSelect?.(selected)}}/>
   <div className="hidden md:block"><p className="mb-2 text-xs font-medium text-muted-foreground">{lap?.label || (swim?'Swim intervals':'Laps')}</p><div className="relative h-8" style={{marginLeft:'10%',marginRight:'4%'}}>{laps.map((l,i)=><button key={l.id} title={l.label} aria-label={`Highlight ${l.label}`} aria-pressed={lap?.id===l.id} onClick={()=>{setLap(l);setTime(l.start)}} style={{left:`${Math.max(0,l.start)/Math.max(1,duration)*100}%`,width:`${Math.max(0,Math.min(duration,l.end)-Math.max(0,l.start))/Math.max(1,duration)*100}%`}} className={`absolute inset-y-0 overflow-hidden rounded border border-background text-[10px] ${lap?.id===l.id?'bg-sky-500 text-white':'bg-slate-200 text-slate-700'}`}>{swim&&l.distance?Math.round(l.distance/.9144):i+1}</button>)}</div></div>
   {tracks.map(key=>{
    const samples=points.filter((_,i)=>i%Math.max(1,Math.floor(points.length/800))===0)

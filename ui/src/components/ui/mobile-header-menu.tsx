@@ -34,7 +34,7 @@ export function MobileHeaderMenu() {
     <div className="ml-auto shrink-0 md:hidden">
       <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger
-          render={<Button variant="ghost" size="icon" aria-label="Page menu" />}
+          render={<Button variant="ghost" size="icon" className="size-9 rounded-full bg-white/50 p-0 shadow-sm backdrop-blur-sm hover:bg-white/70" aria-label="Page menu" />}
         >
           <Ellipsis className="size-5" />
         </DropdownMenuTrigger>

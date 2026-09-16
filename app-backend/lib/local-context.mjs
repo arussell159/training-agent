@@ -32,7 +32,22 @@ async function readData() {
     data.coach_conversations = activeConversations(data.coach_conversations)
     return data
   } catch (error) {
-    throw new Error(`Database state unavailable: ${error.message}`)
+    // Local development must remain usable when Supabase is temporarily
+    // unreachable. The JSON file is a read-only recovery snapshot here.
+    try {
+      const data = JSON.parse(await fs.readFile(dataPath, 'utf8'))
+      data.athlete = { id:"default", time_zone:"America/Chicago", ...(data.athlete || {}) }
+      data.metrics = {...data.metrics,fitness:null,fatigue:null,form:null}
+      data.history=[]
+      data.planned=[]
+      data.workouts=[]
+      data.notification_preferences = { enabled:false, review_time:"06:00", time_zone:data.athlete.time_zone || "America/Chicago", subscriptions:[], ...(data.notification_preferences || {}) }
+      data.daily_reviews = Array.isArray(data.daily_reviews) ? data.daily_reviews : []
+      data.coach_conversations = activeConversations(data.coach_conversations)
+      return data
+    } catch {
+      throw new Error(`Database state unavailable: ${error.message}`)
+    }
   }
 }
 

@@ -39,7 +39,12 @@ export async function loadActivityBundle(archive,config,request,id) {
 }
 
 export async function loadActivityView(archive,config,request,id,kind) {
-  const view=await archive.loadView(id,kind,async()=> (await loadActivityBundle(archive,config,request,id))[kind]);
+  let view=await archive.loadView(id,kind,async()=> (await loadActivityBundle(archive,config,request,id))[kind]);
+  if(kind==='analysis'&&view.version!==3){
+    const bundle=await archive.load(id,'bundle',()=>downloadActivityBundle(request,id,fileId=>downloadOriginalActivityFile(config,fileId)));
+    view=normalizeAnalysis(bundle.activity,bundle.streams,bundle.fitLaps);
+    if(archive.ready)await archive.saveViews(id,{analysis:view});
+  }
   if(kind==='summary'&&view.elapsed_time_seconds===undefined){
     const bundle=await archive.load(id,'bundle',()=>downloadActivityBundle(request,id,fileId=>downloadOriginalActivityFile(config,fileId)));
     Object.assign(view,elapsedSummary(bundle.activity));

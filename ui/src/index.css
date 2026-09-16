@@ -18,23 +18,44 @@ html, body {
   .mobile-site-header {
     position: sticky;
     top: 0;
-    background: color-mix(in oklch, var(--background) 65%, transparent);
-    border-color: color-mix(in oklch, var(--border) 60%, transparent);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    backdrop-filter: blur(20px) saturate(180%);
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%), 0 2px 12px rgb(0 0 0 / 5%);
+    border-color: transparent;
+    background: linear-gradient(to bottom, rgb(255 255 255 / 24%) 0%, rgb(255 255 255 / 4%) 52%, transparent 100%);
+    -webkit-backdrop-filter: blur(1.5px);
+    backdrop-filter: blur(1.5px);
+    box-shadow: none;
   }
 
   .mobile-site-header .mobile-header-title {
     position: absolute;
     top: 50%;
-    left: 80px;
-    right: 80px;
+    left: 64px;
+    right: 64px;
     margin: 0;
     text-align: center;
     pointer-events: none;
     transform: translateY(-50%);
   }
+
+  .mobile-site-header.workout-map-header {
+    position: fixed;
+    border-color: transparent;
+    background: linear-gradient(to bottom, rgb(255 255 255 / 24%) 0%, rgb(255 255 255 / 4%) 52%, transparent 100%);
+    box-shadow: none;
+    -webkit-backdrop-filter: blur(1.5px);
+    backdrop-filter: blur(1.5px);
+  }
+
+  .mobile-site-header.calendar-scroll-header {
+    position: fixed;
+    right: 0;
+    left: 0;
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
 }
 
 @theme inline {

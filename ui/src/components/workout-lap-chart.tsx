@@ -4,7 +4,7 @@ import type {RecordedPoint} from '@/lib/segment-statistics'
 
 export function WorkoutLapChart({points,laps,sport,selected,onSelect}:{points:RecordedPoint[];laps:RecordedLap[];sport:string;selected:RecordedLap|null;onSelect:(lap:RecordedLap)=>void}){
   const scroll=useRef<HTMLDivElement>(null)
-  const [scrollLeft,setScrollLeft]=useState(0)
+  const [scrollLeft,setScrollLeft]=useState(0),[hovered,setHovered]=useState<string|null>(null)
   const swim=/swim/i.test(sport),pace=/swim|run/i.test(sport)
   const intervals=useMemo(()=>intervalSignals(points,laps),[points,laps])
   const signal=(point:RecordedPoint)=>pace?point.speed!=null&&point.speed>.15?(swim?91.44:1609.344)/point.speed:null:point.power
@@ -25,7 +25,7 @@ export function WorkoutLapChart({points,laps,sport,selected,onSelect}:{points:Re
   const y=(value:number)=>pace?20+(value-low)/(high-low)*170:190-(value-low)/(high-low)*170
   const unit=pace?swim?'min/100 yd':'min/mi':'W'
   const format=(value:number)=>pace?formatSignalClock(value):Math.round(value).toLocaleString()
-  const inspected=bars.find(bar=>bar.lap.id===selected?.id)
+  const inspected=bars.find(bar=>bar.lap.id===(selected?.id||hovered))
   const viewportWidth=scroll.current?.clientWidth || 300
   const tooltipLeft=Math.max(92,Math.min(viewportWidth-92,(selected?positions.get(selected.id)?.center || 0:150)-scrollLeft))
   const select=(lap:RecordedLap,clientX?:number)=>{
@@ -49,9 +49,9 @@ export function WorkoutLapChart({points,laps,sport,selected,onSelect}:{points:Re
             {[0,.25,.5,.75,1].map(f=><line key={f} x1="0" x2={width} y1={20+170*f} y2={20+170*f} stroke="currentColor" opacity=".08"/>)}
             {bars.map(bar=>{
               const position=positions.get(bar.lap.id)!,left=position.left,barWidth=position.width,top=y(bar.value)
-              return <g key={bar.lap.id} role="button" tabIndex={0} aria-label={`${bar.lap.label}, ${format(bar.value)} ${unit}, duration ${formatSignalClock(bar.lap.end-bar.lap.start)}`} aria-pressed={selected?.id===bar.lap.id} className="cursor-pointer outline-none focus:opacity-70" onPointerDown={event=>{if(event.isPrimary){event.stopPropagation();select(bar.lap,event.clientX)}}} onClick={event=>{if(event.detail===0)select(bar.lap)}} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(bar.lap)}}}>
+              return <g key={bar.lap.id} data-workout-lap-control role="button" tabIndex={0} aria-label={`${bar.lap.label}, ${format(bar.value)} ${unit}, duration ${formatSignalClock(bar.lap.end-bar.lap.start)}`} aria-pressed={selected?.id===bar.lap.id} className="cursor-pointer outline-none focus:opacity-70" onPointerEnter={()=>setHovered(bar.lap.id)} onPointerLeave={()=>setHovered(null)} onPointerDown={event=>{if(event.isPrimary){event.stopPropagation();select(bar.lap,event.clientX)}}} onClick={event=>{if(event.detail===0)select(bar.lap)}} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(bar.lap)}}}>
                 <rect x={left} y={0} width={barWidth} height="228" fill="transparent"/>
-                <rect x={left} y={top} width={barWidth} height={Math.max(2,190-top)} rx={Math.min(7,barWidth/2)} fill={selected?.id===bar.lap.id?'#b8d5f3':'#287ed7'}/>
+                <rect x={left} y={top} width={barWidth} height={Math.max(2,190-top)} rx={Math.min(7,barWidth/2)} fill={(selected?.id===bar.lap.id||hovered===bar.lap.id)?'#b8d5f3':'#287ed7'}/>
                 {barWidth>22&&<text x={left+barWidth/2} y="214" textAnchor="middle" fontSize="11" fill="currentColor" opacity=".65">{bar.index+1}</text>}
               </g>
             })}

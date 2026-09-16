@@ -4,45 +4,44 @@ import {createIntervalsClient} from './intervals.mjs';
 import {athleteLocalDate} from './coach-training-context.mjs';
 import {DEVICE_DEFINITION_MARKER} from './race-plan-import.mjs';
 import {readFitWorkoutSteps,expandFitWorkoutSteps,readFitWorkoutMetadata} from './fit-workout-verification.mjs';
-import {flattenSwimDefinition} from './swim-device-definition.mjs';
 
-export const swimDescription=`**Warm Up:**
-1 x (300 yd freestyle Z1–Z2 + 0 secs rest)
-2 x (50 yd drill Z2 + 50 yd swim Z2 + 0 secs rest)
+export const swimDescription=`Warm Up:
+1 x (300 FS in Z1–2),
+2 x (50 Drill in Z2 + 50 FS in Z2).
 
-**Main Set:**
-4 x (50 yd freestyle build Z2–Z4 + 15 secs rest)
-3 x (400 yd freestyle Z3 + 30 secs rest)
-8 x (100 yd freestyle Z4 + 15 secs rest)
+Main Set:
+4 x (50 FS Build in Z2–4 + 15 sec rests),
+3 x (400 FS in Z3 + 30 sec rests),
+8 x (100 FS in Z4 + 15 sec rests).
 
-**Warm Down:**
-1 x (200 yd freestyle Z1–Z2 + 0 secs rest)
+Warm Down:
+1 x (200 FS in Z1–2).
 
 Rest is seconds on the wall, not a send-off. Unlisted pauses remain continuous. Total: 2,900 yd. Source planned duration: 54:25; source planned TSS: 63.`;
 
-export const swimDefinition=flattenSwimDefinition(`Pool length: 25y
+export const swimDefinition=`Pool length: 25y
 
 Warm Up
-- Freestyle 300y Z1-Z2 Pace intensity=warmup
+- 300mtr 1:50 Pace freestyle intensity=warmup
 
 2x
-- Drill 50y Z2 Pace
-- Swim 50y Z2 Pace
+- 50mtr 1:43 Pace drill
+- 50mtr 1:43 Pace swim
 
 Main Set 4x
-- Freestyle build 50y Z2-Z4 Pace
+- 50mtr 1:39 Pace freestyle build
 - Rest 15s intensity=rest
 
 Main Set 3x
-- Freestyle 400y Z3 Pace
+- 400mtr 1:39 Pace freestyle
 - Rest 30s intensity=rest
 
 Main Set 8x
-- Freestyle 100y Z4 Pace
+- 100mtr 1:36 Pace freestyle
 - Rest 15s intensity=rest
 
 Warm Down
-- Freestyle 200y Z1-Z2 Pace intensity=cooldown`);
+- 200mtr 1:50 Pace freestyle intensity=cooldown`;
 
 export async function buildTodaysSwim(){
  const bootstrap=JSON.parse(await fs.readFile('app-backend/config.json','utf8'));
@@ -56,7 +55,9 @@ export async function buildTodaysSwim(){
  const expand=steps=>steps.flatMap(s=>s.steps?Array.from({length:s.reps},()=>expand(s.steps)).flat():[s]);
  const steps=expand(verified.workout_doc?.steps || []);
  const distance=steps.reduce((sum,s)=>sum+(s.distance || 0),0),rests=steps.filter(s=>s.intensity==='rest');
- if(Math.abs(distance-2900*.9144)>.01 || rests.length!==15 || rests.reduce((sum,s)=>sum+s.duration,0)!==270)throw new Error('Swim structure verification failed');
+ // The `mtr` token is the Intervals parser workaround. The numeric amounts
+ // remain the intended yard amounts because the workout declares a 25y pool.
+ if(Math.abs(distance-2900)>.01 || rests.length!==15 || rests.reduce((sum,s)=>sum+s.duration,0)!==270)throw new Error('Swim structure verification failed');
  if(steps.filter(s=>s.distance).some(s=>!s.pace))throw new Error('Swim pace targets missing');
  await request(`/athlete/0/events/${created.id}`,{method:'PUT',body:JSON.stringify({moving_time:3265,icu_training_load:63})});
  const response=await fetch(`https://intervals.icu/api/v1/athlete/0/events/${created.id}/download.fit`,{headers:{Authorization:`Basic ${Buffer.from('API_KEY:'+config.INTERVALS_API_KEY).toString('base64')}`},signal:AbortSignal.timeout(30000)});
@@ -65,7 +66,7 @@ export async function buildTodaysSwim(){
  const pool=readFitWorkoutMetadata(fit)[0];
  if(pool?.poolLengthUnit!=='yards' || Math.abs(pool.poolLengthMeters-25*.9144)>.01)throw new Error('Swim FIT pool must be 25 yards');
  const rawFitSteps=readFitWorkoutSteps(fit);
- if(rawFitSteps.some(s=>s.durationType===6))throw new Error('Swim export still contains repeat controls that can skip final rest');
+ if(rawFitSteps.filter(s=>s.durationType===6).length!==4)throw new Error('Swim FIT repeat controls are missing');
  const fitSteps=expandFitWorkoutSteps(rawFitSteps);
  const fitDistance=fitSteps.filter(s=>s.durationType===1).reduce((sum,s)=>sum+s.durationValue/100,0);
  const fitRest=fitSteps.filter(s=>s.intensity===1);
