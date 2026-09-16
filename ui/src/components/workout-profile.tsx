@@ -1,8 +1,20 @@
+import {WorkoutEditor,useEditedWorkout} from '@/components/workout-editor'
+import {useState} from 'react'
 import {workoutProfileSegments,workoutStepLabel} from '@/lib/workout-structure'
 import type {PlannedWorkout} from '@/lib/training-context'
 import {Tooltip,TooltipTrigger,TooltipContent,TooltipProvider} from '@/components/ui/tooltip'
+import {chartSegments,stepLabel} from '../../../app-backend/lib/workout-editor-model.mjs'
 
-export function WorkoutProfile({workout,compact=false,tall=false,mobilePlanned=false,desktopDetail=false}:{workout:PlannedWorkout;compact?:boolean;tall?:boolean;mobilePlanned?:boolean;desktopDetail?:boolean}){
+type ProfileProps={workout:PlannedWorkout;compact?:boolean;tall?:boolean;mobilePlanned?:boolean;desktopDetail?:boolean}
+export function WorkoutProfile(props:ProfileProps){
+ const workout=useEditedWorkout(props.workout),[editing,setEditing]=useState(false)
+ const editable=workout.id.startsWith('event:')&&workout.status!=='completed'
+ return <><div data-workout-profile={workout.id} title={editable?'Click to edit workout':undefined} className={editable?'cursor-pointer':undefined} onPointerDown={event=>{if(editable)event.stopPropagation()}} onKeyDown={event=>{if(editable&&(event.key==='Enter'||event.key===' '))event.stopPropagation()}} onClick={event=>{if(editable){event.stopPropagation();setEditing(true)}}}>
+  <WorkoutProfileChart {...props} workout={workout}/>
+ </div>{editing&&<div onClick={event=>event.stopPropagation()} onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>event.stopPropagation()}><WorkoutEditor workout={workout} onClose={()=>setEditing(false)}/></div>}</>
+}
+function WorkoutProfileChart({workout,compact=false,tall=false,mobilePlanned=false,desktopDetail=false}:ProfileProps){
+ if(workout.editor_model)return <CanonicalWorkoutProfile workout={workout} compact={compact||mobilePlanned} tall={tall||desktopDetail}/>
  const segments=workoutProfileSegments(workout.structure)
  if(!segments.length)return null
  const groups=segments.reduce<Array<{id:string;segments:typeof segments}>>((result,segment)=>{
@@ -30,4 +42,10 @@ export function WorkoutProfile({workout,compact=false,tall=false,mobilePlanned=f
    </Tooltip>
   })}
  </div></TooltipProvider>
+}
+function CanonicalWorkoutProfile({workout,compact,tall}:{workout:PlannedWorkout;compact:boolean;tall:boolean}){
+ const chart=chartSegments(workout.editor_model!),max=Math.max(1.3,...chart.segments.flatMap(s=>[s.start,s.end]));
+ return <TooltipProvider><div><div className={`flex items-end gap-px ${tall?'h-28':compact?'h-12':'h-32'}`} aria-label={`Workout profile · ${chart.axis}`}>
+ {chart.segments.map(s=><Tooltip key={`${s.step.id}:${s.index}`}><TooltipTrigger render={<button type="button" className="relative h-full min-w-px outline-none focus-visible:ring-2 focus-visible:ring-primary" style={{flexGrow:s.width,flexBasis:0}} aria-label={`${s.step.label}: ${stepLabel(s.step)}`} />}><span className={`absolute inset-x-0 bottom-0 ${s.step.role==='rest'?'bg-slate-300':'bg-sky-500'}`} style={{height:'100%',clipPath:`polygon(0 ${100-(8+s.start/max*85)}%,100% ${100-(8+s.end/max*85)}%,100% 100%,0 100%)`}}/></TooltipTrigger><TooltipContent><p>{s.step.label} · {stepLabel(s.step)}</p>{s.step.notes&&<p>{s.step.notes}</p>}{s.group&&<p>Repetition {s.iteration}</p>}</TooltipContent></Tooltip>)}
+ </div>{!compact&&<p className="mt-1 text-[10px] text-muted-foreground">{chart.axis}</p>}</div></TooltipProvider>
 }

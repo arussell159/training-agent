@@ -1,3 +1,4 @@
+import {WorkoutEditor,WorkoutEditorMenu,useEditedWorkout} from '@/components/workout-editor'
 import {WorkoutDescription} from '@/components/workout-description'
 import {lazy,Suspense} from 'react'
 import {formatDuration} from '@/lib/duration'
@@ -143,7 +144,7 @@ export function WorkoutCard({ workout, onClick, onAction, disabled = false }: { 
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-muted-foreground md:text-xs">
-        {displayedMinutes > 0 && <span>{formatDuration(displayedMinutes)}</span>}
+        {(displayedMinutes > 0 || workout.planned_time_label) && <span>{workout.status!=="completed"&&workout.planned_time_label || formatDuration(displayedMinutes)}</span>}
         {estimatedDistance(workout) && <span>· {estimatedDistance(workout)}</span>}
       </div>
       {(workout.details || workout.goal) && (
@@ -219,6 +220,7 @@ export function TrainingCalendar({
   const loadedWeeks = useRef(new Set<string>())
   const pendingWeeks = useRef(new Set<string>())
   const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(()=>restoreOpenWorkout([...cachedTrainingContext().planned,...cachedTrainingContext().history]))
+  const [newWorkoutDate, setNewWorkoutDate] = useState<string | null>(null)
   const [metricsDate, setMetricsDate] = useState<string | null>(null)
   const [activeWeekKey, setActiveWeekKey] = useState("")
   const [dragging, setDragging] = useState<PlannedWorkout | null>(null)
@@ -606,9 +608,11 @@ export function TrainingCalendar({
                           <div className="space-y-2">
                             <DailyMetricsCard date={dateKey(day)} rows={context.wellness_history || []} onOpen={() => setMetricsDate(dateKey(day))} />
                             {dayWorkouts.map((workout) => <DraggableWorkout key={workout.id} workout={workout} disabled={moving || !workout.id.startsWith("event:")} onOpen={() => openWorkout(workout)} onAction={action => void runWorkoutAction(workout, action)} />)}
-                            <div aria-hidden="true" className="flex h-12 w-full items-center justify-center rounded-sm border border-muted-foreground/40 text-muted-foreground opacity-0 transition-opacity group-hover/day:opacity-100">
+                            <button type="button" aria-label={"Create workout on " + dateKey(day)}
+                              disabled={moving} onClick={event=>{event.stopPropagation();setNewWorkoutDate(dateKey(day))}}
+                              className="flex h-12 w-full items-center justify-center rounded-sm border border-muted-foreground/40 text-muted-foreground opacity-100 transition-opacity hover:bg-accent focus-visible:opacity-100 md:opacity-0 md:group-hover/day:opacity-100">
                               <Plus className="size-4" />
-                            </div>
+                            </button>
                           </div>
                         </CalendarDay>
                       )
@@ -629,6 +633,7 @@ export function TrainingCalendar({
         </div>
 
       </div>
+      {newWorkoutDate&&<WorkoutEditor date={newWorkoutDate} onClose={()=>setNewWorkoutDate(null)}/>}
       <WorkoutDialog workout={selectedWorkout} onOpenChange={(open) => {if(!open){forgetOpenWorkout();setSelectedWorkout(null)}}} />
       <DailyMetricsDialog date={metricsDate} rows={context.wellness_history || []} onClose={() => setMetricsDate(null)} />
     </div>
@@ -703,7 +708,8 @@ function WeekSummary({ title, workouts }: { title: string; workouts: PlannedWork
   )
 }
 
-export function WorkoutDialog({ workout, onOpenChange }: { workout: PlannedWorkout | null; onOpenChange: (open: boolean) => void }) {
+export function WorkoutDialog({ workout: initialWorkout, onOpenChange }: { workout: PlannedWorkout | null; onOpenChange: (open: boolean) => void }) {
+  const workout=useEditedWorkout(initialWorkout)
   const [mapHighlight, setMapHighlight] = useState<[number, number] | null>(null)
   if (!workout) return null
   const completed = completedMinutes(workout)
@@ -711,7 +717,7 @@ export function WorkoutDialog({ workout, onOpenChange }: { workout: PlannedWorko
   const plannedValues = workout.workout_summary?.planned
   const values = workout.status === "completed" ? completedValues : plannedValues
   const durationSeconds = values?.duration_seconds
-  const duration = durationSeconds != null ? formatDuration(durationSeconds / 60) : workout.status === "completed" && completed ? formatDuration(completed) : formatDuration(durationMinutes(workout))
+  const duration = workout.status!=='completed'&&workout.planned_time_label || (durationSeconds != null ? formatDuration(durationSeconds / 60) : workout.status === "completed" && completed ? formatDuration(completed) : formatDuration(durationMinutes(workout)))
   const load = values?.tss ?? workout.load
   const startValue = workout.recorded_start_local || workout.scheduled_start_at
   const start = startValue ? new Date(startValue) : null
@@ -723,6 +729,7 @@ export function WorkoutDialog({ workout, onOpenChange }: { workout: PlannedWorko
   return (
     <Dialog open={Boolean(workout)} onOpenChange={onOpenChange}>
       <DialogContent className="no-scrollbar max-h-[94vh] gap-4 overflow-y-auto p-0 sm:max-w-5xl">
+        <div className="absolute right-11 top-2"><WorkoutEditorMenu workout={workout}/></div>
         <DialogHeader className="border-b px-5 pt-5 pb-4 pr-12">
           <DialogDescription className="text-sm font-semibold text-blue-600 dark:text-blue-400">{date}{time&&<span className="ml-2 tabular-nums">{time}</span>}</DialogDescription>
         </DialogHeader>

@@ -1,3 +1,4 @@
+import {readableDescription,readEditorModel,workoutTotals,clock} from './workout-editor-model.mjs';
 import { athleteLocalDate } from './coach-training-context.mjs';
 
 export function createIntervalsClient(config, fetchImpl = fetch) {
@@ -64,7 +65,11 @@ function appWorkoutDoc(doc,type) {
 
 export function mapIntervalsWorkout(item, today, activity = null, isActivity = false) {
   const actual = isActivity ? item : activity;
-  const description=String(item.description || '').split('\n\nIntervals.icu device definition:\n')[0]
+  const editorModel=!isActivity?readEditorModel(item.description):null;
+  if(editorModel)editorModel.thresholds={ftp:item.icu_ftp || null,pace:item.icu_threshold_pace || null};
+  const editorTotals=editorModel?workoutTotals(editorModel):null;
+  const plannedTimeLabel=editorTotals?`${editorTotals.open?'Open · ≈ ':editorTotals.unknownTime?'At least ':editorTotals.estimated?'≈ ':''}${clock(editorTotals.seconds)}`:null;
+  const description=readableDescription(item.description)
     .replace(/^\*\*(Warm Up:|Main Set:|Warm Down:)\*\*$/gm,'$1').trim();
   const date = String(item.start_date_local || '').slice(0,10);
   validDate(date);
@@ -107,6 +112,7 @@ export function mapIntervalsWorkout(item, today, activity = null, isActivity = f
     source_updated_at:item.updated || null, source:'intervals',
     measurement_quality:{power_available:actual?.icu_average_watts != null,heart_rate_available:actual?.average_heartrate != null},
     workout_summary:{planned:isActivity?null:summary(item),completed:summary(actual)},
+    ...(editorModel?{editor_model:editorModel,planned_time_label:plannedTimeLabel}:{}),
     raw:item, raw_activity:actual || null,
   };
 }

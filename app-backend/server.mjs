@@ -1,3 +1,4 @@
+import {loadWorkoutEditor,saveWorkoutEditor,loadNewWorkoutEditor,createWorkoutEditor} from './lib/workout-editor.mjs';
 import { generateCoachResponse } from './lib/coach-response.mjs';
 import { createIntervalsCoachAdapter } from './lib/triathlon-coach-adapter.mjs';
 import {athleteLocalDate} from './lib/coach-training-context.mjs';
@@ -412,7 +413,7 @@ function applyVerifiedEvent(context,id,result,action) {
   const all=new Map([...context.history,...context.planned].map(w=>[w.id,w]));
   if(action==='delete'){all.delete(id);context={...context,app_deleted_workouts:{...context.app_deleted_workouts,[id]:new Date().toISOString()}};}
   else {
-    const prior=action==='move'?all.get(id):null;
+    const prior=action==='move'||action==='edit'?all.get(id):null;
     all.set(result.workoutId,{...mapIntervalsWorkout(result.event,today,prior?.raw_activity || null),app_updated_at:new Date().toISOString()});
   }
   const sessions=[...all.values()].sort((a,b)=>a.workout_date.localeCompare(b.workout_date));
@@ -1125,6 +1126,54 @@ export async function handleRequest(req, res) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(scopedTrainingContext({ ...local, athlete:{...athleteWithRace(local.athlete),zones:{}}, history:[],planned:[],metrics:{fitness:null,fatigue:null,form:null},wellness:{},source:'not-connected',sync_error:'Connect Intervals.icu in Settings to load your training.', retention_days:90 }, contextScope)));
       return;
+    }
+
+    if(pathname==='/api/workouts/new/editor' && req.method==='GET') {
+      const config=await readConfig();
+      try { sendJson(req,res,await loadNewWorkoutEditor(createIntervalsClient(config),requestUrl.searchParams.get('date'))); }
+      catch(error) {res.writeHead(error.status || 400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:error.message}));}
+      return;
+    }
+    if(pathname==='/api/workouts/editor' && req.method==='POST') {
+      const config=await readConfig();
+      try {
+        const result=await createWorkoutEditor(createIntervalsClient(config),await readBody(req),providerConnection(config));
+        intervalsMemoryCache=null;providerReads.clear();
+        result.workout=mapIntervalsWorkout(result.event,athleteLocalDate(new Date(),config.TIME_ZONE || 'America/Chicago'));
+        try {
+          const snapshot=await loadSupabaseTrainingSnapshot(config) || await fetchIntervalsTrainingContext(config,{force:true});
+          if(snapshot){
+            const context={...applyVerifiedEvent(snapshot,result.workoutId,result,'create'),provider:'intervals',provider_connection:providerConnection(config)};
+            result.context=await saveVerifiedSnapshot(config,context);
+            await fs.writeFile(intervalsCachePath,JSON.stringify(context));
+          }
+        } catch(error) {result.refreshWarning='Created and verified. Refresh the calendar to complete its local update.';updateLogs('Workout creation context refresh pending: '+error.message);}
+        sendJson(req,res,result);
+      } catch(error) {res.writeHead(error.status || 500,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code || 'CREATE_UNCONFIRMED'}));}
+      return;
+    }
+
+    const editorRoute=pathname.match(/^\/api\/workouts\/(event%3A\d+|event:\d+)\/editor$/i);
+    if(editorRoute && (req.method==='GET'||req.method==='PUT')) {
+      const config=await readConfig(),id=decodeURIComponent(editorRoute[1]),request=createIntervalsClient(config);
+      try {
+        if(req.method==='GET'){sendJson(req,res,await loadWorkoutEditor(request,id));return;}
+        const result=await saveWorkoutEditor(request,id,await readBody(req),providerConnection(config));
+        intervalsMemoryCache=null;
+        providerReads.clear();
+        const today=athleteLocalDate(new Date(),config.TIME_ZONE || 'America/Chicago');
+        result.workout=mapIntervalsWorkout(result.event,today);
+        try {
+          const snapshot=await loadSupabaseTrainingSnapshot(config) || await fetchIntervalsTrainingContext(config,{force:true});
+          if(snapshot){
+            const context={...applyVerifiedEvent(snapshot,id,result,'edit'),provider:'intervals',provider_connection:providerConnection(config)};
+            result.workout=[...context.history,...context.planned].find(w=>w.id===id);
+            result.context=await saveVerifiedSnapshot(config,context);
+            await fs.writeFile(intervalsCachePath,JSON.stringify(context));
+          }
+        } catch(error) { result.refreshWarning='Saved and verified in Intervals.icu; the durable calendar refresh is pending. Refresh the calendar to retry.';updateLogs(`Workout editor context refresh pending: ${error.message}`); }
+        sendJson(req,res,result);return;
+      } catch(error) {res.writeHead(error.status || 500,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code || 'PROVIDER_ERROR'}));return;}
     }
 
     if(pathname==='/api/calendar/workout-description' && req.method==='POST'){

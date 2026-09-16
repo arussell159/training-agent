@@ -130,6 +130,7 @@ export function SettingsWorkspace() {
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState("")
   const [loadError, setLoadError] = useState("")
+  const [checkingConnection, setCheckingConnection] = useState(false)
   const settingsRevision = useRef(0)
   const { theme, setTheme } = useTheme()
 
@@ -154,6 +155,19 @@ export function SettingsWorkspace() {
     ])
     return () => { active = false }
   }, [])
+
+  async function retrySettingsConnection() {
+    const revision = ++settingsRevision.current
+    setCheckingConnection(true)
+    try {
+      const response = await apiFetch("/api/config", { cache: "no-store", headers: { Accept: "application/json" } })
+      const value = await response.json() as ConfigStatus & { error?: string }
+      if (!response.ok || value.settingsError) throw new Error(value.settingsError || value.error || "Saved Settings could not be loaded.")
+      if (revision === settingsRevision.current) { setConfig(value); setLoadError("") }
+    } catch (error) {
+      if (revision === settingsRevision.current) setLoadError(error instanceof Error ? error.message : "Saved Settings could not be loaded.")
+    } finally { setCheckingConnection(false) }
+  }
 
   function connectionStatus(section: SettingsSection) {
     if (loadError && ["intervals", "openai", "supabase"].includes(section)) return "Unavailable"
@@ -303,7 +317,7 @@ export function SettingsWorkspace() {
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col bg-background">
-      {loadError && <p role="alert" className="border-b px-4 py-3 text-sm text-destructive">{loadError}</p>}
+      {loadError && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 text-sm text-destructive"><p>{loadError}</p><Button variant="outline" size="sm" disabled={checkingConnection || saving} onClick={() => void retrySettingsConnection()}>{checkingConnection ? <LoaderCircle className="size-4 animate-spin"/> : null}Retry connection</Button></div>}
       <div className="flex min-h-0 flex-1 flex-col md:hidden">
         <header className="mobile-site-header z-50 flex h-14 shrink-0 items-center border-b px-4">
           {mobileSection ? (

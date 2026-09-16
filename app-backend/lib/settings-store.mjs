@@ -62,7 +62,14 @@ export function createSupabaseSettingsStore(bootstrap,fetchImpl = fetch) {
         headers:{apikey:secret,...(!String(secret).startsWith('sb_secret_') ? {Authorization:`Bearer ${secret}`} : {}),
           'Content-Type':'application/json',Accept:'application/json','Cache-Control':'no-cache',...options.headers},
       });
-    } catch {throw new Error('Supabase Settings could not be reached. Nothing was saved; retry when the connection is restored.');}
+    } catch(error) {
+      const denied=['EACCES','EPERM'].includes(error?.cause?.code || error?.code);
+      if(denied)throw new Error('The backend is blocked from connecting to Supabase. Restart the local app server with network access, then retry.');
+      const writing=options.method && options.method!=='GET';
+      throw new Error(writing
+        ? 'The Settings save could not be confirmed with Supabase. Reload Settings before retrying; the request may have reached the database.'
+        : 'Saved Settings could not be loaded from Supabase. Your saved settings have not been changed. Retry when the connection is restored.');
+    }
     if (!response.ok) {
       if (response.status === 404) throw new Error('Supabase Settings table is missing. Run app-backend/supabase/settings.sql in the Supabase SQL editor.');
       // Never echo provider error bodies: they may contain submitted credentials or encrypted values.

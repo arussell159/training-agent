@@ -52,7 +52,7 @@ export function WorkoutSummary({workout,showElapsed=true,embedded=false,section=
   {section!=='recorded'&&!!visible.length&&<div className={`overflow-hidden ${embedded?'':'border'}`}><table className="w-full table-fixed text-xs">
    <colgroup><col className="w-[36%]"/><col className="w-[32%]"/><col className="w-[32%]"/></colgroup>
    <thead className="bg-muted/25"><tr><th className="px-3 py-2"/><th className="py-2 font-semibold">Planned</th><th className="py-2 font-semibold">Completed</th></tr></thead>
-   <tbody>{visible.map(row=><tr key={row.label} className={green+' border-t border-border/50'}><th className="px-3 py-1.5 text-left font-normal">{heading(row.label,row.unit)}</th><td className="whitespace-nowrap px-1 py-1.5 text-center text-sm font-medium tabular-nums">{row.value(planned)}</td><td className="whitespace-nowrap px-1 py-1.5 text-center text-sm font-medium tabular-nums">{row.value(completed)}</td></tr>)}</tbody>
+   <tbody>{visible.map(row=><tr key={row.label} className={green+' border-t border-border/50'}><th className="px-3 py-1.5 text-left font-normal">{heading(row.label,row.unit)}</th><td className="whitespace-nowrap px-1 py-1.5 text-center text-sm font-medium tabular-nums">{row.label==='Duration'&&workout.planned_time_label || row.value(planned)}</td><td className="whitespace-nowrap px-1 py-1.5 text-center text-sm font-medium tabular-nums">{row.value(completed)}</td></tr>)}</tbody>
   </table></div>}
   {section!=='overview'&&!!recordedRows.length&&<div className={`overflow-hidden ${embedded?'':'border'}`}><table className="w-full table-fixed text-xs">
    <colgroup><col className="w-[36%]"/><col/><col/><col/></colgroup>

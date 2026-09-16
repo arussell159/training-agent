@@ -86,6 +86,28 @@ test('writes must be returned and confirmed by Supabase',async()=>{
   await assert.rejects(store.save({INTERVALS_API_KEY:'fixture-key'}),/did not confirm/);
 });
 
+test('network failures distinguish reads, uncertain saves, and blocked server access',async()=>{
+  const offline=createSupabaseSettingsStore(bootstrap,async()=>{throw new TypeError('fetch failed');});
+  await assert.rejects(offline.read(),error=>/could not be loaded/.test(error.message)&&!/Nothing was saved/.test(error.message));
+  await assert.rejects(offline.save({APP_THEME:'dark'}),error=>/may have reached the database/.test(error.message)&&!/Nothing was saved/.test(error.message));
+  const blocked=createSupabaseSettingsStore(bootstrap,async()=>{throw new TypeError('fetch failed',{cause:{code:'EACCES',message:'private diagnostic'}});});
+  await assert.rejects(blocked.read(),error=>/server with network access/.test(error.message)&&!error.message.includes('private diagnostic'));
+});
+
+test('a failed settings read can recover without resubmitting or changing saved values',async()=>{
+  const db=fakeDatabase();
+  await createSupabaseSettingsStore(bootstrap,db.fetchImpl).save({INTERVALS_API_KEY:'retained-fixture-key',APP_THEME:'dark'});
+  let offline=true;
+  const service=createSettingsService({readBootstrap:async()=>bootstrap,writeBootstrap:async()=>{throw Error('unexpected local write');},fetchImpl:async(...args)=>{if(offline)throw new TypeError('fetch failed');return db.fetchImpl(...args);}});
+  assert.match((await service.read()).settingsError,/could not be loaded/);
+  offline=false;
+  const recovered=await service.read();
+  assert.equal(recovered.settingsError,undefined);
+  assert.equal(recovered.INTERVALS_API_KEY,'retained-fixture-key');
+  assert.equal(recovered.APP_THEME,'dark');
+  assert.equal(db.requests.filter(r=>r.options.method==='POST').length,1);
+});
+
 test('config API save and reload expose only status, with no stale-cache headers or local persistence',async()=>{
   const originalFetch=globalThis.fetch;
   const envNames=['SUPABASE_URL','SUPABASE_SECRET_KEY','VERCEL','OPENAI_API_KEY'];

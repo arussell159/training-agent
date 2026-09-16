@@ -1,3 +1,4 @@
+import {WorkoutEditorMenu,useEditedWorkout} from '@/components/workout-editor'
 import {WorkoutDescription} from '@/components/workout-description'
 import {lazy,Suspense,useState} from 'react'
 import {formatDuration} from '@/lib/duration'
@@ -43,12 +44,13 @@ function formatWorkoutTime(workout:PlannedWorkout) {
 
 
 export function WorkoutDetailPage({
-  workout,
+  workout: initialWorkout,
   onBack,
 }: {
   workout: PlannedWorkout
   onBack: () => void
 }) {
+  const workout=useEditedWorkout(initialWorkout)
   const [mapHighlight,setMapHighlight]=useState<[number,number]|null>(null)
   const [plannedTab,setPlannedTab]=useState<'summary'|'zones'>('summary')
   const [mobileMapAvailable,setMobileMapAvailable]=useState(workout.status==='completed'&&Boolean(workout.activity_id || workout.id.startsWith('activity:')))
@@ -62,7 +64,7 @@ export function WorkoutDetailPage({
   const stats=[
     {label:workout.status==='completed'?'Distance':'Est. distance',value:plannedDistanceLabel(workout)},
     {label:'Elevation gain',value:values?.elevation_gain!=null?`${numeric(values.elevation_gain/.3048)} ft`:null},
-    {label:workout.status==='completed'?'Moving time':'Planned time',value:workout.status==='completed'?movingTime:formatDuration(durationMinutes(workout))},
+    {label:workout.status==='completed'?'Moving time':'Planned time',value:workout.status==='completed'?movingTime:workout.planned_time_label || formatDuration(durationMinutes(workout))},
     {label:bike?'Avg power':'Avg pace',value:bike?(values?.average_power!=null?`${numeric(values.average_power)} W`:null):pace?`${Math.floor(pace/60)}:${String(pace%60).padStart(2,'0')} /${swim?'100 yd':'mi'}`:null},
     {label:bike?'Avg speed':'Avg heart rate',value:bike?(values?.average_speed!=null?`${numeric(values.average_speed*2.236936,1)} mi/h`:null):values?.average_hr!=null?`${numeric(values.average_hr)} bpm`:null},
     {label:'Calories',value:values?.calories!=null?`${numeric(values.calories)} Cal`:null},
@@ -80,7 +82,7 @@ export function WorkoutDetailPage({
           <ArrowLeft className="size-[18px]" />
         </Button>
         <span className="mobile-header-title flex-1 truncate text-center text-sm font-semibold">{swim?'Swim':bike?'Ride':/run/i.test(workout.sport)?'Run':workout.sport}</span>
-      <MobileHeaderMenu /></header>
+      <WorkoutEditorMenu workout={workout}/><MobileHeaderMenu /></header>
 
       {workout.status==='completed'&&<div className="sticky top-0 z-0 transform-gpu will-change-transform md:hidden"><WorkoutRouteMap workout={workout} onAvailable={setMobileMapAvailable} topPadding={56}/></div>}
 
