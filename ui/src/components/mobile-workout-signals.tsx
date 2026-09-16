@@ -2,9 +2,11 @@ import {useMemo,useState,type PointerEvent} from 'react'
 import type {RecordedPoint} from '@/lib/segment-statistics'
 import {formatSignalClock,intervalSignals,tooltipPosition} from '@/lib/interval-signals'
 import {WorkoutLapChart} from '@/components/workout-lap-chart'
+import {WorkoutChartStats} from '@/components/workout-chart-stats'
+import type {WorkoutSummaryValues} from '@/lib/training-context'
 
 type Lap={id:string;label:string;start:number;end:number;distance?:number|null;speed?:number|null}
-export function MobileWorkoutSignals({points,laps,duration,sport}:{points:RecordedPoint[];laps:Lap[];duration:number;sport:string}){
+export function MobileWorkoutSignals({points,laps,duration,sport,summary}:{points:RecordedPoint[];laps:Lap[];duration:number;sport:string;summary?:WorkoutSummaryValues|null}){
  const [time,setTime]=useState<number|null>(null),[lap,setLap]=useState<Lap|null>(null)
  const swim=/swim/i.test(sport),run=/run/i.test(sport)
  const primary=run||swim?'pace':'power'
@@ -47,7 +49,9 @@ export function MobileWorkoutSignals({points,laps,duration,sport}:{points:Record
      <path d={fillParts.join(' ')} fill={color} fillOpacity=".65"/><path d={line} stroke={color} strokeWidth="1.2" fill="none"/>
      {time!=null&&<g><line x1={x(time)} x2={x(time)} y1="40" y2="200" stroke="#475569" strokeDasharray="3 3"/>{inspectedValue!=null&&<circle cx={x(time)} cy={y(inspectedValue)} r="4" fill="white" stroke={color} strokeWidth="2"/>}</g>}
     </svg>
+    <WorkoutChartStats track={key} sport={sport} summary={summary}/>
    </div>
   })}
+  <WorkoutChartStats track="totals" sport={sport} summary={summary}/>
  </section>
 }

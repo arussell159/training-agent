@@ -4,8 +4,7 @@ import type {RecordedPoint} from '@/lib/segment-statistics'
 
 export function WorkoutLapChart({points,laps,sport,selected,onSelect}:{points:RecordedPoint[];laps:RecordedLap[];sport:string;selected:RecordedLap|null;onSelect:(lap:RecordedLap)=>void}){
   const scroll=useRef<HTMLDivElement>(null)
-  const touchStart=useRef<{id:number;x:number;y:number}|null>(null)
-  const [tooltipLeft,setTooltipLeft]=useState(150)
+  const [scrollLeft,setScrollLeft]=useState(0)
   const swim=/swim/i.test(sport),pace=/swim|run/i.test(sport)
   const intervals=useMemo(()=>intervalSignals(points,laps),[points,laps])
   const signal=(point:RecordedPoint)=>pace?point.speed!=null&&point.speed>.15?(swim?91.44:1609.344)/point.speed:null:point.power
@@ -27,19 +26,15 @@ export function WorkoutLapChart({points,laps,sport,selected,onSelect}:{points:Re
   const unit=pace?swim?'min/100 yd':'min/mi':'W'
   const format=(value:number)=>pace?formatSignalClock(value):Math.round(value).toLocaleString()
   const inspected=bars.find(bar=>bar.lap.id===selected?.id)
-  const position=(left:number)=>{
-    const viewport=scroll.current?.clientWidth || 300
-    setTooltipLeft(Math.max(92,Math.min(viewport-92,left)))
-  }
+  const viewportWidth=scroll.current?.clientWidth || 300
+  const tooltipLeft=Math.max(92,Math.min(viewportWidth-92,(selected?positions.get(selected.id)?.center || 0:150)-scrollLeft))
   const select=(lap:RecordedLap,clientX?:number)=>{
     onSelect(lap)
     const viewport=scroll.current
     if(!viewport)return
-    if(clientX!=null)position(clientX-viewport.getBoundingClientRect().left)
-    else{
+    if(clientX==null){
       const center=positions.get(lap.id)!.center
       viewport.scrollTo({left:Math.max(0,center-viewport.clientWidth/2),behavior:'smooth'})
-      position(viewport.clientWidth/2)
     }
   }
   return <section aria-label="Lap chart" className="space-y-2 md:hidden">
@@ -49,12 +44,12 @@ export function WorkoutLapChart({points,laps,sport,selected,onSelect}:{points:Re
       <div className="absolute top-[76px] bottom-0 left-0 z-10 w-12 bg-background" aria-hidden="true">{[0,.25,.5,.75,1].map(f=><span key={f} className="absolute right-2 -translate-y-1/2 text-[10px] text-muted-foreground" style={{top:20+170*f}}>{format(pace?low+f*(high-low):high-f*(high-low))}</span>)}</div>
       <div className="relative ml-12">
         {inspected&&<div role="status" style={{left:tooltipLeft,transform:'translateX(-50%)'}} className="pointer-events-none absolute -top-[72px] z-20 w-44 rounded-lg border bg-background px-3 py-2 text-xs shadow-lg"><p className="truncate text-muted-foreground">{inspected.lap.label}</p><p className="font-semibold">{format(inspected.value)} {unit}</p><p>Duration {formatSignalClock(inspected.lap.end-inspected.lap.start)}{inspected.lap.distance!=null&&inspected.lap.distance>0?` · ${swim?Math.round(inspected.lap.distance/.9144)+' yd':(inspected.lap.distance/1609.344).toFixed(2)+' mi'}`:''}</p></div>}
-        <div ref={scroll} className="overflow-x-auto overscroll-x-contain touch-pan-x pb-1" onScroll={()=>{if(selected&&scroll.current)position((positions.get(selected.id)?.center || 0)-scroll.current.scrollLeft)}}>
+        <div ref={scroll} className="overflow-x-auto overscroll-x-contain touch-pan-x pb-1" onScroll={event=>setScrollLeft(event.currentTarget.scrollLeft)}>
           <svg width={width} height="228" viewBox={`0 0 ${width} 228`} className="block select-none" role="group" aria-label="Scrollable interval averages">
             {[0,.25,.5,.75,1].map(f=><line key={f} x1="0" x2={width} y1={20+170*f} y2={20+170*f} stroke="currentColor" opacity=".08"/>)}
             {bars.map(bar=>{
               const position=positions.get(bar.lap.id)!,left=position.left,barWidth=position.width,top=y(bar.value)
-              return <g key={bar.lap.id} role="button" tabIndex={0} aria-label={`${bar.lap.label}, ${format(bar.value)} ${unit}, duration ${formatSignalClock(bar.lap.end-bar.lap.start)}`} aria-pressed={selected?.id===bar.lap.id} className="cursor-pointer outline-none focus:opacity-70" onPointerDown={event=>{touchStart.current={id:event.pointerId,x:event.clientX,y:event.clientY}}} onPointerCancel={()=>{touchStart.current=null}} onPointerUp={event=>{const start=touchStart.current;touchStart.current=null;if(start?.id===event.pointerId&&Math.hypot(event.clientX-start.x,event.clientY-start.y)<8){event.stopPropagation();select(bar.lap,event.clientX)}}} onClick={event=>select(bar.lap,event.clientX)} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(bar.lap)}}}>
+              return <g key={bar.lap.id} role="button" tabIndex={0} aria-label={`${bar.lap.label}, ${format(bar.value)} ${unit}, duration ${formatSignalClock(bar.lap.end-bar.lap.start)}`} aria-pressed={selected?.id===bar.lap.id} className="cursor-pointer outline-none focus:opacity-70" onPointerDown={event=>{if(event.isPrimary){event.stopPropagation();select(bar.lap,event.clientX)}}} onClick={event=>{if(event.detail===0)select(bar.lap)}} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(bar.lap)}}}>
                 <rect x={left} y={0} width={barWidth} height="228" fill="transparent"/>
                 <rect x={left} y={top} width={barWidth} height={Math.max(2,190-top)} rx={Math.min(7,barWidth/2)} fill={selected?.id===bar.lap.id?'#b8d5f3':'#287ed7'}/>
                 {barWidth>22&&<text x={left+barWidth/2} y="214" textAnchor="middle" fontSize="11" fill="currentColor" opacity=".65">{bar.index+1}</text>}

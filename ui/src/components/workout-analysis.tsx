@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react'
 import {apiFetch} from '@/lib/api-client'
-import type {PlannedWorkout} from '@/lib/training-context'
+import type {PlannedWorkout,WorkoutSummaryValues} from '@/lib/training-context'
 import type {RecordedPoint} from '@/lib/segment-statistics'
 import type {RecordedLap} from '@/lib/interval-signals'
 import {Button} from '@/components/ui/button'
@@ -12,14 +12,23 @@ const cache = new Map<string, Analysis>()
 export function WorkoutAnalysis({workout}:{workout:PlannedWorkout}) {
   const id = workout.activity_id || (workout.id.startsWith('activity:') ? workout.id.slice(9) : null)
   const revision=(workout as PlannedWorkout & {activity_revision?:string}).activity_revision || ''
-  return id ? <ActivityGraph key={id+revision} id={id} revision={revision} sport={workout.sport}/> : null
+  return id ? <ActivityGraph key={id+revision} id={id} revision={revision} sport={workout.sport} summary={workout.workout_summary?.completed}/> : null
 }
 
-function ActivityGraph({id, sport,revision}:{id:string; sport:string;revision:string}) {
+function ActivityGraph({id, sport,revision,summary}:{id:string; sport:string;revision:string;summary?:WorkoutSummaryValues|null}) {
   const key=id+revision
   const [data, setData] = useState<Analysis | null>(cache.get(key) || null)
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
+  const [totals,setTotals]=useState<WorkoutSummaryValues|null>(summary || null)
+  useEffect(()=>{
+    const controller=new AbortController()
+    void apiFetch(`/api/activities/${encodeURIComponent(id)}/summary?v=${encodeURIComponent(revision)}`,{signal:controller.signal})
+      .then(async response=>{if(!response.ok)throw Error('Summary unavailable');return await response.json() as WorkoutSummaryValues})
+      .then(values=>{if(!controller.signal.aborted)setTotals({...summary,...values,elapsed_time_seconds:values.elapsed_time_seconds ?? summary?.elapsed_time_seconds,elapsed_speed:values.elapsed_speed ?? summary?.elapsed_speed})})
+      .catch(()=>{/* Retain verified calendar totals when a refresh fails. */})
+    return()=>controller.abort()
+  },[id,revision,summary])
   useEffect(() => {
     if (cache.has(key)) return
     const controller = new AbortController()
@@ -39,5 +48,5 @@ function ActivityGraph({id, sport,revision}:{id:string; sport:string;revision:st
   if (!data) return <div role="status" className="animate-pulse rounded-xl border bg-muted/30 p-8 text-center text-sm text-muted-foreground">Loading recorded signals and intervals…</div>
   if (!data.points.length) return <div className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">No recorded signals are available.</div>
   // Selection highlights the interval, never changing the chart scale.
-  return <MobileWorkoutSignals points={data.points} laps={data.laps} duration={data.duration} sport={sport}/>
+  return <MobileWorkoutSignals points={data.points} laps={data.laps} duration={data.duration} sport={sport} summary={totals}/>
 }
