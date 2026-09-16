@@ -59,6 +59,9 @@ create table if not exists sync_state (
 -- status='archived', athlete_id='completed:v1:<connection-hash>:<activity>:<kind>'
 -- rows retain completed-workout source data and downloaded charts/routes.
 -- These archive rows are intentionally not pruned by the 90-day context RPC.
+-- kind='bundle' contains all streams, ready-to-display views and original-file
+-- bytes/checksum. Large cursor.data payloads use encoding='gzip-json-v1'.
+-- Ready snapshots also retain full wellness/performance history across syncs.
 create table if not exists daily_workout_reviews (
   id text primary key, athlete_id text not null default 'default', local_date date not null,
   conversation_id uuid, revision integer not null default 1, status text not null,

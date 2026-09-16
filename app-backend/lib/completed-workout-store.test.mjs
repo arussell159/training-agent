@@ -52,3 +52,16 @@ test('unloaded calendar ranges must be synced, rather than displayed as empty ca
  assert.equal(snapshotCoversRange(snapshot,{start:'2026-08-01',end:'2026-08-07'}),false);
  assert.equal(snapshotCoversRange(snapshot,{start:'2026-09-28',end:'2026-10-04'}),false);
 });
+
+test('large recordings are compressed in Supabase and decode losslessly after restart',async()=>{
+ const store=memoryStore(),data={streams:[{type:'time',data:Array.from({length:20000},(_,i)=>i)}],file:Buffer.alloc(100000,42).toString('base64')};
+ await createCompletedWorkoutStore(config,store).load('i42','bundle',async()=>data);
+ const saved=[...store.rows.values()][0].cursor;
+ assert.equal(saved.encoding,'gzip-json-v1');assert.ok(saved.data.length<JSON.stringify(data).length);
+ assert.deepEqual(await createCompletedWorkoutStore(config,store).load('i42','bundle',async()=>{throw Error('provider must not be called');}),data);
+});
+
+test('rolling full syncs preserve older archived workouts and wellness',()=>{
+ const merged=mergeTrainingSnapshot({history:[{id:'old',workout_date:'2025-01-01'}],planned:[],wellness_history:[{date:'2025-01-01',hrv:50}],performance:[{workoutDay:'2025-01-01',ctl:40}]},{history:[],planned:[],wellness_history:[],performance:[],cached_ranges:[{start:'2026-07-01',end:'2026-11-01'}]});
+ assert.equal(merged.history[0].id,'old');assert.equal(merged.wellness_history[0].hrv,50);assert.equal(merged.performance[0].ctl,40);
+});

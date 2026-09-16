@@ -12,9 +12,7 @@ import { createSettingsService, publicSettings, STORED_SETTINGS } from './lib/se
 import { resolveApiRoute } from './lib/api-routing.mjs';
 import {intervalsOnlyContext} from './lib/intervals-only-context.mjs';
 import {readDurableState,writeDurableState} from './lib/durable-state.mjs';
-import {readFitLaps,normalizeAnalysis} from './lib/activity-analysis.mjs';
-import {recordedExtremes} from './lib/recorded-extremes.mjs';
-import {activityRoute} from './lib/activity-route.mjs';
+import {loadActivityBundle} from './lib/activity-bundle.mjs';
 import {createRequestCache} from './lib/request-cache.mjs';
 import {compressAsset} from './lib/asset-compression.mjs';
 import {updateWorkoutDescription} from './lib/workout-description.mjs';
@@ -70,7 +68,6 @@ const serverState = {
 };
 
 let intervalsMemoryCache = null;
-const analysisCache=new Map();
 const providerReads=createRequestCache({ttl:60000,maxEntries:32});
 function sendJson(req,res,value,cacheControl='no-store'){
  const payload=compressAsset(Buffer.from(JSON.stringify(value)),'.js',req.headers['accept-encoding']);
@@ -295,10 +292,25 @@ async function currentConversationAthleteId() {
   return String(local.athlete?.id || 'default');
 }
 
-async function persistTrainingContext(config, context) {
+export async function persistTrainingContext(config, context, {archiveActivities=true} = {}) {
   const store = createContextStore(config, updateLogs);
   if (!store.ready) return;
-  await createCompletedWorkoutStore(config,store).saveWorkouts(context);
+  const previous=await loadSupabaseTrainingSnapshot(config,context.athlete?.id);
+  context=mergeTrainingSnapshot(previous,context);
+  const archive=createCompletedWorkoutStore(config,store);
+  await archive.saveWorkouts(context);
+  const archivedVersions={...(previous?.archived_activity_versions || {}),...(context.archived_activity_versions || {})};
+  if(archiveActivities){
+    const completed=[...new Map([...(context.history || []),...(context.planned || [])].filter(w=>w.completed && w.activity_id).map(w=>[String(w.activity_id),w])).values()];
+    const pending=completed.filter(w=>archivedVersions[String(w.activity_id)]!==createHash('sha256').update(JSON.stringify(w.raw_activity || w.completed_data || {})).digest('hex'));
+    for(let offset=0;offset<pending.length;offset+=2)await Promise.all(pending.slice(offset,offset+2).map(async workout=>{
+      const id=String(workout.activity_id);
+      try{
+        await loadActivityBundle(archive,config,intervalsClient(config),id);
+        archivedVersions[id]=createHash('sha256').update(JSON.stringify(workout.raw_activity || workout.completed_data || {})).digest('hex');
+      }catch(error){updateLogs(`Completed workout archive pending ${id}: ${error.message}`);}
+    }));
+  }
   const athleteId = String(context.athlete?.id || 'default');
   const coach = await readDurableState('COACHING_CONFIG',coachingConfigPath,{});
   const workouts = [...(context.history || context.workouts || []), ...(context.planned || [])];
@@ -339,6 +351,7 @@ async function persistTrainingContext(config, context) {
         provider:'intervals',
         provider_connection:providerConnection(config),
         cached_ranges:context.cached_ranges || [],
+        archived_activity_versions:archivedVersions,
         athlete:context.athlete,
         metrics:context.metrics,
         wellness:context.wellness,
@@ -1006,7 +1019,7 @@ export async function handleRequest(req, res) {
     if(routeMap && req.method==='GET'){
       const config=await readConfig();
       const archive=createCompletedWorkoutStore(config,createContextStore(config,updateLogs));
-      const points=await archive.load(routeMap[1],'route',async()=>activityRoute(await intervalsClient(config)(`/activity/${routeMap[1]}/streams.json?types=latlng`)));
+      const {route:points}=await loadActivityBundle(archive,config,intervalsClient(config),routeMap[1]);
       sendJson(req,res,{points},'private,max-age=300');return;
     }
 
@@ -1015,12 +1028,7 @@ export async function handleRequest(req, res) {
       const config=await readConfig();
       const request=intervalsClient(config);
       const archive=createCompletedWorkoutStore(config,createContextStore(config,updateLogs));
-      const summary=await archive.load(summaryRoute[1],'summary',async()=>{
-        const activity=await request(`/activity/${summaryRoute[1]}`);
-        const summary=mapIntervalsWorkout(activity,athleteLocalDate(new Date()),null,true).workout_summary.completed;
-        Object.assign(summary,recordedExtremes(await request(`/activity/${summaryRoute[1]}/streams.json?types=time,watts,heartrate,velocity_smooth,distance,cadence`)));
-        return summary;
-      });
+      const {summary}=await loadActivityBundle(archive,config,request,summaryRoute[1]);
       sendJson(req,res,summary);return;
     }
 
@@ -1028,23 +1036,7 @@ export async function handleRequest(req, res) {
     if(analysisRoute && req.method==='GET'){
       const config=await readConfig(),id=analysisRoute[1],request=intervalsClient(config);
       const archive=createCompletedWorkoutStore(config,createContextStore(config,updateLogs));
-      const key=createHash('sha256').update(config.INTERVALS_API_KEY+id).digest('hex');
-      const cached=archive.ready?null:analysisCache.get(key);
-      let data=cached && Date.now()-cached.savedAt<900000?cached.data:null;
-      if(!data){
-        data=await archive.load(id,'analysis',async()=>{
-        const [activity,streams]=await Promise.all([request(`/activity/${id}?intervals=true`),request(`/activity/${id}/streams.json?types=time,watts,heartrate,velocity_smooth,distance,cadence`)]);
-        let laps=[];
-        if(activity.file_type==='fit')try{
-          const response=await fetch(`https://intervals.icu/api/v1/activity/${id}/file`,{headers:{Authorization:`Basic ${Buffer.from('API_KEY:'+config.INTERVALS_API_KEY).toString('base64')}`},signal:AbortSignal.timeout(30000)});
-          if(response.ok)laps=readFitLaps(Buffer.from(await response.arrayBuffer()));
-        }catch(error){updateLogs(`Lap read unavailable: ${error.message}`);}
-        return {...normalizeAnalysis(activity,streams,laps),source_activity:activity,source_streams:streams};
-        });
-        if(analysisCache.size>=20)analysisCache.delete(analysisCache.keys().next().value);
-        analysisCache.set(key,{data,savedAt:Date.now()});
-      }
-      const {source_activity,source_streams,...analysis}=data;
+      const {analysis}=await loadActivityBundle(archive,config,request,id);
       sendJson(req,res,analysis,'private,max-age=300');return;
     }
 

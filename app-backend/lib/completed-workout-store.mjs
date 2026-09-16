@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {gzipSync,gunzipSync} from 'node:zlib';
 
 export function providerConnection(config) {
   return createHash('sha256').update(`${config.SETTINGS_SCOPE || 'default'}:${config.INTERVALS_API_KEY || ''}`).digest('hex');
@@ -29,22 +30,29 @@ export function createCompletedWorkoutStore(config, store) {
       const meta = store.ready ? await metadata(id) : null;
       const revision = meta?.revision || '';
       const saved = store.ready && !force ? await store.getSyncRecord(recordId(id,kind)) : null;
-      if (saved && saved.revision === revision && Object.hasOwn(saved,'data')) return saved.data;
+      if (saved && saved.revision === revision && Object.hasOwn(saved,'data')) return saved.encoding === 'gzip-json-v1' ? JSON.parse(gunzipSync(Buffer.from(saved.data,'base64')).toString('utf8')) : saved.data;
       const data = await download();
-      if (store.ready) await write(id,kind,{revision,data,saved_at:new Date().toISOString()});
+      if (store.ready) {
+        const json=JSON.stringify(data);
+        await write(id,kind,json.length>65536 ? {revision,encoding:'gzip-json-v1',data:gzipSync(json).toString('base64'),saved_at:new Date().toISOString()} : {revision,data,saved_at:new Date().toISOString()});
+      }
       return data;
     },
   };
 }
 
 export function mergeTrainingSnapshot(previous, incoming, range) {
-  if (!previous || !range) return incoming;
+  if (!previous) return incoming;
+  // A normal full sync covers a rolling provider window, not the whole archive.
+  range ||= incoming.cached_ranges?.[0];
+  if (!range) return incoming;
   const merge = (oldRows=[],newRows=[]) => [...new Map([
     ...oldRows.filter(w=>w.workout_date < range.start || w.workout_date > range.end),
     ...newRows,
   ].map(w=>[String(w.id),w])).values()].sort((a,b)=>a.workout_date.localeCompare(b.workout_date));
   const wellness = new Map([...(previous.wellness_history || []),...(incoming.wellness_history || [])].map(w=>[w.date,w]));
-  return {...previous,...incoming,cached_ranges:[...(previous.cached_ranges || []),...(incoming.cached_ranges || [])],history:merge(previous.history,incoming.history),planned:merge(previous.planned,incoming.planned),wellness_history:[...wellness.values()].sort((a,b)=>a.date.localeCompare(b.date))};
+  const performance=new Map([...(previous.performance || []),...(incoming.performance || [])].map(w=>[w.workoutDay,w]));
+  return {...previous,...incoming,cached_ranges:[...new Map([...(previous.cached_ranges || []),...(incoming.cached_ranges || [])].map(r=>[`${r.start}:${r.end}`,r])).values()],history:merge(previous.history,incoming.history),planned:merge(previous.planned,incoming.planned),wellness_history:[...wellness.values()].sort((a,b)=>a.date.localeCompare(b.date)),performance:[...performance.values()].sort((a,b)=>a.workoutDay.localeCompare(b.workoutDay))};
 }
 
 export function snapshotCoversRange(snapshot, range) {
