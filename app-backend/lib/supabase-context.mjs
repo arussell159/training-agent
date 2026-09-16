@@ -5,18 +5,25 @@ const jsonHeaders = key => ({
   Prefer:"resolution=merge-duplicates,return=representation",
 })
 
-export function createContextStore(config, log = () => {}) {
+export function createContextStore(config, log = () => {}, fetchImpl = fetch) {
   const url = String(config.SUPABASE_URL || "").replace(/\/$/, "")
   const key = config.SUPABASE_SECRET_KEY
   const ready = Boolean(url && key)
   async function request(table, options = {}) {
     if (!ready) throw new Error("Supabase project URL is not configured")
-    const response = await fetch(`${url}/rest/v1/${table}${options.query || ""}`, { ...options, headers:{ ...jsonHeaders(key), ...options.headers } })
+    const response = await fetchImpl(`${url}/rest/v1/${table}${options.query || ""}`, { ...options, signal:AbortSignal.timeout(30000), headers:{ ...jsonHeaders(key), ...options.headers } })
     if (!response.ok) throw new Error(`Supabase ${table}: ${response.status} ${await response.text()}`)
     const text = await response.text(); return text ? JSON.parse(text) : null
   }
   return {
     ready,
+    async getSyncRecord(id) {
+      const rows = await request('sync_state', {query:`?athlete_id=eq.${encodeURIComponent(id)}&limit=1&select=cursor`});
+      return rows?.[0]?.cursor || null;
+    },
+    async invalidateSyncState(id) {
+      return request('sync_state', {method:'PATCH',query:`?athlete_id=eq.${encodeURIComponent(id)}`,body:JSON.stringify({status:'stale',updated_at:new Date().toISOString()})});
+    },
     async deleteWorkout(id) {
       return request('workout_context', {method:'DELETE',query:`?id=eq.${encodeURIComponent(id)}`});
     },

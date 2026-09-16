@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createContextStore } from './lib/supabase-context.mjs';
+import {createCompletedWorkoutStore,providerConnection,mergeTrainingSnapshot,snapshotCoversRange} from './lib/completed-workout-store.mjs';
 import { createSettingsService, publicSettings, STORED_SETTINGS } from './lib/settings-store.mjs';
 import { resolveApiRoute } from './lib/api-routing.mjs';
 import {intervalsOnlyContext} from './lib/intervals-only-context.mjs';
@@ -297,6 +298,7 @@ async function currentConversationAthleteId() {
 async function persistTrainingContext(config, context) {
   const store = createContextStore(config, updateLogs);
   if (!store.ready) return;
+  await createCompletedWorkoutStore(config,store).saveWorkouts(context);
   const athleteId = String(context.athlete?.id || 'default');
   const coach = await readDurableState('COACHING_CONFIG',coachingConfigPath,{});
   const workouts = [...(context.history || context.workouts || []), ...(context.planned || [])];
@@ -335,9 +337,13 @@ async function persistTrainingContext(config, context) {
     cursor:{
       context:{
         provider:'intervals',
+        provider_connection:providerConnection(config),
+        cached_ranges:context.cached_ranges || [],
         athlete:context.athlete,
         metrics:context.metrics,
         wellness:context.wellness,
+        wellness_history:context.wellness_history || [],
+        performance:context.performance || [],
         history:context.history || context.workouts || [],
         planned:context.planned || [],
         comments:context.comments || [],
@@ -361,11 +367,17 @@ async function loadSupabaseTrainingSnapshot(config, athleteId = null) {
     const state = await store.getLatestSyncState(preferredId);
     const snapshot = state?.cursor?.context;
     if (!snapshot || snapshot.provider !== 'intervals' || !Array.isArray(snapshot.history) || !Array.isArray(snapshot.planned)) return null;
+    if (snapshot.provider_connection !== providerConnection(config)) return null;
     return { ...snapshot, source:'supabase-cache' };
   } catch (error) {
     updateLogs(`Supabase training snapshot read failed: ${error.message}`);
     return null;
   }
+}
+
+async function invalidateTrainingSnapshot(config) {
+  const snapshot=await loadSupabaseTrainingSnapshot(config);
+  if(snapshot)await createContextStore(config,updateLogs).invalidateSyncState(String(snapshot.athlete.id));
 }
 
 function isoDate(date) {
@@ -456,7 +468,12 @@ async function fetchIntervalsTrainingContext(config, {force = false, timeZone = 
 function scopedTrainingContext(context, scope, today = new Date()) {
   context = intervalsOnlyContext(context);
   context = applyCompletionConfirmation(context,completionConfirmation);
-  const compact=w=>{const {raw,...mapped}=w;return mapped};
+  if(context.source === 'supabase-cache') {
+    const localToday=athleteLocalDate(today,context.athlete?.time_zone || 'America/Chicago');
+    const sessions=[...new Map([...(context.history || []),...(context.planned || [])].map(w=>[String(w.id),w])).values()];
+    context={...context,history:sessions.filter(w=>w.workout_date<=localToday),planned:sessions.filter(w=>w.workout_date>=localToday)};
+  }
+  const compact=w=>{const {raw,raw_activity,...mapped}=w;return mapped};
   context={...context,history:(context.history || []).map(compact),planned:(context.planned || []).map(compact),...(context.workouts?{workouts:context.workouts.map(compact)}:{})};
   if (scope && typeof scope === 'object') {
     const within = w => w.workout_date >= scope.start && w.workout_date <= scope.end;
@@ -489,6 +506,7 @@ function sameField(actual, expected) {
 async function applyIntervalsWorkoutPatch(config, workoutId, requestedPatch) {
   const result = await applyIntervalsPatch(intervalsClient(config),workoutId,requestedPatch);
   intervalsMemoryCache = null;
+  await invalidateTrainingSnapshot(config);
   return result;
 }
 
@@ -923,8 +941,14 @@ export async function handleRequest(req, res) {
         contextScope={start,end};
       }
       if (config.INTERVALS_API_KEY) {
+        const saved = await loadSupabaseTrainingSnapshot(config,local.athlete?.id);
+        if (saved && !forceRefresh && snapshotCoversRange(saved,typeof contextScope === 'object' ? contextScope : null)) {
+          sendJson(req,res,scopedTrainingContext({...local,...saved,athlete:athleteWithRace(saved.athlete),comments:local.comments,library:local.library},contextScope));
+          return;
+        }
         try {
-          const live = await fetchIntervalsTrainingContext(config, { force:forceRefresh, timeZone, range:typeof contextScope === 'object' ? contextScope : contextScope === 'week' ? currentWeekRange(timeZone) : undefined });
+          const range = saved && contextScope !== 'full' ? typeof contextScope === 'object' ? contextScope : currentWeekRange(timeZone) : undefined;
+          const live = await fetchIntervalsTrainingContext(config, { force:forceRefresh, timeZone, range });
           const liveContext = {
             ...local,
             ...live,
@@ -934,7 +958,7 @@ export async function handleRequest(req, res) {
             library:local.library,
           };
           try {
-            if(contextScope === 'full')await persistTrainingContext(config, liveContext);
+            await persistTrainingContext(config, mergeTrainingSnapshot(saved,liveContext,range));
           } catch (error) {
             updateLogs(`context write failed: ${error.message}`);
           }
@@ -975,13 +999,14 @@ export async function handleRequest(req, res) {
       const config=await readConfig(),{id,description}=await readBody(req);
       const result=await updateWorkoutDescription(intervalsClient(config),id,description);
       intervalsMemoryCache=null;
+      await invalidateTrainingSnapshot(config);
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(result));return;
     }
     const routeMap=pathname.match(/^\/api\/activities\/(i\d+|\d+)\/route$/);
     if(routeMap && req.method==='GET'){
       const config=await readConfig();
-      const streams=await intervalsClient(config)(`/activity/${routeMap[1]}/streams.json?types=latlng`);
-      const points=activityRoute(streams);
+      const archive=createCompletedWorkoutStore(config,createContextStore(config,updateLogs));
+      const points=await archive.load(routeMap[1],'route',async()=>activityRoute(await intervalsClient(config)(`/activity/${routeMap[1]}/streams.json?types=latlng`)));
       sendJson(req,res,{points},'private,max-age=300');return;
     }
 
@@ -989,30 +1014,38 @@ export async function handleRequest(req, res) {
     if(summaryRoute && req.method==='GET'){
       const config=await readConfig();
       const request=intervalsClient(config);
-      const activity=await request(`/activity/${summaryRoute[1]}`);
-      const summary=mapIntervalsWorkout(activity,athleteLocalDate(new Date()),null,true).workout_summary.completed;
-      try{Object.assign(summary,recordedExtremes(await request(`/activity/${summaryRoute[1]}/streams.json?types=time,watts,heartrate,velocity_smooth,distance,cadence`)))}catch{/* Keep verified activity totals if streams are unavailable. */}
+      const archive=createCompletedWorkoutStore(config,createContextStore(config,updateLogs));
+      const summary=await archive.load(summaryRoute[1],'summary',async()=>{
+        const activity=await request(`/activity/${summaryRoute[1]}`);
+        const summary=mapIntervalsWorkout(activity,athleteLocalDate(new Date()),null,true).workout_summary.completed;
+        Object.assign(summary,recordedExtremes(await request(`/activity/${summaryRoute[1]}/streams.json?types=time,watts,heartrate,velocity_smooth,distance,cadence`)));
+        return summary;
+      });
       sendJson(req,res,summary);return;
     }
 
     const analysisRoute=pathname.match(/^\/api\/activities\/(i\d+|\d+)\/analysis$/);
     if(analysisRoute && req.method==='GET'){
       const config=await readConfig(),id=analysisRoute[1],request=intervalsClient(config);
+      const archive=createCompletedWorkoutStore(config,createContextStore(config,updateLogs));
       const key=createHash('sha256').update(config.INTERVALS_API_KEY+id).digest('hex');
-      const cached=analysisCache.get(key);
+      const cached=archive.ready?null:analysisCache.get(key);
       let data=cached && Date.now()-cached.savedAt<900000?cached.data:null;
       if(!data){
+        data=await archive.load(id,'analysis',async()=>{
         const [activity,streams]=await Promise.all([request(`/activity/${id}?intervals=true`),request(`/activity/${id}/streams.json?types=time,watts,heartrate,velocity_smooth,distance,cadence`)]);
         let laps=[];
         if(activity.file_type==='fit')try{
           const response=await fetch(`https://intervals.icu/api/v1/activity/${id}/file`,{headers:{Authorization:`Basic ${Buffer.from('API_KEY:'+config.INTERVALS_API_KEY).toString('base64')}`},signal:AbortSignal.timeout(30000)});
           if(response.ok)laps=readFitLaps(Buffer.from(await response.arrayBuffer()));
         }catch(error){updateLogs(`Lap read unavailable: ${error.message}`);}
-        data=normalizeAnalysis(activity,streams,laps);
+        return {...normalizeAnalysis(activity,streams,laps),source_activity:activity,source_streams:streams};
+        });
         if(analysisCache.size>=20)analysisCache.delete(analysisCache.keys().next().value);
         analysisCache.set(key,{data,savedAt:Date.now()});
       }
-      sendJson(req,res,data,'private,max-age=300');return;
+      const {source_activity,source_streams,...analysis}=data;
+      sendJson(req,res,analysis,'private,max-age=300');return;
     }
 
     if (pathname === '/api/calendar/day-actions' && req.method === 'POST') {
@@ -1029,6 +1062,7 @@ export async function handleRequest(req, res) {
       }
       intervalsMemoryCache = null;
       let context = null;
+      await invalidateTrainingSnapshot(config);
       try {context = await fetchIntervalsTrainingContext(config,{force:true});await persistTrainingContext(config,context);}
       catch(error) {updateLogs(`Post-action refresh failed: ${error.message}`);}
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
@@ -1065,6 +1099,7 @@ export async function handleRequest(req, res) {
         catch(error) {updateLogs(`Verified calendar cache write skipped: ${error.message}`);}
       }
       intervalsMemoryCache = null;
+      await invalidateTrainingSnapshot(config);
       try {context = await fetchIntervalsTrainingContext(config,{force:true});await persistTrainingContext(config,context);}
       catch(error) {updateLogs(`Post-calendar refresh failed: ${error.message}`);}
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});

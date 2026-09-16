@@ -97,7 +97,7 @@ export function mapIntervalsWorkout(item, today, activity = null, isActivity = f
     source_updated_at:item.updated || null, source:'intervals',
     measurement_quality:{power_available:actual?.icu_average_watts != null,heart_rate_available:actual?.average_heartrate != null},
     workout_summary:{planned:isActivity?null:summary(item),completed:summary(actual)},
-    raw:item,
+    raw:item, raw_activity:actual || null,
   };
 }
 
@@ -133,6 +133,7 @@ export async function fetchIntervalsContext(request, {now = new Date(), timeZone
     performance:(wellness || []).map(w => ({...w,workoutDay:w.id,ctl:w.ctl,atl:w.atl,tsb:w.ctl != null && w.atl != null ? w.ctl-w.atl : null})),
     history:sessions.filter(w => w.workout_date <= today), planned:sessions.filter(w => w.workout_date >= today),
     source:'intervals',synced_at:new Date().toISOString(),retention_days:90,
+    cached_ranges:[{start:range?.start || shift(-89),end:range?.end || shift(60)}],
   };
 }
 

@@ -55,6 +55,10 @@ create table if not exists sync_state (
   athlete_id text primary key, last_backfill_at timestamptz,
   cursor jsonb default '{}', status text default 'idle', error text, updated_at timestamptz default now()
 );
+-- status='ready' rows contain normal training snapshots. Backend-only
+-- status='archived', athlete_id='completed:v1:<connection-hash>:<activity>:<kind>'
+-- rows retain completed-workout source data and downloaded charts/routes.
+-- These archive rows are intentionally not pruned by the 90-day context RPC.
 create table if not exists daily_workout_reviews (
   id text primary key, athlete_id text not null default 'default', local_date date not null,
   conversation_id uuid, revision integer not null default 1, status text not null,
