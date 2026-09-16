@@ -45,7 +45,11 @@ import {
 import {
   durationMinutes,
   completedMinutes,
-  fallbackTrainingContext,
+  cachedTrainingContext,
+  hydrateDeviceHistory,
+  loadTrainingContext,
+  mergeCalendarContext,
+  rememberTrainingContext,
   moveWorkoutDate,
   changeWorkout,
   changeWorkoutDay,
@@ -205,7 +209,7 @@ export function TrainingCalendar({
 }: {
   onWorkoutOpen?: (workout: PlannedWorkout) => void
 }) {
-  const [context, setContext] = useState({...fallbackTrainingContext, history: [], planned: [], wellness_history: []} as TrainingContext)
+  const [context, setContext] = useState(cachedTrainingContext)
   const [historyReady,setHistoryReady] = useState(false)
   const loadedWeeks = useRef(new Set<string>())
   const pendingWeeks = useRef(new Set<string>())
@@ -218,6 +222,19 @@ export function TrainingCalendar({
   const calendarWasDragged = useRef(false)
   const calendarRevision = useRef(0)
   const sensors = useSensors(useSensor(MouseSensor, {activationConstraint:{distance:6}}), useSensor(TouchSensor, {activationConstraint:{delay:250,tolerance:6}}))
+  useEffect(()=>{
+    let active=true
+    const range=(cachedTrainingContext() as TrainingContext & {display_range?:{start:string;end:string}}).display_range
+    if(range && range.start>'0000-01-01'){
+      const start=new Date(`${range.start}T12:00:00`),end=new Date(`${range.end}T12:00:00`)
+      while(start<=end){loadedWeeks.current.add(dateKey(start));start.setDate(start.getDate()+7)}
+    }
+    void hydrateDeviceHistory().then(saved=>{if(active && saved)setContext(current=>mergeCalendarContext(saved,current))})
+    void loadTrainingContext().then(saved=>{if(active)setContext(current=>mergeCalendarContext(current,saved))})
+    const update=(event:Event)=>{if(active)setContext(current=>mergeCalendarContext(current,(event as CustomEvent<TrainingContext>).detail))}
+    window.addEventListener('training-context-updated',update)
+    return()=>{active=false;window.removeEventListener('training-context-updated',update)}
+  },[])
 
   const runWorkoutAction = async (workout: PlannedWorkout, action: "copy" | "delete") => {
     if (moving) return
@@ -269,7 +286,7 @@ export function TrainingCalendar({
     try {
       const result = await moveWorkoutDate(workout.id, date)
       if (result.context) setContext(current => ({...current, ...result.context}))
-      setMoveNotice(`${workout.title} saved and moved to ${new Date(`${date}T12:00:00`).toLocaleDateString('en-US',{month:'short',day:'numeric'})}.`)
+      setMoveNotice(`${workout.title} saved in Supabase for ${new Date(`${date}T12:00:00`).toLocaleDateString('en-US',{month:'short',day:'numeric'})}.${result.queued?' Syncing to Intervals.icu…':''}`)
     } catch (error) {
       setContext(snapshot)
       setMoveNotice(error instanceof Error ? error.message : "Unable to move workout.")
@@ -387,6 +404,9 @@ export function TrainingCalendar({
             if(anchor)viewportAnchor.current={element:anchor.element,top:anchor.bounds.top,scrollY:window.scrollY}
           }
           loadedWeeks.current.add(start)
+          void hydrateDeviceHistory().then(cachedFull=>{
+            if(active)rememberTrainingContext({...mergeCalendarContext(cachedFull || context,next),display_range:{start:'0000-01-01',end:'9999-12-31'}},'full')
+          })
           setContext(previous=>{
             const history=new Map([...previous.history,...next.history].map(w=>[(w as PlannedWorkout).id,w]))
             const planned=new Map([...previous.planned,...next.planned].map(w=>[w.id,w]))
@@ -553,7 +573,7 @@ export function TrainingCalendar({
                             <DayMenu day={day} count={dayWorkouts.length} disabled={moving} onAction={action => void runDayAction(day,action)} />
                           </div>
                           <div className="space-y-2">
-                            {loadedWeeks.current.has(week.key) && <DailyMetricsCard date={dateKey(day)} rows={context.wellness_history || []} onOpen={() => setMetricsDate(dateKey(day))} />}
+                            <DailyMetricsCard date={dateKey(day)} rows={context.wellness_history || []} onOpen={() => setMetricsDate(dateKey(day))} />
                             {dayWorkouts.map((workout) => <DraggableWorkout key={workout.id} workout={workout} disabled={moving || !workout.id.startsWith("event:")} onOpen={() => openWorkout(workout)} onAction={action => void runWorkoutAction(workout, action)} />)}
                             <div aria-hidden="true" className="flex h-12 w-full items-center justify-center rounded-sm border border-muted-foreground/40 text-muted-foreground opacity-0 transition-opacity group-hover/day:opacity-100">
                               <Plus className="size-4" />

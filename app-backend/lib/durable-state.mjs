@@ -14,7 +14,7 @@ export function createDurableState({getStore=store,readFile=fs.readFile,writeFil
 return {
 async read(name,cachePath,fallback) {
   const remote = await getStore();
-  const values = await remote.read();
+  const values = await remote.read([name]);
   if (values[name]) return JSON.parse(values[name]);
   let initial;
   try {initial = JSON.parse(await readFile(cachePath,'utf8'));}

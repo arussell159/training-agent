@@ -16,6 +16,18 @@ export function createCompletedWorkoutStore(config, store) {
   async function metadata(id) { return store.getSyncRecord(recordId(id,'metadata')); }
   return {
     ready:store.ready,
+    async saveViews(id,views) {
+      const meta=await metadata(id);
+      await store.upsert('sync_state',Object.entries(views).map(([kind,data])=>({athlete_id:recordId(id,kind),status:'archived',cursor:{revision:meta?.revision || '',data,saved_at:new Date().toISOString()},updated_at:new Date().toISOString()})));
+    },
+    async invalidateViews(id) {
+      if(store.ready)await store.upsert('sync_state',['analysis','summary','route'].map(kind=>({athlete_id:recordId(id,kind),status:'archived',cursor:{pending:true},updated_at:new Date().toISOString()})));
+    },
+    async loadView(id,kind,download) {
+      const saved=store.ready ? await store.getSyncRecord(recordId(id,kind)) : null;
+      if(saved && Object.hasOwn(saved,'data'))return saved.encoding === 'gzip-json-v1' ? JSON.parse(gunzipSync(Buffer.from(saved.data,'base64')).toString('utf8')) : saved.data;
+      return this.load(id,kind,download);
+    },
     async saveWorkouts(context) {
       if (!store.ready) return;
       const workouts = [...new Map([...(context.history || []),...(context.planned || [])].filter(w=>w.completed && w.activity_id).map(w=>[String(w.activity_id),w])).values()];
@@ -46,10 +58,14 @@ export function mergeTrainingSnapshot(previous, incoming, range) {
   // A normal full sync covers a rolling provider window, not the whole archive.
   range ||= incoming.cached_ranges?.[0];
   if (!range) return incoming;
-  const merge = (oldRows=[],newRows=[]) => [...new Map([
+  const merge = (oldRows=[],newRows=[]) => {
+    const recent=new Map(oldRows.filter(w=>['pending','failed'].includes(w.sync_status) || incoming.sync_started_at && w.app_updated_at>incoming.sync_started_at).map(w=>[String(w.id),w]));
+    return [...new Map([
     ...oldRows.filter(w=>w.workout_date < range.start || w.workout_date > range.end),
-    ...newRows,
+    ...newRows.filter(w=>!(incoming.sync_started_at && previous.app_deleted_workouts?.[String(w.id)]>incoming.sync_started_at)),
+    ...recent.values(),
   ].map(w=>[String(w.id),w])).values()].sort((a,b)=>a.workout_date.localeCompare(b.workout_date));
+  };
   const wellness = new Map([...(previous.wellness_history || []),...(incoming.wellness_history || [])].map(w=>[w.date,w]));
   const performance=new Map([...(previous.performance || []),...(incoming.performance || [])].map(w=>[w.workoutDay,w]));
   return {...previous,...incoming,cached_ranges:[...new Map([...(previous.cached_ranges || []),...(incoming.cached_ranges || [])].map(r=>[`${r.start}:${r.end}`,r])).values()],history:merge(previous.history,incoming.history),planned:merge(previous.planned,incoming.planned),wellness_history:[...wellness.values()].sort((a,b)=>a.date.localeCompare(b.date)),performance:[...performance.values()].sort((a,b)=>a.workoutDay.localeCompare(b.workoutDay))};

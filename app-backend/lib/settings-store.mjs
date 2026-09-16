@@ -72,9 +72,11 @@ export function createSupabaseSettingsStore(bootstrap,fetchImpl = fetch) {
     return response.json();
   }
   return {
-    async read() {
-      const rows = await request(`?scope=eq.${encodeURIComponent(scope)}&select=name,encrypted_value`);
-      return Object.fromEntries(rows.filter(row => STORED_SETTINGS.includes(row.name)).map(row => [row.name,decrypt(row.name,row.encrypted_value)]));
+    async read(names = STORED_SETTINGS) {
+      const selected=names.filter(name=>STORED_SETTINGS.includes(name));
+      const filter=selected.length===STORED_SETTINGS.length?'':`&name=in.(${selected.join(',')})`;
+      const rows = await request(`?scope=eq.${encodeURIComponent(scope)}&select=name,encrypted_value${filter}`);
+      return Object.fromEntries(rows.filter(row => selected.includes(row.name)).map(row => [row.name,decrypt(row.name,row.encrypted_value)]));
     },
     async save(patch) {
       const values = pickSettings(patch,STORED_SETTINGS);
@@ -93,12 +95,19 @@ export function createSupabaseSettingsStore(bootstrap,fetchImpl = fetch) {
 
 // Bootstrap credentials come from the backend environment/local file, not from the database they unlock.
 export function createSettingsService({readBootstrap,writeBootstrap,fetchImpl = fetch,hosted = false}) {
+  const cache=new Map();
   return {
-    async read() {
+    async read(names = STORED_SETTINGS) {
       const bootstrap = await readBootstrap();
       if (!bootstrap.SUPABASE_URL || !bootstrap.SUPABASE_SECRET_KEY) return bootstrap;
       try {
-        const saved = await createSupabaseSettingsStore(bootstrap,fetchImpl).read();
+        const id=JSON.stringify([bootstrap.SUPABASE_URL,bootstrap.SETTINGS_SCOPE,bootstrap.SUPABASE_SECRET_KEY,bootstrap.SETTINGS_ENCRYPTION_KEY,names]);
+        const entry=cache.get(id);
+        if(entry && Date.now()-entry.savedAt<30000)return {...bootstrap,...await entry.promise};
+        const promise=createSupabaseSettingsStore(bootstrap,fetchImpl).read(names);
+        cache.set(id,{savedAt:Date.now(),promise});
+        let saved;
+        try {saved=await promise;}catch(error){cache.delete(id);throw error;}
         // Saved application settings take precedence over older environment/local application keys.
         return {...bootstrap,...saved};
       } catch(error) {
@@ -107,6 +116,7 @@ export function createSettingsService({readBootstrap,writeBootstrap,fetchImpl = 
       }
     },
     async save(patch) {
+      cache.clear();
       const bootstrap = await readBootstrap();
       const target = {...bootstrap,...pickSettings(patch,BOOTSTRAP_SETTINGS)};
       const bootstrapChanged = BOOTSTRAP_SETTINGS.some(name => target[name] !== bootstrap[name]);
@@ -117,6 +127,7 @@ export function createSettingsService({readBootstrap,writeBootstrap,fetchImpl = 
       const migrated = Object.fromEntries(Object.entries(pickSettings(bootstrap,STORED_SETTINGS)).filter(([name]) => !existing[name]));
       await store.save({...migrated,...patch});
       if (bootstrapChanged || (!hosted && STORED_SETTINGS.some(name => bootstrap[name]))) await writeBootstrap(pickSettings(target,BOOTSTRAP_SETTINGS));
+      cache.clear();
       return {...target,...await store.read()};
     },
   };

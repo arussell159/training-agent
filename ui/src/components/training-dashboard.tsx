@@ -4,9 +4,9 @@ import { ChartAreaInteractive } from "@/components/chart-area-interactive"
 import { SectionCards } from "@/components/section-cards"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
-  fallbackTrainingContext,
   loadFullTrainingContext,
   loadTrainingContext,
+  cachedTrainingContext,
   type PlannedWorkout,
 } from "@/lib/training-context"
 
@@ -21,7 +21,7 @@ export function TrainingDashboard({
   refreshRequest?: number
   onRefreshComplete?: () => void
 }) {
-  const [context, setContext] = useState(fallbackTrainingContext)
+  const [context, setContext] = useState(cachedTrainingContext)
   const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(null)
   const isMobile = useIsMobile()
 
@@ -44,15 +44,11 @@ export function TrainingDashboard({
 
   useEffect(() => {
     let active = true
-    const hydrateHistory = () => {
-      void loadFullTrainingContext().then((nextContext) => {
-        if (active) setContext(nextContext)
-      })
-    }
-    const timer = window.setTimeout(hydrateHistory, 500)
+    const update=()=>{if(active)setContext(cachedTrainingContext())}
+    window.addEventListener('training-context-updated',update)
     return () => {
       active = false
-      window.clearTimeout(timer)
+      window.removeEventListener('training-context-updated',update)
     }
   }, [])
 

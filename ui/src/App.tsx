@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api-client"
+import {BackgroundSync} from '@/components/background-sync'
 import { SidebarNavigationSlim } from "@/components/application/app-navigation/sidebar-navigation/sidebar-slim"
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import {
@@ -176,6 +177,7 @@ function AppWorkspace() {
   }, [])
 
   useEffect(() => {
+    if(activeItem!=='Coach' && !historyOpen)return
     let cancelled = false
     void loadCoachConversations()
       .then((conversations) => {
@@ -185,7 +187,7 @@ function AppWorkspace() {
     return () => {
       cancelled = true
     }
-  }, [refreshConversationHistory])
+  }, [refreshConversationHistory,activeItem,historyOpen])
 
   useEffect(() => {
     const handlePopState = () => {
@@ -200,6 +202,14 @@ function AppWorkspace() {
     window.addEventListener("popstate", handlePopState)
     return () => window.removeEventListener("popstate", handlePopState)
   }, [])
+  useEffect(()=>{
+    const update=(event:Event)=>{
+      const context=(event as CustomEvent<{planned:PlannedWorkout[];history:PlannedWorkout[]}>).detail
+      setSelectedWorkout(current=>current?([...context.planned,...context.history].find(w=>w.id===current.id) || current):null)
+    }
+    window.addEventListener('training-context-updated',update)
+    return()=>window.removeEventListener('training-context-updated',update)
+  },[])
 
   const selectItem = (item: string) => {
     setSelectedWorkout(null)
@@ -297,6 +307,7 @@ function AppWorkspace() {
         setContextVersion((version) => version + 1)
       }}
     >
+      <BackgroundSync />
       <AlertDialog
         open={intervalsDisconnected}
         onOpenChange={setIntervalsDisconnected}

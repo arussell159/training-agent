@@ -31,6 +31,12 @@ export async function downloadActivityBundle(request,id,downloadFile) {
   };
 }
 
-export function loadActivityBundle(archive,config,request,id) {
-  return archive.load(id,'bundle',()=>downloadActivityBundle(request,id,fileId=>downloadOriginalActivityFile(config,fileId)));
+export async function loadActivityBundle(archive,config,request,id) {
+  const bundle=await archive.load(id,'bundle',()=>downloadActivityBundle(request,id,fileId=>downloadOriginalActivityFile(config,fileId)));
+  if(archive.ready)await archive.saveViews(id,{analysis:bundle.analysis,summary:bundle.summary,route:bundle.route});
+  return bundle;
+}
+
+export function loadActivityView(archive,config,request,id,kind) {
+  return archive.loadView(id,kind,async()=> (await loadActivityBundle(archive,config,request,id))[kind]);
 }

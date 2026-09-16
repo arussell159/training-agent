@@ -21,6 +21,9 @@ export function createContextStore(config, log = () => {}, fetchImpl = fetch) {
       const rows = await request('sync_state', {query:`?athlete_id=eq.${encodeURIComponent(id)}&limit=1&select=cursor`});
       return rows?.[0]?.cursor || null;
     },
+    async listSyncRecords(prefix) {
+      return request('sync_state',{query:`?athlete_id=like.${encodeURIComponent(prefix+'*')}&cursor->>state=in.(pending,retry,failed)&order=updated_at.asc&limit=100&select=athlete_id,cursor`});
+    },
     async invalidateSyncState(id) {
       return request('sync_state', {method:'PATCH',query:`?athlete_id=eq.${encodeURIComponent(id)}`,body:JSON.stringify({status:'stale',updated_at:new Date().toISOString()})});
     },

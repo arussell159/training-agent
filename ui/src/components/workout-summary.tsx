@@ -8,17 +8,18 @@ export function WorkoutSummary({workout}:{workout:PlannedWorkout}){
  const swim=/swim/i.test(workout.sport),bike=/bike|ride/i.test(workout.sport)
  const data=workout.workout_summary
  const id=workout.activity_id || (workout.id.startsWith('activity:')?workout.id.slice(9):null)
+ const revision=(workout as PlannedWorkout & {activity_revision?:string}).activity_revision || ''
  const [recorded,setRecorded]=useState<WorkoutSummaryValues|null>(null)
  const [loading,setLoading]=useState(Boolean(id)),[error,setError]=useState(''),[retry,setRetry]=useState(0)
  useEffect(()=>{
   setRecorded(null);setError('');setLoading(Boolean(id));if(!id)return
   const controller=new AbortController()
-  void apiFetch(`/api/activities/${encodeURIComponent(id)}/summary`,{signal:controller.signal}).then(async response=>{
+  void apiFetch(`/api/activities/${encodeURIComponent(id)}/summary?v=${encodeURIComponent(revision)}`,{signal:controller.signal}).then(async response=>{
    if(!response.ok)throw Error('Completed values could not be refreshed.')
    return await response.json() as WorkoutSummaryValues
   }).then(values=>{if(!controller.signal.aborted)setRecorded(values)}).catch(e=>{if(e.name!=='AbortError')setError(e.message)}).finally(()=>{if(!controller.signal.aborted)setLoading(false)})
   return()=>controller.abort()
- },[id,retry])
+ },[id,retry,revision])
  const planned=data?.planned,completed=recorded || data?.completed
  const number=(v:number|null|undefined,digits=0)=>v==null || !Number.isFinite(v)?'':v.toLocaleString('en-US',{maximumFractionDigits:digits,minimumFractionDigits:digits})
  const clock=(v:number|null|undefined)=>v==null?'':formatDuration(v/60)
@@ -26,7 +27,7 @@ export function WorkoutSummary({workout}:{workout:PlannedWorkout}){
  const rows:{label:string;unit:string;value:(v:WorkoutSummaryValues|undefined|null)=>string}[]=[
   {label:'Duration',unit:'',value:v=>clock(v?.duration_seconds)},
   {label:'Distance',unit:swim?'yds':'mi',value:v=>number(v?.distance_meters==null?null:v.distance_meters/(swim?.9144:1609.344),swim?0:2)},
-  {label:bike?'Avg power':'Avg pace',unit:bike?'watts':swim?'sec/100y':'min/mi',value:v=>bike?number(v?.average_power):pace(v?.average_speed)},
+  {label:bike?'Avg power':'Avg pace',unit:bike?'watts':swim?'min:sec/100y':'min/mi',value:v=>bike?number(v?.average_power):pace(v?.average_speed)},
   {label:'Calories',unit:'kcal',value:v=>number(v?.calories)},
   {label:'Gain',unit:'ft',value:v=>number(v?.elevation_gain==null?null:v.elevation_gain/.3048)},
   {label:'TSS',unit:'TSS',value:v=>number(v?.tss)},

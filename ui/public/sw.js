@@ -1,3 +1,36 @@
+self.addEventListener('install',event=>{
+  event.waitUntil((async()=>{
+    try {const response=await fetch('/');if(response.ok && new URL(response.url).origin===self.location.origin && response.headers.get('content-type')?.includes('text/html'))await (await caches.open('training-agent-shell-v2')).put('/__app_shell__',response)}catch{ /* Existing shell still works offline. */ }
+    await self.skipWaiting()
+  })())
+})
+self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()))
+self.addEventListener('fetch',event=>{
+  const url=new URL(event.request.url)
+  if(event.request.method!=='GET'||url.origin!==self.location.origin||url.pathname.startsWith('/api/'))return
+  if(event.request.mode==='navigate'){
+    event.respondWith((async()=>{
+      const cache=await caches.open('training-agent-shell-v2')
+      const cached=await cache.match('/__app_shell__')
+      const fresh=fetch(event.request).then(async response=>{
+        if(response.ok && new URL(response.url).origin===self.location.origin && response.headers.get('content-type')?.includes('text/html'))await cache.put('/__app_shell__',response.clone())
+        return response
+      })
+      // Prefer current HTML online so it never points to chunks removed by a
+      // deployment. The saved shell remains available when the network fails.
+      try {return await fresh} catch(error){if(cached)return cached;throw error}
+    })())
+  }else if(url.pathname.startsWith('/assets/')){
+    event.respondWith((async()=>{
+      const cache=await caches.open('training-agent-shell-v2'),cached=await cache.match(event.request)
+      if(cached)return cached
+      const response=await fetch(event.request)
+      if(response.ok)event.waitUntil(cache.put(event.request,response.clone()))
+      return response
+    })())
+  }
+})
+
 self.addEventListener("push", (event) => {
   let data = {}
   try {

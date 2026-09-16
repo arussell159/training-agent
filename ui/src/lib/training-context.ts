@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api-client"
+import {readDeviceCache,writeDeviceCache,clearDeviceCache} from './device-cache'
 export interface TrainingHistoryItem {
   workout_date: string
   planned?: { duration_minutes?: number; tss?: number }
@@ -17,6 +18,8 @@ export interface PlannedWorkout {
   id: string
   day: string
   activity_id?: string | null
+  recorded_start_local?: string | null
+  device_name?: string | null
   completion_grade?: 'good' | 'medium' | 'failed'
   date: string
   workout_date?: string
@@ -232,40 +235,88 @@ export const fallbackTrainingContext: TrainingContext = {
 const contextCache = new Map<"week" | "full", TrainingContext>()
 const contextRequests = new Map<"week" | "full", Promise<TrainingContext>>()
 let contextRevision = 0
+let mutationsInFlight=0
+export function trainingMutationState() {return {revision:contextRevision,busy:mutationsInFlight>0}}
+if(typeof window!=='undefined')window.addEventListener('training-cache-reset',()=>{contextRevision++;contextCache.clear();contextRequests.clear()})
+const STARTUP_KEY='training-agent-startup-v2'
+type CachedContext = TrainingContext & {cache_scope?:string;version?:string;display_range?:{start:string;end:string}}
+export function cachedTrainingContext(): TrainingContext {
+  const memory=contextCache.get('week') || contextCache.get('full')
+  if(memory)return memory
+  try {
+    const saved=JSON.parse(localStorage.getItem(STARTUP_KEY) || 'null') as TrainingContext | null
+    if(saved?.athlete && Array.isArray(saved.history) && Array.isArray(saved.planned)) {
+      const day=new Intl.DateTimeFormat('en-CA',{timeZone:saved.athlete.time_zone || 'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())
+      const sessions=[...new Map([...saved.history,...saved.planned].map(w=>[(w as PlannedWorkout).id,w as PlannedWorkout])).values()].filter((w):w is PlannedWorkout & {workout_date:string}=>typeof w.workout_date==='string')
+      const context={...saved,history:sessions.filter(w=>w.workout_date<=day),planned:sessions.filter(w=>w.workout_date>=day)}
+      contextCache.set('week',context);return context
+    }
+  } catch { /* No cache, or storage is unavailable. */ }
+  return fallbackTrainingContext
+}
+export function rememberTrainingContext(context: CachedContext,scope:'week'|'full'='week') {
+  const previous=(contextCache.get('full') || contextCache.get('week')) as CachedContext | undefined
+  if(previous?.cache_scope && context.cache_scope && previous.cache_scope!==context.cache_scope) {
+    contextCache.clear();void clearDeviceCache()
+  }
+  contextCache.set(scope,context)
+  if(scope==='week' && contextCache.has('full')) {
+    const merged=mergeCalendarContext(contextCache.get('full')!,context)
+    contextCache.set('full',merged);void writeDeviceCache('training:full',merged)
+  }
+  if(scope==='full')void writeDeviceCache('training:full',context)
+  const day=new Date();const today=new Intl.DateTimeFormat('en-CA',{timeZone:context.athlete.time_zone || 'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(day)
+  const start=new Date(`${today}T12:00:00Z`);start.setUTCDate(start.getUTCDate()-((start.getUTCDay()+6)%7))
+  const date=(n:number)=>new Date(start.getTime()+n*86400000).toISOString().slice(0,10)
+  const week={...context,display_range:{start:date(-14),end:date(13)},history:context.history.filter(w=>w.workout_date>=date(-14)),planned:context.planned.filter(w=>(w.workout_date || '')<=date(13)),wellness_history:context.wellness_history?.filter(w=>(w.date || '')>=date(-30))}
+  contextCache.set('week',week)
+  try {localStorage.setItem(STARTUP_KEY,JSON.stringify(week))} catch { /* Cache is optional. */ }
+  if(!previous?.version || previous.version!==context.version || scope==='full')window.dispatchEvent(new CustomEvent('training-context-updated',{detail:context}))
+}
+export function trainingCacheScope() {return (cachedTrainingContext() as CachedContext).cache_scope || 'initial'}
+export function mergeCalendarContext(previous:TrainingContext,incoming:CachedContext): TrainingContext {
+  const range=incoming.display_range
+  const merge=<T extends {workout_date?:string}>(old:T[],next:T[])=>[...new Map([...old.filter(w=>!range || (w.workout_date || '')<range.start || (w.workout_date || '')>range.end),...next].map(w=>[(w as T & {id?:string}).id,w])).values()]
+  return {...previous,...incoming,history:merge(previous.history,incoming.history),planned:merge(previous.planned,incoming.planned),wellness_history:[...new Map([...(previous.wellness_history || []),...(incoming.wellness_history || [])].map(w=>[w.date,w])).values()]}
+}
+export async function hydrateDeviceHistory() {
+  const saved=await readDeviceCache<CachedContext>('training:full')
+  if(saved && (trainingCacheScope()==='initial' || saved.cache_scope===trainingCacheScope())) {
+    const context=mergeCalendarContext(saved,cachedTrainingContext() as CachedContext);contextCache.set('full',context);return context
+  }
+  return null
+}
 
 export async function refreshRecentIntervals() {
-  const response = await apiFetch("/api/training-context?scope=full&refresh=1&window=recent", {
+  const response = await apiFetch("/api/sync?force=1&retry=1", {
+    method:'POST',
     headers: { Accept: "application/json" },
   })
   if (!response.ok) throw new Error(`Intervals.icu refresh failed (${response.status})`)
-  const context = (await response.json()) as TrainingContext
-  if (context.sync_error) throw new Error(context.sync_error)
-  if (context.source !== "intervals") throw new Error("Connect Intervals.icu in Settings before refreshing.")
-  contextCache.clear()
-  contextCache.set("full", context)
-  contextCache.set("week", context)
-  return context
+  const result = await response.json() as {context:TrainingContext;sync_error?:string}
+  if(result.context)rememberTrainingContext(result.context)
+  if(result.sync_error)throw Error(result.sync_error)
+  return loadTrainingContext(false,'full',true)
 }
 
 export async function moveWorkoutDate(id: string, date: string) {
-  const response = await apiFetch(`/api/workouts/${encodeURIComponent(id)}/move`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date }),
-  })
-  const result = await response.json() as { verified?: boolean; error?: string; context?: TrainingContext | null }
-  if (!response.ok || !result.verified) throw new Error(result.error || "The workout move could not be confirmed.")
-  contextRevision += 1
-  contextRequests.clear()
-  const previous = contextCache.get("full") || contextCache.get("week")
-  contextCache.clear()
-  if (result.context) {
-    const context = { ...previous, ...result.context } as TrainingContext
-    contextCache.set("full", context)
-    contextCache.set("week", context)
-  }
-  return result
+  return queueWorkoutMutation({type:'move',id,date})
+}
+export async function queueWorkoutMutation(input:{type:'move'|'description';id:string;date?:string;description?:string}) {
+  contextRevision++;mutationsInFlight++
+  try{
+    const response=await apiFetch('/api/mutations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...input,operationId:crypto.randomUUID()})})
+    const result=await response.json() as {queued?:boolean;verified?:boolean;error?:string;context?:TrainingContext|null}
+    if(!response.ok || !result.context || !(result.queued || result.verified))throw Error(result.error || 'The change could not be saved in Supabase.')
+    rememberTrainingContext(result.context,'full')
+    window.dispatchEvent(new Event('request-background-sync'))
+    return result
+  }finally{mutationsInFlight--}
 }
 
 export async function changeWorkout(id: string, action: "copy" | "delete") {
+  contextRevision++;mutationsInFlight++
+  try {
   const response = await apiFetch(`/api/workouts/${encodeURIComponent(id)}${action === "copy" ? "/copy" : ""}`, {
     method: action === "copy" ? "POST" : "DELETE",
     headers: { Accept: "application/json" },
@@ -276,13 +327,15 @@ export async function changeWorkout(id: string, action: "copy" | "delete") {
   contextCache.clear()
   if (result.context) {
     const context = {...previous, ...result.context} as TrainingContext
-    contextCache.set("full", context)
-    contextCache.set("week", context)
+    rememberTrainingContext(context,'full')
   }
   return result
+  } finally {mutationsInFlight--}
 }
 
 export async function changeWorkoutDay(date: string, action: "copy" | "delete") {
+  contextRevision++;mutationsInFlight++
+  try {
   const response = await apiFetch("/api/calendar/day-actions", {
     method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({date,action}),
   })
@@ -292,21 +345,20 @@ export async function changeWorkoutDay(date: string, action: "copy" | "delete") 
   contextCache.clear()
   if (result.context) {
     const context = {...previous,...result.context} as TrainingContext
-    contextCache.set("full",context)
-    contextCache.set("week",context)
+    rememberTrainingContext(context,'full')
   }
   return result
+  } finally {mutationsInFlight--}
 }
 
-export async function loadTrainingContext(forceRefresh = false, scope: "week" | "full" = "week"): Promise<TrainingContext> {
+export async function loadTrainingContext(forceRefresh = false, scope: "week" | "full" = "week", networkOnly=false): Promise<TrainingContext> {
   if (forceRefresh) {
     contextRevision += 1
-    contextCache.clear()
     contextRequests.clear()
   }
   if (!forceRefresh) {
     const cached = contextCache.get(scope)
-    if (cached) return cached
+    if (cached && !networkOnly) return cached
     const pending = contextRequests.get(scope)
     if (pending) return pending
   }
@@ -326,11 +378,10 @@ export async function loadTrainingContext(forceRefresh = false, scope: "week" | 
     if (context.sync_error && /authentication|401|403|expired|credential/i.test(context.sync_error)) {
       window.dispatchEvent(new CustomEvent("intervals-auth-expired"))
     }
-    contextCache.set(scope, context)
-    if (scope === "full") contextCache.delete("week")
+    rememberTrainingContext(context,scope)
     return context
   } catch {
-    return fallbackTrainingContext
+    return cachedTrainingContext()
   }
   })()
   contextRequests.set(scope, request)
@@ -340,6 +391,7 @@ export async function loadTrainingContext(forceRefresh = false, scope: "week" | 
     if (contextRequests.get(scope) === request) contextRequests.delete(scope)
   }
 }
+export function revalidateTrainingContext() {return loadTrainingContext(false,'week',true)}
 
 export function loadFullTrainingContext(forceRefresh = false) {
   return loadTrainingContext(forceRefresh, "full")

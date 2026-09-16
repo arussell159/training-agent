@@ -102,6 +102,7 @@ export function mapIntervalsWorkout(item, today, activity = null, isActivity = f
 }
 
 export async function fetchIntervalsContext(request, {now = new Date(), timeZone = 'America/Chicago', range} = {}) {
+  const syncStartedAt=new Date().toISOString();
   const athlete = await request('/athlete/0');
   timeZone = athlete.timezone || athlete.time_zone || timeZone;
   const today = athleteLocalDate(now,timeZone);
@@ -133,6 +134,7 @@ export async function fetchIntervalsContext(request, {now = new Date(), timeZone
     performance:(wellness || []).map(w => ({...w,workoutDay:w.id,ctl:w.ctl,atl:w.atl,tsb:w.ctl != null && w.atl != null ? w.ctl-w.atl : null})),
     history:sessions.filter(w => w.workout_date <= today), planned:sessions.filter(w => w.workout_date >= today),
     source:'intervals',synced_at:new Date().toISOString(),retention_days:90,
+    sync_started_at:syncStartedAt,
     cached_ranges:[{start:range?.start || shift(-89),end:range?.end || shift(60)}],
   };
 }

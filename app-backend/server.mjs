@@ -12,7 +12,9 @@ import { createSettingsService, publicSettings, STORED_SETTINGS } from './lib/se
 import { resolveApiRoute } from './lib/api-routing.mjs';
 import {intervalsOnlyContext} from './lib/intervals-only-context.mjs';
 import {readDurableState,writeDurableState} from './lib/durable-state.mjs';
-import {loadActivityBundle} from './lib/activity-bundle.mjs';
+import {loadActivityBundle,loadActivityView} from './lib/activity-bundle.mjs';
+import {saveFastView,fastViewId,projectTrainingContext} from './lib/fast-context.mjs';
+import {createMutationQueue,validateMutation,pendingMutationContext} from './lib/mutation-queue.mjs';
 import {createRequestCache} from './lib/request-cache.mjs';
 import {compressAsset} from './lib/asset-compression.mjs';
 import {updateWorkoutDescription} from './lib/workout-description.mjs';
@@ -306,6 +308,7 @@ export async function persistTrainingContext(config, context, {archiveActivities
     for(let offset=0;offset<pending.length;offset+=2)await Promise.all(pending.slice(offset,offset+2).map(async workout=>{
       const id=String(workout.activity_id);
       try{
+        await archive.invalidateViews(id);
         await loadActivityBundle(archive,config,intervalsClient(config),id);
         archivedVersions[id]=createHash('sha256').update(JSON.stringify(workout.raw_activity || workout.completed_data || {})).digest('hex');
       }catch(error){updateLogs(`Completed workout archive pending ${id}: ${error.message}`);}
@@ -352,6 +355,7 @@ export async function persistTrainingContext(config, context, {archiveActivities
         provider_connection:providerConnection(config),
         cached_ranges:context.cached_ranges || [],
         archived_activity_versions:archivedVersions,
+        app_deleted_workouts:context.app_deleted_workouts || {},
         athlete:context.athlete,
         metrics:context.metrics,
         wellness:context.wellness,
@@ -369,6 +373,7 @@ export async function persistTrainingContext(config, context, {archiveActivities
     error:null,
     updated_at:new Date().toISOString(),
   }]);
+  await saveFastView(config,store,context);
   await store.prune();
 }
 
@@ -391,6 +396,68 @@ async function loadSupabaseTrainingSnapshot(config, athleteId = null) {
 async function invalidateTrainingSnapshot(config) {
   const snapshot=await loadSupabaseTrainingSnapshot(config);
   if(snapshot)await createContextStore(config,updateLogs).invalidateSyncState(String(snapshot.athlete.id));
+}
+
+async function saveVerifiedSnapshot(config,context) {
+  if(!context)throw Error('The workout was verified in Intervals.icu but the saved calendar is unavailable. Refresh before retrying.');
+  const store=createContextStore(config,updateLogs);
+  context={...context,provider_connection:providerConnection(config)};
+  await store.upsert('sync_state',[{athlete_id:String(context.athlete.id),status:'ready',cursor:{context},updated_at:new Date().toISOString()}]);
+  await saveFastView(config,store,context);
+  return projectTrainingContext(context,'full');
+}
+
+function applyVerifiedEvent(context,id,result,action) {
+  const today=athleteLocalDate(new Date(),context.athlete?.time_zone || 'America/Chicago');
+  const all=new Map([...context.history,...context.planned].map(w=>[w.id,w]));
+  if(action==='delete'){all.delete(id);context={...context,app_deleted_workouts:{...context.app_deleted_workouts,[id]:new Date().toISOString()}};}
+  else {
+    const prior=action==='move'?all.get(id):null;
+    all.set(result.workoutId,{...mapIntervalsWorkout(result.event,today,prior?.raw_activity || null),app_updated_at:new Date().toISOString()});
+  }
+  const sessions=[...all.values()].sort((a,b)=>a.workout_date.localeCompare(b.workout_date));
+  return {...context,history:sessions.filter(w=>w.workout_date<=today),planned:sessions.filter(w=>w.workout_date>=today)};
+}
+
+const syncRequests=new Map();
+async function syncRecentTraining(config,{force=false}={}) {
+  const key=providerConnection(config);
+  if(syncRequests.has(key))return syncRequests.get(key);
+  const operation=(async()=>{
+    const saved=await loadSupabaseTrainingSnapshot(config);
+    if(!force && saved && Date.now()-Date.parse(saved.synced_at)<60000)return projectTrainingContext({...saved,provider_connection:key});
+    const zone=saved?.athlete?.time_zone || 'America/Chicago';
+    const today=athleteLocalDate(new Date(),zone),date=new Date(`${today}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate()-((date.getUTCDay()+6)%7));
+    const shift=days=>new Date(date.getTime()+days*86400000).toISOString().slice(0,10);
+    const range=saved?{start:shift(-14),end:shift(13)}:undefined;
+    const incoming=await fetchIntervalsTrainingContext(config,{force:true,timeZone:zone,range});
+    await persistTrainingContext(config,mergeTrainingSnapshot(saved,incoming,range));
+    const full=await createContextStore(config).getSyncRecord(fastViewId(config));
+    return projectTrainingContext(full);
+  })();
+  syncRequests.set(key,operation);
+  try{return await operation;}finally{syncRequests.delete(key);}
+}
+
+async function flushMutations(config,retryFailed=false) {
+  const queue=createMutationQueue(config,createContextStore(config));
+  return queue.drain(async mutation=>{
+    const request=intervalsClient(config);
+    try {
+      const result=mutation.type==='move'?await moveIntervalsEvent(request,mutation.id,mutation.date):await updateWorkoutDescription(request,mutation.id,mutation.description);
+      const snapshot=await loadSupabaseTrainingSnapshot(config);
+      const map=workout=>{
+        if(workout.sync_operation!==mutation.operationId)return workout;
+        return {...workout,...(mutation.type==='move'?{raw:result.event}:{}),sync_status:'synced',sync_operation:null,app_updated_at:new Date().toISOString()};
+      };
+      await saveVerifiedSnapshot(config,{...snapshot,history:snapshot.history.map(map),planned:snapshot.planned.map(map)});
+    }catch(error){
+      const snapshot=await loadSupabaseTrainingSnapshot(config);
+      if(snapshot){const map=w=>w.sync_operation===mutation.operationId?{...w,sync_status:'failed'}:w;await saveVerifiedSnapshot(config,{...snapshot,history:snapshot.history.map(map),planned:snapshot.planned.map(map)});}
+      throw error;
+    }
+  },{retryFailed});
 }
 
 function isoDate(date) {
@@ -520,6 +587,7 @@ async function applyIntervalsWorkoutPatch(config, workoutId, requestedPatch) {
   const result = await applyIntervalsPatch(intervalsClient(config),workoutId,requestedPatch);
   intervalsMemoryCache = null;
   await invalidateTrainingSnapshot(config);
+  await syncRecentTraining(config,{force:true});
   return result;
 }
 
@@ -542,7 +610,7 @@ async function writeBootstrapConfig(data) {
 }
 
 async function readConfig() {
-  return settingsService.read();
+  return settingsService.read(STORED_SETTINGS.filter(name=>!['APP_DATA','HISTORICAL_ARCHIVE','COACHING_CONFIG','KNOWLEDGE_BASE','TRAININGPEAKS_IMPORT_REPORT','RACE_PLAN_IMPORT_REPORT','COMPLETION_CONFIRMATION'].includes(name)));
 }
 
 async function writeConfig(data) {
@@ -771,6 +839,46 @@ export async function handleRequest(req, res) {
     req.url = resolveApiRoute(req.url || '/');
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     const pathname = requestUrl.pathname;
+    if(pathname==='/api/mutations' && req.method==='POST') {
+      const config=await readConfig(),mutation=validateMutation(await readBody(req));
+      const snapshot=await loadSupabaseTrainingSnapshot(config);
+      if(!snapshot)throw Error('Load the saved calendar before editing');
+      const pending=pendingMutationContext(snapshot,mutation);
+      const job=await createMutationQueue(config,createContextStore(config)).enqueue(mutation);
+      const context=job.state==='synced'?projectTrainingContext(snapshot,'full'):await saveVerifiedSnapshot(config,pending);
+      sendJson(req,res,{queued:job.state!=='synced',verified:job.state==='synced',context,operationId:mutation.operationId});return;
+    }
+    if(pathname==='/api/sync' && req.method==='POST') {
+      const config=await readConfig();
+      const queue=await flushMutations(config,requestUrl.searchParams.get('retry')==='1');
+      try {
+        const context=await syncRecentTraining(config,{force:requestUrl.searchParams.get('force')==='1'});
+        sendJson(req,res,{context,queue,checked_at:new Date().toISOString()});
+      }catch(error){
+        const view=await createContextStore(config).getSyncRecord(fastViewId(config));
+        if(!view)throw error;
+        sendJson(req,res,{context:projectTrainingContext(view),queue,sync_error:error.message});
+      }
+      return;
+    }
+    if(pathname==='/api/training-context' && req.method==='GET' && requestUrl.searchParams.get('refresh')!=='1') {
+      const config=await readConfig(),store=createContextStore(config);
+      const requestedScope=requestUrl.searchParams.get('scope') || 'week';
+      let view=store.ready?await store.getSyncRecord(fastViewId(config,requestedScope)):null;
+      if(!view){const saved=await loadSupabaseTrainingSnapshot(config);if(saved)view=await saveFastView(config,store,saved);}
+      const scope=requestUrl.searchParams.get('scope') || 'week';
+      let range;
+      if(scope==='range') {
+        const start=validDate(requestUrl.searchParams.get('start')),end=validDate(requestUrl.searchParams.get('end'));
+        if(end<start || new Date(end)-new Date(start)>31*86400000)throw Error('Calendar range must be between 1 and 32 days.');
+        range={start,end};
+      }
+      if(view && snapshotCoversRange(view,range)) {
+        let projected=projectTrainingContext(view,scope==='week'?'week':'full');
+        if(range)projected={...projected,display_range:range,history:projected.history.filter(w=>w.workout_date>=range.start && w.workout_date<=range.end),planned:projected.planned.filter(w=>w.workout_date>=range.start && w.workout_date<=range.end)};
+        sendJson(req,res,projected);return;
+      }
+    }
     if (pathname === '/api/notification-settings') {
       if (req.method === 'GET') {
         res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
@@ -1012,14 +1120,18 @@ export async function handleRequest(req, res) {
       const config=await readConfig(),{id,description}=await readBody(req);
       const result=await updateWorkoutDescription(intervalsClient(config),id,description);
       intervalsMemoryCache=null;
-      await invalidateTrainingSnapshot(config);
+      const snapshot=await loadSupabaseTrainingSnapshot(config);
+      if(snapshot){
+        const map=w=>w.id===id?{...w,details:description,goal:description,app_updated_at:new Date().toISOString()}:w;
+        result.context=await saveVerifiedSnapshot(config,{...snapshot,history:snapshot.history.map(map),planned:snapshot.planned.map(map)});
+      }
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(result));return;
     }
     const routeMap=pathname.match(/^\/api\/activities\/(i\d+|\d+)\/route$/);
     if(routeMap && req.method==='GET'){
       const config=await readConfig();
       const archive=createCompletedWorkoutStore(config,createContextStore(config,updateLogs));
-      const {route:points}=await loadActivityBundle(archive,config,intervalsClient(config),routeMap[1]);
+      const points=await loadActivityView(archive,config,intervalsClient(config),routeMap[1],'route');
       sendJson(req,res,{points},'private,max-age=300');return;
     }
 
@@ -1028,7 +1140,7 @@ export async function handleRequest(req, res) {
       const config=await readConfig();
       const request=intervalsClient(config);
       const archive=createCompletedWorkoutStore(config,createContextStore(config,updateLogs));
-      const {summary}=await loadActivityBundle(archive,config,request,summaryRoute[1]);
+      const summary=await loadActivityView(archive,config,request,summaryRoute[1],'summary');
       sendJson(req,res,summary);return;
     }
 
@@ -1036,7 +1148,7 @@ export async function handleRequest(req, res) {
     if(analysisRoute && req.method==='GET'){
       const config=await readConfig(),id=analysisRoute[1],request=intervalsClient(config);
       const archive=createCompletedWorkoutStore(config,createContextStore(config,updateLogs));
-      const {analysis}=await loadActivityBundle(archive,config,request,id);
+      const analysis=await loadActivityView(archive,config,request,id,'analysis');
       sendJson(req,res,analysis,'private,max-age=300');return;
     }
 
@@ -1053,12 +1165,11 @@ export async function handleRequest(req, res) {
         catch(error) {failures.push({workoutId:`event:${event.id}`,error:error.message});break;}
       }
       intervalsMemoryCache = null;
-      let context = null;
-      await invalidateTrainingSnapshot(config);
-      try {context = await fetchIntervalsTrainingContext(config,{force:true});await persistTrainingContext(config,context);}
-      catch(error) {updateLogs(`Post-action refresh failed: ${error.message}`);}
+      let snapshot=await loadSupabaseTrainingSnapshot(config);
+      if(snapshot)for(const result of results)snapshot=applyVerifiedEvent(snapshot,result.workoutId,result,action);
+      const context=snapshot?await saveVerifiedSnapshot(config,snapshot):null;
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-      res.end(JSON.stringify({results,failures,total:events.length,context:context ? scopedTrainingContext(context,null) : null}));
+      res.end(JSON.stringify({results,failures,total:events.length,context}));
       return;
     }
 
@@ -1073,29 +1184,11 @@ export async function handleRequest(req, res) {
       const result = action === 'move'
         ? await moveIntervalsEvent(request,id,payload.date)
         : await changeIntervalsEvent(request,id,action);
-      // Immediately update the verified local snapshot before attempting a full refresh.
-      const cached = intervalsMemoryCache?.data || await readIntervalsCache();
-      let context = cached;
-      if (context) {
-        const today = athleteLocalDate(new Date(),context.athlete?.time_zone || 'America/Chicago');
-        const all = new Map([...context.history,...context.planned].map(w => [w.id,w]));
-        if (action === 'delete') all.delete(id);
-        else {
-          const prior = all.get(id);
-          const mapped = mapIntervalsWorkout(result.event,today);
-          all.set(result.workoutId,action === 'move' ? {...prior,...mapped,activity_id:prior?.activity_id || null,activity_file_type:prior?.activity_file_type || null,completed_data:prior?.completed_data || {},actualDurationMinutes:prior?.actualDurationMinutes || 0,status:prior?.status === 'completed' ? 'completed' : mapped.status} : mapped);
-        }
-        const workouts = [...all.values()].sort((a,b) => a.workout_date.localeCompare(b.workout_date));
-        context = {...context,history:workouts.filter(w => w.workout_date <= today),planned:workouts.filter(w => w.workout_date >= today)};
-        try {await fs.writeFile(intervalsCachePath,JSON.stringify(context));}
-        catch(error) {updateLogs(`Verified calendar cache write skipped: ${error.message}`);}
-      }
       intervalsMemoryCache = null;
-      await invalidateTrainingSnapshot(config);
-      try {context = await fetchIntervalsTrainingContext(config,{force:true});await persistTrainingContext(config,context);}
-      catch(error) {updateLogs(`Post-calendar refresh failed: ${error.message}`);}
+      const snapshot=await loadSupabaseTrainingSnapshot(config);
+      const context=snapshot?await saveVerifiedSnapshot(config,applyVerifiedEvent(snapshot,id,result,action)):null;
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-      res.end(JSON.stringify({...result,context:context ? scopedTrainingContext(context,null) : null}));
+      res.end(JSON.stringify({...result,context}));
       return;
     }
 
