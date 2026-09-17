@@ -1,25 +1,20 @@
 import { useContext, useState } from "react"
 import { MobileHeaderNavigation } from "@/components/ui/mobile-header-navigation"
-import { BookOpen, Ellipsis, Pencil, RefreshCw } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { MobileActionMenu } from "@/components/ui/mobile-native-controls"
 
-export function MobileHeaderMenu({ onEditWorkout }: { onEditWorkout?: () => void }) {
+export function MobileHeaderMenu({
+  onEditWorkout,
+}: {
+  onEditWorkout?: () => void
+}) {
   const refresh = useContext(MobileHeaderNavigation)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
-  const [open, setOpen] = useState(false)
   const runRefresh = async () => {
     setBusy(true)
     setError("")
     try {
       await refresh()
-      setOpen(false)
     } catch (failure) {
       setError(
         failure instanceof Error
@@ -32,61 +27,43 @@ export function MobileHeaderMenu({ onEditWorkout }: { onEditWorkout?: () => void
   }
   return (
     <div className="ml-auto shrink-0 md:hidden">
-      <DropdownMenu open={open} onOpenChange={setOpen}>
-        <DropdownMenuTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-9 rounded-full bg-white/50 p-0 shadow-sm backdrop-blur-sm hover:bg-white/70"
-              aria-label="Page menu"
-            />
-          }
+      <MobileActionMenu
+        label="Page menu"
+        className="bg-white/50 p-0 shadow-sm backdrop-blur-sm"
+        actions={[
+          ...(onEditWorkout
+            ? [
+                {
+                  value: "edit",
+                  label: "Edit Workout",
+                  onSelect: onEditWorkout,
+                },
+              ]
+            : []),
+          {
+            value: "terms",
+            label: "Terms & definitions",
+            onSelect: () => window.dispatchEvent(new Event("terms-open")),
+          },
+          {
+            value: "refresh",
+            label: busy ? "Refreshing Intervals.icu…" : "Refresh Intervals.icu",
+            disabled: busy,
+            onSelect: () => void runRefresh(),
+          },
+        ]}
+      />
+      <span role="status" className="sr-only">
+        {busy ? "Refreshing Intervals.icu…" : ""}
+      </span>
+      {error && (
+        <p
+          role="alert"
+          className="absolute top-full right-4 z-50 max-w-64 rounded-lg border bg-background p-3 text-xs text-destructive shadow-sm"
         >
-          <Ellipsis className="size-5" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-max min-w-40">
-          {onEditWorkout && (
-            <DropdownMenuItem
-              className="whitespace-nowrap"
-              onClick={() => {
-                setOpen(false)
-                onEditWorkout()
-              }}
-            >
-              <Pencil />
-              Edit Workout
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuItem
-            className="whitespace-nowrap"
-            onClick={() => {
-              setOpen(false)
-              window.dispatchEvent(new Event("terms-open"))
-            }}
-          >
-            <BookOpen />
-            Terms &amp; definitions
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="whitespace-nowrap"
-            disabled={busy}
-            closeOnClick={false}
-            onClick={() => void runRefresh()}
-          >
-            <RefreshCw className={busy ? "animate-spin" : undefined} />
-            {busy ? "Refreshing Intervals.icu…" : "Refresh Intervals.icu"}
-          </DropdownMenuItem>
-          {error && (
-            <p
-              role="alert"
-              className="max-w-64 px-2 py-2 text-xs text-destructive"
-            >
-              {error}
-            </p>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+          {error}
+        </p>
+      )}
     </div>
   )
 }

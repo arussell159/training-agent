@@ -19,6 +19,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { MobileSelect } from "@/components/ui/mobile-native-controls"
 import {
   completedMinutes,
   durationMinutes,
@@ -260,14 +261,14 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
           <CardTitle>Training history</CardTitle>
           <CardAction>
             <div className="flex items-center">
-              <Select value={historyWeeks} onValueChange={(value) => { if (value) setHistoryWeeks(value) }}>
+              <MobileSelect aria-label="Training history range" value={historyWeeks} onValueChange={setHistoryWeeks} options={[4, 8, 16].map((weeks) => ({ value: String(weeks), label: `${weeks} weeks` }))} className="w-28 font-medium"><Select value={historyWeeks} onValueChange={(value) => { if (value) setHistoryWeeks(value) }}>
                 <SelectTrigger size="sm" className="h-7 w-[92px] rounded-md border px-2 text-xs font-medium shadow-none">
                   <SelectValue>{historyWeeks} weeks</SelectValue>
                 </SelectTrigger>
                 <SelectContent align="end">
                   {[4, 8, 16].map((weeks) => <SelectItem key={weeks} value={String(weeks)}>{weeks} weeks</SelectItem>)}
                 </SelectContent>
-              </Select>
+              </Select></MobileSelect>
             </div>
           </CardAction>
         </CardHeader>

@@ -40,6 +40,10 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
+  MobileActionMenu,
+  MobileSelect,
+} from "@/components/ui/mobile-native-controls"
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -171,29 +175,40 @@ function Choice({
   return (
     <label className="we-field">
       <span>{label}</span>
-      <Select
+      <MobileSelect
+        aria-label={label}
+        className="w-full"
         value={value}
         disabled={disabled}
-        onValueChange={(v) => {
-          if (v != null) onChange(v)
-        }}
+        options={options.map((option) =>
+          typeof option === "string" ? { value: option, label: option } : option
+        )}
+        onValueChange={onChange}
       >
-        <SelectTrigger className="w-full" aria-label={label}>
-          <SelectValue>
-            {typeof chosen === "string" ? chosen : chosen?.label || value}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((o) => {
-            const v = typeof o === "string" ? o : o.value
-            return (
-              <SelectItem key={v} value={v}>
-                {typeof o === "string" ? o : o.label}
-              </SelectItem>
-            )
-          })}
-        </SelectContent>
-      </Select>
+        <Select
+          value={value}
+          disabled={disabled}
+          onValueChange={(v) => {
+            if (v != null) onChange(v)
+          }}
+        >
+          <SelectTrigger className="w-full" aria-label={label}>
+            <SelectValue>
+              {typeof chosen === "string" ? chosen : chosen?.label || value}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((o) => {
+              const v = typeof o === "string" ? o : o.value
+              return (
+                <SelectItem key={v} value={v}>
+                  {typeof o === "string" ? o : o.label}
+                </SelectItem>
+              )
+            })}
+          </SelectContent>
+        </Select>
+      </MobileSelect>
     </label>
   )
 }
@@ -1219,32 +1234,50 @@ export function WorkoutEditorMenu({
   const editable = workout.id.startsWith("event:")
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={className}
-              aria-label="Workout options"
-            />
-          }
-        >
-          <Ellipsis size={18} />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem disabled={!editable} onClick={() => setOpen(true)}>
-            <Pencil size={16} />
-            Edit Workout
-          </DropdownMenuItem>
-          {!editable && (
-            <p className="max-w-56 p-2 text-xs text-muted-foreground">
-              Completed activity data is read-only. Open its planned calendar
-              workout to edit the prescription.
-            </p>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <MobileActionMenu
+        label="Workout options"
+        className={className}
+        actions={[
+          {
+            value: "edit",
+            label: editable
+              ? "Edit Workout"
+              : "Completed activity is read-only",
+            disabled: !editable,
+            onSelect: () => setOpen(true),
+          },
+        ]}
+      >
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className={className}
+                aria-label="Workout options"
+              />
+            }
+          >
+            <Ellipsis size={18} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              disabled={!editable}
+              onClick={() => setOpen(true)}
+            >
+              <Pencil size={16} />
+              Edit Workout
+            </DropdownMenuItem>
+            {!editable && (
+              <p className="max-w-56 p-2 text-xs text-muted-foreground">
+                Completed activity data is read-only. Open its planned calendar
+                workout to edit the prescription.
+              </p>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </MobileActionMenu>
       {open && (
         <WorkoutEditor
           workout={workout}
@@ -1339,7 +1372,10 @@ export function useEditedWorkout<T extends PlannedWorkout | null>(
     }
     const refresh = () => {
       const context = cachedTrainingContext()
-      const workout = [...context.planned, ...context.history].find((item): item is PlannedWorkout => "id" in item && item.id === initial?.id)
+      const workout = [...context.planned, ...context.history].find(
+        (item): item is PlannedWorkout =>
+          "id" in item && item.id === initial?.id
+      )
       if (workout) setUpdated(workout)
     }
     window.addEventListener("workout-editor-saved", listener)

@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { MobileActionMenu } from "@/components/ui/mobile-native-controls"
 import { Card, CardContent } from "@/components/ui/card"
 import {
   DropdownMenu,
@@ -106,7 +107,10 @@ export function RaceCalendarCard({
         <div className="flex min-h-16 items-start justify-between gap-2 pr-1.5">
           <div className="ml-2 shrink-0"><DateFlag date={date} /></div>
           <div className="pt-1.5" onClick={(event) => event.stopPropagation()}>
-            <DropdownMenu>
+            <MobileActionMenu
+              label={`Options for ${workout.title}`}
+              actions={[{ value: "delete", label: "Delete race", disabled, onSelect: () => setDeleteOpen(true) }]}
+            ><DropdownMenu>
               <DropdownMenuTrigger
                 render={<Button variant="ghost" size="icon-sm" className="size-6" aria-label={`Options for ${workout.title}`} />}
               >
@@ -117,7 +121,7 @@ export function RaceCalendarCard({
                   <Trash2 /> Delete race
                 </DropdownMenuItem>
               </DropdownMenuContent>
-            </DropdownMenu>
+            </DropdownMenu></MobileActionMenu>
           </div>
         </div>
         <div className="space-y-1 px-2.5 pb-2.5 pt-1">

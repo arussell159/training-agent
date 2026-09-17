@@ -13,7 +13,7 @@ export function useMobileViewport() {
       const editing =
         focused instanceof HTMLElement &&
         focused.matches(
-          'textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="range"]), [contenteditable="true"]'
+          'textarea, input:is(:not([type]), [type="text"], [type="email"], [type="password"], [type="number"], [type="search"], [type="tel"], [type="url"]), [contenteditable="true"]'
         )
       const keyboard =
         (viewport?.scale ?? 1) <= 1.05 && window.innerHeight - height > 120

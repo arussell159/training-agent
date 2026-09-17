@@ -8,6 +8,10 @@ import {
   type CompletionGrade,
 } from "@/lib/workout-completion"
 import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
+import {
+  MobileActionMenu,
+  MobileDatePicker,
+} from "@/components/ui/mobile-native-controls"
 import { WorkoutProfile } from "@/components/workout-profile"
 import { WorkoutSummary } from "@/components/workout-summary"
 import { WorkoutMapSplits } from "@/components/workout-map-splits"
@@ -239,48 +243,67 @@ export function WorkoutCard({
             onTouchStart={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
           >
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="-my-1 -mr-1 size-7 opacity-100 transition-opacity group-focus-within/workout:opacity-100 data-[popup-open]:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/workout:opacity-100"
-                    disabled={disabled && Boolean(onAction)}
-                    aria-label={`Options for ${workout.title}`}
-                  />
-                }
-              >
-                <Ellipsis className="size-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="min-w-36"
-                onClick={(event) => event.stopPropagation()}
-              >
-                {!onAction && (
-                  <p className="max-w-48 px-2 py-1.5 text-xs text-muted-foreground">
-                    Recorded history is read-only.
-                  </p>
-                )}
-                <DropdownMenuItem
-                  disabled={!onAction || disabled}
-                  onClick={() => onAction?.("copy")}
+            <MobileActionMenu
+              label={`Options for ${workout.title}`}
+              disabled={disabled && Boolean(onAction)}
+              actions={[
+                {
+                  value: "copy",
+                  label: onAction ? "Copy" : "Recorded history is read-only",
+                  disabled: !onAction || disabled,
+                  onSelect: () => onAction?.("copy"),
+                },
+                {
+                  value: "delete",
+                  label: "Delete",
+                  disabled: !onAction || disabled,
+                  onSelect: () => setDeleteOpen(true),
+                },
+              ]}
+            >
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="-my-1 -mr-1 size-7 opacity-100 transition-opacity group-focus-within/workout:opacity-100 data-[popup-open]:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/workout:opacity-100"
+                      disabled={disabled && Boolean(onAction)}
+                      aria-label={`Options for ${workout.title}`}
+                    />
+                  }
                 >
-                  <Copy />
-                  Copy
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={!onAction || disabled}
-                  variant="destructive"
-                  onClick={() => setDeleteOpen(true)}
+                  <Ellipsis className="size-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="min-w-36"
+                  onClick={(event) => event.stopPropagation()}
                 >
-                  <Trash2 />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  {!onAction && (
+                    <p className="max-w-48 px-2 py-1.5 text-xs text-muted-foreground">
+                      Recorded history is read-only.
+                    </p>
+                  )}
+                  <DropdownMenuItem
+                    disabled={!onAction || disabled}
+                    onClick={() => onAction?.("copy")}
+                  >
+                    <Copy />
+                    Copy
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={!onAction || disabled}
+                    variant="destructive"
+                    onClick={() => setDeleteOpen(true)}
+                  >
+                    <Trash2 />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </MobileActionMenu>
             <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
               <AlertDialogContent onClick={(event) => event.stopPropagation()}>
                 <AlertDialogHeader>
@@ -423,35 +446,48 @@ function DayMenu({
   })
   return (
     <div
-      className={`transition-opacity group-hover/day:opacity-100 focus-within:opacity-100 ${open || deleteOpen ? "opacity-100" : "opacity-0"}`}
+      className={`transition-opacity group-hover/day:opacity-100 focus-within:opacity-100 ${open || deleteOpen ? "opacity-100" : "md:opacity-0"}`}
     >
-      <DropdownMenu open={open} onOpenChange={setOpen}>
-        <DropdownMenuTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              disabled={disabled || count === 0}
-              aria-label={`Workout actions for ${label}`}
-            />
-          }
-        >
-          <Ellipsis className="size-4" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-36">
-          <DropdownMenuItem onClick={() => onAction("copy")}>
-            <Copy />
-            Copy
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => setDeleteOpen(true)}
+      <MobileActionMenu
+        label={`Workout actions for ${label}`}
+        disabled={disabled || count === 0}
+        actions={[
+          { value: "copy", label: "Copy", onSelect: () => onAction("copy") },
+          {
+            value: "delete",
+            label: "Delete",
+            onSelect: () => setDeleteOpen(true),
+          },
+        ]}
+      >
+        <DropdownMenu open={open} onOpenChange={setOpen}>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={disabled || count === 0}
+                aria-label={`Workout actions for ${label}`}
+              />
+            }
           >
-            <Trash2 />
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+            <Ellipsis className="size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-36">
+            <DropdownMenuItem onClick={() => onAction("copy")}>
+              <Copy />
+              Copy
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => setDeleteOpen(true)}
+            >
+              <Trash2 />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </MobileActionMenu>
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1296,18 +1332,26 @@ export function TrainingCalendar({
         className="flex w-full min-w-0 flex-1 flex-col"
       >
         <header className="mobile-site-header calendar-scroll-header sticky top-0 z-50 flex h-14 w-full shrink-0 items-center px-4 md:bg-background md:shadow-none">
-          <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
-            <PopoverTrigger className="mobile-header-title mx-auto h-9 min-w-0 truncate rounded-md px-2 text-left text-sm font-semibold hover:bg-muted md:mx-0 md:text-base">
-              {activeMonth}
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-auto p-0">
-              <Calendar
-                mode="single"
-                selected={activeWeek?.start}
-                onSelect={jumpToDate}
-              />
-            </PopoverContent>
-          </Popover>
+          <MobileDatePicker
+            aria-label="Jump to calendar date"
+            value={activeWeek ? dateKey(activeWeek.start) : ""}
+            onValueChange={(value) => jumpToDate(new Date(`${value}T12:00:00`))}
+            displayValue={activeMonth}
+            className="mobile-header-title !pointer-events-auto mx-auto h-9 min-w-0 justify-center truncate rounded-md px-2 text-sm font-semibold"
+          >
+            <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+              <PopoverTrigger className="mobile-header-title mx-auto h-9 min-w-0 truncate rounded-md px-2 text-left text-sm font-semibold hover:bg-muted md:mx-0 md:text-base">
+                {activeMonth}
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-auto p-0">
+                <Calendar
+                  mode="single"
+                  selected={activeWeek?.start}
+                  onSelect={jumpToDate}
+                />
+              </PopoverContent>
+            </Popover>
+          </MobileDatePicker>
           <div className="flex items-center gap-1 md:ml-4">
             <Button
               size="sm"

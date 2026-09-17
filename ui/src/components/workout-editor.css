@@ -999,6 +999,7 @@
     display: none;
   }
   .we-node:not(.we-repeat) .we-field input,
+  .we-node:not(.we-repeat) .we-field select,
   .we-node:not(.we-repeat) .we-field button {
     height: 2.5rem;
   }
