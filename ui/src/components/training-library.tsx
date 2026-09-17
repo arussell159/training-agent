@@ -5,7 +5,7 @@ import { WorkoutCard } from "@/components/training-calendar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  fallbackTrainingContext,
+  cachedTrainingContext,
   loadTrainingContext,
   type PlannedWorkout,
 } from "@/lib/training-context"
@@ -17,7 +17,7 @@ export function TrainingLibrary({
 }: {
   onWorkoutOpen?: (workout: PlannedWorkout) => void
 }) {
-  const [context, setContext] = useState(fallbackTrainingContext)
+  const [context, setContext] = useState(cachedTrainingContext)
   const [discipline, setDiscipline] = useState<(typeof disciplines)[number]>("All")
   const [query, setQuery] = useState("")
 

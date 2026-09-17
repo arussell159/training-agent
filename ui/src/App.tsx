@@ -1,8 +1,16 @@
-import { restoreReportReader } from '@/lib/report-navigation'
-import { ReportReaderPage } from '@/components/report-reader-page'
-import {BackgroundSync} from '@/components/background-sync'
+import { restoreReportReader } from "@/lib/report-navigation"
+import { ReportReaderPage } from "@/components/report-reader-page"
+import { BackgroundSync } from "@/components/background-sync"
 import { SidebarNavigationSlim } from "@/components/application/app-navigation/sidebar-navigation/sidebar-slim"
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import {
+  lazy,
+  Suspense,
+  startTransition,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import {
   CalendarDays,
   Home,
@@ -27,41 +35,67 @@ import { Button } from "@/components/ui/button"
 import { MobileNavbar } from "@/components/ui/navbars"
 import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
 import { MobileHeaderNavigation } from "@/components/ui/mobile-header-navigation"
-import { TermsReferenceDialog } from "@/components/terms-reference-dialog"
+import { useMobileViewport } from "@/hooks/use-mobile-viewport"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
   refreshRecentIntervals,
   cachedTrainingContext,
   type PlannedWorkout,
 } from "@/lib/training-context"
-import {forgetOpenWorkout,rememberOpenWorkout,restoreOpenWorkout} from '@/lib/workout-navigation'
+import {
+  forgetOpenWorkout,
+  rememberOpenWorkout,
+  restoreOpenWorkout,
+} from "@/lib/workout-navigation"
+
+const pageImports = {
+  Settings: () => import("@/components/settings-workspace"),
+  Calendar: () => import("@/components/training-calendar"),
+  Coach: () => import("@/components/coach-page"),
+  Home: () => import("@/components/training-dashboard"),
+  Library: () => import("@/components/training-library"),
+  "Annual Plan": () => import("@/components/annual-plan-creator"),
+}
+function preloadPage(item: string) {
+  const load = pageImports[item as keyof typeof pageImports]
+  if (load) void load().catch(() => {})
+}
+const TermsReferenceDialog = lazy(() =>
+  import("@/components/terms-reference-dialog").then((module) => ({
+    default: module.TermsReferenceDialog,
+  }))
+)
 
 const SettingsWorkspace = lazy(() =>
-  import("@/components/settings-workspace").then((module) => ({
+  pageImports["Settings"]().then((module) => ({
     default: module.SettingsWorkspace,
   }))
 )
 const TrainingCalendar = lazy(() =>
-  import("@/components/training-calendar").then((module) => ({
+  pageImports["Calendar"]().then((module) => ({
     default: module.TrainingCalendar,
   }))
 )
 const CoachPage = lazy(() =>
-  import("@/components/coach-page").then((module) => ({
+  pageImports["Coach"]().then((module) => ({
     default: module.CoachPage,
   }))
 )
 const TrainingDashboard = lazy(() =>
-  import("@/components/training-dashboard").then((module) => ({
+  pageImports["Home"]().then((module) => ({
     default: module.TrainingDashboard,
   }))
 )
 const TrainingLibrary = lazy(() =>
-  import("@/components/training-library").then((module) => ({
+  pageImports["Library"]().then((module) => ({
     default: module.TrainingLibrary,
   }))
 )
-const AnnualPlanCreator = lazy(() => import("@/components/annual-plan-creator").then((module) => ({ default: module.AnnualPlanCreator })))
+const AnnualPlanCreator = lazy(() =>
+  pageImports["Annual Plan"]().then((module) => ({
+    default: module.AnnualPlanCreator,
+  }))
+)
 const WorkoutDetailPage = lazy(() =>
   import("@/components/workout-detail-page").then((module) => ({
     default: module.WorkoutDetailPage,
@@ -115,15 +149,32 @@ function itemPath(item: string) {
 }
 
 function AppWorkspace() {
+  useMobileViewport()
+  useEffect(() => {
+    const warm = () => ["Home", "Calendar", "Coach"].forEach(preloadPage)
+    if ("requestIdleCallback" in window) {
+      const id = window.requestIdleCallback(warm, { timeout: 2500 })
+      return () => window.cancelIdleCallback(id)
+    }
+    const id = setTimeout(warm, 1200)
+    return () => clearTimeout(id)
+  }, [])
   const [selectedReport, setSelectedReport] = useState(restoreReportReader)
   const [activeItem, setActiveItem] = useState(routeItem)
   const [calendarNavigationVersion, setCalendarNavigationVersion] = useState(0)
-  const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(()=>window.matchMedia('(max-width: 767px)').matches?restoreOpenWorkout([...cachedTrainingContext().planned,...cachedTrainingContext().history]):null)
+  const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(
+    () =>
+      window.matchMedia("(max-width: 767px)").matches
+        ? restoreOpenWorkout([
+            ...cachedTrainingContext().planned,
+            ...cachedTrainingContext().history,
+          ])
+        : null
+  )
   const [refreshRequest, setRefreshRequest] = useState(0)
   const [contextVersion, setContextVersion] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [intervalsDisconnected, setIntervalsDisconnected] =
-    useState(false)
+  const [intervalsDisconnected, setIntervalsDisconnected] = useState(false)
   const [termsOpen, setTermsOpen] = useState(false)
   const workoutReturnScroll = useRef(0)
   const isCoachPage = activeItem === "Coach"
@@ -138,23 +189,45 @@ function AppWorkspace() {
   useEffect(() => {
     const handlePopState = () => {
       setSelectedReport(restoreReportReader())
-      setSelectedWorkout(window.matchMedia('(max-width: 767px)').matches?restoreOpenWorkout([...cachedTrainingContext().planned,...cachedTrainingContext().history]):null)
+      setSelectedWorkout(
+        window.matchMedia("(max-width: 767px)").matches
+          ? restoreOpenWorkout([
+              ...cachedTrainingContext().planned,
+              ...cachedTrainingContext().history,
+            ])
+          : null
+      )
       setActiveItem(routeItem())
     }
     window.addEventListener("popstate", handlePopState)
     return () => window.removeEventListener("popstate", handlePopState)
   }, [])
-  useEffect(()=>{
-    const update=(event:Event)=>{
-      const context=(event as CustomEvent<{planned:PlannedWorkout[];history:PlannedWorkout[]}>).detail
-      setSelectedWorkout(current=>current?([...context.planned,...context.history].find(w=>w.id===current.id) || current):null)
+  useEffect(() => {
+    const update = (event: Event) => {
+      const context = (
+        event as CustomEvent<{
+          planned: PlannedWorkout[]
+          history: PlannedWorkout[]
+        }>
+      ).detail
+      setSelectedWorkout((current) =>
+        current
+          ? [...context.planned, ...context.history].find(
+              (w) => w.id === current.id
+            ) || current
+          : null
+      )
     }
-    window.addEventListener('training-context-updated',update)
-    return()=>window.removeEventListener('training-context-updated',update)
-  },[])
+    window.addEventListener("training-context-updated", update)
+    return () => window.removeEventListener("training-context-updated", update)
+  }, [])
 
   useEffect(() => {
-    const open = () => { setSelectedReport(restoreReportReader()); setSelectedWorkout(null); requestAnimationFrame(() => window.scrollTo({top: 0})) }
+    const open = () => {
+      setSelectedReport(restoreReportReader())
+      setSelectedWorkout(null)
+      requestAnimationFrame(() => window.scrollTo({ top: 0 }))
+    }
     window.addEventListener("section11-report-open", open)
     return () => window.removeEventListener("section11-report-open", open)
   }, [])
@@ -166,10 +239,14 @@ function AppWorkspace() {
   }, [])
 
   const selectItem = (item: string) => {
-    setSelectedReport(null)
-    setSelectedWorkout(null)
-    setActiveItem(item)
-    if (item === "Calendar") setCalendarNavigationVersion((value) => value + 1)
+    preloadPage(item)
+    startTransition(() => {
+      setSelectedReport(null)
+      setSelectedWorkout(null)
+      setActiveItem(item)
+      if (item === "Calendar")
+        setCalendarNavigationVersion((value) => value + 1)
+    })
     window.history.pushState({}, "", itemPath(item))
   }
 
@@ -202,7 +279,11 @@ function AppWorkspace() {
       }}
     >
       <BackgroundSync />
-      <TermsReferenceDialog open={termsOpen} onOpenChange={setTermsOpen} />
+      {termsOpen && (
+        <Suspense fallback={null}>
+          <TermsReferenceDialog open onOpenChange={setTermsOpen} />
+        </Suspense>
+      )}
       <AlertDialog
         open={intervalsDisconnected}
         onOpenChange={setIntervalsDisconnected}
@@ -211,10 +292,10 @@ function AppWorkspace() {
           <AlertDialogHeader>
             <AlertDialogTitle>Reconnect Intervals.icu</AlertDialogTitle>
             <AlertDialogDescription>
-              Your Intervals.icu API key is missing or no longer valid. Your saved training
-              data remains available in Supabase. Open Intervals.icu Settings,
-              then update the API key from Settings to resume syncing new
-              workouts.
+              Your Intervals.icu API key is missing or no longer valid. Your
+              saved training data remains available in Supabase. Open
+              Intervals.icu Settings, then update the API key from Settings to
+              resume syncing new workouts.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -235,23 +316,32 @@ function AppWorkspace() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <SidebarNavigationSlim items={navigation} activeItem={activeItem} onNavigate={selectItem} />
+      <SidebarNavigationSlim
+        items={navigation}
+        activeItem={activeItem}
+        onNavigate={selectItem}
+        onPrefetch={preloadPage}
+      />
 
       <SidebarInset
         className={
-          (isCoachPage || activeItem === "Settings" || activeItem === "Annual Plan") && !selectedWorkout
-            ? "h-svh min-h-0 overflow-hidden"
-            : undefined
+          isCoachPage && !selectedWorkout && !selectedReport
+            ? "coach-app-shell h-dvh min-h-0 overflow-hidden"
+            : (activeItem === "Settings" || activeItem === "Annual Plan") &&
+                !selectedWorkout
+              ? "h-svh min-h-0 overflow-hidden"
+              : undefined
         }
       >
-        {!selectedReport && !selectedWorkout &&
+        {!selectedReport &&
+          !selectedWorkout &&
           activeItem !== "Calendar" &&
           activeItem !== "Annual Plan" &&
           activeItem !== "Settings" && (
-            <header
-              className="mobile-site-header sticky top-0 z-50 flex h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur"
-            >
-              <h1 className="mobile-header-title min-w-0 truncate text-sm font-semibold">{activeItem}</h1>
+            <header className="mobile-site-header sticky top-0 z-50 flex h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur">
+              <h1 className="mobile-header-title min-w-0 truncate text-sm font-semibold">
+                {activeItem}
+              </h1>
               {activeItem === "Home" && (
                 <Button
                   type="button"
@@ -277,23 +367,23 @@ function AppWorkspace() {
             </header>
           )}
         <main
-          key={
-            contextVersion
-          }
+          key={contextVersion}
           className={`flex min-h-0 flex-1 ${
             selectedWorkout
               ? "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
               : isCoachPage
-                ? "overflow-y-auto pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
+                ? "coach-page-main overflow-hidden md:pb-0"
                 : activeItem === "Settings"
                   ? "overflow-hidden pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
                   : activeItem === "Annual Plan"
                     ? "w-full overflow-hidden pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
-                  : "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
+                    : "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
           }`}
         >
           <Suspense fallback={<RouteFallback />}>
-            {selectedReport ? (<ReportReaderPage target={selectedReport} />) : selectedWorkout ? (
+            {selectedReport ? (
+              <ReportReaderPage target={selectedReport} />
+            ) : selectedWorkout ? (
               <WorkoutDetailPage
                 workout={selectedWorkout}
                 onBack={closeWorkout}
@@ -305,7 +395,10 @@ function AppWorkspace() {
                 onRefreshComplete={handleRefreshComplete}
               />
             ) : activeItem === "Calendar" ? (
-              <TrainingCalendar key={calendarNavigationVersion} onWorkoutOpen={openWorkout} />
+              <TrainingCalendar
+                key={calendarNavigationVersion}
+                onWorkoutOpen={openWorkout}
+              />
             ) : isCoachPage ? (
               <CoachPage />
             ) : activeItem === "Settings" ? (
@@ -318,7 +411,11 @@ function AppWorkspace() {
           </Suspense>
         </main>
 
-        <MobileNavbar activeItem={activeItem} onNavigate={selectItem} />
+        <MobileNavbar
+          activeItem={activeItem}
+          onNavigate={selectItem}
+          onPrefetch={preloadPage}
+        />
       </SidebarInset>
     </MobileHeaderNavigation.Provider>
   )

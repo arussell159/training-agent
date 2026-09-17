@@ -9,7 +9,32 @@ html, body {
   touch-action: pan-x pan-y;
 }
 
+.terms-reference-dialog {
+  top: calc(var(--app-viewport-top, 0px) + var(--app-viewport-height, 100dvh) / 2);
+  height: min(52rem, calc(var(--app-viewport-height, 100dvh) - 2rem));
+  max-height: calc(var(--app-viewport-height, 100dvh) - 2rem);
+}
+
 @media (width < 48rem) {
+  .coach-app-shell {
+    position: fixed;
+    inset-inline: 0;
+    top: var(--app-viewport-top, 0px);
+    height: var(--app-viewport-height, 100dvh);
+  }
+
+  .coach-page-main {
+    padding-bottom: calc(5.875rem + env(safe-area-inset-bottom));
+  }
+
+  html[data-mobile-editing="true"] .mobile-navbar {
+    display: none;
+  }
+
+  html[data-mobile-editing="true"] .coach-page-main {
+    padding-bottom: 0;
+  }
+
   .mobile-site-header {
     position: sticky;
     top: 0;

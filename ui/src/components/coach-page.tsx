@@ -1,10 +1,5 @@
-import { useEffect, useRef, useState } from "react"
-import {
-  ArrowUp,
-  LoaderCircle,
-  LockKeyhole,
-  Square,
-} from "lucide-react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { ArrowUp, LoaderCircle, LockKeyhole, Square } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import "./coach-prose.css"
@@ -38,6 +33,13 @@ export function CoachPage() {
   const bottom = useRef<HTMLDivElement | null>(null)
   const input = useRef<HTMLTextAreaElement | null>(null)
 
+  useLayoutEffect(() => {
+    const field = input.current
+    if (!field) return
+    field.style.height = "auto"
+    field.style.height = Math.min(144, Math.max(44, field.scrollHeight)) + "px"
+  }, [draft])
+
   async function checkSession(signal?: AbortSignal) {
     try {
       const response = await coachRequest("session", undefined, signal)
@@ -62,7 +64,7 @@ export function CoachPage() {
   }, [])
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "nearest" })
-  }, [messages, status])
+  }, [messages, status, calendarRevision])
 
   async function send(text = draft) {
     const question = text.trim()
@@ -145,9 +147,9 @@ export function CoachPage() {
     </div>
   )
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-5 py-6 md:px-8 md:py-10">
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col">
       {!session ? (
-        <div className="space-y-4 text-sm text-muted-foreground">
+        <div className="min-h-0 overflow-y-auto px-4 py-5 text-sm text-muted-foreground">
           {errorNotice || <p role="status">Checking the coach connection…</p>}
           {error && (
             <Button variant="outline" onClick={() => void checkSession()}>
@@ -156,7 +158,7 @@ export function CoachPage() {
           )}
         </div>
       ) : !session.configured ? (
-        <div className="rounded-2xl border bg-muted/20 p-6">
+        <div className="m-4 min-h-0 overflow-y-auto rounded-2xl border bg-muted/20 p-6">
           <LockKeyhole className="mb-4 size-6 text-muted-foreground" />
           <h2 className="text-lg font-medium">Finish connecting your coach</h2>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -171,8 +173,7 @@ export function CoachPage() {
             ))}
           </ul>
           <p className="mt-4 text-sm text-muted-foreground">
-            Keep your GitHub and OpenAI keys in
-            server settings.
+            Keep your GitHub and OpenAI keys in server settings.
           </p>
           <Button
             className="mt-5"
@@ -185,86 +186,98 @@ export function CoachPage() {
       ) : (
         <>
           <div
-            className="flex-1 space-y-7"
-            role="log"
-            aria-label="Coach conversation"
-            aria-busy={busy}
+            data-coach-scroll
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-5 pb-4 md:px-8"
           >
-            {!messages.length && (
-              <div className="py-10 md:py-16">
-                <h2 className="text-xl font-medium tracking-tight">
-                  What would you like to work on?
-                </h2>
-                <p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">
-                  Ask about a session, your recovery, or the week ahead. Each
-                  question starts with a fresh read of your GitHub training data
-                  and athlete dossier.
-                </p>
-                <div className="mt-6 flex flex-col items-start gap-2">
-                  {suggestions.map((question) => (
-                    <button
-                      key={question}
-                      disabled={busy}
-                      className="rounded-xl border px-4 py-3 text-left text-sm transition-colors hover:bg-muted disabled:opacity-50"
-                      onClick={() => void send(question)}
-                    >
-                      {question}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {messages.map((message, index) => (
-              <article
-                key={index}
-                className={
-                  message.role === "user"
-                    ? "ml-8 rounded-2xl bg-muted px-5 py-4 md:ml-20"
-                    : "py-1"
-                }
-              >
-                <p className="mb-2 text-xs font-medium text-muted-foreground">
-                  {message.role === "user" ? "You" : "Coach"}
-                </p>
-                {message.role === "user" ? (
-                  <p className="text-sm leading-7 text-foreground wrap-anywhere whitespace-pre-wrap">
-                    {message.content}
+            <div
+              className="space-y-7"
+              role="log"
+              aria-label="Coach conversation"
+              aria-busy={busy}
+            >
+              {!messages.length && (
+                <div className="py-4 md:py-10">
+                  <h2 className="text-xl font-medium tracking-tight">
+                    What would you like to work on?
+                  </h2>
+                  <p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">
+                    Ask about a session, your recovery, or the week ahead. Each
+                    question starts with a fresh read of your GitHub training
+                    data and athlete dossier.
                   </p>
-                ) : (
-                  <div className="coach-prose text-sm leading-7 text-foreground wrap-anywhere">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      skipHtml
-                      components={{
-                        img: () => null,
-                        a: ({ children }) => <span>{children}</span>,
-                        table: ({ children }) => (
-                          <div className="overflow-x-auto">
-                            <table>{children}</table>
-                          </div>
-                        ),
-                      }}
-                    >
-                      {message.content}
-                    </ReactMarkdown>
+                  <div className="mt-6 flex flex-col items-start gap-2">
+                    {suggestions.map((question) => (
+                      <button
+                        key={question}
+                        disabled={busy}
+                        className="rounded-xl border px-4 py-3 text-left text-sm transition-colors hover:bg-muted disabled:opacity-50"
+                        onClick={() => void send(question)}
+                      >
+                        {question}
+                      </button>
+                    ))}
                   </div>
-                )}
-              </article>
-            ))}
-            {busy && (
-              <p
-                role="status"
-                className="flex items-center gap-2 text-sm text-muted-foreground"
-              >
-                <LoaderCircle className="size-4 animate-spin" />
-                {status}
+                </div>
+              )}
+              {messages.map((message, index) => (
+                <article
+                  key={index}
+                  className={
+                    message.role === "user"
+                      ? "ml-8 rounded-2xl bg-muted px-5 py-4 md:ml-20"
+                      : "py-1"
+                  }
+                >
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                    {message.role === "user" ? "You" : "Coach"}
+                  </p>
+                  {message.role === "user" ? (
+                    <p className="text-sm leading-7 wrap-anywhere whitespace-pre-wrap text-foreground">
+                      {message.content}
+                    </p>
+                  ) : (
+                    <div className="coach-prose text-sm leading-7 wrap-anywhere text-foreground">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        skipHtml
+                        components={{
+                          img: () => null,
+                          a: ({ children }) => <span>{children}</span>,
+                          table: ({ children }) => (
+                            <div className="overflow-x-auto">
+                              <table>{children}</table>
+                            </div>
+                          ),
+                        }}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+                  )}
+                </article>
+              ))}
+              {busy && (
+                <p
+                  role="status"
+                  className="flex items-center gap-2 text-sm text-muted-foreground"
+                >
+                  <LoaderCircle className="size-4 animate-spin" />
+                  {status}
+                </p>
+              )}
+            </div>
+            {session.calendar?.error && (
+              <p className="mt-4 text-xs text-muted-foreground">
+                Calendar push: {session.calendar.error}
               </p>
             )}
-            <div ref={bottom} className="scroll-mb-56" />
+            <CoachCalendar refreshKey={calendarRevision} />
+            <div ref={bottom} className="h-1" />
           </div>
-          {session.calendar?.error && <p className="mt-4 text-xs text-muted-foreground">Calendar push: {session.calendar.error}</p>}
-          <CoachCalendar refreshKey={calendarRevision} />
-          <div className="sticky bottom-0 mt-7 space-y-3 bg-background pt-3 pb-2">
+          <div
+            data-coach-composer
+            className="shrink-0 space-y-1 bg-transparent px-4 pt-2 pb-1 md:px-8 md:pb-4"
+          >
             {errorNotice}
             {source && (
               <p className="text-xs text-muted-foreground">
@@ -283,7 +296,7 @@ export function CoachPage() {
                 event.preventDefault()
                 void send()
               }}
-              className="flex items-end gap-2 rounded-2xl border bg-background p-3 shadow-sm focus-within:ring-1 focus-within:ring-ring"
+              className="flex items-end gap-2 rounded-2xl border bg-background p-2 shadow-sm focus-within:ring-1 focus-within:ring-ring"
             >
               <label htmlFor="coach-question" className="sr-only">
                 Message your coach
@@ -291,13 +304,13 @@ export function CoachPage() {
               <textarea
                 ref={input}
                 id="coach-question"
-                rows={2}
+                rows={1}
                 maxLength={12000}
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                disabled={busy}
+                readOnly={busy}
                 placeholder="Message your coach…"
-                className="max-h-48 min-h-14 flex-1 resize-y bg-transparent px-1 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
+                className="max-h-36 min-h-11 min-w-0 flex-1 resize-none bg-transparent px-1 py-2.5 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground md:text-sm"
                 onKeyDown={(event) => {
                   if (
                     event.key === "Enter" &&
@@ -329,6 +342,10 @@ export function CoachPage() {
                   type="submit"
                   size="icon"
                   aria-label="Send message"
+                  onPointerDown={(event) => {
+                    if (document.activeElement === input.current)
+                      event.preventDefault()
+                  }}
                   key="send"
                   disabled={!draft.trim()}
                 >
@@ -336,9 +353,6 @@ export function CoachPage() {
                 </Button>
               )}
             </form>
-            <p className="text-center text-[11px] text-muted-foreground">
-              Conversation stays on this page. Leaving or reloading clears it.
-            </p>
           </div>
         </>
       )}

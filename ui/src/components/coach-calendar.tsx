@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { CalendarPlus, LoaderCircle } from "lucide-react"
+import { LoaderCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { coachRequest, type CalendarProposal } from "@/lib/coach-client"
 
@@ -17,7 +17,10 @@ const labels: Record<CalendarProposal["state"], string> = {
 
 export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
   const [proposals, setProposals] = useState<CalendarProposal[]>([])
-  const [busy, setBusy] = useState<string | null>(null)
+  const [busy, setBusy] = useState<{
+    id: string
+    action: "confirm" | "decline"
+  } | null>(null)
   const [error, setError] = useState("")
   const [revision, setRevision] = useState(0)
 
@@ -83,7 +86,7 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
     action: "confirm" | "decline"
   ) {
     if (busy) return
-    setBusy(proposal.id)
+    setBusy({ id: proposal.id, action })
     setError("")
     try {
       const response = await coachRequest(
@@ -113,119 +116,86 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
   )
   if (!visible.length && !error) return null
   return (
-    <section aria-label="Calendar proposals" className="mt-7 space-y-4">
-      <h3 className="flex items-center gap-2 text-sm font-medium">
-        <CalendarPlus className="size-4" /> Calendar proposals
-      </h3>
+    <section aria-label="Calendar proposals" className="mt-6 space-y-6">
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
       {visible.map((proposal) => (
-        <details
-          key={proposal.id}
-          open={
-            !["applied", "expired", "not_applied", "preview_failed"].includes(
-              proposal.state
-            )
-          }
-          className="rounded-2xl border bg-muted/10 p-4"
-        >
-          <summary className="cursor-pointer text-sm font-medium">
+        <article key={proposal.id} className="space-y-4 border-t pt-5">
+          <h3 className="text-sm font-semibold">
             {proposal.workouts.length}{" "}
-            {proposal.workouts.length === 1 ? "workout" : "workouts"} ·{" "}
-            {labels[proposal.state]}
-          </summary>
-          <div className="mt-4 space-y-4">
-            <p className="text-xs text-muted-foreground">
-              Dates use {proposal.timeZone}. Existing calendar workouts are
-              kept.
+            {proposal.workouts.length === 1 ? "workout" : "workouts"}{" "}
+            {labels[proposal.state].toLowerCase()}
+          </h3>
+          {proposal.workouts.map((workout, index) => (
+            <div key={index} className="space-y-2">
+              <h4 className="text-sm font-medium">{workout.name}</h4>
+              <p className="text-xs text-muted-foreground">
+                {[
+                  workout.date,
+                  workout.type,
+                  workout.indoor ? "Indoor" : null,
+                  workout.duration_minutes != null
+                    ? workout.duration_minutes + " min"
+                    : null,
+                  workout.tss != null ? workout.tss + " TSS" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+              <p className="text-sm leading-6 wrap-anywhere whitespace-pre-wrap">
+                {workout.description}
+              </p>
+            </div>
+          ))}
+          {proposal.error && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {proposal.error}
             </p>
-            {proposal.workouts.map((workout, index) => (
-              <article
-                key={index}
-                className="rounded-xl border bg-background p-4"
-              >
-                <p className="text-xs text-muted-foreground">
-                  {workout.date} · {workout.type}
-                  {workout.indoor ? " · Indoor" : ""}
-                </p>
-                <h4 className="mt-1 text-sm font-medium">{workout.name}</h4>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {[
-                    workout.duration_minutes != null
-                      ? `${workout.duration_minutes} min`
-                      : null,
-                    workout.tss != null ? `${workout.tss} TSS` : null,
-                    workout.target ? `${workout.target} targets` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-                <pre className="mt-3 font-sans text-sm leading-6 wrap-anywhere whitespace-pre-wrap">
-                  {workout.description}
-                </pre>
-              </article>
-            ))}
-            {proposal.error && (
-              <p role="status" className="text-sm text-muted-foreground">
-                {proposal.error}
-              </p>
-            )}
-            {proposal.state === "ready" && (
-              <div className="space-y-3">
-                <p className="text-xs text-muted-foreground">
-                  Review the dates and every step above. Clicking below adds
-                  this exact plan to your Intervals.icu calendar.
-                </p>
-                <Button
-                  type="button"
-                  disabled={busy !== null}
-                  onClick={() => void decide(proposal, "confirm")}
-                >
-                  {busy === proposal.id ? (
-                    <LoaderCircle className="size-4 animate-spin" />
-                  ) : (
-                    <CalendarPlus className="size-4" />
-                  )}{" "}
-                  Add to Intervals.icu
-                </Button>
-              </div>
-            )}
-            {["preview_pending", "queued"].includes(proposal.state) && (
-              <p
-                role="status"
-                className="flex items-center gap-2 text-sm text-muted-foreground"
-              >
-                <LoaderCircle className="size-4 animate-spin" />
-                {proposal.state === "preview_pending"
-                  ? "Validating in GitHub. Nothing has been added yet."
-                  : "GitHub is running the push. You can leave this page and check back."}
-              </p>
-            )}
-            {proposal.phase === "preview" && (
+          )}
+          {proposal.phase === "preview" && (
+            <div className="flex items-center justify-between gap-3">
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
+                className="h-11 flex-1"
                 disabled={busy !== null}
                 onClick={() => void decide(proposal, "decline")}
               >
-                Don’t add workout{proposal.workouts.length === 1 ? "" : "s"}
+                {busy?.id === proposal.id && busy.action === "decline" && (
+                  <LoaderCircle className="size-4 animate-spin" />
+                )}
+                Deny
               </Button>
-            )}
-            {proposal.runUrl && (
+              <Button
+                type="button"
+                className="h-11 flex-1"
+                disabled={busy !== null || proposal.state !== "ready"}
+                onClick={() => void decide(proposal, "confirm")}
+              >
+                {busy?.id === proposal.id && busy.action === "confirm" && (
+                  <LoaderCircle className="size-4 animate-spin" />
+                )}
+                Approve
+              </Button>
+            </div>
+          )}
+          {proposal.runUrl &&
+            ["unknown", "not_applied", "preview_failed"].includes(
+              proposal.state
+            ) && (
               <a
                 href={proposal.runUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="text-xs underline underline-offset-4"
               >
-                View GitHub run and result
+                View push result
               </a>
             )}
-          </div>
-        </details>
+        </article>
       ))}
     </section>
   )

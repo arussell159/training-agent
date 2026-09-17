@@ -19,12 +19,14 @@ const destinations = [
 export function MobileNavbar({
   activeItem,
   onNavigate,
+  onPrefetch,
 }: {
   activeItem: string
   onNavigate: (destination: string) => void
+  onPrefetch?: (destination: string) => void
 }) {
   return (
-    <div className="pointer-events-none fixed inset-x-[calc(1rem+env(safe-area-inset-bottom))] bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 flex justify-center md:hidden">
+    <div className="mobile-navbar pointer-events-none fixed inset-x-[calc(1rem+env(safe-area-inset-bottom))] bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 flex justify-center md:hidden">
       <nav
         aria-label="Primary navigation"
         className="pointer-events-auto flex w-full items-center justify-between gap-1 rounded-full border border-border/70 bg-background/95 px-2 py-3 shadow-lg backdrop-blur"
@@ -38,6 +40,9 @@ export function MobileNavbar({
             aria-label={label}
             aria-current={activeItem === label ? "page" : undefined}
             onClick={() => onNavigate(label)}
+            onPointerEnter={() => onPrefetch?.(label)}
+            onFocus={() => onPrefetch?.(label)}
+            onTouchStart={() => onPrefetch?.(label)}
             className={cn(
               "size-12 rounded-full transition-colors",
               label !== "Coach" &&
@@ -45,7 +50,7 @@ export function MobileNavbar({
                 "bg-accent text-accent-foreground"
             )}
           >
-            <Icon className="size-6 -translate-y-0.5" />
+            <Icon className="size-7 -translate-y-0.5" />
             <span className="sr-only">{label}</span>
           </Button>
         ))}
