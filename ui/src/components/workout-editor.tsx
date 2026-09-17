@@ -1337,8 +1337,17 @@ export function useEditedWorkout<T extends PlannedWorkout | null>(
       const workout = (event as CustomEvent<PlannedWorkout>).detail
       if (workout.id === initial?.id) setUpdated(workout)
     }
+    const refresh = () => {
+      const context = cachedTrainingContext()
+      const workout = [...context.planned, ...context.history].find((item): item is PlannedWorkout => "id" in item && item.id === initial?.id)
+      if (workout) setUpdated(workout)
+    }
     window.addEventListener("workout-editor-saved", listener)
-    return () => window.removeEventListener("workout-editor-saved", listener)
+    window.addEventListener("training-context-updated", refresh)
+    return () => {
+      window.removeEventListener("workout-editor-saved", listener)
+      window.removeEventListener("training-context-updated", refresh)
+    }
   }, [initial?.id])
   return (updated?.id === initial?.id ? updated : initial) as T
 }
