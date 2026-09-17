@@ -1,6 +1,6 @@
 import { useContext, useState } from "react"
 import { MobileHeaderNavigation } from "@/components/ui/mobile-header-navigation"
-import { Ellipsis, RefreshCw } from "lucide-react"
+import { Ellipsis, Pencil, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-export function MobileHeaderMenu() {
+export function MobileHeaderMenu({ onEditWorkout }: { onEditWorkout?: () => void }) {
   const refresh = useContext(MobileHeaderNavigation)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -34,11 +34,30 @@ export function MobileHeaderMenu() {
     <div className="ml-auto shrink-0 md:hidden">
       <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger
-          render={<Button variant="ghost" size="icon" className="size-9 rounded-full bg-white/50 p-0 shadow-sm backdrop-blur-sm hover:bg-white/70" aria-label="Page menu" />}
+          render={
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9 rounded-full bg-white/50 p-0 shadow-sm backdrop-blur-sm hover:bg-white/70"
+              aria-label="Page menu"
+            />
+          }
         >
           <Ellipsis className="size-5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-max min-w-40">
+          {onEditWorkout && (
+            <DropdownMenuItem
+              className="whitespace-nowrap"
+              onClick={() => {
+                setOpen(false)
+                onEditWorkout()
+              }}
+            >
+              <Pencil />
+              Edit Workout
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             className="whitespace-nowrap"
             disabled={busy}

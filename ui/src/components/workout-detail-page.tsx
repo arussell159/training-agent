@@ -1,5 +1,6 @@
 import { WorkoutDescription } from "@/components/workout-description"
 import {
+  WorkoutEditor,
   WorkoutEditorMenu,
   useEditedWorkout,
 } from "@/components/workout-editor"
@@ -68,6 +69,7 @@ export function WorkoutDetailPage({
   onBack: () => void
 }) {
   const workout = useEditedWorkout(initialWorkout)
+  const [editorOpen, setEditorOpen] = useState(false)
   const [plannedTab, setPlannedTab] = useState<"summary" | "zones">("summary")
   const [athleteZones, setAthleteZones] = useState(
     cachedTrainingContext().athlete.zones
@@ -203,9 +205,17 @@ export function WorkoutDetailPage({
                 ? "Run"
                 : workout.sport}
         </span>
-        <WorkoutEditorMenu workout={workout} />
-        <MobileHeaderMenu />
+        <MobileHeaderMenu
+          onEditWorkout={
+            workout.id.startsWith("event:")
+              ? () => setEditorOpen(true)
+              : undefined
+          }
+        />
       </header>
+      {editorOpen && (
+        <WorkoutEditor workout={workout} onClose={() => setEditorOpen(false)} />
+      )}
 
       {workout.status === "completed" && (
         <div className="sticky top-0 z-0 transform-gpu will-change-transform md:hidden">

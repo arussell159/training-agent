@@ -62,7 +62,9 @@ for (const sport of ["Ride", "Run", "Swim"])
     assert.equal(reloaded.model.notes, model.notes);
     assert.equal(reloaded.model.name, original.name);
     const mapped = mapIntervalsWorkout(result.event, "2026-09-16");
-    assert.match(mapped.details, /Keep these custom/);
+    assert.doesNotMatch(mapped.details, /Keep these custom/);
+    assert.match(mapped.raw.description, /Keep these custom/);
+    assert.match(mapped.details, /Warm Up:\n[\s\S]*Main Set:\n[\s\S]*Warm Down:\n/);
     assert.doesNotMatch(mapped.details, /Workout editor v1|```|device definition/);
   });
 

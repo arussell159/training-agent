@@ -5,6 +5,7 @@ import {
   workoutTotals,
   clock,
 } from "./workout-editor-model.mjs";
+import { eventWorkoutDescription } from "./workout-readable-description.mjs";
 
 export function createIntervalsClient(config, fetchImpl = fetch) {
   const key = config.INTERVALS_API_KEY;
@@ -97,7 +98,13 @@ function appWorkoutDoc(doc, type) {
   return { ...doc, steps: normalize(doc.steps) };
 }
 
-export function mapIntervalsWorkout(item, today, activity = null, isActivity = false) {
+export function mapIntervalsWorkout(
+  item,
+  today,
+  activity = null,
+  isActivity = false,
+  settings = []
+) {
   const actual = isActivity ? item : activity;
   const editorModel = !isActivity ? readEditorModel(item.description) : null;
   if (editorModel)
@@ -106,9 +113,16 @@ export function mapIntervalsWorkout(item, today, activity = null, isActivity = f
   const plannedTimeLabel = editorTotals
     ? `${editorTotals.open ? "Open · ≈ " : editorTotals.unknownTime ? "At least " : editorTotals.estimated ? "≈ " : ""}${clock(editorTotals.seconds)}`
     : null;
-  const description = readableDescription(item.description)
+  const sourceDescription = readableDescription(item.description)
     .replace(/^\*\*(Warm Up:|Main Set:|Warm Down:)\*\*$/gm, "$1")
     .trim();
+  const appDescription =
+    !actual && !isActivity
+      ? eventWorkoutDescription(
+          { ...item, workout_doc: appWorkoutDoc(item.workout_doc, item.type) },
+          settings
+        )
+      : null;
   const date = String(item.start_date_local || "").slice(0, 10);
   validDate(date);
   const minutes = Math.round(Number(item.moving_time || item.workout_doc?.duration || 0) / 60);
@@ -160,8 +174,9 @@ export function mapIntervalsWorkout(item, today, activity = null, isActivity = f
     distance_meters: actual?.distance ?? item.distance ?? item.workout_doc?.distance ?? null,
     plannedDurationMinutes: isActivity ? 0 : minutes,
     actualDurationMinutes: actualMinutes,
-    goal: description,
-    details: description,
+    goal: sourceDescription,
+    details: appDescription || sourceDescription,
+    ...(appDescription ? { app_description_version: 1 } : {}),
     status: actual ? "completed" : date === today ? "today" : "upcoming",
     completed: Boolean(actual),
     load: item.icu_training_load ?? item.load_target ?? 0,
@@ -219,14 +234,16 @@ export async function fetchIntervalsContext(
     range ? request(`/athlete/0/wellness?oldest=${today}&newest=${today}`) : Promise.resolve(null),
   ]);
   const matches = pairIntervalsWorkouts(events || [], activities || []);
+  const settings = athlete.sportSettings || athlete.sport_settings || [];
   const paired = new Set([...matches.values()].map((a) => String(a.id)));
   const sessions = [
-    ...(events || []).map((e) => mapIntervalsWorkout(e, today, matches.get(String(e.id)))),
+    ...(events || []).map((e) =>
+      mapIntervalsWorkout(e, today, matches.get(String(e.id)), false, settings)
+    ),
     ...(activities || [])
       .filter((a) => !paired.has(String(a.id)))
       .map((a) => mapIntervalsWorkout(a, today, null, true)),
   ].sort((a, b) => a.workout_date.localeCompare(b.workout_date));
-  const settings = athlete.sportSettings || athlete.sport_settings || [];
   const find = (pattern) =>
     settings.find((s) => (s.types || [s.type]).some((t) => pattern.test(t || ""))) || {};
   const bike = find(/Ride/),
