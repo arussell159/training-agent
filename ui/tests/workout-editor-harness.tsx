@@ -4,6 +4,7 @@ import {
   WorkoutEditor,
   WorkoutEditorMenu,
 } from "../src/components/workout-editor"
+import { WorkoutDetailPage } from "../src/components/workout-detail-page"
 import { WorkoutProfile } from "../src/components/workout-profile"
 import { WorkoutDescription } from "../src/components/workout-description"
 import { Button } from "../src/components/ui/button"
@@ -11,6 +12,7 @@ import type { PlannedWorkout } from "../src/lib/training-context"
 import "../src/index.css"
 function Harness() {
   const [creating, setCreating] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
   const [workout, setWorkout] = useState<PlannedWorkout | null>(null),
     [state, setState] = useState("Online")
   const reset = async (sport: string) => {
@@ -22,6 +24,14 @@ function Harness() {
   useEffect(() => {
     void reset("Ride")
   }, [])
+  if (showDetails && workout) {
+    return (
+      <WorkoutDetailPage
+        workout={workout}
+        onBack={() => setShowDetails(false)}
+      />
+    )
+  }
   return (
     <div className="mx-auto max-w-4xl p-8">
       <h1 className="mb-2 text-xl font-bold">
@@ -41,6 +51,13 @@ function Harness() {
       <div className="mb-8 flex flex-wrap gap-2">
         <Button onClick={() => setCreating(true)}>
           Create workout on 2026-10-12
+        </Button>
+        <Button
+          variant="outline"
+          disabled={!workout}
+          onClick={() => setShowDetails(true)}
+        >
+          Open workout details
         </Button>
         {["Ride", "Run", "Swim"].map((s) => (
           <Button key={s} variant="outline" onClick={() => void reset(s)}>
