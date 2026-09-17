@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react"
 import { Section11Report } from "@/components/section11-report"
 import { coachRequest } from "@/lib/coach-client"
-import { dateLabel } from "@/lib/annual-plan"
 import { Button } from "@/components/ui/button"
 
 type Period = {
@@ -85,37 +84,25 @@ function PeriodReport({
   periods: Period[]
 }) {
   const period = periods[0]
-  return (
-    <div className="space-y-2">
-      <p className="text-sm font-medium">{title}</p>
-      {period && (
-        <p className="text-xs text-muted-foreground">
-          {period.title ? period.title + " · " : ""}
-          {dateLabel(period.startDate)} –{" "}
-          {dateLabel(period.endDate, {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          })}
-        </p>
-      )}
-      {period ? (
-        <Section11Report
-          target={
-            period.kind === "weekly"
-              ? { kind: "weekly", startDate: period.startDate }
-              : {
-                  kind: "block",
-                  planId: period.planId!,
-                  startDate: period.startDate,
-                }
-          }
-        />
-      ) : (
-        <p className="rounded-lg border p-3 text-xs text-muted-foreground">
-          Available when an ATP block is complete.
-        </p>
-      )}
+  return period ? (
+    <Section11Report
+      dateRange={period}
+      target={
+        period.kind === "weekly"
+          ? { kind: "weekly", startDate: period.startDate }
+          : {
+              kind: "block",
+              planId: period.planId!,
+              startDate: period.startDate,
+            }
+      }
+    />
+  ) : (
+    <div className="space-y-1 rounded-lg border bg-card p-3">
+      <h3 className="text-sm font-semibold">{title}</h3>
+      <p className="text-xs text-muted-foreground">
+        Available when an ATP block is complete.
+      </p>
     </div>
   )
 }

@@ -14,6 +14,7 @@ import {
 import { coachRequest, type CoachSource } from "@/lib/coach-client"
 
 import { cachedTrainingContext } from "@/lib/training-context"
+import { dateLabel } from "@/lib/annual-plan"
 import { shiftReportDate } from "../../../app-backend/lib/report-blocks.mjs"
 
 export type ReportTarget =
@@ -57,12 +58,14 @@ export function Section11Report({
   reader = false,
   unframed = false,
   compactControl = false,
+  dateRange,
 }: {
   target: ReportTarget
   savedOnly?: boolean
   reader?: boolean
   unframed?: boolean
   compactControl?: boolean
+  dateRange?: { startDate: string; endDate: string }
 }) {
   const [controlOpen, setControlOpen] = useState(false)
   const signature = JSON.stringify(target)
@@ -103,6 +106,7 @@ export function Section11Report({
       savedOnly={savedOnly}
       reader={reader}
       unframed={unframed}
+      dateRange={dateRange}
     />
   )
 }
@@ -112,11 +116,13 @@ function ReportPanel({
   savedOnly,
   reader,
   unframed = false,
+  dateRange,
 }: {
   signature: string
   savedOnly: boolean
   reader: boolean
   unframed?: boolean
+  dateRange?: { startDate: string; endDate: string }
 }) {
   const isMobile = useIsMobile()
   const target = JSON.parse(signature) as ReportTarget
@@ -228,6 +234,15 @@ function ReportPanel({
   const complete = result?.status === "complete"
   const compact =
     !reader && (target.kind === "weekly" || target.kind === "block")
+  const period =
+    result?.target ||
+    dateRange ||
+    (target.kind === "weekly"
+      ? {
+          startDate: target.startDate,
+          endDate: shiftReportDate(target.startDate, 6),
+        }
+      : null)
   const running = busy || result?.status === "running"
   const runUrl =
     result?.sync?.url &&
@@ -249,34 +264,62 @@ function ReportPanel({
     >
       {!(reader && complete) && (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="flex items-center gap-2 text-sm font-medium">
-            <FileText className="size-4 shrink-0" />
-            Section 11
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-auto min-h-8 text-left whitespace-normal"
-            disabled={
-              !result?.eligible ||
-              running ||
-              complete ||
-              (result?.needsCheckIn && checkIn.trim().length < 10)
-            }
-            onClick={() => void act("generate")}
-          >
-            {running ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : complete ? (
-              <Check className="size-4" />
-            ) : null}
-            {complete
-              ? "Report completed"
-              : running
-                ? "Preparing report…"
-                : `Generate ${labels[target.kind]} report`}
-          </Button>
+          {compact ? (
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold">
+                {target.kind === "weekly" ? "Weekly report" : "Block report"}
+              </h3>
+              {period && (
+                <p className="text-xs text-muted-foreground">
+                  {dateLabel(period.startDate, {
+                    month: "short",
+                    day: "numeric",
+                    ...(period.startDate.slice(0, 4) !==
+                    period.endDate.slice(0, 4)
+                      ? { year: "numeric" as const }
+                      : {}),
+                  })}{" "}
+                  –{" "}
+                  {dateLabel(period.endDate, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="flex items-center gap-2 text-sm font-medium">
+              <FileText className="size-4 shrink-0" />
+              Section 11
+            </p>
+          )}
+          {!(compact && complete) && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-auto min-h-8 text-left whitespace-normal"
+              disabled={
+                !result?.eligible ||
+                running ||
+                complete ||
+                (result?.needsCheckIn && checkIn.trim().length < 10)
+              }
+              onClick={() => void act("generate")}
+            >
+              {running ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : complete ? (
+                <Check className="size-4" />
+              ) : null}
+              {complete
+                ? "Report completed"
+                : running
+                  ? "Preparing report…"
+                  : `Generate ${labels[target.kind]} report`}
+            </Button>
+          )}
         </div>
       )}
       {!complete && !running && result?.needsCheckIn && (
@@ -384,15 +427,17 @@ function ReportPanel({
           ) : (
             <ReportBody text={result.text} />
           )}
-          <p className="border-t pt-2 text-[11px] text-muted-foreground">
-            Saved{" "}
-            {result.generatedAt
-              ? new Date(result.generatedAt).toLocaleString()
-              : ""}
-            {result.source?.lastSynced
-              ? ` · Training data synced ${new Date(result.source.lastSynced).toLocaleString()}`
-              : ""}
-          </p>
+          {!compact && (
+            <p className="border-t pt-2 text-[11px] text-muted-foreground">
+              Saved{" "}
+              {result.generatedAt
+                ? new Date(result.generatedAt).toLocaleString()
+                : ""}
+              {result.source?.lastSynced
+                ? ` · Training data synced ${new Date(result.source.lastSynced).toLocaleString()}`
+                : ""}
+            </p>
+          )}
         </>
       )}
     </div>
