@@ -7,7 +7,7 @@ test("API requests use the actual Vercel function and retain route and query", (
     "/api/config",
     "/api/training-context?scope=full&refresh=1",
     "/api/workouts/event%3A123/move",
-    "/api/conversations?limit=500",
+    "/api/annual-plans",
   ]) {
     assert.ok(toFunctionUrl(path).startsWith("/api/handler?"));
     assert.equal(resolveApiRoute(toFunctionUrl(path)), path);

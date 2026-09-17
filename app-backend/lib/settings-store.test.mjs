@@ -19,10 +19,21 @@ function fakeDatabase() {
     assert.equal(options.headers.apikey, bootstrap.SUPABASE_SECRET_KEY);
     if (options.method === "POST") {
       const incoming = JSON.parse(options.body);
-      for (const row of incoming) rows.set(`${row.scope}:${row.name}`, row);
-      return { ok: true, json: async () => incoming };
+      const ignored = options.headers.Prefer?.includes("ignore-duplicates");
+      const accepted = incoming.filter((row) => !ignored || !rows.has(`${row.scope}:${row.name}`));
+      for (const row of accepted) rows.set(`${row.scope}:${row.name}`, row);
+      return { ok: true, json: async () => accepted };
     }
-    const scope = new URL(url).searchParams.get("scope")?.slice(3);
+    const params = new URL(url).searchParams;
+    const scope = params.get("scope")?.slice(3);
+    if (options.method === "PATCH") {
+      const row = JSON.parse(options.body);
+      const old = rows.get(`${row.scope}:${row.name}`);
+      if (old?.encrypted_value !== params.get("encrypted_value")?.slice(3))
+        return { ok: true, json: async () => [] };
+      rows.set(`${row.scope}:${row.name}`, row);
+      return { ok: true, json: async () => [row] };
+    }
     return { ok: true, json: async () => [...rows.values()].filter((r) => r.scope === scope) };
   };
   return { rows, requests, fetchImpl };
@@ -40,22 +51,17 @@ test("settings persist encrypted and survive fresh instances without local file 
     hosted: true,
   };
   const first = createSettingsService(options);
-  await first.save({ INTERVALS_API_KEY: "saved-key", OPENAI_API_KEY: "fixture-openai-key" });
+  await first.save({ INTERVALS_API_KEY: "saved-key" });
   assert.equal(localWrites, 0);
-  assert.doesNotMatch(
-    JSON.stringify([...db.rows.values()]),
-    /saved-key|fixture-openai-key|old-environment-key/
-  );
+  assert.doesNotMatch(JSON.stringify([...db.rows.values()]), /saved-key|old-environment-key/);
   const fresh = createSettingsService(options);
   assert.equal((await fresh.read()).INTERVALS_API_KEY, "saved-key");
   await fresh.save({ APP_THEME: "dark" });
   const result = await createSettingsService(options).read();
   assert.equal(result.INTERVALS_API_KEY, "saved-key");
-  assert.equal(result.OPENAI_API_KEY, "fixture-openai-key");
   assert.equal(result.APP_THEME, "dark");
   assert.deepEqual(publicSettings(result), {
     intervalsConnected: true,
-    openAIConnected: true,
     supabaseConnected: true,
     supabaseNeedsUrl: false,
     settingsStorage: "supabase",
@@ -64,6 +70,27 @@ test("settings persist encrypted and survive fresh instances without local file 
     calendarSummaryOpen: true,
     settingsError: null,
   });
+});
+
+test("retired AI settings are ignored in bootstrap config and old database rows", async () => {
+  const legacy = {
+    OPENAI_API_KEY: "old-key",
+    OPENAI_MODEL: "old-model",
+    VAPID_PRIVATE_KEY: "old-push-key",
+  };
+  const service = createSettingsService({
+    readBootstrap: async () => ({ ...bootstrap, ...legacy }),
+    writeBootstrap: async () => {},
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () =>
+        Object.keys(legacy).map((name) => ({ name, encrypted_value: "retired-unreadable-value" })),
+    }),
+  });
+  assert.deepEqual(await service.read(), bootstrap);
+  const db = fakeDatabase();
+  await createSupabaseSettingsStore(bootstrap, db.fetchImpl).save(legacy);
+  assert.equal(db.rows.size, 0);
 });
 
 test("encryption is randomized, authenticated and scoped; bootstrap secrets are not stored", async () => {
@@ -215,11 +242,20 @@ test("a failed settings read can recover without resubmitting or changing saved 
 
 test("config API save and reload expose only status, with no stale-cache headers or local persistence", async () => {
   const originalFetch = globalThis.fetch;
-  const envNames = ["SUPABASE_URL", "SUPABASE_SECRET_KEY", "VERCEL", "OPENAI_API_KEY"];
+  const envNames = [
+    "SUPABASE_URL",
+    "SUPABASE_SECRET_KEY",
+    "VERCEL",
+    "OPENAI_API_KEY",
+    "APP_PASSWORD",
+    "APP_ORIGIN",
+  ];
   const previous = Object.fromEntries(envNames.map((name) => [name, process.env[name]]));
   process.env.SUPABASE_URL = bootstrap.SUPABASE_URL;
   process.env.SUPABASE_SECRET_KEY = bootstrap.SUPABASE_SECRET_KEY;
   process.env.VERCEL = "1";
+  process.env.APP_PASSWORD = "fixture-app-password-1234567890";
+  process.env.APP_ORIGIN = "https://fixture.test";
   process.env.OPENAI_API_KEY = "fixture-openai-key";
   const db = fakeDatabase();
   let validations = 0;
@@ -232,10 +268,18 @@ test("config API save and reload expose only status, with no stale-cache headers
   };
   try {
     const { handleRequest } = await import("./../server.mjs");
-    async function request(method, body) {
+    let cookie = "";
+    const requestHeaders = () => ({
+      host: "fixture.test",
+      origin: "https://fixture.test",
+      "content-type": "application/json",
+      cookie,
+    });
+    async function request(method, body, url = "/api/handler?__api_route=config") {
       const req = Readable.from(body ? [JSON.stringify(body)] : []);
       req.method = method;
-      req.url = "/api/handler?__api_route=config";
+      req.url = url;
+      req.headers = requestHeaders();
       let status, headers, result;
       const res = {
         writeHead: (s, h) => {
@@ -249,6 +293,13 @@ test("config API save and reload expose only status, with no stale-cache headers
       await handleRequest(req, res);
       return { status, headers, result };
     }
+    const login = await request(
+      "POST",
+      { password: process.env.APP_PASSWORD },
+      "/api/auth/password"
+    );
+    assert.equal(login.status, 200);
+    cookie = login.headers["Set-Cookie"][0].split(";")[0];
     const saved = await request("POST", { INTERVALS_API_KEY: "fixture-key" });
     assert.equal(saved.status, 200);
     assert.equal(saved.result.intervalsConnected, true);
@@ -264,6 +315,51 @@ test("config API save and reload expose only status, with no stale-cache headers
     assert.equal(appearance.result.theme, "dark");
     assert.equal((await request("GET")).result.intervalsConnected, true);
     assert.equal((await request("POST", { APP_THEME: "invalid" })).status, 400);
+    assert.equal((await request("POST", { OPENAI_API_KEY: "retired-key" })).status, 400);
+    assert.equal((await request("POST", { OPENAI_MODEL: "retired-model" })).status, 400);
+    assert.equal(Object.hasOwn(reloaded.result, "openAIConnected"), false);
+    assert.equal(db.rows.has("default:OPENAI_API_KEY"), false);
+
+    // Stale clients must not be able to generate, retrieve, or approve AI work.
+    const beforeSettings = JSON.stringify([...db.rows]);
+    for (const url of [
+      "/api/coach",
+      "/api/coach/actions/approve",
+      "/api/conversations",
+      "/api/conversations/old-chat",
+      "/api/daily-reviews",
+      "/api/daily-reviews/run",
+      "/api/daily-reviews/old-review",
+      "/api/daily-reviews/old-review/approve",
+      "/api/daily-reviews/old-review/deny",
+      "/api/daily-reviews/old-review/refine",
+      "/api/workouts/event%3A123/coach-input",
+      "/api/section-11/status?refresh=1",
+      "/api/notification-settings",
+      "/api/push-subscriptions",
+      "/api/handler?__api_route=coach",
+    ]) {
+      for (const method of ["GET", "POST", "PATCH", "DELETE"]) {
+        const req = Readable.from([JSON.stringify({ message: "stale request", proposal: {} })]);
+        Object.assign(req, { url, method, headers: requestHeaders() });
+        let status, result;
+        await handleRequest(req, {
+          writeHead: (value) => {
+            status = value;
+          },
+          end: (value) => {
+            result = JSON.parse(value);
+          },
+        });
+        assert.equal(status, 404, `${method} ${url}`);
+        assert.deepEqual(result, { error: "Not found" });
+      }
+    }
+    assert.equal(
+      JSON.stringify([...db.rows]),
+      beforeSettings,
+      "removed routes must not change stored data"
+    );
   } finally {
     globalThis.fetch = originalFetch;
     for (const [name, value] of Object.entries(previous)) {

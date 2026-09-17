@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { providerConnection } from "./completed-workout-store.mjs";
-import { athleteLocalDate } from "./coach-training-context.mjs";
+import { athleteLocalDate } from "./athlete-date.mjs";
 import { intervalsOnlyContext } from "./intervals-only-context.mjs";
 import { elapsedSummary } from "./elapsed-summary.mjs";
 

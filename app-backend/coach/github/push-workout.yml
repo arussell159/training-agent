@@ -1,0 +1,195 @@
+# push.py v0.6 workflow — supports push, list, move, delete, set-threshold, annotate
+name: Push Workout to Intervals.icu
+# training-agent-calendar-v1: correlated preview and write outcomes
+run-name: section11-${{ inputs.request_id || github.run_id }}-${{ inputs.confirm }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      time_zone:
+        description: 'Athlete time zone for planned workout dates'
+        required: false
+        default: 'America/Chicago'
+        type: string
+      request_id:
+        description: 'Unique app proposal ID (optional for manual use)'
+        required: false
+        type: string
+      command:
+        description: 'Subcommand'
+        required: false
+        default: 'push'
+        type: choice
+        options:
+          - push
+          - list
+          - move
+          - delete
+          - set-threshold
+          - annotate
+      workouts:
+        description: 'JSON workout(s) — required for push'
+        required: false
+        type: string
+      event_id:
+        description: 'Event ID — for move/delete/annotate (planned)'
+        required: false
+        type: string
+      date:
+        description: 'Target date YYYY-MM-DD — for move'
+        required: false
+        type: string
+      oldest:
+        description: 'List start date (default: today)'
+        required: false
+        type: string
+      newest:
+        description: 'List end date (default: +6 days)'
+        required: false
+        type: string
+      sport:
+        description: 'Sport family or type — for set-threshold (cycling, Ride, run, etc.)'
+        required: false
+        type: string
+      ftp:
+        description: 'FTP — for set-threshold'
+        required: false
+        type: string
+      indoor_ftp:
+        description: 'Indoor FTP — for set-threshold'
+        required: false
+        type: string
+      lthr:
+        description: 'LTHR — for set-threshold'
+        required: false
+        type: string
+      max_hr:
+        description: 'Max HR — for set-threshold'
+        required: false
+        type: string
+      activity_id:
+        description: 'Activity ID — for annotate (completed)'
+        required: false
+        type: string
+      message:
+        description: 'Note text — for annotate'
+        required: false
+        type: string
+      chat:
+        description: 'Post to activity chat instead of description — for annotate'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      confirm:
+        description: 'Execute write (false = preview only)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Run push.py safely
+        id: push
+        env:
+          ATHLETE_ID: ${{ secrets.ATHLETE_ID }}
+          INTERVALS_KEY: ${{ secrets.INTERVALS_KEY }}
+          PUSH_INPUTS: ${{ toJSON(inputs) }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          TZ: ${{ inputs.time_zone || 'America/Chicago' }}
+        shell: python
+        run: |
+          import json, os, pathlib, subprocess, sys
+          inputs = json.loads(os.environ['PUSH_INPUTS'])
+          command = inputs.get('command') or 'push'
+          confirm = str(inputs.get('confirm', 'false')).lower() == 'true'
+          allowed = {
+            'push': [], 'list': ['oldest', 'newest'],
+            'move': ['event_id', 'date'], 'delete': ['event_id'],
+            'set-threshold': ['sport', 'ftp', 'indoor_ftp', 'lthr', 'max_hr'],
+            'annotate': ['event_id', 'activity_id', 'message'],
+          }
+          outcome = 'unknown'
+          result = {'success': False, 'error': 'The operation did not start.'}
+          try:
+              if command not in allowed:
+                  raise ValueError('Unsupported command')
+              if not os.environ.get('ATHLETE_ID') or not os.environ.get('INTERVALS_KEY'):
+                  raise ValueError('ATHLETE_ID and INTERVALS_KEY secrets are required')
+              if confirm and os.environ['RUN_ATTEMPT'] != '1':
+                  raise ValueError('Do not rerun a write. Check its previous outcome first.')
+              args = [sys.executable, 'push.py', command]
+              if command == 'push':
+                  workouts = json.loads(inputs.get('workouts') or 'null')
+                  if not isinstance(workouts, (list, dict)):
+                      raise ValueError('workouts must be a JSON object or array')
+                  pathlib.Path('workouts.json').write_text(json.dumps(workouts), encoding='utf-8')
+                  args += ['--json', 'workouts.json']
+              for key in allowed[command]:
+                  if inputs.get(key):
+                      args += ['--' + key.replace('_', '-') + '=' + str(inputs[key])]
+              if command == 'annotate' and inputs.get('chat') == 'true':
+                  args += ['--chat']
+              if confirm and command != 'list':
+                  args += ['--confirm']
+              # Arguments never become shell commands; no eval or expression interpolation.
+              completed = subprocess.run(args, capture_output=True, text=True, timeout=480)
+              result = json.loads(completed.stdout)
+              if completed.returncode == 0 and result.get('success') is True:
+                  if command == 'push' and not confirm and result.get('mode') == 'preview':
+                      outcome = 'preview'
+                  elif confirm and result.get('outcome') == 'applied':
+                      outcome = 'applied'
+                  elif command == 'list':
+                      outcome = 'read'
+              elif result.get('outcome') == 'not_applied':
+                  outcome = 'not_applied'
+              elif not confirm:
+                  outcome = 'not_applied'
+          except Exception:
+              # An interrupted subprocess could have written. Never label that a failure.
+              result = {'success': False, 'outcome': 'unknown' if confirm else 'not_applied',
+                        'error': 'Check workflow configuration and calendar before retrying.'}
+              outcome = result['outcome']
+          pathlib.Path('result.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write('outcome=' + outcome + '\n')
+      - name: 'Calendar result: preview'
+        if: steps.push.outputs.outcome == 'preview'
+        run: echo 'Validated preview; no calendar write.'
+      - name: 'Calendar result: applied'
+        if: steps.push.outputs.outcome == 'applied'
+        run: echo 'push.py confirmed all submitted workouts.'
+      - name: 'Calendar result: not_applied'
+        if: steps.push.outputs.outcome == 'not_applied'
+        run: echo 'push.py reported no write was applied.'
+      - name: 'Calendar result: unknown'
+        if: steps.push.outputs.outcome == 'unknown'
+        run: echo 'Outcome unknown; check the calendar before any retry.'
+      - name: Save result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: calendar-result
+          path: result.json
+          retention-days: 7
+      - name: Flag unconfirmed result
+        if: always() && !contains(fromJSON('["preview", "applied", "read"]'), steps.push.outputs.outcome)
+        run: exit 1

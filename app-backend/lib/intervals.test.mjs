@@ -7,12 +7,9 @@ import {
   changeIntervalsEvent,
   createIntervalsRaceEvent,
   updateIntervalsRaceEvent,
-  createIntervalsWorkoutEvent,
-  applyIntervalsPatch,
   mapIntervalsWorkout,
   validDate,
 } from "./intervals.mjs";
-import { createSection11Adapter } from "./section-11-adapter.mjs";
 import { pairIntervalsWorkouts } from "./intervals.mjs";
 
 test("unique same-day named swim pairs without upstream links and retains the plan and actual", async () => {
@@ -420,82 +417,4 @@ test("race updates change the name, priority and date and verify the provider re
   assert.equal(event.category, "RACE_B");
   assert.equal(event.start_date_local, "2027-05-23T00:00:00");
   assert.equal(event.end_date_local, "2027-05-24T00:00:00");
-});
-
-test("coach workout creation is idempotent and verified", async () => {
-  let stored = null,
-    posts = 0;
-  const request = async (path, options) => {
-    if (path.includes("/events?")) return stored ? [stored] : [];
-    if (options?.method === "POST") {
-      posts++;
-      stored = { id: 88, ...JSON.parse(options.body) };
-      return stored;
-    }
-    if (path === "/athlete/0/events/88") return stored;
-    throw new Error(`Unexpected ${path}`);
-  };
-  const input = {
-    date: "2026-09-17",
-    type: "Ride",
-    name: "Endurance Ride",
-    moving_time: 3600,
-    description: "Easy endurance",
-    external_id: "coach:test",
-    workout_doc: {
-      duration: 3600,
-      steps: [
-        { duration: 3600, intensity: "active", power: { start: 1, end: 2, units: "power_zone" } },
-      ],
-    },
-  };
-  assert.equal((await createIntervalsWorkoutEvent(request, input)).id, 88);
-  assert.equal((await createIntervalsWorkoutEvent(request, input)).id, 88);
-  assert.equal(posts, 1);
-  await assert.rejects(
-    createIntervalsWorkoutEvent(request, {
-      ...input,
-      external_id: "coach:bad",
-      workout_doc: { steps: [] },
-    }),
-    /at least one step/
-  );
-});
-
-test("Section 11 coach routes reads to Intervals.icu and never executes chat writes", async () => {
-  const paths = [];
-  const read = createSection11Adapter({
-    request: async (path) => {
-      paths.push(path);
-      return [{ id: 1 }];
-    },
-    currentDate: "2026-09-16",
-  });
-  assert.equal(
-    (await read("listEvents", { oldest: "2026-09-15", newest: "2026-09-16" })).source,
-    "intervals"
-  );
-  assert.equal(paths[0], "/athlete/0/events?oldest=2026-09-15&newest=2026-09-16");
-  const unsupported = await read("createEvent", { body: { name: "Ride" } });
-  assert.match(unsupported.unavailable, /Unknown read operation/);
-  assert.equal(paths.length, 1);
-});
-
-test("legacy review duration is converted to seconds and verified, unsafe structure refused", async () => {
-  let stored = { name: "Ride", start_date_local: "2099-01-01T00:00:00" };
-  const request = async (path, options) => {
-    if (path === "/athlete/0") return { timezone: "America/Chicago" };
-    if (options) stored = { ...stored, ...JSON.parse(options.body) };
-    return stored;
-  };
-  assert.equal(
-    (await applyIntervalsPatch(request, "event:1", { title: "Easy ride", totalTimePlanned: 1 }))
-      .verified,
-    true
-  );
-  assert.equal(stored.moving_time, 3600);
-  await assert.rejects(
-    applyIntervalsPatch(request, "event:1", { structure: "old provider structure" }),
-    /cannot be applied/
-  );
 });

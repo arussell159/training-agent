@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import { createSupabaseSettingsStore } from "./settings-store.mjs";
 import { createIntervalsClient } from "./intervals.mjs";
-import { athleteLocalDate } from "./coach-training-context.mjs";
+import { athleteLocalDate } from "./athlete-date.mjs";
 import { DEVICE_DEFINITION_MARKER } from "./race-plan-import.mjs";
 import {
   readFitWorkoutSteps,

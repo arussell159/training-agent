@@ -33,7 +33,7 @@ test("planned/completed summary preserves exact seconds, provider units and miss
     null
   );
 });
-test("calendar and coaching expose only Intervals sessions, never demo or archived workouts", () => {
+test("training views expose only Intervals sessions, never demo or archived workouts", () => {
   const history = [
     { id: "activity:i123", activity_file_type: "fit" },
     { id: "event:456", activity_id: "i456", activity_file_type: "fit" },

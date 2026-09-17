@@ -1,21 +1,20 @@
 import { apiFetch } from "@/lib/api-client"
+import { AccountSecurity } from "@/components/app-auth"
 import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
 import { useEffect, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import {
   Activity,
-  Bell,
   ChevronLeft,
   ChevronRight,
   Database,
   Gauge,
+  Fingerprint,
   LoaderCircle,
-  Sparkles,
   SunMoon,
   Trophy,
 } from "lucide-react"
 
-import { TrainingSettings as NotificationSettings } from "@/components/training-settings"
 import { displayRunThreshold, displaySwimCss, ThresholdHistory } from "@/components/training-zones-display"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -33,23 +32,20 @@ import { useTheme } from "@/components/theme-provider"
 import {
   fallbackTrainingContext,
   loadTrainingContext,
-  type NotificationPreferences,
   type TrainingContext,
 } from "@/lib/training-context"
 
 type SettingsSection =
   | "intervals"
-  | "openai"
   | "supabase"
   | "zones"
   | "race"
   | "appearance"
-  | "notifications"
+  | "security"
 
 type ConfigStatus = {
   settingsError?: string | null
   intervalsConnected: boolean
-  openAIConnected: boolean
   supabaseConnected: boolean
   supabaseNeedsUrl: boolean
 }
@@ -66,7 +62,6 @@ const groups: Array<{ label: string; items: SettingsItem[] }> = [
     label: "Connections",
     items: [
       { id: "intervals", label: "Intervals.icu", description: "Workouts and recovery", icon: Activity },
-      { id: "openai", label: "OpenAI", description: "AI coaching", icon: Sparkles },
       { id: "supabase", label: "Supabase", description: "Training context storage", icon: Database },
     ],
   },
@@ -81,7 +76,7 @@ const groups: Array<{ label: string; items: SettingsItem[] }> = [
     label: "Preferences",
     items: [
       { id: "appearance", label: "Appearance", description: "Light, dark, or system", icon: SunMoon },
-      { id: "notifications", label: "Notifications", description: "Daily coaching review", icon: Bell },
+      { id: "security", label: "Sign-in & passkeys", description: "Remembered devices and app access", icon: Fingerprint },
     ],
   },
 ]
@@ -116,16 +111,13 @@ function MobileRow({ item, value, onClick }: { item: SettingsItem; value: string
 export function SettingsWorkspace() {
   const [config, setConfig] = useState<ConfigStatus>({
     intervalsConnected: false,
-    openAIConnected: false,
     supabaseConnected: false,
     supabaseNeedsUrl: false,
   })
   const [context, setContext] = useState<TrainingContext>(fallbackTrainingContext)
-  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences | null>(null)
   const [mobileSection, setMobileSection] = useState<SettingsSection | null>(null)
   const [dialogSection, setDialogSection] = useState<SettingsSection | null>(null)
   const [intervalsKey, setIntervalsKey] = useState("")
-  const [openAIKey, setOpenAIKey] = useState("")
   const [supabaseUrl, setSupabaseUrl] = useState("")
   const [supabaseKey, setSupabaseKey] = useState("")
   const [saving, setSaving] = useState(false)
@@ -149,10 +141,6 @@ export function SettingsWorkspace() {
           }
         }).catch(error => { if (active && revision === settingsRevision.current) setLoadError(error instanceof Error ? error.message : "Saved Settings could not be loaded.") }),
       loadTrainingContext().then(setContext),
-      apiFetch("/api/notification-settings", { headers: { Accept: "application/json" } })
-        .then((response) => response.json())
-        .then((value) => setNotificationPreferences(value as NotificationPreferences))
-        .catch(() => undefined),
     ])
     return () => { active = false }
   }, [])
@@ -171,26 +159,23 @@ export function SettingsWorkspace() {
   }
 
   function connectionStatus(section: SettingsSection) {
-    if (loadError && ["intervals", "openai", "supabase"].includes(section)) return "Unavailable"
+    if (loadError && ["intervals", "supabase"].includes(section)) return "Unavailable"
     if (section === "intervals") return config.intervalsConnected ? "Connected" : "Not connected"
-    if (section === "openai") return config.openAIConnected ? "Connected" : "Not connected"
     if (section === "supabase") return config.supabaseConnected ? "Connected" : config.supabaseNeedsUrl ? "URL needed" : "Not connected"
     return ""
   }
 
   function summary(section: SettingsSection) {
-    if (["intervals", "openai", "supabase"].includes(section)) return connectionStatus(section)
+    if (["intervals", "supabase"].includes(section)) return connectionStatus(section)
     if (section === "zones") return "Configured"
     if (section === "race") return context.athlete.race ?? "Not set"
     if (section === "appearance") return theme[0].toUpperCase() + theme.slice(1)
-    if (section === "notifications") return notificationPreferences?.enabled ? "On" : "Off"
     return ""
   }
 
   async function saveConnection(section: SettingsSection) {
     const payload: Record<string, string> = {}
     if (section === "intervals" && intervalsKey.trim()) payload.INTERVALS_API_KEY = intervalsKey.trim()
-    if (section === "openai" && openAIKey.trim()) payload.OPENAI_API_KEY = openAIKey.trim()
     if (section === "supabase") {
       if (supabaseUrl.trim()) payload.SUPABASE_URL = supabaseUrl.trim()
       if (supabaseKey.trim()) payload.SUPABASE_SECRET_KEY = supabaseKey.trim()
@@ -214,7 +199,6 @@ export function SettingsWorkspace() {
       setConfig(result)
       setLoadError("")
       setIntervalsKey("")
-      setOpenAIKey("")
       setSupabaseUrl("")
       setSupabaseKey("")
       if (section === "intervals") setContext(await loadTrainingContext(true, "full"))
@@ -237,9 +221,10 @@ export function SettingsWorkspace() {
   }
 
   function renderPanel(section: SettingsSection) {
+    if (section === "security") return <AccountSecurity />
     const athlete = context.athlete
     const zones = athlete.zones
-    if (["intervals", "openai", "supabase"].includes(section)) {
+    if (["intervals", "supabase"].includes(section)) {
       const connected = connectionStatus(section) === "Connected"
       return (
         <div className="space-y-5">
@@ -251,12 +236,6 @@ export function SettingsWorkspace() {
             <div className="space-y-2">
               <Label htmlFor="intervals-key">Intervals.icu API key</Label>
               <Input id="intervals-key" type="password" value={intervalsKey} onChange={(event) => setIntervalsKey(event.target.value)} placeholder="Paste your personal API key" />
-            </div>
-          )}
-          {section === "openai" && (
-            <div className="space-y-2">
-              <Label htmlFor="openai-key">OpenAI API key</Label>
-              <Input id="openai-key" type="password" value={openAIKey} onChange={(event) => setOpenAIKey(event.target.value)} placeholder="sk-..." />
             </div>
           )}
           {section === "supabase" && (
@@ -313,7 +292,7 @@ export function SettingsWorkspace() {
         </div>{feedback && <p role="status" className="text-sm text-muted-foreground">{feedback}</p>}</div>
       )
     }
-    return <NotificationSettings embedded />
+    return null
   }
 
   const mobileItem = getItem(mobileSection)
@@ -352,7 +331,7 @@ export function SettingsWorkspace() {
       <div className="hidden min-h-0 flex-1 overflow-y-auto md:block">
         <div className="mx-auto w-full max-w-4xl px-8 py-14 lg:py-16">
           <h1 className="text-2xl font-medium tracking-tight">Settings</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Manage coaching connections, athlete context, and app preferences.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Manage connections, athlete details, and app preferences.</p>
           <div className="mt-10 space-y-12">
             {groups.map((group) => (
               <section key={group.label}>

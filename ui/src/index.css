@@ -2,16 +2,11 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/inter";
-@import "tw-shimmer";
 
 @custom-variant dark (&:is(.dark *));
 
 html, body {
   touch-action: pan-x pan-y;
-}
-
-[data-slot="aui_message-group"] > [data-role="user"] + [data-role="assistant"] [data-slot="aui_response-divider"] {
-  display: block;
 }
 
 @media (width < 48rem) {

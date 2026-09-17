@@ -1,4 +1,5 @@
-import { WorkoutCoachComments } from "@/components/workout-coach-comments"
+import { WorkoutCoachButton } from "@/components/workout-coach-button"
+import { Section11WeeklyReport } from "@/components/section11-report"
 import { WorkoutDescription } from "@/components/workout-description"
 import { lazy, Suspense } from "react"
 import { formatDuration } from "@/lib/duration"
@@ -1544,12 +1545,16 @@ export function TrainingCalendar({
                           <CollapsibleContent className="p-3">
                             <WeekSummary
                               title={title}
+                              startDate={week.key}
                               workouts={week.workouts}
                               planWeek={planWeek}
                             />
                           </CollapsibleContent>
                         </Collapsible>
                       </aside>
+                    </div>
+                    <div className="hidden border-t p-3 md:block xl:hidden">
+                      <Section11WeeklyReport startDate={week.key} />
                     </div>
                   </section>
                 )
@@ -1599,10 +1604,12 @@ const disciplineChartConfig = {
 
 function WeekSummary({
   title,
+  startDate,
   workouts,
   planWeek,
 }: {
   title: string
+  startDate: string
   workouts: PlannedWorkout[]
   planWeek: AnnualPlanWeek | null
 }) {
@@ -1718,6 +1725,7 @@ function WeekSummary({
           )}
         </div>
       )}
+      <Section11WeeklyReport startDate={startDate} />
     </Card>
   )
 }
@@ -1813,7 +1821,12 @@ export function WorkoutDialog({
 
           {workout.structure && (
             <div className="overflow-hidden rounded-lg border bg-muted/20 px-2 pt-2">
-              <WorkoutProfile workout={workout} compact desktopDetail />
+              <WorkoutProfile
+                workout={workout}
+                compact
+                desktopDetail
+                enableEditOnClick
+              />
             </div>
           )}
           <div className="grid items-start gap-5 lg:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)]">
@@ -1822,7 +1835,7 @@ export function WorkoutDialog({
               <WorkoutDescription workout={workout} title="Description" />
             </div>
           </div>
-          <WorkoutCoachComments key={workout.id} workout={workout} />
+          <WorkoutCoachButton workout={workout} />
           {workout.status === "completed" && (
             <WorkoutMapSplits workout={workout} />
           )}

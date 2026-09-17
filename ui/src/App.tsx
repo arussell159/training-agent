@@ -1,14 +1,11 @@
-import { apiFetch } from "@/lib/api-client"
 import {BackgroundSync} from '@/components/background-sync'
 import { SidebarNavigationSlim } from "@/components/application/app-navigation/sidebar-navigation/sidebar-slim"
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import {
   CalendarDays,
-  Menu,
   Home,
   Library,
   MessageCircle,
-  SquarePen,
   RefreshCw,
   Settings,
   CalendarRange,
@@ -28,20 +25,10 @@ import { Button } from "@/components/ui/button"
 import { MobileNavbar } from "@/components/ui/navbars"
 import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
 import { MobileHeaderNavigation } from "@/components/ui/mobile-header-navigation"
-import { ConversationHistory } from "@/components/conversation-history"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
-  loadCoachConversations,
   refreshRecentIntervals,
   cachedTrainingContext,
-  type CoachConversationSummary,
   type PlannedWorkout,
 } from "@/lib/training-context"
 import {forgetOpenWorkout,rememberOpenWorkout,restoreOpenWorkout} from '@/lib/workout-navigation'
@@ -56,9 +43,9 @@ const TrainingCalendar = lazy(() =>
     default: module.TrainingCalendar,
   }))
 )
-const TrainingCoach = lazy(() =>
-  import("@/components/training-coach").then((module) => ({
-    default: module.TrainingCoach,
+const CoachPage = lazy(() =>
+  import("@/components/coach-page").then((module) => ({
+    default: module.CoachPage,
   }))
 )
 const TrainingDashboard = lazy(() =>
@@ -124,30 +111,9 @@ function itemPath(item: string) {
   )
 }
 
-function routeConversation() {
-  const params = new URLSearchParams(window.location.search)
-  return {
-    conversationId: params.get("conversation"),
-    reviewId: params.get("review"),
-  }
-}
-
 function AppWorkspace() {
-  const initialConversation = routeConversation()
   const [activeItem, setActiveItem] = useState(routeItem)
   const [calendarNavigationVersion, setCalendarNavigationVersion] = useState(0)
-  const [conversationId, setConversationId] = useState(
-    initialConversation.conversationId
-  )
-  const [reviewId, setReviewId] = useState(initialConversation.reviewId)
-  const [conversationTitle, setConversationTitle] = useState("Coach")
-  const [conversationHistory, setConversationHistory] = useState<
-    CoachConversationSummary[]
-  >([])
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const [newChatVersion, setNewChatVersion] = useState(0)
-  const [conversationToDelete, setConversationToDelete] =
-    useState<CoachConversationSummary | null>(null)
   const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(()=>window.matchMedia('(max-width: 767px)').matches?restoreOpenWorkout([...cachedTrainingContext().planned,...cachedTrainingContext().history]):null)
   const [refreshRequest, setRefreshRequest] = useState(0)
   const [contextVersion, setContextVersion] = useState(0)
@@ -155,25 +121,8 @@ function AppWorkspace() {
   const [intervalsDisconnected, setIntervalsDisconnected] =
     useState(false)
   const workoutReturnScroll = useRef(0)
-  const isCoachConversation = activeItem === "Coach"
-  const selectedConversation = conversationHistory.find((conversation) =>
-    conversationId
-      ? conversation.id === conversationId
-      : conversation.review_id === reviewId
-  )
-  const activeConversationId =
-    conversationId || selectedConversation?.id || null
-  const displayedConversationTitle =
-    selectedConversation?.title || conversationTitle
+  const isCoachPage = activeItem === "Coach"
   const handleRefreshComplete = useCallback(() => setIsRefreshing(false), [])
-  const refreshConversationHistory = useCallback(async () => {
-    try {
-      setConversationHistory(await loadCoachConversations())
-    } catch {
-      // The current chat remains usable if history is temporarily unavailable.
-    }
-  }, [])
-
   useEffect(() => {
     const showReconnect = () => setIntervalsDisconnected(true)
     window.addEventListener("intervals-auth-expired", showReconnect)
@@ -182,27 +131,9 @@ function AppWorkspace() {
   }, [])
 
   useEffect(() => {
-    if(activeItem!=='Coach' && !historyOpen)return
-    let cancelled = false
-    void loadCoachConversations()
-      .then((conversations) => {
-        if (!cancelled) setConversationHistory(conversations)
-      })
-      .catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
-  }, [refreshConversationHistory,activeItem,historyOpen])
-
-  useEffect(() => {
     const handlePopState = () => {
-      const route = routeConversation()
       setSelectedWorkout(window.matchMedia('(max-width: 767px)').matches?restoreOpenWorkout([...cachedTrainingContext().planned,...cachedTrainingContext().history]):null)
       setActiveItem(routeItem())
-      setConversationId(route.conversationId)
-      setReviewId(route.reviewId)
-      if (!route.conversationId && !route.reviewId)
-        setConversationTitle("Coach")
     }
     window.addEventListener("popstate", handlePopState)
     return () => window.removeEventListener("popstate", handlePopState)
@@ -220,71 +151,8 @@ function AppWorkspace() {
     setSelectedWorkout(null)
     setActiveItem(item)
     if (item === "Calendar") setCalendarNavigationVersion((value) => value + 1)
-    if (item === "Coach") {
-      setNewChatVersion((value) => value + 1)
-      setConversationId(null)
-      setReviewId(null)
-      setConversationTitle("Coach")
-    }
     window.history.pushState({}, "", itemPath(item))
   }
-
-  const openConversation = (conversation: CoachConversationSummary) => {
-    setSelectedWorkout(null)
-    setActiveItem("Coach")
-    setConversationId(conversation.id)
-    setReviewId(conversation.review_id)
-    setConversationTitle(conversation.title)
-    setHistoryOpen(false)
-    const url = conversation.review_id
-      ? `/coach?review=${encodeURIComponent(conversation.review_id)}`
-      : `/coach?conversation=${encodeURIComponent(conversation.id)}`
-    window.history.pushState({}, "", url)
-  }
-
-  const pinConversation = async (conversation: CoachConversationSummary) => {
-    const response = await apiFetch(
-      `/api/conversations/${encodeURIComponent(conversation.id)}`,
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ pinned: !conversation.pinned }),
-      }
-    )
-    if (response.ok) await refreshConversationHistory()
-  }
-
-  const deleteConversation = async () => {
-    if (!conversationToDelete) return
-    const deleted = conversationToDelete
-    const response = await apiFetch(
-      `/api/conversations/${encodeURIComponent(deleted.id)}`,
-      { method: "DELETE" }
-    )
-    setConversationToDelete(null)
-    if (!response.ok) return
-    if (activeConversationId === deleted.id) selectItem("Coach")
-    await refreshConversationHistory()
-  }
-
-  const handleConversationSaved = useCallback(
-    (conversation: CoachConversationSummary) => {
-      setConversationId(conversation.id)
-      setConversationTitle(conversation.title)
-      if (!conversation.review_id) {
-        window.history.replaceState(
-          {},
-          "",
-          `/coach?conversation=${encodeURIComponent(conversation.id)}`
-        )
-      }
-      void refreshConversationHistory()
-    },
-    [refreshConversationHistory]
-  )
 
   const openWorkout = (workout: PlannedWorkout) => {
     workoutReturnScroll.current = window.scrollY
@@ -323,8 +191,8 @@ function AppWorkspace() {
           <AlertDialogHeader>
             <AlertDialogTitle>Reconnect Intervals.icu</AlertDialogTitle>
             <AlertDialogDescription>
-              Your Intervals.icu API key is missing or no longer valid. Your saved coaching
-              context remains available in Supabase. Open Intervals.icu Settings,
+              Your Intervals.icu API key is missing or no longer valid. Your saved training
+              data remains available in Supabase. Open Intervals.icu Settings,
               then update the API key from Settings to resume syncing new
               workouts.
             </AlertDialogDescription>
@@ -347,92 +215,11 @@ function AppWorkspace() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog
-        open={Boolean(conversationToDelete)}
-        onOpenChange={(open) => !open && setConversationToDelete(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this chat?</AlertDialogTitle>
-            <AlertDialogDescription>
-              “{conversationToDelete?.title}” will disappear from history and
-              will no longer be used as coaching context. This cannot be undone
-              from the app.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => void deleteConversation()}
-            >
-              Delete chat
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
-        <SheetContent
-          side="left"
-          showCloseButton={false}
-          className="w-[80vw] max-w-80 gap-0 p-0 md:hidden"
-        >
-          <SheetHeader className="sr-only">
-            <SheetTitle>Chat history</SheetTitle>
-            <SheetDescription>
-              Recent coach conversations.
-            </SheetDescription>
-          </SheetHeader>
-          <div className="p-2 pt-4">
-            <Button
-              variant="secondary"
-              className="h-10 w-full justify-start rounded-xl"
-              onClick={() => {
-                setHistoryOpen(false)
-                selectItem("Coach")
-              }}
-            >
-              <SquarePen className="size-4" /> New chat
-            </Button>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3">
-            <ConversationHistory
-              conversations={conversationHistory}
-              activeConversationId={activeConversationId}
-              onOpen={openConversation}
-              onPin={(conversation) => void pinConversation(conversation)}
-              onDelete={setConversationToDelete}
-            />
-          </div>
-          <div className="px-2 pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-            <Button
-              variant="ghost"
-              className="w-full justify-start"
-              onClick={() => {
-                setHistoryOpen(false)
-                selectItem("Home")
-              }}
-            >
-              <Home className="size-4" /> Home
-            </Button>
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      <SidebarNavigationSlim items={navigation} activeItem={activeItem} onNavigate={selectItem}>
-        <ConversationHistory
-          conversations={conversationHistory}
-          activeConversationId={activeConversationId}
-          onOpen={openConversation}
-          onPin={(conversation) => void pinConversation(conversation)}
-          onDelete={setConversationToDelete}
-        />
-      </SidebarNavigationSlim>
+      <SidebarNavigationSlim items={navigation} activeItem={activeItem} onNavigate={selectItem} />
 
       <SidebarInset
         className={
-          (isCoachConversation || activeItem === "Settings" || activeItem === "Annual Plan") && !selectedWorkout
+          (isCoachPage || activeItem === "Settings" || activeItem === "Annual Plan") && !selectedWorkout
             ? "h-svh min-h-0 overflow-hidden"
             : undefined
         }
@@ -444,28 +231,7 @@ function AppWorkspace() {
             <header
               className="mobile-site-header sticky top-0 z-50 flex h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur"
             >
-              {isCoachConversation ? (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="mr-2 size-9 rounded-full bg-white/50 p-0 shadow-sm backdrop-blur-sm hover:bg-white/70 md:hidden"
-                    aria-label="Open chat history"
-                    onClick={() => setHistoryOpen(true)}
-                  >
-                    <Menu className="size-5" />
-                  </Button>
-                  <div className="min-w-0 flex-1 pr-2">
-                    <h1 className="mobile-header-title truncate text-sm font-semibold">
-                      Coach
-                    </h1>
-                  </div>
-                </>
-              ) : (
-                <h1 className="mobile-header-title min-w-0 truncate text-sm font-semibold">
-                  {activeItem}
-                </h1>
-              )}
+              <h1 className="mobile-header-title min-w-0 truncate text-sm font-semibold">{activeItem}</h1>
               {activeItem === "Home" && (
                 <Button
                   type="button"
@@ -487,22 +253,18 @@ function AppWorkspace() {
                   <span className="sm:hidden">Refresh</span>
                 </Button>
               )}
-              <MobileHeaderMenu
-                onNewChat={
-                  isCoachConversation ? () => selectItem("Coach") : undefined
-                }
-              />
+              <MobileHeaderMenu />
             </header>
           )}
         <main
           key={
-            isCoachConversation && !selectedWorkout ? "chat" : contextVersion
+            contextVersion
           }
           className={`flex min-h-0 flex-1 ${
             selectedWorkout
               ? "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
-              : isCoachConversation
-                ? "overflow-hidden"
+              : isCoachPage
+                ? "overflow-y-auto pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
                 : activeItem === "Settings"
                   ? "overflow-hidden pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
                   : activeItem === "Annual Plan"
@@ -524,18 +286,8 @@ function AppWorkspace() {
               />
             ) : activeItem === "Calendar" ? (
               <TrainingCalendar key={calendarNavigationVersion} onWorkoutOpen={openWorkout} />
-            ) : isCoachConversation ? (
-              <TrainingCoach
-                key={
-                  reviewId ||
-                  conversationId ||
-                  `new-conversation-${newChatVersion}`
-                }
-                conversationTitle={displayedConversationTitle}
-                conversationId={conversationId}
-                reviewId={reviewId}
-                onConversationSaved={handleConversationSaved}
-              />
+            ) : isCoachPage ? (
+              <CoachPage />
             ) : activeItem === "Settings" ? (
               <SettingsWorkspace />
             ) : activeItem === "Library" ? (
@@ -546,9 +298,7 @@ function AppWorkspace() {
           </Suspense>
         </main>
 
-        {(!isCoachConversation || selectedWorkout) && (
-          <MobileNavbar activeItem={activeItem} onNavigate={selectItem} />
-        )}
+        <MobileNavbar activeItem={activeItem} onNavigate={selectItem} />
       </SidebarInset>
     </MobileHeaderNavigation.Provider>
   )

@@ -5,11 +5,11 @@ import type {PlannedWorkout} from '@/lib/training-context'
 import {Tooltip,TooltipTrigger,TooltipContent,TooltipProvider} from '@/components/ui/tooltip'
 import {chartSegments,stepLabel} from '../../../app-backend/lib/workout-editor-model.mjs'
 
-type ProfileProps={workout:PlannedWorkout;compact?:boolean;tall?:boolean;mobilePlanned?:boolean;desktopDetail?:boolean}
+type ProfileProps={workout:PlannedWorkout;compact?:boolean;tall?:boolean;mobilePlanned?:boolean;desktopDetail?:boolean;enableEditOnClick?:boolean}
 export function WorkoutProfile(props:ProfileProps){
  const workout=useEditedWorkout(props.workout),[editing,setEditing]=useState(false)
- const editable=workout.id.startsWith('event:')&&workout.status!=='completed'
- return <><div data-workout-profile={workout.id} title={editable?'Click to edit workout':undefined} className={editable?'cursor-pointer':undefined} onPointerDown={event=>{if(editable)event.stopPropagation()}} onKeyDown={event=>{if(editable&&(event.key==='Enter'||event.key===' '))event.stopPropagation()}} onClick={event=>{if(editable){event.stopPropagation();setEditing(true)}}}>
+ const editable=Boolean(props.enableEditOnClick)&&workout.id.startsWith('event:')&&workout.status!=='completed'
+ return <><div data-workout-profile={workout.id} role={editable?'button':undefined} tabIndex={editable?0:undefined} aria-label={editable?`Edit ${workout.title}`:undefined} title={editable?'Click to edit workout':undefined} className={editable?'cursor-pointer':undefined} onPointerDown={event=>{if(editable)event.stopPropagation()}} onKeyDown={event=>{if(editable&&(event.key==='Enter'||event.key===' ')){event.preventDefault();event.stopPropagation();setEditing(true)}}} onClick={event=>{if(editable){event.stopPropagation();setEditing(true)}}}>
   <WorkoutProfileChart {...props} workout={workout}/>
  </div>{editing&&<div onClick={event=>event.stopPropagation()} onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>event.stopPropagation()}><WorkoutEditor workout={workout} onClose={()=>setEditing(false)}/></div>}</>
 }

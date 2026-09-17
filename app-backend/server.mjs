@@ -1,12 +1,17 @@
-import { generateCoachResponse } from './lib/coach-response.mjs';
-import { createSection11Adapter } from './lib/section-11-adapter.mjs';
-import {loadSection11Artifacts,section11SyncStatus} from './lib/section-11-sync.mjs';
-import {section11UpstreamStatus} from './lib/section-11-upstream.mjs';
-import {athleteLocalDate} from './lib/coach-training-context.mjs';
+import {athleteLocalDate} from './lib/athlete-date.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { createCoachHttp } from './lib/coach-http.mjs';
+import { createCoachCalendar } from './lib/coach-calendar.mjs';
+import { createEncryptedRecordStore } from './lib/app-auth-store.mjs';
+import { createAppAuth } from './lib/app-auth.mjs';
+import { coachConfig, createCoach } from './lib/github-coach.mjs';
+import { createGithubCoachSource } from './lib/github-coach-source.mjs';
+import { createWorkoutSync, freshWorkoutSync } from './lib/coach-workout-sync.mjs';
+import { createCoachReports, createReportSnapshotCache, freshReport } from './lib/coach-reports.mjs';
+import { createReportsHttp } from './lib/coach-reports-http.mjs';
 import { fileURLToPath } from 'node:url';
 import { createContextStore } from './lib/supabase-context.mjs';
 import {createCompletedWorkoutStore,providerConnection,mergeTrainingSnapshot,snapshotCoversRange} from './lib/completed-workout-store.mjs';
@@ -26,36 +31,45 @@ import {duplicateAnnualPlan,generateAnnualPlan,mergeRegeneratedPlan,recordPlanRe
 import {
   addLocalComment,
   deleteAnnualPlanRecord,
-  deleteLocalCoachConversation,
-  getDailyReview,
-  getDailyReviewByDate,
-  getNotificationPreferences as getLocalNotificationPreferences,
-  getLocalCoachConversation,
-  listDailyReviews,
   listAnnualPlans,
-  listLocalCoachConversations,
   readLocalContext,
-  removePushSubscription as removeLocalPushSubscription,
-  saveDailyReview,
   saveAnnualPlanRecord,
-  saveLocalCoachConversation,
-  updateDailyReview,
-  updateNotificationPreferences as updateLocalNotificationPreferences,
   updateTrainingPreferences,
-  updateLocalWorkout,
-  upsertPushSubscription as upsertLocalPushSubscription,
 } from './lib/local-context.mjs';
-import { createDailyReviewService } from './lib/daily-review-service.mjs';
-import { loadCoachingInstructions } from './lib/coaching-policy.mjs';
-import { createConversationTitle } from './lib/conversation-title.mjs';
-import { createIntervalsClient, fetchIntervalsContext, moveIntervalsEvent, changeIntervalsEvent, createIntervalsRaceEvent, updateIntervalsRaceEvent, createIntervalsWorkoutEvent, applyIntervalsPatch, mapIntervalsWorkout, validDate } from './lib/intervals.mjs';
-import { activeConversations, conversationContext, conversationSummary, normalizeConversation } from './lib/conversation-history.mjs';
+import { createIntervalsClient, fetchIntervalsContext, moveIntervalsEvent, changeIntervalsEvent, createIntervalsRaceEvent, updateIntervalsRaceEvent, mapIntervalsWorkout, validDate } from './lib/intervals.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const configPath = path.join(__dirname, 'config.json');
+const handleCoach = createCoachHttp({ getCalendar: async (req, config) => createCoachCalendar({
+  config,
+  store: createEncryptedRecordStore(await readBootstrapConfig(), `${req.headers.host}/${config.repo}@${config.branch}`, {
+    namespace: 'coach-calendar', name: 'COACH_CALENDAR', fresh: () => ({ proposals: [] }), timestampCas: true,
+  }),
+}) });
+const handleAuth = createAppAuth({ readBootstrap: readBootstrapConfig });
+let reportServices;
+async function getReportServices(config = coachConfig()) {
+  if (!config.githubToken || !config.repo) return null;
+  const bootstrap = await readBootstrapConfig();
+  const identity = `${config.repo}@${config.branch}`;
+  const signature = createHash('sha256').update(JSON.stringify([config,bootstrap])).digest('hex');
+  if (reportServices?.signature === signature) return reportServices;
+  const storage = (namespace, name, fresh, key = '') => createEncryptedRecordStore(bootstrap, `${identity}/${key}`, { namespace, name, fresh, timestampCas: true });
+  const source = createGithubCoachSource();
+  const snapshotCache = createReportSnapshotCache(source, config);
+  const sync = createWorkoutSync({ config, store: storage('coach-sync', 'COACH_WORKOUT_SYNC', freshWorkoutSync), onFinished: () => snapshotCache.invalidate() });
+  const reports = createCoachReports({ config, source, snapshotCache, sync,
+    record: key => storage('coach-report', 'COACH_REPORT', freshReport, key),
+    index: storage('coach-report-index', 'COACH_REPORT_INDEX', () => ({ reports: [] })),
+    readContext: async () => loadSupabaseTrainingSnapshot(await readConfig()), readPlans: listAnnualPlans,
+    answer: createCoach({ source }),
+  });
+  reportServices = { signature, sync, reports };
+  return reportServices;
+}
+const handleReports = createReportsHttp({ getReports: async config => (await getReportServices(config)).reports });
 const uiDistPath = path.resolve(__dirname, '..', 'ui', 'dist');
-const SECTION_11_CONFIG = Object.freeze({version:11.69,coach_name:'Section 11',protocol:'section-11',rules:[],retention_days:90});
 const intervalsCachePath = path.join(process.env.VERCEL ? '/tmp' : __dirname, 'intervals.cache');
 let completionConfirmation=null;
 try{completionConfirmation=await readDurableState('COMPLETION_CONFIRMATION',path.join(__dirname,'completion-confirmation.cache'),null);}catch(error){console.error('Completion confirmation unavailable:',error.message);}
@@ -67,7 +81,6 @@ const serverState = {
 };
 
 let intervalsMemoryCache = null;
-const coachCommentJobs=new Map();
 const providerReads=createRequestCache({ttl:60000,maxEntries:32});
 function sendJson(req,res,value,cacheControl='no-store'){
  const payload=compressAsset(Buffer.from(JSON.stringify(value)),'.js',req.headers['accept-encoding']);
@@ -79,14 +92,9 @@ function intervalsClient(config){
 }
 
 const CONFIG_ENV_KEYS = [
-  'OPENAI_API_KEY',
-  'OPENAI_MODEL',
   'INTERVALS_API_KEY',
   'SUPABASE_URL',
   'SUPABASE_SECRET_KEY',
-  'VAPID_PUBLIC_KEY',
-  'VAPID_PRIVATE_KEY',
-  'VAPID_SUBJECT',
   'SETTINGS_ENCRYPTION_KEY',
   'SETTINGS_SCOPE',
 ];
@@ -111,185 +119,6 @@ function stableUuid(value) {
   hex[12] = '4';
   hex[16] = ((parseInt(hex[16], 16) & 3) | 8).toString(16);
   return `${hex.slice(0,8).join('')}-${hex.slice(8,12).join('')}-${hex.slice(12,16).join('')}-${hex.slice(16,20).join('')}-${hex.slice(20).join('')}`;
-}
-
-function isUuid(value) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
-}
-
-const CONVERSATION_METADATA_TYPE = 'coach_conversation_metadata';
-
-function decodeDatabaseConversation(row) {
-  const storedMessages = Array.isArray(row?.messages) ? row.messages : [];
-  const metadata = storedMessages.find(message => message?.type === CONVERSATION_METADATA_TYPE) || {};
-  return normalizeConversation({
-    ...row,
-    kind:row.kind || metadata.kind || (String(row.title || '').startsWith('Daily workout review') ? 'daily_review' : 'conversation'),
-    review_id:row.review_id || metadata.review_id || null,
-    pinned:row.pinned ?? metadata.pinned ?? false,
-    deleted_at:row.deleted_at || metadata.deleted_at || null,
-    messages:storedMessages.filter(message => message?.type !== CONVERSATION_METADATA_TYPE),
-  });
-}
-
-function databaseConversation(conversation) {
-  return {
-    id:conversation.id,
-    athlete_id:conversation.athlete_id,
-    title:conversation.title,
-    kind:conversation.kind,
-    review_id:conversation.review_id,
-    pinned:conversation.pinned,
-    messages:conversation.messages,
-    created_at:conversation.created_at,
-    updated_at:conversation.updated_at,
-    deleted_at:conversation.deleted_at,
-  };
-}
-
-function legacyDatabaseConversation(conversation) {
-  return {
-    id:conversation.id,
-    athlete_id:conversation.athlete_id,
-    title:conversation.title,
-    messages:[
-      {
-        type:CONVERSATION_METADATA_TYPE,
-        kind:conversation.kind,
-        review_id:conversation.review_id,
-        pinned:conversation.pinned,
-        deleted_at:conversation.deleted_at,
-      },
-      ...conversation.messages,
-    ],
-    created_at:conversation.created_at,
-    updated_at:conversation.updated_at,
-  };
-}
-
-async function upsertSupabaseConversation(store, conversation) {
-  try {
-    await store.upsert('coach_conversations', [databaseConversation(conversation)]);
-  } catch (error) {
-    if (!/column|schema cache|PGRST204/i.test(error.message)) throw error;
-    await store.upsert('coach_conversations', [legacyDatabaseConversation(conversation)]);
-  }
-}
-
-async function remoteConversations(config, limit = 500) {
-  const store = createContextStore(config, updateLogs);
-  if (!store.ready) return null;
-  try {
-    return await store.listConversations(null, limit);
-  } catch (error) {
-    updateLogs(`conversation read failed: ${error.message}`);
-    return null;
-  }
-}
-
-async function listCoachConversations(config, limit = 500) {
-  const remote = await remoteConversations(config, limit);
-  const source = remote === null ? await listLocalCoachConversations(null) : remote;
-  return activeConversations(source.map(decodeDatabaseConversation)).slice(0, Math.max(1, Math.min(500, Number(limit) || 100)));
-}
-
-async function getCoachConversation(config, id) {
-  const store = createContextStore(config, updateLogs);
-  if (store.ready) {
-    try {
-      const remote = await store.getConversation(id);
-      if (remote) {
-        const conversation = decodeDatabaseConversation(remote);
-        return conversation.deleted_at ? null : conversation;
-      }
-    } catch (error) {
-      updateLogs(`conversation read failed: ${error.message}`);
-    }
-  }
-  return getLocalCoachConversation(id);
-}
-
-async function persistCoachConversation(config, input) {
-  const conversation = await saveLocalCoachConversation(input);
-  const store = createContextStore(config, updateLogs);
-  if (store.ready) {
-    try {
-      await upsertSupabaseConversation(store, conversation);
-    } catch (error) {
-      updateLogs(`conversation write failed: ${error.message}`);
-      throw new Error('The conversation was saved on this device, but Supabase could not confirm the durable save.');
-    }
-  }
-  return conversation;
-}
-
-async function syncDailyReviewToSupabase(review) {
-  if (!review) return null;
-  if (!isUuid(review.conversation_id)) {
-    review = { ...review, conversation_id:stableUuid(`daily-review-conversation:${review.conversation_id || review.id}`) };
-    await saveDailyReview(review);
-  }
-  const config = await readConfig();
-  const store = createContextStore(config, updateLogs);
-  if (!store.ready) return review;
-  const conversation = await getLocalCoachConversation(review.conversation_id);
-  try {
-    await store.upsert('daily_workout_reviews', [{
-      id:review.id,
-      athlete_id:review.athlete_id || 'default',
-      local_date:review.local_date,
-      conversation_id:review.conversation_id,
-      revision:review.revision || 1,
-      status:review.status,
-      review,
-      notification:review.notification || {},
-      created_at:review.created_at,
-      updated_at:review.updated_at || review.created_at,
-    }]);
-    if (conversation) await upsertSupabaseConversation(store, conversation);
-    await store.prune();
-  } catch (error) {
-    updateLogs(`daily review persistence failed: ${error.message}`);
-  }
-  return review;
-}
-
-async function loadDailyReviewFromSupabase(id) {
-  const config = await readConfig();
-  const store = createContextStore(config, updateLogs);
-  if (!store.ready) return null;
-  try {
-    const row = await store.getDailyReview(id);
-    return row?.review ? { ...row.review, status:row.status, notification:row.notification } : null;
-  } catch (error) {
-    updateLogs(`daily review read failed: ${error.message}`);
-    return null;
-  }
-}
-
-async function loadDailyReviewFromSupabaseByDate(athleteId, localDate) {
-  const config = await readConfig();
-  const store = createContextStore(config, updateLogs);
-  if (!store.ready) return null;
-  try {
-    const row = await store.getDailyReviewByDate(athleteId, localDate);
-    return row?.review ? { ...row.review, status:row.status, notification:row.notification } : null;
-  } catch (error) {
-    updateLogs(`daily review date read failed: ${error.message}`);
-    return null;
-  }
-}
-
-async function recentConversationMemory(config, excludeId = null) {
-  const conversations = await listCoachConversations(config, 100);
-  return conversationContext(conversations, { excludeId, maxMessages:60 });
-}
-
-async function currentConversationAthleteId() {
-  const reviews = await dailyReviews.listReviews(1);
-  if (reviews[0]?.athlete_id) return String(reviews[0].athlete_id);
-  const local = await readLocalContext();
-  return String(local.athlete?.id || 'default');
 }
 
 function withZoneHistory(previous,incoming) {
@@ -345,10 +174,10 @@ export async function persistTrainingContext(config, context, {archiveActivities
     source_updated_at:workout.updated_at || context.synced_at || new Date().toISOString(),
     synced_at:new Date().toISOString(),
   }));
-  const commentRows = (context.comments || []).filter(item => item?.body).map(item => ({
+  const commentRows = (context.comments || []).filter(item => item?.body && ['pre','post'].includes(item.comment_type || item.type || 'post')).map(item => ({
     id:stableUuid(`comment:${item.id || `${item.workout_id}:${item.created_at}:${item.body}`}`),
     athlete_id:athleteId, workout_id:item.workout_id ? String(item.workout_id) : null,
-    comment_type:['pre','post','chat','coach_note'].includes(item.comment_type || item.type) ? (item.comment_type || item.type) : 'post',
+    comment_type:['pre','post'].includes(item.comment_type || item.type) ? (item.comment_type || item.type) : 'post',
     body:String(item.body), created_at:item.created_at || new Date().toISOString(),
   }));
   if (workoutRows.length) await store.upsert('workout_context', workoutRows);
@@ -382,6 +211,8 @@ export async function persistTrainingContext(config, context, {archiveActivities
     updated_at:new Date().toISOString(),
   }]);
   await saveFastView(config,store,context);
+  try { await (await getReportServices())?.sync.observe(previous, context); }
+  catch (error) { updateLogs('Section 11 workout sync is pending; open the workout to check its sync status.'); }
   await store.prune();
 }
 
@@ -399,11 +230,6 @@ async function loadSupabaseTrainingSnapshot(config, athleteId = null) {
     updateLogs(`Supabase training snapshot read failed: ${error.message}`);
     return null;
   }
-}
-
-async function invalidateTrainingSnapshot(config) {
-  const snapshot=await loadSupabaseTrainingSnapshot(config);
-  if(snapshot)await createContextStore(config,updateLogs).invalidateSyncState(String(snapshot.athlete.id));
 }
 
 async function saveVerifiedSnapshot(config,context) {
@@ -478,63 +304,6 @@ function shiftDate(date, days) {
   return copy;
 }
 
-function formatDuration(hours) {
-  const minutes = Math.max(0, Math.round(Number(hours || 0) * 60));
-  if (!minutes) return '—';
-  const wholeHours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
-  return wholeHours ? `${wholeHours}h${remainder ? ` ${String(remainder).padStart(2, '0')}m` : ''}` : `${minutes} min`;
-}
-
-function sportName(type) {
-  return ({ 1:'Swim', 2:'Bike', 3:'Run', 4:'Bike', 6:'Run' })[Number(type)] || 'Recovery';
-}
-
-function metricValue(days, type, label) {
-  for (let index = days.length - 1; index >= 0; index -= 1) {
-    const detail = days[index]?.details?.find(item => Number(item.type) === type || String(item.label || '').toLowerCase() === label);
-    if (detail && Number.isFinite(Number(detail.value))) return Number(detail.value);
-  }
-  return null;
-}
-
-
-
-function zonedDateTimeIso(date, time, timeZone) {
-  const target = Date.parse(`${date}T${time}Z`);
-  let guess = target;
-  for (let pass = 0; pass < 2; pass += 1) {
-    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23' }).formatToParts(new Date(guess)).map(part => [part.type, part.value]));
-    const rendered = Date.parse(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}Z`);
-    guess += target - rendered;
-  }
-  return new Date(guess).toISOString();
-}
-
-function assessRaceTiming(raceDate, timeZone, now = new Date()) {
-  const localParts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone, year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(now).map(part => [part.type, part.value]));
-  const localDate = `${localParts.year}-${localParts.month}-${localParts.day}`;
-  const raceDay = Date.parse(`${raceDate}T12:00:00Z`);
-  const currentDay = Date.parse(`${localDate}T12:00:00Z`);
-  const daysToRace = Number.isFinite(raceDay) ? Math.round((raceDay - currentDay) / 86_400_000) : null;
-  let phase = 'general preparation';
-  if (daysToRace != null && daysToRace < 0) phase = 'post-race recovery';
-  else if (daysToRace != null && daysToRace <= 7) phase = 'race week';
-  else if (daysToRace != null && daysToRace <= 14) phase = 'taper';
-  else if (daysToRace != null && daysToRace <= 28) phase = 'race-specific';
-  else if (daysToRace != null && daysToRace <= 56) phase = 'race preparation';
-  else if (daysToRace != null && daysToRace <= 84) phase = 'build';
-  return { localDate, daysToRace, phase };
-}
-
-function scheduledStart(workout, workoutDate, timeZone) {
-  const value = workout.startTimePlanned || null;
-  if (!value) return null;
-  if (/^\d{1,2}:\d{2}/.test(value)) return zonedDateTimeIso(workoutDate, value, timeZone);
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-}
-
 function currentWeekRange(timeZone){
  const today=athleteLocalDate(new Date(),timeZone),date=new Date(`${today}T12:00:00Z`);
  date.setUTCDate(date.getUTCDate()-((date.getUTCDay()+6)%7));const start=date.toISOString().slice(0,10);
@@ -584,21 +353,6 @@ function scopedTrainingContext(context, scope, today = new Date()) {
   };
 }
 
-function sameField(actual, expected) {
-  if (typeof expected === 'number') return Math.abs(Number(actual) - expected) < 0.0001;
-  if (expected === null) return actual == null;
-  if (typeof expected === 'string' && actual && typeof actual === 'object') return JSON.stringify(actual) === expected;
-  return actual === expected;
-}
-
-async function applyIntervalsWorkoutPatch(config, workoutId, requestedPatch) {
-  const result = await applyIntervalsPatch(intervalsClient(config),workoutId,requestedPatch);
-  intervalsMemoryCache = null;
-  await invalidateTrainingSnapshot(config);
-  await syncRecentTraining(config,{force:true});
-  return result;
-}
-
 async function readBootstrapConfig() {
   try {
     const raw = await fs.readFile(configPath, 'utf8');
@@ -645,167 +399,6 @@ async function readIntervalsCache() {
   }
 }
 
-async function boundedContextRead(promise, milliseconds, fallback) {
-  let timer
-  try {
-    return await Promise.race([promise,new Promise(resolve=>{timer=setTimeout(()=>resolve(fallback),milliseconds)})])
-  } finally { clearTimeout(timer) }
-}
-
-async function buildCoachContext(config, { force = false, strict = false, cacheOnly = false } = {}) {
-  const contextStore = createContextStore(config, updateLogs);
-  if(cacheOnly) {
-    const fallback={athlete:{id:'default',time_zone:'America/Chicago'},metrics:{},wellness:{},history:[],planned:[],comments:[],annual_plans:[],notification_preferences:{time_zone:'America/Chicago'}}
-    const [local,fastView,fileCache]=await Promise.all([
-      boundedContextRead(readLocalContext(),2500,fallback),
-      contextStore.ready?boundedContextRead(contextStore.getSyncRecord(fastViewId(config)),3000,null):null,
-      readIntervalsCache(),
-    ])
-    const cached=fastView || (intervalsMemoryCache?.key===config.INTERVALS_API_KEY?intervalsMemoryCache.data:null) || fileCache || {}
-    return intervalsOnlyContext({...fallback,...local,...cached,coaching:SECTION_11_CONFIG,
-      athlete:{...fallback.athlete,...local.athlete,...cached.athlete},metrics:{...local.metrics,...cached.metrics},
-      comments:local.comments || [],annual_plans:local.annual_plans || [],history:cached.history || [],planned:cached.planned || [],workouts:cached.history || []})
-  }
-  const local = await readLocalContext();
-  const timeZone = local.notification_preferences?.time_zone || local.athlete?.time_zone || 'America/Chicago';
-  let context = {
-    ...local,
-    coaching:SECTION_11_CONFIG,
-    history:[],planned:[],workouts:[],
-  };
-
-  if (contextStore.ready) {
-    try {
-      const snapshot = await loadSupabaseTrainingSnapshot(config,local.athlete?.id);
-      if (snapshot) context = {...context,...snapshot,coaching:SECTION_11_CONFIG,athlete:{...context.athlete,...snapshot.athlete},workouts:snapshot.history};
-    } catch (error) {
-      updateLogs(`context read failed: ${error.message}`);
-    }
-  }
-
-  if (config.INTERVALS_API_KEY) {
-    let intervals = null;
-    try {
-      intervals = await fetchIntervalsTrainingContext(config, { force, timeZone });
-    } catch (error) {
-      updateLogs(`coach Intervals.icu sync failed: ${error.message}`);
-      if (strict) throw error;
-      intervals = await readIntervalsCache();
-      if (intervals) intervals = { ...intervals, source:'intervals-cache', sync_error:error.message };
-    }
-
-    if (intervals) {
-      context = {
-        ...context,
-        ...intervals,
-        athlete:{...intervals.athlete},
-        metrics:{ ...context.metrics, ...intervals.metrics },
-        workouts:intervals.history,
-        history:intervals.history,
-        planned:intervals.planned,
-        comments:context.comments || local.comments,
-        library:[],
-      };
-      try {
-        await persistTrainingContext(config, context);
-      } catch (error) {
-        updateLogs(`context write failed: ${error.message}`);
-      }
-    }
-  }
-
-  context.coaching = SECTION_11_CONFIG;
-
-  return intervalsOnlyContext(context);
-}
-
-async function createCoachWorkout(config,workout,conversationId,currentDate) {
-    const request=intervalsClient(config);
-    const stable=JSON.stringify({conversationId,date:workout.date,type:workout.type,name:workout.name,moving_time:workout.moving_time,description:workout.description,workout_doc:workout.workout_doc || null});
-    const event=await createIntervalsWorkoutEvent(request,{...workout,external_id:workout.external_id || `training-agent-coach:${createHash('sha256').update(stable).digest('hex').slice(0,32)}`});
-    intervalsMemoryCache=null;
-    const snapshot=await loadSupabaseTrainingSnapshot(config);
-    if(snapshot) {
-      const mapped=mapIntervalsWorkout(event,currentDate);
-      await saveVerifiedSnapshot(config,applyVerifiedEvent(snapshot,mapped.id,{event},'copy'));
-    }
-    return event;
-}
-async function applyCoachAnnualPlan(args) {
-    const plans=await listAnnualPlans(),existing=plans.find(plan=>plan.id===args.plan_id);
-    if(!existing)throw new Error('Annual plan not found');
-    const phases=new Set(['Not Set','Preparation','Base 1','Base 2','Base 3','Build 1','Build 2','Peak','Race','Transition']);
-    const byWeek=new Map((args.changes || []).map(change=>[String(change.week_id),change]));
-    if(!byWeek.size)throw new Error('At least one annual-plan week change is required');
-    validDate(args.range_start);validDate(args.range_end);
-    if(args.range_end<args.range_start)throw new Error('Annual-plan range end must not precede its start');
-    const affected=existing.weeks.filter(week=>week.endDate>=args.range_start&&week.startDate<=args.range_end);
-    if(!affected.length)throw new Error('The requested annual-plan range does not overlap the plan');
-    const missing=affected.filter(week=>!byWeek.has(week.id));
-    if(missing.length)throw new Error(`The preview must include every week in the requested range: ${missing.map(week=>week.id).join(', ')}`);
-    for(const id of byWeek.keys())if(!existing.weeks.some(week=>week.id===id))throw new Error(`Annual-plan week not found: ${id}`);
-    const weeks=existing.weeks.map(week=>{
-      const change=byWeek.get(week.id);if(!change)return week;
-      if(week.locked)throw new Error(`Week ${week.id} is locked and was not changed`);
-      if(!phases.has(change.phase))throw new Error(`Invalid or missing phase for ${week.id}`);
-      if(!Number.isFinite(Number(change.target_hours))||Number(change.target_hours)<0)throw new Error(`Invalid or missing planned hours for ${week.id}`);
-      if(typeof change.notes!=='string'||!change.notes.trim())throw new Error(`Week details are required for ${week.id}`);
-      const allocation=change.allocation?Object.fromEntries(['swim','bike','run','strength'].map(key=>[key,Math.max(0,Number(change.allocation[key] ?? week.allocation?.[key] ?? 0))])):week.allocation;
-      return {...week,
-        ...(change.phase!=null?{phase:change.phase}:{}),...(Object.hasOwn(change,'phase_week')?{phaseWeek:change.phase_week}:{}),
-        ...(change.recovery!=null?{recovery:Boolean(change.recovery)}:{}),...(Object.hasOwn(change,'target_hours')?{targetHours:change.target_hours}:{}),
-        ...(Object.hasOwn(change,'target_tss')?{targetTss:change.target_tss}:{}),...(change.focus!=null?{focus:String(change.focus)}:{}),
-        ...(change.notes!=null?{notes:String(change.notes)}:{}),allocation,manual:true};
-    });
-    return saveAnnualPlanRecord(recordPlanRevision({...existing,weeks},String(args.reason || 'Section 11 coach update')));
-}
-
-async function runCoach(message, history = [], conversationId = null, onDelta = null, options = {}) {
-  const config = await readConfig();
-  if (!config.OPENAI_API_KEY) throw new Error('OpenAI is not configured');
-  if (!config.INTERVALS_API_KEY) throw new Error('Connect Intervals.icu in Settings before using live coaching');
-  const actionMode=options.actionMode || null;
-  options.onStatus?.({message:actionMode?'Loading the current application data…':'Reading current Intervals.icu training data…',progress:15});
-  const baseContext = options.context || await buildCoachContext(config, {cacheOnly:true});
-  options.onStatus?.({message:'Reading official Section 11 metric artifacts…',progress:32});
-  const section11Artifacts=await loadSection11Artifacts(config,baseContext.athlete?.id);
-  const context={...baseContext,section11_artifacts:section11Artifacts};
-  const coachIntent=[...history.slice(-4).map(item=>String(item.content || '')),message].join('\n');
-  options.onStatus?.({message:actionMode?'Loading the selected Section 11 feedback…':'Loading the fresh official Section 11 installation…',progress:50});
-  const guide=actionMode?'':await loadCoachingInstructions(coachIntent);
-  const currentDate = athleteLocalDate(new Date(),context.notification_preferences?.time_zone || context.athlete?.time_zone || 'America/Chicago');
-  return generateCoachResponse(config, {
-    guide, currentDate,
-    context,
-    history, message, onDelta, onStatus:options.onStatus, actionMode, sourceFeedback:options.sourceFeedback,
-    executeTool:createSection11Adapter({request:intervalsClient(config),context,currentDate,userMessage:message,createWorkout:workout=>createCoachWorkout(config,workout,conversationId,currentDate),getAnnualPlans:async()=>({plans:await listAnnualPlans()}),updateAnnualPlan:applyCoachAnnualPlan,onPreview:options.onPreview,allowConfirmedWrites:false}),
-
-  });
-}
-async function streamCoach(message, history, res, conversationId = null, options = {}) {
-  res.writeHead(200, {
-    'Content-Type':'text/event-stream; charset=utf-8',
-    'Cache-Control':'no-cache, no-transform',
-    'Connection':'keep-alive',
-    'X-Accel-Buffering':'no',
-  });
-  res.flushHeaders?.();
-  const sendStatus=status=>{if(!res.writableEnded)res.write(`data: ${JSON.stringify({type:'coach.status',...status})}\n\n`)};
-  sendStatus({message:options.actionMode?'Starting the application formatter…':'Starting the official Section 11 coach…',progress:5});
-  const heartbeat=setInterval(()=>{if(!res.writableEnded)res.write(': keepalive\n\n')},15_000);
-  let streamed=false;
-  try {
-    const content = await runCoach(message, history, conversationId,delta=>{streamed=true;if(!res.writableEnded)res.write(`data: ${JSON.stringify({type:'response.output_text.delta',delta})}\n\n`)},{...options,onStatus:sendStatus,onPreview:proposal=>{if(!res.writableEnded)res.write(`data: ${JSON.stringify({type:'coach.action.preview',proposal})}\n\n`)}});
-    if(!streamed)res.write(`data: ${JSON.stringify({ type:'response.output_text.delta', delta:content })}\n\n`);
-  } catch(error) {
-    // A late provider timeout must not erase a response the athlete has already read.
-    if(!streamed)res.write(`data: ${JSON.stringify({type:'error',message:error instanceof Error?error.message:'The coach is unavailable right now.'})}\n\n`);
-  } finally {
-    clearInterval(heartbeat);
-    if(!res.writableEnded){res.write('data: [DONE]\n\n');res.end();}
-  }
-}
-
 function updateLogs(message) {
   serverState.logs.push(message);
   if (serverState.logs.length > 200) {
@@ -830,84 +423,14 @@ function startServer() {
   throw new Error('The standalone MCP process has been removed. Use the app connection in Settings.');
 }
 
-async function buildDailyReviewContext(config, options = {}) {
-  return buildCoachContext(config, options);
-}
-
-async function notificationContextStore() {
-  const store = createContextStore(await readConfig(), updateLogs);
-  return store.ready ? store : null;
-}
-
-const dailyReviewStorage = {
-  getDailyReview,
-  getDailyReviewByDate,
-  listDailyReviews,
-  saveDailyReview,
-  updateDailyReview,
-  async getNotificationPreferences() {
-    const store = await notificationContextStore();
-    return store ? store.getNotificationPreferences('default') : getLocalNotificationPreferences();
-  },
-  async updateNotificationPreferences(patch) {
-    const store = await notificationContextStore();
-    return store ? store.updateNotificationPreferences('default', patch) : updateLocalNotificationPreferences(patch);
-  },
-  async upsertPushSubscription(subscription) {
-    const store = await notificationContextStore();
-    return store ? store.upsertPushSubscription('default', subscription) : upsertLocalPushSubscription(subscription);
-  },
-  async removePushSubscription(endpoint) {
-    const store = await notificationContextStore();
-    return store ? store.removePushSubscription('default', endpoint) : removeLocalPushSubscription(endpoint);
-  },
-};
-
-const dailyReviews = createDailyReviewService({
-  advisoryOnly:true,
-  readConfig,
-  writeConfig,
-  getContext:buildDailyReviewContext,
-  applyWorkoutPatch:applyIntervalsWorkoutPatch,
-  hydrateDailyReviewByDate:loadDailyReviewFromSupabaseByDate,
-  log:updateLogs,
-  storage:dailyReviewStorage,
-});
-
-async function getPersistentDailyReview(id) {
-  const local = await dailyReviews.getReview(id);
-  if (local) return local;
-  const remote = await loadDailyReviewFromSupabase(id);
-  if (!remote) return null;
-  await saveDailyReview(remote);
-  return remote;
-}
-
-async function listPersistentDailyReviews(limit = 30) {
-  const local = await dailyReviews.listReviews(limit);
-  const config = await readConfig();
-  const store = createContextStore(config, updateLogs);
-  if (!store.ready) return local;
-  try {
-    const rows = await store.listDailyReviews('default', limit);
-    const combined = new Map(local.map(review => [review.id, review]));
-    for (const row of rows || []) {
-      if (row.review) combined.set(row.id, { ...row.review, status:row.status, notification:row.notification });
-    }
-    return [...combined.values()]
-      .sort((left, right) => String(right.updated_at || right.created_at).localeCompare(String(left.updated_at || left.created_at)))
-      .slice(0, limit);
-  } catch (error) {
-    updateLogs(`daily review list failed: ${error.message}`);
-    return local;
-  }
-}
-
 export async function handleRequest(req, res) {
   try {
     req.url = resolveApiRoute(req.url || '/');
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     const pathname = requestUrl.pathname;
+    if (await handleAuth(req, res, pathname)) return;
+    if (await handleReports(req, res, pathname)) return;
+    if (await handleCoach(req, res, pathname)) return;
     if(pathname==='/api/annual-plans' && req.method==='GET') {
       const local=await readLocalContext(),plans=Array.isArray(local.annual_plans)?local.annual_plans:[];
       sendJson(req,res,{plans,activeId:local.active_annual_plan_id || plans[0]?.id || null});return;
@@ -1034,81 +557,6 @@ export async function handleRequest(req, res) {
         sendJson(req,res,projected);return;
       }
     }
-    if (pathname === '/api/notification-settings') {
-      if (req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
-        res.end(JSON.stringify(await dailyReviews.getPreferences()));
-        return;
-      }
-      if (req.method === 'PATCH') {
-        const preferences = await dailyReviews.updatePreferences(await readBody(req));
-        res.writeHead(200, { 'Content-Type':'application/json' });
-        res.end(JSON.stringify(preferences));
-        return;
-      }
-    }
-
-    if (pathname === '/api/push-subscriptions' && req.method === 'POST') {
-      const preferences = await dailyReviews.subscribe(await readBody(req));
-      res.writeHead(201, { 'Content-Type':'application/json' });
-      res.end(JSON.stringify(preferences));
-      return;
-    }
-
-    if (pathname === '/api/push-subscriptions' && req.method === 'DELETE') {
-      const preferences = await dailyReviews.unsubscribe((await readBody(req)).endpoint);
-      res.writeHead(200, { 'Content-Type':'application/json' });
-      res.end(JSON.stringify(preferences));
-      return;
-    }
-
-    if (pathname === '/api/daily-reviews/run' && req.method === 'POST') {
-      const review = await dailyReviews.runDue(new Date(), { force:true, refresh:requestUrl.searchParams.get('refresh') === '1' });
-      if (review) await syncDailyReviewToSupabase(review);
-      res.writeHead(review ? 200 : 204, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
-      res.end(review ? JSON.stringify(review) : '');
-      return;
-    }
-
-    if (pathname === '/api/daily-reviews' && req.method === 'GET') {
-      const reviews = await listPersistentDailyReviews(Number(requestUrl.searchParams.get('limit') || 30));
-      res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
-      res.end(JSON.stringify(reviews));
-      return;
-    }
-
-    const reviewAction = pathname.match(/^\/api\/daily-reviews\/([^/]+)\/(approve|deny)$/);
-    if (reviewAction && req.method === 'POST') {
-      const id = decodeURIComponent(reviewAction[1]);
-      await getPersistentDailyReview(id);
-      const result = reviewAction[2] === 'approve' ? await dailyReviews.approve(id) : await dailyReviews.deny(id);
-      if (result.body?.review) await syncDailyReviewToSupabase(result.body.review);
-      res.writeHead(result.status, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
-      res.end(JSON.stringify(result.body));
-      return;
-    }
-
-    const reviewRefinement = pathname.match(/^\/api\/daily-reviews\/([^/]+)\/refine$/);
-    if (reviewRefinement && req.method === 'POST') {
-      const id = decodeURIComponent(reviewRefinement[1]);
-      await getPersistentDailyReview(id);
-      const payload = await readBody(req);
-      if (typeof payload.message !== 'string' || !payload.message.trim()) throw new Error('Refinement message is required');
-      const result = await dailyReviews.refine(id, payload.message.trim());
-      if (result.body?.review) await syncDailyReviewToSupabase(result.body.review);
-      res.writeHead(result.status, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
-      res.end(JSON.stringify(result.body));
-      return;
-    }
-
-    const reviewMatch = pathname.match(/^\/api\/daily-reviews\/([^/]+)$/);
-    if (reviewMatch && req.method === 'GET') {
-      const review = await getPersistentDailyReview(decodeURIComponent(reviewMatch[1]));
-      res.writeHead(review ? 200 : 404, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
-      res.end(JSON.stringify(review || { error:'Daily review not found' }));
-      return;
-    }
-
     if (pathname === '/api/config') {
       if (req.method === 'GET') {
         const config = await readConfig();
@@ -1158,60 +606,6 @@ export async function handleRequest(req, res) {
       sendJson(req,res,{training_preferences});return;
     }
 
-    if (req.url?.startsWith('/api/section-11/status') && req.method === 'GET') {
-      const config=await readConfig();
-      const context=await buildCoachContext(config,{cacheOnly:true});
-      const refresh=new URL(req.url,'http://localhost').searchParams.get('refresh')==='1';
-      const artifacts=await loadSection11Artifacts(config,context.athlete?.id,{force:refresh,waitForRefresh:refresh});
-      sendJson(req,res,{...section11SyncStatus(artifacts),upstream:await section11UpstreamStatus()});
-      return;
-    }
-
-    if (req.url === '/api/coach' && req.method === 'POST') {
-      const payload = await readBody(req);
-      if (typeof payload.message !== 'string' || !payload.message.trim()) throw new Error('Message is required');
-      const history = Array.isArray(payload.history)
-        ? payload.history.slice(-10).filter(item => item && (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string').map(item => ({ role:item.role, content:item.content.slice(0, 4000) }))
-        : [];
-      const conversationId = typeof payload.conversationId === 'string' ? payload.conversationId : null;
-      const actionMode=['workouts','annual_plan'].includes(payload.actionMode) ? payload.actionMode : null;
-      const sourceFeedback=actionMode && typeof payload.sourceFeedback==='string' ? payload.sourceFeedback.slice(0,20000).trim() : '';
-      if(actionMode && !sourceFeedback)throw new Error('Section 11 feedback is required for an application action');
-      if (String(req.headers.accept || '').includes('text/event-stream')) {
-        await streamCoach(payload.message.trim(), actionMode?[]:history, res, conversationId,{actionMode,sourceFeedback});
-        return;
-      }
-      const message = await runCoach(payload.message.trim(), actionMode?[]:history, conversationId,null,{actionMode,sourceFeedback});
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ message }));
-      return;
-    }
-
-    if (req.url === '/api/coach/actions/approve' && req.method === 'POST') {
-      const payload=await readBody(req),proposal=payload?.proposal || {};
-      const config=await readConfig();
-      if(proposal.operation==='create_workout') {
-        if(!proposal.workout || typeof proposal.workout!=='object')throw new Error('A complete workout preview is required');
-        const context=await buildCoachContext(config,{cacheOnly:true});
-        const currentDate=athleteLocalDate(new Date(),context.notification_preferences?.time_zone || context.athlete?.time_zone || 'America/Chicago');
-        const event=await createCoachWorkout(config,proposal.workout,String(payload.conversationId || 'coach-action'),currentDate);
-        sendJson(req,res,{operation:proposal.operation,destination:'intervals.icu',verified:true,event});return;
-      }
-      if(proposal.operation==='create_workouts') {
-        if(!Array.isArray(proposal.workouts) || proposal.workouts.length<2 || proposal.workouts.length>14)throw new Error('A complete multi-workout preview is required');
-        const context=await buildCoachContext(config,{cacheOnly:true});
-        const currentDate=athleteLocalDate(new Date(),context.notification_preferences?.time_zone || context.athlete?.time_zone || 'America/Chicago');
-        const events=[];
-        for(const workout of proposal.workouts)events.push(await createCoachWorkout(config,workout,String(payload.conversationId || 'coach-action'),currentDate));
-        sendJson(req,res,{operation:proposal.operation,destination:'intervals.icu',verified:true,events});return;
-      }
-      if(proposal.operation==='update_annual_plan') {
-        const plan=await applyCoachAnnualPlan(proposal);
-        sendJson(req,res,{operation:proposal.operation,destination:'application',verified:true,plan});return;
-      }
-      throw new Error('Unsupported coach action preview');
-    }
-
     if (req.url === '/api/context/status') {
       const config = await readConfig();
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1222,7 +616,7 @@ export async function handleRequest(req, res) {
     if (req.url?.startsWith('/api/training-context') && req.method === 'GET') {
       const config = await readConfig();
       const local = await readLocalContext();
-      const timeZone = local.notification_preferences?.time_zone || local.athlete?.time_zone || 'America/Chicago';
+      const timeZone = local.athlete?.time_zone || 'America/Chicago';
       const athleteWithRace = athlete => ({...(athlete || {})});
       const requestUrl = new URL(req.url, 'http://localhost');
       const forceRefresh = requestUrl.searchParams.get('refresh') === '1';
@@ -1422,144 +816,6 @@ export async function handleRequest(req, res) {
       return;
     }
 
-    const coachInputMatch=pathname.match(/^\/api\/workouts\/([^/]+)\/coach-input$/);
-    if(coachInputMatch && (req.method==='GET' || req.method==='POST')) {
-      const workoutId=decodeURIComponent(coachInputMatch[1]),payload=req.method==='POST'?await readBody(req):{};
-      const config=await readConfig();
-      const context=await buildCoachContext(config,{cacheOnly:true});
-      const workout=[...(context.history || []),...(context.planned || [])].find(item=>String(item.id)===workoutId);
-      if(!workout)throw new Error('Workout not found in the current Intervals.icu calendar');
-      const completed=Boolean(workout.completed || workout.status==='completed' || workout.activity_id);
-      const commentType=completed?'coach_note_completed':'coach_note_planned';
-      const existing=(context.comments || []).find(item=>item.workout_id===workoutId&&item.type===commentType&&(completed||!workout.source_updated_at||Date.parse(item.created_at)>=Date.parse(workout.source_updated_at)));
-      if(req.method==='GET'){sendJson(req,res,{comment:existing || null,cached:Boolean(existing)});return;}
-      // Planned-workout guidance is a single durable recommendation. A client
-      // cannot regenerate it by sending refresh=true after it has been saved.
-      if(existing&&(!payload.refresh||!completed)){sendJson(req,res,{comment:existing,cached:true});return;}
-      const prompt=completed
-        ? `Review the completed workout ${workoutId} (${workout.title}) using fresh data. Write a concise coach comment for the workout page in natural Markdown. Lead with the main takeaway in one or two sentences. Compare execution with the prescription when both exist; state plainly what was executed well or missed, what it suggests about progression, and one or two actionable considerations for upcoming training. Include only decision-relevant data, do not invent unavailable metrics, and do not add a confidence or raw-data section. Return only the comment.`
-        : `Review the planned workout ${workoutId} (${workout.title}) using fresh current context. Write a concise pre-workout coach comment for the workout page in natural Markdown. Begin with **Today’s recommendation: Go**, **Today’s recommendation: Modify**, or **Today’s recommendation: Skip**, followed by the main reason. Explain its purpose, give the most important execution cues, and briefly state material uncertainty only when it changes the advice. Include only decision-relevant data, do not invent unavailable metrics, and clearly describe any change as proposed rather than saved. Return only the comment.`;
-      const jobKey=`${workoutId}:${commentType}`;
-      let job=coachCommentJobs.get(jobKey);
-      if(!job) {
-        job=(async()=>{
-          const body=await runCoach(prompt,[],`workout-comment:${workoutId}`,null,{context,disableTools:true});
-          const comment=await addLocalComment(workoutId,body,commentType);
-          const store=createContextStore(config,updateLogs);
-          if(store.ready)await store.upsert('athlete_comments',[{id:stableUuid(`comment:${comment.id}`),athlete_id:String(context.athlete?.id || 'default'),workout_id:workoutId,comment_type:'coach_note',body:comment.body,created_at:comment.created_at}]);
-          return comment;
-        })().finally(()=>coachCommentJobs.delete(jobKey));
-        coachCommentJobs.set(jobKey,job);
-      }
-      const comment=await job;
-      sendJson(req,res,{comment,cached:false});return;
-    }
-
-    if (pathname.startsWith('/api/workouts/') && (req.method === 'POST' || req.method === 'DELETE' || req.method === 'PATCH')) {
-      throw new Error('Only Intervals.icu calendar events can be changed. Refresh the calendar first.');
-    }
-
-    if (req.url?.startsWith('/api/workouts/') && req.method === 'PATCH') {
-      const id = decodeURIComponent(req.url.split('/').pop());
-      const payload = await readBody(req);
-      const workout = await updateLocalWorkout(id, String(payload.change || 'Approved coaching adjustment'));
-      updateLogs(`local workout updated: ${id}`);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(workout));
-      return;
-    }
-
-    if (pathname === '/api/conversations' && req.method === 'GET') {
-      const config = await readConfig();
-      const conversations = await listCoachConversations(config, Number(requestUrl.searchParams.get('limit') || 500));
-      res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
-      res.end(JSON.stringify(conversations.map(conversationSummary)));
-      return;
-    }
-
-    if (pathname === '/api/conversations' && req.method === 'POST') {
-      const payload = await readBody(req);
-      const title = String(payload.title || 'New conversation');
-      const config = await readConfig();
-      const review = payload.reviewId ? await getPersistentDailyReview(String(payload.reviewId)) : null;
-      const requestedId = review?.conversation_id || payload.id;
-      const conversationId = isUuid(requestedId)
-        ? String(requestedId)
-        : stableUuid(`conversation:${requestedId || `${Date.now()}:${Math.random()}`}`);
-      const existing = await getCoachConversation(config, conversationId);
-      const reviewMessageId = review ? `${review.id}:coach` : null;
-      const reviewMessage = reviewMessageId
-        ? { id:reviewMessageId, role:'assistant', content:review.conversation_text, created_at:review.created_at }
-        : null;
-      const incomingMessages = Array.isArray(payload.messages) ? payload.messages : [];
-      const firstPrompt = String(incomingMessages.find(message => message.role === 'user')?.content || '').trim();
-      const needsTitle = !existing || ['Coach', 'New conversation', 'New Conversation', firstPrompt.slice(0, 56)].includes(existing.title);
-      const conversationTitle = !review && needsTitle
-        ? await createConversationTitle(config, incomingMessages)
-        : existing?.title || title;
-      const conversation = await persistCoachConversation(config, {
-        ...existing,
-        id:conversationId,
-        athlete_id:existing?.athlete_id || await currentConversationAthleteId(),
-        title:review ? new Date(`${review.local_date}T12:00:00Z`).toLocaleDateString('en-US', { month:'short', day:'2-digit', timeZone:'UTC' }) + ' Review' : conversationTitle,
-        kind:review ? 'daily_review' : 'conversation',
-        review_id:review?.id || null,
-        messages:reviewMessage ? [reviewMessage, ...incomingMessages.filter(message => message?.id !== reviewMessageId)] : incomingMessages,
-        created_at:existing?.created_at || new Date().toISOString(),
-        updated_at:new Date().toISOString(),
-      });
-      res.writeHead(200, { 'Content-Type':'application/json' });
-      res.end(JSON.stringify({ ...conversationSummary(conversation), saved:true }));
-      return;
-    }
-
-    const conversationMatch = pathname.match(/^\/api\/conversations\/([^/]+)$/);
-    if (conversationMatch && req.method === 'GET') {
-      const config = await readConfig();
-      const conversation = await getCoachConversation(config, decodeURIComponent(conversationMatch[1]));
-      res.writeHead(conversation ? 200 : 404, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
-      res.end(JSON.stringify(conversation || { error:'Conversation not found' }));
-      return;
-    }
-
-    if (conversationMatch && req.method === 'PATCH') {
-      const id = decodeURIComponent(conversationMatch[1]);
-      const payload = await readBody(req);
-      const config = await readConfig();
-      const existing = await getCoachConversation(config, id);
-      if (!existing) {
-        res.writeHead(404, { 'Content-Type':'application/json' });
-        res.end(JSON.stringify({ error:'Conversation not found' }));
-        return;
-      }
-      const conversation = await persistCoachConversation(config, {
-        ...existing,
-        ...(typeof payload.pinned === 'boolean' ? { pinned:payload.pinned } : {}),
-        updated_at:new Date().toISOString(),
-      });
-      res.writeHead(200, { 'Content-Type':'application/json' });
-      res.end(JSON.stringify(conversationSummary(conversation)));
-      return;
-    }
-
-    if (conversationMatch && req.method === 'DELETE') {
-      const id = decodeURIComponent(conversationMatch[1]);
-      const config = await readConfig();
-      const existing = await getCoachConversation(config, id);
-      if (!existing) {
-        res.writeHead(404, { 'Content-Type':'application/json' });
-        res.end(JSON.stringify({ error:'Conversation not found' }));
-        return;
-      }
-      const deletedAt = new Date().toISOString();
-      await deleteLocalCoachConversation(id);
-      const store = createContextStore(config, updateLogs);
-      if (store.ready) await upsertSupabaseConversation(store, normalizeConversation({ ...existing, deleted_at:deletedAt, updated_at:deletedAt }));
-      res.writeHead(204);
-      res.end();
-      return;
-    }
-
     if (req.url === '/api/comments' && req.method === 'POST') {
       const payload = await readBody(req);
       const comment = await addLocalComment(String(payload.workoutId || ''), String(payload.body || ''));
@@ -1606,6 +862,12 @@ export async function handleRequest(req, res) {
     if (req.url === '/api/status') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ running: !!serverState.child, pid: serverState.pid, logs: serverState.logs }));
+      return;
+    }
+
+    if (pathname.startsWith('/api/')) {
+      res.writeHead(404, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
+      res.end(JSON.stringify({ error:'Not found' }));
       return;
     }
 

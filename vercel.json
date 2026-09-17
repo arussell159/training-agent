@@ -5,7 +5,7 @@
   "functions": {
     "api/handler.mjs": {
       "includeFiles": "app-backend/**",
-      "maxDuration": 60
+      "maxDuration": 300
     }
   },
   "rewrites": [
@@ -14,6 +14,7 @@
     { "source": "/calendar", "destination": "/index.html" },
     { "source": "/week", "destination": "/index.html" },
     { "source": "/library", "destination": "/index.html" },
+    { "source": "/annual-plan", "destination": "/index.html" },
     { "source": "/settings", "destination": "/index.html" }
   ]
 }

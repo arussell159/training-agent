@@ -6,7 +6,7 @@ import {createIntervalsClient,fetchIntervalsContext} from '../lib/intervals.mjs'
 import {createContextStore} from '../lib/supabase-context.mjs';
 import {createCompletedWorkoutStore} from '../lib/completed-workout-store.mjs';
 import {loadActivityBundle} from '../lib/activity-bundle.mjs';
-import {athleteLocalDate} from '../lib/coach-training-context.mjs';
+import {athleteLocalDate} from '../lib/athlete-date.mjs';
 import {persistTrainingContext} from '../server.mjs';
 
 const bootstrap=JSON.parse(await fs.readFile(new URL('../config.json',import.meta.url),'utf8'));

@@ -2,11 +2,6 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 
 export const STORED_SETTINGS = [
   "INTERVALS_API_KEY",
-  "OPENAI_API_KEY",
-  "OPENAI_MODEL",
-  "VAPID_PUBLIC_KEY",
-  "VAPID_PRIVATE_KEY",
-  "VAPID_SUBJECT",
   "APP_THEME",
   "METRICS_LAYOUT",
   "APP_DATA",
@@ -34,7 +29,6 @@ function pickSettings(config, keys) {
 export function publicSettings(config) {
   return {
     intervalsConnected: Boolean(config.INTERVALS_API_KEY),
-    openAIConnected: Boolean(config.OPENAI_API_KEY),
     supabaseConnected: Boolean(config.SUPABASE_URL && config.SUPABASE_SECRET_KEY),
     supabaseNeedsUrl: Boolean(config.SUPABASE_SECRET_KEY && !config.SUPABASE_URL),
     settingsStorage: "supabase",
@@ -181,7 +175,10 @@ export function createSettingsService({
   const cache = new Map();
   return {
     async read(names = STORED_SETTINGS) {
-      const bootstrap = await readBootstrap();
+      const bootstrap = pickSettings(await readBootstrap(), [
+        ...BOOTSTRAP_SETTINGS,
+        ...STORED_SETTINGS,
+      ]);
       if (!bootstrap.SUPABASE_URL || !bootstrap.SUPABASE_SECRET_KEY) return bootstrap;
       try {
         const id = JSON.stringify([
@@ -212,7 +209,10 @@ export function createSettingsService({
     },
     async save(patch) {
       cache.clear();
-      const bootstrap = await readBootstrap();
+      const bootstrap = pickSettings(await readBootstrap(), [
+        ...BOOTSTRAP_SETTINGS,
+        ...STORED_SETTINGS,
+      ]);
       const target = { ...bootstrap, ...pickSettings(patch, BOOTSTRAP_SETTINGS) };
       const bootstrapChanged = BOOTSTRAP_SETTINGS.some((name) => target[name] !== bootstrap[name]);
       if (bootstrapChanged && hosted)

@@ -40,6 +40,8 @@ import {
   type TrainingContext,
 } from "@/lib/training-context"
 import { RaceMarkerIcon } from "@/components/race-events"
+import { Section11Report } from "@/components/section11-report"
+import { planReportBlocks } from "../../../app-backend/lib/report-blocks.mjs"
 
 type PlanSettings = {
   id?: string
@@ -392,6 +394,8 @@ export function AnnualPlanCreator() {
   }, [])
 
   const actuals = useMemo(() => calendarActuals(context, plan), [context, plan])
+  const reportBlocks = useMemo(() => planReportBlocks(plan), [plan])
+  const reportToday = new Intl.DateTimeFormat("en-CA", { timeZone: context.athlete.time_zone || "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date())
   const today = iso(new Date())
   const currentWeek = plan?.weeks.find(
     (week) => today >= week.startDate && today <= week.endDate
@@ -575,6 +579,7 @@ export function AnnualPlanCreator() {
                 const monthChanged = index === 0 || week.startDate.slice(0, 7) !== plan.weeks[index - 1].startDate.slice(0, 7)
                 const events = plan.events.filter((event) => event.date >= week.startDate && event.date <= week.endDate)
                 const completed = actuals.get(week.id)?.completedHours ?? null
+                const reportBlock = reportBlocks.find(block => block.endDate === week.endDate && block.endDate < reportToday)
                 const nextHours = () => { const next = plan.weeks[index + 1]; if (next) { const input = hoursRefs.current.get(next.id); input?.focus(); input?.select() } }
                 const nextNotes = () => { const next = plan.weeks[index + 1]; if (next) notesRefs.current.get(next.id)?.focus() }
                 return [
@@ -587,6 +592,7 @@ export function AnnualPlanCreator() {
                     <td className="p-0"><span className="flex h-8 items-center px-2 text-sm font-bold tabular-nums">{clockHours(completed) || "—"}</span></td>
                     <td className="p-0"><InlineNotes value={week.notes} inputRef={(element) => { if (element) notesRefs.current.set(week.id, element); else notesRefs.current.delete(week.id) }} onCommit={(notes) => changeWeek(week.id, { notes })} onNext={nextNotes} onTab={(backward)=>tabEditableCell(index,2,backward)} /></td>
                   </tr>,
+                  reportBlock ? <tr className="hidden md:table-row" key={`${week.id}-section11-report`}><td colSpan={6} className="border-b bg-muted/20 p-3"><div className="mx-auto max-w-5xl space-y-2"><p className="text-sm font-medium">{reportBlock.phase} · {dateLabel(reportBlock.startDate)} – {dateLabel(reportBlock.endDate)} · Block complete</p><Section11Report target={{ kind: "block", planId: plan.id, startDate: reportBlock.startDate }} /></div></td></tr> : null,
                 ]
               })}
             </tbody>

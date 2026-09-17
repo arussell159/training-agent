@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import {athleteLocalDate} from '../lib/coach-training-context.mjs';
+import {athleteLocalDate} from '../lib/athlete-date.mjs';
 import {expandFitWorkoutSteps,readFitWorkoutMetadata,readFitWorkoutSteps} from '../lib/fit-workout-verification.mjs';
 import {createIntervalsClient} from '../lib/intervals.mjs';
 import {DEVICE_DEFINITION_MARKER,deviceWorkoutSteps,nativeWorkoutDefinition,racePlan} from '../lib/race-plan-import.mjs';

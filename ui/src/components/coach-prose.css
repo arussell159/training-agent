@@ -1,0 +1,69 @@
+.coach-prose > * + * {
+  margin-top: 0.9rem;
+}
+.coach-prose :is(h1, h2, h3, h4) {
+  font-weight: 600;
+  font-size: 1rem;
+  margin-top: 1.4rem;
+}
+.coach-prose :is(ul, ol) {
+  padding-left: 1.3rem;
+}
+.coach-prose ul {
+  list-style-type: disc;
+}
+.coach-prose ol {
+  list-style-type: decimal;
+}
+.coach-prose li + li {
+  margin-top: 0.3rem;
+}
+.coach-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.coach-prose :is(td, th) {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.coach-prose th {
+  font-weight: 600;
+}
+.coach-prose blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 1rem;
+  color: var(--muted-foreground);
+}
+.coach-prose pre {
+  overflow-x: auto;
+  background: var(--muted);
+  padding: 1rem;
+  border-radius: 0.75rem;
+}
+.coach-prose code {
+  font-size: 0.8rem;
+}
+
+.section11-report-body :is(p, li) {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.section11-report-body :is(h1, h2, h3, h4) {
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  letter-spacing: -0.015em;
+}
+.section11-report-body > :first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.section11-report-body h1 {
+  font-size: 1.2rem;
+}
+.section11-report-body strong {
+  font-weight: 600;
+  color: var(--foreground);
+}

@@ -1,4 +1,4 @@
--- Run once in the Supabase SQL editor. All long-lived coaching context stays server-side.
+-- Run once in the Supabase SQL editor. All long-lived training context stays server-side.
 create extension if not exists pgcrypto;
 
 -- Settings credentials are encrypted by the backend and inaccessible to browser roles.
@@ -11,14 +11,6 @@ alter table public.app_settings enable row level security;
 revoke all on table public.app_settings from public, anon, authenticated;
 grant select, insert, update on table public.app_settings to service_role;
 
-create table if not exists coaching_config (
-  athlete_id text primary key,
-  vision text not null,
-  instructions jsonb not null default '[]',
-  race jsonb not null default '{}',
-  zones jsonb not null default '{}',
-  updated_at timestamptz not null default now()
-);
 create table if not exists workout_context (
   id text primary key,
   athlete_id text not null default 'default',
@@ -30,22 +22,10 @@ create table if not exists workout_context (
 create index if not exists workout_context_athlete_date on workout_context (athlete_id, workout_date desc);
 create table if not exists athlete_comments (
   id uuid primary key default gen_random_uuid(), athlete_id text not null default 'default',
-  workout_id text, comment_type text not null check (comment_type in ('pre','post','chat','coach_note')),
+  workout_id text, comment_type text not null check (comment_type in ('pre','post')),
   body text not null, created_at timestamptz not null default now()
 );
 create index if not exists athlete_comments_athlete_date on athlete_comments (athlete_id, created_at desc);
-create table if not exists coach_conversations (
-  id uuid primary key default gen_random_uuid(), athlete_id text not null default 'default',
-  title text not null default 'New conversation', messages jsonb not null default '[]',
-  kind text not null default 'conversation' check (kind in ('conversation', 'daily_review')),
-  review_id text, pinned boolean not null default false, deleted_at timestamptz,
-  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
-);
-alter table coach_conversations add column if not exists kind text not null default 'conversation';
-alter table coach_conversations add column if not exists review_id text;
-alter table coach_conversations add column if not exists pinned boolean not null default false;
-alter table coach_conversations add column if not exists deleted_at timestamptz;
-create index if not exists coach_conversations_athlete_updated on coach_conversations (athlete_id, updated_at desc);
 create table if not exists workout_library (
   id uuid primary key default gen_random_uuid(), athlete_id text not null default 'default',
   title text not null, sport text not null, purpose text, description text, structure jsonb default '{}',
@@ -62,56 +42,13 @@ create table if not exists sync_state (
 -- kind='bundle' contains all streams, ready-to-display views and original-file
 -- bytes/checksum. Large cursor.data payloads use encoding='gzip-json-v1'.
 -- Ready snapshots also retain full wellness/performance history across syncs.
-create table if not exists daily_workout_reviews (
-  id text primary key, athlete_id text not null default 'default', local_date date not null,
-  conversation_id uuid, revision integer not null default 1, status text not null,
-  review jsonb not null, notification jsonb not null default '{}',
-  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
-  unique (athlete_id, local_date)
-);
-create index if not exists daily_workout_reviews_athlete_date on daily_workout_reviews (athlete_id, local_date desc);
-create table if not exists workout_notification_preferences (
-  athlete_id text primary key, enabled boolean not null default false,
-  review_time time not null default '06:00', time_zone text not null default 'America/Chicago',
-  last_delivery_error text, updated_at timestamptz not null default now()
-);
-create table if not exists workout_push_subscriptions (
-  endpoint text primary key, athlete_id text not null default 'default',
-  subscription jsonb not null, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
-);
-create table if not exists daily_review_decisions (
-  id uuid primary key default gen_random_uuid(), review_id text not null references daily_workout_reviews(id),
-  athlete_id text not null default 'default', decision text not null check (decision in ('approved','denied','expired')),
-  result jsonb not null default '{}', created_at timestamptz not null default now()
-);
-create table if not exists coaching_evidence_sources (
-  id text primary key, title text not null, authors jsonb not null default '[]',
-  published_date date, url text, source_kind text not null, retrieval_status text not null,
-  scope_note text, passages jsonb not null default '[]', content_hash text,
-  retrieved_at timestamptz, updated_at timestamptz not null default now()
-);
-create table if not exists coaching_evidence_imports (
-  id text primary key, athlete_id text not null default 'default', source_id text not null,
-  imported_portions jsonb not null, imported_at timestamptz not null default now()
-);
 create or replace function prune_old_training_context() returns void language sql security definer as $$
   delete from workout_context where workout_date < now() - interval '90 days';
-  delete from athlete_comments where created_at < now() - interval '90 days' and comment_type <> 'coach_note';
-  delete from coach_conversations where updated_at < now() - interval '90 days';
-  delete from daily_review_decisions where created_at < now() - interval '90 days';
-  delete from daily_workout_reviews where updated_at < now() - interval '90 days';
+  delete from athlete_comments where created_at < now() - interval '90 days' and comment_type in ('pre','post');
 $$;
 
-alter table coaching_config enable row level security;
 alter table workout_context enable row level security;
 alter table athlete_comments enable row level security;
-alter table coach_conversations enable row level security;
 alter table workout_library enable row level security;
 alter table sync_state enable row level security;
-alter table daily_workout_reviews enable row level security;
-alter table workout_notification_preferences enable row level security;
-alter table workout_push_subscriptions enable row level security;
-alter table daily_review_decisions enable row level security;
-alter table coaching_evidence_sources enable row level security;
-alter table coaching_evidence_imports enable row level security;
 -- The service-role secret is used only by the local server. No anonymous browser policies are created.

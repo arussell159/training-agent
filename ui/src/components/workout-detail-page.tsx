@@ -3,7 +3,7 @@ import {
   WorkoutEditorMenu,
   useEditedWorkout,
 } from "@/components/workout-editor"
-import { WorkoutCoachComments } from "@/components/workout-coach-comments"
+import { WorkoutCoachButton } from "@/components/workout-coach-button"
 import { lazy, Suspense, useEffect, useState } from "react"
 import { formatDuration } from "@/lib/duration"
 import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
@@ -275,6 +275,7 @@ export function WorkoutDetailPage({
               compact
               desktopDetail
               tall={workout.status !== "completed"}
+              enableEditOnClick
             />
           </div>
         )}
@@ -345,7 +346,11 @@ export function WorkoutDetailPage({
                   )}
                 </div>
                 <div className="mt-2">
-                  <WorkoutProfile workout={workout} mobilePlanned />
+                  <WorkoutProfile
+                    workout={workout}
+                    mobilePlanned
+                    enableEditOnClick
+                  />
                 </div>
               </div>
               <div
@@ -388,9 +393,6 @@ export function WorkoutDetailPage({
               )}
             </section>
           )}
-          {workout.status !== "completed" && (
-            <WorkoutCoachComments key={workout.id} workout={workout} />
-          )}
           <div className="hidden items-start gap-5 md:grid lg:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)]">
             <div className="min-w-0">
               <WorkoutSummary
@@ -423,13 +425,11 @@ export function WorkoutDetailPage({
           {workout.status === "completed" && (
             <div className="contents md:hidden">
               <WorkoutDescription workout={workout} />
-              <WorkoutProfile workout={workout} />
+              <WorkoutProfile workout={workout} enableEditOnClick />
             </div>
           )}
 
-          {workout.status === "completed" && (
-            <WorkoutCoachComments key={workout.id} workout={workout} />
-          )}
+          <WorkoutCoachButton workout={workout} />
         </article>
       </div>
     </div>
