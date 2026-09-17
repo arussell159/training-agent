@@ -44,7 +44,7 @@ export const clock = (value) => {
 };
 export function defaultTarget(sport) {
   return /swim/i.test(sport)
-    ? { kind: "pace", unit: "pace_zone", mode: "single", value: 2 }
+    ? { kind: "pace", unit: "secs/100y", mode: "single", value: 120 }
     : /run/i.test(sport)
       ? { kind: "pace", unit: "secs/mi", mode: "single", value: 540 }
       : { kind: "power", unit: "w", mode: "single", value: 150 };

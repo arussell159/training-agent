@@ -80,7 +80,6 @@ import {
   chartSegments,
   clock,
   clone,
-  convertTarget,
   copyNodes,
   defaultTarget,
   distanceFactors,
@@ -96,7 +95,6 @@ import {
   roleNames,
   round,
   stepLabel,
-  targetUnits,
   templateNames,
   uid,
   updateNodes,
@@ -116,6 +114,12 @@ import {
   sportZoneSettings,
   type SportZoneSettings,
 } from "../../../app-backend/lib/workout-editor-zones.mjs"
+import { DurationField } from "@/components/workout-duration-field"
+import {
+  durationClock,
+  editorUnits,
+  editorTarget,
+} from "../../../app-backend/lib/workout-editor-inputs.mjs"
 import "./workout-editor.css"
 
 const ZoneSettingsContext = createContext<SportZoneSettings[]>([])
@@ -139,26 +143,6 @@ type Draft = {
   creationAttempted?: boolean
   savedId?: string
 }
-const unitNames: Record<string, string> = {
-  w: "Watts",
-  "%ftp": "% FTP",
-  power_zone: "Power zones",
-  pace_zone: "Pace zones",
-  hr_zone: "Heart-rate zones",
-  "secs/mi": "min/mile",
-  "secs/km": "min/km",
-  "secs/100y": "min/100 yd",
-  "secs/100m": "min/100 m",
-  "secs/500m": "min/500 m",
-  "secs/400m": "min/400 m",
-  "secs/250m": "min/250 m",
-  bpm: "bpm",
-  "%hr": "% max HR",
-  "%lthr": "% threshold HR",
-  "%pace": "% threshold pace",
-}
-const unitOptions = (values: string[]) =>
-  values.map((value) => ({ value, label: unitNames[value] || value }))
 const tones: Record<Role, string> = {
   warmup: "#66a8a0",
   active: "#5686de",
@@ -219,16 +203,21 @@ function NumberField({
   onChange,
   min = 0,
   step = 1,
+  unit,
 }: {
   label: string
   value: number
   onChange: (v: number) => void
   min?: number
   step?: number
+  unit?: string
 }) {
   return (
     <label className="we-field">
-      <span>{label}</span>
+      <span>
+        {label}
+        {unit ? " (" + unit + ")" : ""}
+      </span>
       <Input
         aria-label={label}
         type="number"
@@ -246,16 +235,20 @@ function PaceField({
   label,
   value,
   onChange,
+  unit,
 }: {
   label: string
   value: number
   onChange: (n: number) => void
+  unit: string
 }) {
   const [text, setText] = useState(clock(value))
   useEffect(() => setText(clock(value)), [value])
   return (
     <label className="we-field">
-      <span>{label} (m:ss)</span>
+      <span>
+        {label} ({unit})
+      </span>
       <Input
         aria-label={label}
         value={text}
@@ -266,47 +259,6 @@ function PaceField({
         }}
         onBlur={() => setText(clock(value))}
         inputMode="decimal"
-      />
-    </label>
-  )
-}
-function durationClock(value: number) {
-  const seconds = Math.max(0, Math.round(value))
-  return [
-    Math.floor(seconds / 3600),
-    Math.floor(seconds / 60) % 60,
-    seconds % 60,
-  ]
-    .map((n) => String(n).padStart(2, "0"))
-    .join(":")
-}
-function DurationField({
-  label = "Duration",
-  value,
-  onChange,
-}: {
-  label?: string
-  value: number
-  onChange: (n: number) => void
-}) {
-  const [text, setText] = useState(durationClock(value))
-  useEffect(() => setText(durationClock(value)), [value])
-  return (
-    <label className="we-field">
-      <span>{label}</span>
-      <Input
-        aria-label={label}
-        placeholder="hh:mm:ss"
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value)
-          const match = e.target.value.match(/^(\d+):([0-5]\d):([0-5]\d)$/)
-          if (match)
-            onChange(
-              Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])
-            )
-        }}
-        onBlur={() => setText(durationClock(value))}
       />
     </label>
   )
@@ -354,6 +306,13 @@ function StepHeadingFields({
   model: WorkoutModel
   onChange: (s: Step) => void
 }) {
+  const settings = useContext(ZoneSettingsContext)
+  const displayed = editorTarget(
+    step.target,
+    model.sport,
+    settings,
+    model.thresholds
+  )
   return (
     <div className="we-heading-fields">
       <Choice
@@ -368,13 +327,14 @@ function StepHeadingFields({
             ...step,
             end: {
               kind: kind as "time" | "distance",
-              value: kind === "distance" ? 100 : 60,
-              unit:
+              value:
                 kind === "distance"
                   ? /swim/i.test(model.sport)
-                    ? "yd"
-                    : "m"
-                  : "s",
+                    ? 100
+                    : 1
+                  : 60,
+              unit:
+                kind === "distance" ? editorUnits(model.sport).distance : "s",
               ...(step.end.pressLap || step.end.kind === "lap"
                 ? { pressLap: true }
                 : {}),
@@ -382,10 +342,12 @@ function StepHeadingFields({
           })
         }
       />
-      <TargetShape
-        target={step.target}
-        onChange={(target) => onChange({ ...step, target })}
-      />
+      {displayed && (
+        <TargetShape
+          target={displayed}
+          onChange={(target) => onChange({ ...step, target })}
+        />
+      )}
     </div>
   )
 }
@@ -733,40 +695,54 @@ function RepeatFields({
 function TargetFields({
   target,
   sport,
-  ftp,
+  thresholds,
   showShape = true,
   onChange,
 }: {
   target: Target
   sport: string
-  ftp?: number | null
+  thresholds?: WorkoutModel["thresholds"]
   showShape?: boolean
   onChange: (t: Target) => void
 }) {
-  const zoneSettings = useContext(ZoneSettingsContext)
-  const zones = workoutZoneOptions(zoneSettings, sport, target.unit)
+  const settings = useContext(ZoneSettingsContext)
+  const units = editorUnits(sport)
+  const displayed = editorTarget(target, sport, settings, thresholds)
+  const zones = workoutZoneOptions(settings, sport, units.target)
   const selectedZone =
     zones.find((zone) => {
+      if (target.unit?.endsWith("_zone") && target.mode === "single")
+        return zone.id === String(target.value)
       const t = zone.target
       return (
-        target.kind === t.kind &&
-        target.unit === t.unit &&
-        target.mode === t.mode &&
-        (target.mode === "single"
-          ? target.value === t.value
-          : target.start === t.start && target.end === t.end)
+        displayed &&
+        displayed.kind === t.kind &&
+        displayed.unit === t.unit &&
+        displayed.mode === t.mode &&
+        (t.mode === "single"
+          ? displayed.value === t.value
+          : Math.abs((displayed.start || 0) - (t.start || 0)) < 1 &&
+            Math.abs((displayed.end || 0) - (t.end || 0)) < 1)
       )
     })?.id || "custom"
-  const [conversionError, setConversionError] = useState("")
-  const displayed = target
-  const applyDisplay = (next: Target) => onChange(next)
   const valueField = (label: string, key: "value" | "start" | "end") => {
-    const value = displayed[key] || 0,
-      change = (n: number) => applyDisplay({ ...displayed, [key]: n } as Target)
-    return paceFactors[displayed.unit || ""] ? (
-      <PaceField label={label} value={value} onChange={change} />
+    if (!displayed || displayed.kind === "none") return null
+    const value = displayed[key] || 0
+    const change = (n: number) => onChange({ ...displayed, [key]: n })
+    return units.kind === "pace" ? (
+      <PaceField
+        label={label}
+        unit={units.label}
+        value={value}
+        onChange={change}
+      />
     ) : (
-      <NumberField label={label} value={value} onChange={change} />
+      <NumberField
+        label={label}
+        unit={units.label}
+        value={value}
+        onChange={change}
+      />
     )
   }
   if (target.kind === "none")
@@ -777,60 +753,52 @@ function TargetFields({
         className="we-no-target"
         onClick={() => onChange(defaultTarget(sport))}
       >
-        Add {defaultTarget(sport).kind} target
+        Add {units.kind} target
       </Button>
     )
   return (
     <div className="we-target-fields">
-      {showShape && <TargetShape target={target} onChange={onChange} />}
-      <div className="we-target-values">
-        {target.mode === "single" ? (
-          valueField("Target", "value")
-        ) : (
-          <>
-            {valueField(
-              target.mode === "ramp" ? "Start target" : "Range from",
-              "start"
-            )}
-            <span className="we-range-separator">
-              {target.mode === "ramp" ? "→" : "–"}
-            </span>
-            {valueField(
-              target.mode === "ramp" ? "End target" : "Range to",
-              "end"
-            )}
-          </>
-        )}
-      </div>
-      <Choice
-        label="Units"
-        value={target.unit}
-        options={unitOptions(targetUnits[target.kind])}
-        onChange={(unit) => {
-          try {
-            onChange(convertTarget(target, unit, ftp))
-            setConversionError("")
-          } catch {
-            onChange({
-              kind: target.kind,
-              unit,
-              mode: "single",
-              value: unit.includes("zone")
-                ? 2
-                : paceFactors[unit]
-                  ? /100/.test(unit)
-                    ? 120
-                    : 540
-                  : unit === "w"
-                    ? 150
-                    : unit === "bpm"
-                      ? 140
-                      : 75,
-            })
-            setConversionError("Enter the target in the new units.")
-          }
-        }}
-      />
+      {showShape && displayed && (
+        <TargetShape target={displayed} onChange={onChange} />
+      )}
+      {displayed ? (
+        <div className="we-target-values">
+          {displayed.mode === "single" ? (
+            valueField("Target", "value")
+          ) : (
+            <>
+              {valueField(
+                displayed.mode === "ramp" ? "Start target" : "Range from",
+                "start"
+              )}
+              <span className="we-range-separator">
+                {displayed.mode === "ramp" ? "→" : "–"}
+              </span>
+              {valueField(
+                displayed.mode === "ramp" ? "End target" : "Range to",
+                "end"
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="we-target-unavailable">
+          <span>
+            {selectedZone !== "custom"
+              ? zones.find((z) => z.id === selectedZone)?.label
+              : "The imported target needs your sport threshold to display in " +
+                units.label +
+                "."}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onChange(defaultTarget(sport))}
+          >
+            Set {units.label} target
+          </Button>
+        </div>
+      )}
       <div className="we-zone-choice">
         <Choice
           label="Training zone"
@@ -845,21 +813,10 @@ function TargetFields({
           ]}
           onChange={(id) => {
             const zone = zones.find((z) => z.id === id)
-            if (zone) {
-              onChange(zone.target)
-              setConversionError("")
-            }
+            if (zone) onChange(zone.target)
           }}
         />
       </div>
-      <Action label="Remove target" onClick={() => onChange({ kind: "none" })}>
-        <X size={13} />
-      </Action>
-      {conversionError && (
-        <span role="status" className="we-conversion-message">
-          {conversionError}
-        </span>
-      )}
     </div>
   )
 }
@@ -873,17 +830,25 @@ function StepFields({
   onChange: (s: Step) => void
 }) {
   const swimming = /swim/i.test(model.sport)
+  const units = editorUnits(model.sport)
   return (
     <>
       <div className="we-prescription">
         <div className="we-end-fields">
           {step.end.kind === "distance" ? (
             <NumberField
-              label="Distance"
-              min={1}
-              value={step.end.value}
+              label={"Distance (" + units.distanceLabel + ")"}
+              min={0.001}
+              step={swimming ? 1 : 0.01}
+              value={
+                (step.end.value * distanceFactors[step.end.unit]) /
+                distanceFactors[units.distance]
+              }
               onChange={(value) =>
-                onChange({ ...step, end: { ...step.end, value } })
+                onChange({
+                  ...step,
+                  end: { ...step.end, value, unit: units.distance },
+                })
               }
             />
           ) : (
@@ -894,37 +859,13 @@ function StepFields({
               }
             />
           )}
-          {step.end.kind === "distance" && (
-            <Choice
-              label="Distance units"
-              value={step.end.unit}
-              options={[
-                { value: "yd", label: "yds" },
-                { value: "m", label: "m" },
-                { value: "km", label: "km" },
-                { value: "mi", label: "mi" },
-              ]}
-              onChange={(unit) =>
-                onChange({
-                  ...step,
-                  end: {
-                    ...step.end,
-                    unit,
-                    value:
-                      (step.end.value * distanceFactors[step.end.unit]) /
-                      distanceFactors[unit],
-                  },
-                })
-              }
-            />
-          )}
         </div>
         {(step.role !== "rest" || step.target.kind !== "none") && (
           <TargetFields
             target={step.target}
             showShape={false}
             sport={model.sport}
-            ftp={model.thresholds?.ftp}
+            thresholds={model.thresholds}
             onChange={(target) => onChange({ ...step, target })}
           />
         )}
@@ -2263,7 +2204,7 @@ function EditorWorkspace({
                           <TargetFields
                             target={bulkTarget}
                             sport={model.sport}
-                            ftp={model.thresholds?.ftp}
+                            thresholds={model.thresholds}
                             onChange={setBulkTarget}
                           />
                           <Button

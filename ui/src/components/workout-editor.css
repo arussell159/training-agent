@@ -41,6 +41,102 @@
 .we-field > span {
   color: var(--muted-foreground);
 }
+.we-duration-button {
+  height: 2.25rem;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--input);
+  border-radius: 0.5rem;
+  background: var(--background);
+  text-align: left;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+.we-duration-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.we-duration-picker {
+  top: auto;
+  bottom: 0;
+  translate: -50% 0;
+  transform: none;
+  width: 100%;
+  max-width: 500px !important;
+  padding: 0.65rem 0.8rem max(1.2rem, env(safe-area-inset-bottom));
+  border-radius: 1rem 1rem 0 0;
+  gap: 0.4rem;
+}
+.we-duration-picker-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.we-duration-picker-heading button {
+  color: var(--primary);
+}
+.we-time-wheels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.we-time-wheel-column {
+  min-width: 0;
+  text-align: center;
+}
+.we-time-wheel-column > span {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  margin: 0.5rem 0;
+}
+.we-time-wheel {
+  height: 220px;
+  padding-block: 88px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+  touch-action: pan-y;
+  background: linear-gradient(
+    to bottom,
+    transparent 88px,
+    var(--muted) 88px,
+    var(--muted) 132px,
+    transparent 132px
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black 35%,
+    black 65%,
+    transparent
+  );
+}
+.we-time-wheel::-webkit-scrollbar {
+  display: none;
+}
+.we-time-wheel button {
+  display: block;
+  height: 44px;
+  width: 100%;
+  flex-shrink: 0;
+  scroll-snap-align: center;
+  font-size: 1.5rem;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+.we-time-wheel button[aria-selected="true"] {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.we-target-unavailable {
+  display: flex;
+  flex-direction: column;
+  max-width: 300px;
+  font-size: 0.75rem;
+}
 .we-topbar {
   display: grid;
   grid-template-columns: minmax(290px, 1.3fr) minmax(280px, 1.2fr) minmax(
