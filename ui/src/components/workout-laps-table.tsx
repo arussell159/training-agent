@@ -21,6 +21,7 @@ export function WorkoutLapsTable({
   const swim = /swim/i.test(sport),
     pace = /run|swim/i.test(sport)
   const power = !pace && intervals.some((item) => item.point.power != null)
+  const heartRate = !swim && /run|bike|ride|cycl/i.test(sport)
   useEffect(() => {
     const viewport = scroll.current,
       row = selected ? rows.current.get(selected.id) : null
@@ -49,7 +50,15 @@ export function WorkoutLapsTable({
             <th className="px-3 py-2 text-left font-medium">Lap</th>
             <th className="px-2 py-2 font-medium">Time</th>
             <th className="px-2 py-2 font-medium">{pace ? "Pace" : "Speed"}</th>
-            {power && <th className="px-3 py-2 font-medium">Power</th>}
+            {power && <th className="px-2 py-2 font-medium">Power</th>}
+            {heartRate && (
+              <th className="px-2 py-2 font-medium" title="Average heart rate">
+                HR
+                <span className="block text-[10px] font-normal text-muted-foreground">
+                  bpm
+                </span>
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -95,8 +104,15 @@ export function WorkoutLapsTable({
                   : "—"}
               </td>
               {power && (
-                <td className="px-3 py-2">
+                <td className="px-2 py-2">
                   {point.power != null ? `${Math.round(point.power)} W` : "—"}
+                </td>
+              )}
+              {heartRate && (
+                <td className="px-2 py-2">
+                  {point.heartRate != null && Number.isFinite(point.heartRate)
+                    ? Math.round(point.heartRate)
+                    : "—"}
                 </td>
               )}
             </tr>

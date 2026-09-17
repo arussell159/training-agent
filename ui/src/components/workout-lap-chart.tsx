@@ -5,6 +5,7 @@ import {
   type RecordedLap,
 } from "@/lib/interval-signals"
 import type { RecordedPoint } from "@/lib/segment-statistics"
+import { lapHeartRatePath } from "@/lib/lap-heart-rate"
 
 export function WorkoutLapChart({
   points,
@@ -56,6 +57,17 @@ export function WorkoutLapChart({
       ]
     })
   )
+  const heartRatePath =
+    !swim && /run|bike|ride|cycl/i.test(sport)
+      ? lapHeartRatePath(
+          points,
+          bars.map(({ lap }) => ({
+            start: lap.start,
+            end: lap.end,
+            ...positions.get(lap.id)!,
+          }))
+        )
+      : ""
   const minimum = Math.min(...bars.map((bar) => bar.value)),
     maximum = Math.max(...bars.map((bar) => bar.value))
   const low = pace ? Math.max(0, minimum - 10) : 0,
@@ -193,6 +205,19 @@ export function WorkoutLapChart({
                   </g>
                 )
               })}
+              {heartRatePath && (
+                <path
+                  d={heartRatePath}
+                  fill="none"
+                  stroke="#dc2626"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  pointerEvents="none"
+                  role="img"
+                  aria-label="Recorded heart rate over laps"
+                />
+              )}
             </svg>
           </div>
         </div>
