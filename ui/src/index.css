@@ -31,7 +31,7 @@ html, body {
     display: none;
   }
 
-  html[data-mobile-editing="true"] .coach-page-main {
+  html[data-mobile-keyboard-open="true"] .coach-page-main {
     padding-bottom: 0;
   }
 

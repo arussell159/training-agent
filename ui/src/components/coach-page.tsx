@@ -106,7 +106,7 @@ export function CoachPage() {
     } catch (problem) {
       if (controller.current !== abort) return
       setMessages(previous)
-      setDraft(question)
+      setDraft((current) => current || question)
       setError(
         abort.signal.aborted
           ? "Response stopped. Your question is ready to send again."
@@ -120,7 +120,6 @@ export function CoachPage() {
         setBusy(false)
         setStatus("")
         setCalendarRevision((value) => value + 1)
-        input.current?.focus()
       }
     }
   }
@@ -130,7 +129,7 @@ export function CoachPage() {
     controller.current = null
     const pending = messages.at(-1)
     if (pending?.role === "user") {
-      setDraft(pending.content)
+      setDraft((current) => current || pending.content)
       setMessages(messages.slice(0, -1))
     }
     setBusy(false)
@@ -308,7 +307,7 @@ export function CoachPage() {
                 maxLength={12000}
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                readOnly={busy}
+                inputMode="text"
                 placeholder="Message your coach…"
                 className="max-h-36 min-h-11 min-w-0 flex-1 resize-none bg-transparent px-1 py-2.5 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground md:text-sm"
                 onKeyDown={(event) => {

@@ -22,6 +22,8 @@ export function useMobileViewport() {
       root.dataset.mobileEditing = String(
         mobile.matches && (editing || keyboard)
       )
+      // Keep the input's tap target stationary until the keyboard actually opens.
+      root.dataset.mobileKeyboardOpen = String(mobile.matches && keyboard)
     }
     const schedule = () => {
       cancelAnimationFrame(frame)
@@ -43,6 +45,7 @@ export function useMobileViewport() {
       root.style.removeProperty("--app-viewport-height")
       root.style.removeProperty("--app-viewport-top")
       delete root.dataset.mobileEditing
+      delete root.dataset.mobileKeyboardOpen
     }
   }, [])
 }
