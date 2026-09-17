@@ -46,7 +46,7 @@ export function createCoachHttp({
 
   return async function handleCoach(req, res, pathname) {
     const calendarRoute = pathname.match(
-      /^\/api\/coach\/calendar(?:\/([a-f0-9-]{36})(\/confirm)?)?$/
+      /^\/api\/coach\/calendar(?:\/([a-f0-9-]{36})(\/(?:confirm|decline))?)?$/
     );
     if (!["/api/coach/session", "/api/coach/message"].includes(pathname) && !calendarRoute)
       return false;
@@ -86,15 +86,15 @@ export function createCoachHttp({
       }
       if (calendarRoute) {
         if (!calendar) throw new CoachError("Calendar push is not configured.", 503);
-        const [, id, confirm] = calendarRoute;
-        if (req.method === "GET" && !confirm) {
+        const [, id, action] = calendarRoute;
+        if (req.method === "GET" && !action) {
           json(200, id ? await calendar.status(id) : { proposals: await calendar.list() });
-        } else if (req.method === "POST" && id && confirm) {
+        } else if (req.method === "POST" && id && action) {
           checkOrigin(req, config);
           const body = await bodyJson(req);
           if (!body || Array.isArray(body) || typeof body !== "object" || Object.keys(body).length)
-            throw new CoachError("Confirm the stored preview without changing its workouts.", 400);
-          json(200, await calendar.confirm(id));
+            throw new CoachError("Use the stored preview without changing its workouts.", 400);
+          json(200, await calendar[action === "/confirm" ? "confirm" : "decline"](id));
         } else json(405, { error: "Method not allowed." });
         return true;
       }

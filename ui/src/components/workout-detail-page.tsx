@@ -19,7 +19,14 @@ import { WorkoutMapSplits } from "@/components/workout-map-splits"
 import { WorkoutRouteMap } from "@/components/workout-route-map"
 import { TrainingZonesDisplay } from "@/components/training-zones-display"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
-import { ArrowLeft, Bike, Dumbbell, Footprints, Waves } from "lucide-react"
+import {
+  ArrowLeft,
+  Bike,
+  ChevronRight,
+  Dumbbell,
+  Footprints,
+  Waves,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -434,8 +441,18 @@ export function WorkoutDetailPage({
           </Suspense>
           {workout.status === "completed" && (
             <div className="contents md:hidden">
-              <WorkoutDescription workout={workout} />
-              <WorkoutProfile workout={workout} enableEditOnClick />
+              <WorkoutDescription workout={workout} collapsible />
+              {(workout.structure || workout.editor_model) && (
+                <details key={workout.id} className="group">
+                  <summary className="flex cursor-pointer list-none items-center gap-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+                    <ChevronRight className="size-3.5 shrink-0 transition-transform group-open:rotate-90" />
+                    Workout profile
+                  </summary>
+                  <div className="mt-3">
+                    <WorkoutProfile workout={workout} enableEditOnClick />
+                  </div>
+                </details>
+              )}
             </div>
           )}
 

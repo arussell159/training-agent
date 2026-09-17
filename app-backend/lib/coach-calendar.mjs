@@ -271,7 +271,7 @@ export function createCoachCalendar({
     } catch (error) {
       // Persisted claim is never released after a dispatch: a timeout may hide a queued run.
       p = await update(p.id, (current) => {
-        if (current.phase !== p.phase) return;
+        if (current.phase !== p.phase || current.state === "declined") return;
         current.state = error.definitelyRejected
           ? p.phase === "preview"
             ? "preview_failed"
@@ -398,11 +398,12 @@ export function createCoachCalendar({
       const claim = await store.update((state) => {
         state.proposals = state.proposals.filter((p) => p.createdAt > now() - 30 * DAY);
         for (const p of state.proposals)
-          if (p.phase === "preview" && p.createdAt + DAY < now()) p.state = "expired";
+          if (p.phase === "preview" && p.state !== "declined" && p.createdAt + DAY < now())
+            p.state = "expired";
         const existing = state.proposals.find(
           (p) =>
             p.fingerprint === fingerprint &&
-            !["expired", "preview_failed", "not_applied"].includes(p.state)
+            !["expired", "preview_failed", "not_applied", "declined"].includes(p.state)
         );
         if (existing) return { existing: true, p: structuredClone(existing) };
         if (
@@ -423,6 +424,21 @@ export function createCoachCalendar({
         return { existing: false, p: structuredClone(p) };
       });
       return claim.existing ? publicProposal(claim.p) : dispatch(claim.p);
+    },
+    async decline(id) {
+      await record(id);
+      const proposal = await update(id, (current) => {
+        if (current.state === "declined") return;
+        if (current.phase === "push")
+          throw new CoachError(
+            "This proposal has already been submitted. Check its calendar result.",
+            409
+          );
+        current.state = "declined";
+        current.error = null;
+        current.declinedAt = now();
+      });
+      return publicProposal(proposal);
     },
     async confirm(id) {
       await record(id);

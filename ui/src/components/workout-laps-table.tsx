@@ -20,7 +20,7 @@ export function WorkoutLapsTable({
   const rows = useRef(new Map<string, HTMLTableRowElement>())
   const swim = /swim/i.test(sport),
     pace = /run|swim/i.test(sport)
-  const power = intervals.some((item) => item.point.power != null)
+  const power = !pace && intervals.some((item) => item.point.power != null)
   useEffect(() => {
     const viewport = scroll.current,
       row = selected ? rows.current.get(selected.id) : null

@@ -37,7 +37,7 @@ export function WorkoutSummary({workout,showElapsed=true,embedded=false,section=
   {label:'TSS',unit:'TSS',value:v=>number(v?.tss)},
   {label:'IF',unit:'IF',value:v=>number(v?.intensity_factor,2)},
   {label:'Loss',unit:'ft',value:v=>number(v?.elevation_loss==null?null:v.elevation_loss/.3048)},
-  {label:'Work',unit:'kJ',value:v=>number(v?.work_kj,1)},
+  ...(!/run|swim/i.test(workout.sport)?[{label:'Work',unit:'kJ',value:(v:WorkoutSummaryValues|undefined|null)=>number(v?.work_kj,1)}]:[]),
  ]
 
  const visible=rows.filter(row=>row.value(planned)!=='' || row.value(completed)!=='')

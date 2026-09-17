@@ -55,11 +55,13 @@ export function Section11Report({
   target,
   savedOnly = false,
   reader = false,
+  unframed = false,
   compactControl = false,
 }: {
   target: ReportTarget
   savedOnly?: boolean
   reader?: boolean
+  unframed?: boolean
   compactControl?: boolean
 }) {
   const [controlOpen, setControlOpen] = useState(false)
@@ -100,6 +102,7 @@ export function Section11Report({
       signature={signature}
       savedOnly={savedOnly}
       reader={reader}
+      unframed={unframed}
     />
   )
 }
@@ -108,10 +111,12 @@ function ReportPanel({
   signature,
   savedOnly,
   reader,
+  unframed = false,
 }: {
   signature: string
   savedOnly: boolean
   reader: boolean
+  unframed?: boolean
 }) {
   const isMobile = useIsMobile()
   const target = JSON.parse(signature) as ReportTarget
@@ -236,7 +241,7 @@ function ReportPanel({
     <div
       ref={root}
       className={
-        reader
+        reader || unframed
           ? "min-w-0 space-y-3 text-left"
           : "min-w-0 space-y-3 rounded-lg border bg-card p-3 text-left"
       }

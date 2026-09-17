@@ -15,6 +15,7 @@ export type CalendarProposal = {
     | "ready"
     | "queued"
     | "applied"
+    | "declined"
     | "not_applied"
     | "unknown"
     | "expired"

@@ -55,7 +55,7 @@ export function MobileWorkoutSignals({
             ? p.heartRate
             : p.cadence
   const tracks = [
-    "power",
+    ...(!run && !swim ? ["power"] : []),
     "heartRate",
     run || swim ? "pace" : "speed",
     "cadence",

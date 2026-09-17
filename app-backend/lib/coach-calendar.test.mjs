@@ -321,13 +321,18 @@ test("GitHub rejection is explicit and does not release a write claim", async ()
 });
 
 test("HTTP approval requires app auth, same origin, dedicated route and unchanged preview", async (t) => {
-  let confirmations = 0;
+  let confirmations = 0,
+    declines = 0;
   const handler = createCoachHttp({
     env: () => env,
     getCalendar: async () => ({
       confirm: async (id) => {
         confirmations++;
         return { id, state: "queued" };
+      },
+      decline: async (id) => {
+        declines++;
+        return { id, state: "declined" };
       },
       list: async () => [],
       checkSetup: async () => ({ available: true }),
@@ -379,4 +384,76 @@ test("HTTP approval requires app auth, same origin, dedicated route and unchange
   assert.equal((await fetch(path, { headers })).status, 405);
   assert.equal((await fetch(path, { method: "POST", headers, body: "{}" })).status, 200);
   assert.equal(confirmations, 1);
+  const declinedPath = path.replace("/confirm", "/decline");
+  assert.equal(
+    (
+      await fetch(declinedPath, {
+        method: "POST",
+        headers: { ...headers, "x-test-auth": "no" },
+        body: "{}",
+      })
+    ).status,
+    401
+  );
+  assert.equal(
+    (
+      await fetch(declinedPath, {
+        method: "POST",
+        headers: { ...headers, origin: "https://evil.test" },
+        body: "{}",
+      })
+    ).status,
+    403
+  );
+  assert.equal(
+    (
+      await fetch(declinedPath, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ workouts: [workout] }),
+      })
+    ).status,
+    400
+  );
+  assert.equal((await fetch(declinedPath, { headers })).status, 405);
+  assert.equal((await fetch(declinedPath, { method: "POST", headers, body: "{}" })).status, 200);
+  assert.equal(declines, 1);
+});
+
+test("decline persists, cannot be confirmed and does not dispatch a write", async () => {
+  const h = harness();
+  await h.calendar.propose([workout]);
+  assert.equal((await h.calendar.decline(id)).state, "declined");
+  h.complete(1, "preview");
+  assert.equal((await h.calendar.status(id)).state, "declined");
+  assert.equal((await h.calendar.list())[0].state, "declined");
+  assert.equal((await h.calendar.decline(id)).state, "declined");
+  await assert.rejects(h.calendar.confirm(id), /successful preview/);
+  assert.equal(h.dispatches().length, 1);
+});
+
+test("decline survives an in-flight preview poll", async () => {
+  const h = harness();
+  await h.calendar.propose([workout]);
+  h.complete(1, "preview");
+  await Promise.all([h.calendar.status(id), h.calendar.decline(id)]);
+  assert.equal((await h.calendar.status(id)).state, "declined");
+  assert.equal(h.dispatches().length, 1);
+});
+
+test("approval and decline are atomic; a submitted write cannot be dismissed as declined", async () => {
+  for (const declineFirst of [true, false]) {
+    const h = harness();
+    await h.calendar.propose([workout]);
+    h.complete(1, "preview");
+    await h.calendar.status(id);
+    const results = await Promise.allSettled(
+      declineFirst
+        ? [h.calendar.decline(id), h.calendar.confirm(id)]
+        : [h.calendar.confirm(id), h.calendar.decline(id)]
+    );
+    assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+    assert.equal(h.dispatches().length, declineFirst ? 1 : 2);
+    assert.equal((await h.store.read()).proposals[0].state, declineFirst ? "declined" : "queued");
+  }
 });

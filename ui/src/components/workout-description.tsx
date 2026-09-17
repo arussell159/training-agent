@@ -7,17 +7,22 @@ import { appWorkoutDescription } from "../../../app-backend/lib/workout-readable
 import type { SportZoneSettings } from "../../../app-backend/lib/workout-editor-zones.mjs"
 import type { PlannedWorkout } from "@/lib/training-context"
 import { Button } from "@/components/ui/button"
-import { Pencil } from "lucide-react"
+import { ChevronRight, Pencil } from "lucide-react"
 import { WorkoutEditor } from "@/components/workout-editor"
 export function WorkoutDescription({
   workout,
   title = "Workout instructions",
   mobileCompact = false,
+  collapsible = false,
 }: {
   workout: PlannedWorkout
   title?: string
   mobileCompact?: boolean
+  collapsible?: boolean
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const showContent = !collapsible || expanded
+  useEffect(() => setExpanded(false), [workout.id])
   const athlete = cachedTrainingContext().athlete as {
     sport_settings?: SportZoneSettings[]
   }
@@ -79,9 +84,23 @@ export function WorkoutDescription({
             mobileCompact ? "text-base font-bold" : "text-sm font-semibold"
           }
         >
-          {title}
+          {collapsible ? (
+            <button
+              type="button"
+              aria-expanded={expanded}
+              onClick={() => setExpanded((value) => !value)}
+              className="flex items-center gap-1.5 text-left"
+            >
+              <ChevronRight
+                className={`size-3.5 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+              />
+              {title}
+            </button>
+          ) : (
+            title
+          )}
         </h3>
-        {!editing && (
+        {showContent && !editing && (
           <Button
             variant="ghost"
             size="sm"
@@ -101,45 +120,47 @@ export function WorkoutDescription({
           </Button>
         )}
       </div>
-      {editing ? (
-        <>
-          <textarea
-            aria-label="Workout description"
-            value={draft}
-            disabled={busy}
-            onChange={(e) => setDraft(e.target.value)}
-            className="min-h-64 w-full resize-y rounded-xl border bg-background p-3 text-[1.0625rem] leading-7 md:text-sm md:leading-6"
-          />
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
+      <div hidden={!showContent} className="space-y-3">
+        {editing ? (
+          <>
+            <textarea
+              aria-label="Workout description"
+              value={draft}
               disabled={busy}
-              onClick={() => setEditing(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              disabled={busy || draft === saved}
-              onClick={() => void save()}
-            >
-              {busy ? "Saving…" : "Save to Intervals.icu"}
-            </Button>
-          </div>
-        </>
-      ) : (
-        <p
-          className={`whitespace-pre-wrap text-foreground ${mobileCompact ? "text-sm leading-5" : "text-[1.0625rem] leading-7 md:text-sm md:leading-6"}`}
-        >
-          {saved}
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="text-xs text-destructive">
-          {error}
-        </p>
-      )}
+              onChange={(e) => setDraft(e.target.value)}
+              className="min-h-64 w-full resize-y rounded-xl border bg-background p-3 text-[1.0625rem] leading-7 md:text-sm md:leading-6"
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => setEditing(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={busy || draft === saved}
+                onClick={() => void save()}
+              >
+                {busy ? "Saving…" : "Save to Intervals.icu"}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <p
+            className={`whitespace-pre-wrap text-foreground ${mobileCompact ? "text-sm leading-5" : "text-[1.0625rem] leading-7 md:text-sm md:leading-6"}`}
+          >
+            {saved}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="text-xs text-destructive">
+            {error}
+          </p>
+        )}
+      </div>
     </section>
   )
 }

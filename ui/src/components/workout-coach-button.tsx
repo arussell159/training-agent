@@ -15,9 +15,13 @@ export function WorkoutCoachButton({ workout }: { workout: PlannedWorkout }) {
   return (
     <div className="space-y-3">
       {completed ? (
-        <Section11Report target={{ kind: "post", workoutId: workout.id }} />
+        <Section11Report
+          unframed
+          target={{ kind: "post", workoutId: workout.id }}
+        />
       ) : (
         <Section11Report
+          unframed
           target={{ kind: "pre", workoutId: workout.id }}
           savedOnly={workout.workout_date !== today}
         />

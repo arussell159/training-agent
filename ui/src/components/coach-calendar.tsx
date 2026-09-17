@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { CalendarPlus, Check, LoaderCircle } from "lucide-react"
+import { CalendarPlus, LoaderCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { coachRequest, type CalendarProposal } from "@/lib/coach-client"
 
@@ -8,6 +8,7 @@ const labels: Record<CalendarProposal["state"], string> = {
   ready: "Ready to add",
   queued: "Adding workouts…",
   applied: "Added to Intervals.icu",
+  declined: "Declined",
   not_applied: "Workouts were not added",
   unknown: "Outcome needs checking",
   expired: "Preview expired",
@@ -77,12 +78,18 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
     }
   }, [refreshKey, revision])
 
-  async function confirm(proposal: CalendarProposal) {
+  async function decide(
+    proposal: CalendarProposal,
+    action: "confirm" | "decline"
+  ) {
     if (busy) return
     setBusy(proposal.id)
     setError("")
     try {
-      const response = await coachRequest(`calendar/${proposal.id}/confirm`, {})
+      const response = await coachRequest(
+        `calendar/${proposal.id}/${action}`,
+        {}
+      )
       const updated = (await response.json()) as CalendarProposal
       setProposals((current) =>
         current.map((p) => (p.id === updated.id ? updated : p))
@@ -91,7 +98,9 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
       setError(
         problem instanceof Error
           ? problem.message
-          : "Unable to confirm the push. Check its status before retrying."
+          : action === "decline"
+            ? "Unable to dismiss this workout. Please try again."
+            : "Unable to confirm the push. Check its status before retrying."
       )
     } finally {
       setBusy(null)
@@ -99,7 +108,10 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
     }
   }
 
-  if (!proposals.length && !error) return null
+  const visible = proposals.filter(
+    (proposal) => !["queued", "applied", "declined"].includes(proposal.state)
+  )
+  if (!visible.length && !error) return null
   return (
     <section aria-label="Calendar proposals" className="mt-7 space-y-4">
       <h3 className="flex items-center gap-2 text-sm font-medium">
@@ -110,7 +122,7 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
           {error}
         </p>
       )}
-      {proposals.map((proposal) => (
+      {visible.map((proposal) => (
         <details
           key={proposal.id}
           open={
@@ -170,7 +182,7 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
                 <Button
                   type="button"
                   disabled={busy !== null}
-                  onClick={() => void confirm(proposal)}
+                  onClick={() => void decide(proposal, "confirm")}
                 >
                   {busy === proposal.id ? (
                     <LoaderCircle className="size-4 animate-spin" />
@@ -192,11 +204,15 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
                   : "GitHub is running the push. You can leave this page and check back."}
               </p>
             )}
-            {proposal.state === "applied" && (
-              <p className="flex items-center gap-2 text-sm">
-                <Check className="size-4" />
-                All workouts in this proposal were added.
-              </p>
+            {proposal.phase === "preview" && (
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={busy !== null}
+                onClick={() => void decide(proposal, "decline")}
+              >
+                Don’t add workout{proposal.workouts.length === 1 ? "" : "s"}
+              </Button>
             )}
             {proposal.runUrl && (
               <a
