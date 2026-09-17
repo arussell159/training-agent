@@ -3,6 +3,7 @@ import { providerConnection } from "./completed-workout-store.mjs";
 import { athleteLocalDate } from "./coach-training-context.mjs";
 import { intervalsOnlyContext } from "./intervals-only-context.mjs";
 import { elapsedSummary } from "./elapsed-summary.mjs";
+import { appWorkoutDescription } from "./workout-readable-description.mjs";
 
 export const fastViewId = (config, scope = "full") =>
   `view:v1:${providerConnection(config)}:${scope === "week" ? "startup" : "training"}`;
@@ -16,40 +17,45 @@ export function projectTrainingContext(context, scope = "week", now = new Date()
     ...new Map(
       [...(context.history || []), ...(context.planned || [])].map((w) => [String(w.id), w])
     ).values(),
-  ].map(({ raw, raw_activity, ...workout }) => ({
-    ...workout,
-    ...(workout.workout_summary
-      ? {
-          workout_summary: {
-            ...workout.workout_summary,
-            planned: workout.workout_summary.planned
-              ? {
-                  ...workout.workout_summary.planned,
-                  elapsed_time_seconds: workout.workout_summary.planned.duration_seconds,
-                  elapsed_speed: workout.workout_summary.planned.average_speed,
-                }
-              : null,
-            completed: workout.workout_summary.completed
-              ? {
-                  ...workout.workout_summary.completed,
-                  ...(raw_activity ? elapsedSummary(raw_activity) : {}),
-                }
-              : null,
-          },
-        }
-      : {}),
-    recorded_start_local: raw_activity?.start_date_local || workout.recorded_start_local || null,
-    device_name:
-      typeof raw_activity?.device_name === "string"
-        ? raw_activity.device_name
-        : workout.device_name || null,
-    activity_revision: raw_activity
-      ? createHash("sha256").update(JSON.stringify(raw_activity)).digest("hex")
-      : workout.activity_revision,
-    ...(!workout.completed
-      ? { status: workout.workout_date === today ? "today" : "upcoming" }
-      : {}),
-  }));
+  ]
+    .map((workout) => {
+      const details = appWorkoutDescription(workout, context.athlete?.sport_settings || []);
+      return details ? { ...workout, details, app_description_version: 1 } : workout;
+    })
+    .map(({ raw, raw_activity, ...workout }) => ({
+      ...workout,
+      ...(workout.workout_summary
+        ? {
+            workout_summary: {
+              ...workout.workout_summary,
+              planned: workout.workout_summary.planned
+                ? {
+                    ...workout.workout_summary.planned,
+                    elapsed_time_seconds: workout.workout_summary.planned.duration_seconds,
+                    elapsed_speed: workout.workout_summary.planned.average_speed,
+                  }
+                : null,
+              completed: workout.workout_summary.completed
+                ? {
+                    ...workout.workout_summary.completed,
+                    ...(raw_activity ? elapsedSummary(raw_activity) : {}),
+                  }
+                : null,
+            },
+          }
+        : {}),
+      recorded_start_local: raw_activity?.start_date_local || workout.recorded_start_local || null,
+      device_name:
+        typeof raw_activity?.device_name === "string"
+          ? raw_activity.device_name
+          : workout.device_name || null,
+      activity_revision: raw_activity
+        ? createHash("sha256").update(JSON.stringify(raw_activity)).digest("hex")
+        : workout.activity_revision,
+      ...(!workout.completed
+        ? { status: workout.workout_date === today ? "today" : "upcoming" }
+        : {}),
+    }));
   const history = sessions.filter(
     (w) => w.workout_date <= today && (scope === "full" || w.workout_date >= shift(-14))
   );

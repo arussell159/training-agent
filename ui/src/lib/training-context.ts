@@ -16,6 +16,7 @@ export interface WorkoutSummaryValues {
 }
 
 export interface PlannedWorkout {
+  app_description_version?: number
   editor_model?: import('../../../app-backend/lib/workout-editor-model.mjs').WorkoutModel
   planned_time_label?: string | null
   source_updated_at?: string | null

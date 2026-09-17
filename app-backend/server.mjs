@@ -421,7 +421,7 @@ function applyVerifiedEvent(context,id,result,action) {
   if(action==='delete'){all.delete(id);context={...context,app_deleted_workouts:{...context.app_deleted_workouts,[id]:new Date().toISOString()}};}
   else {
     const prior=action==='move'||action==='edit'?all.get(id):null;
-    all.set(result.workoutId,{...mapIntervalsWorkout(result.event,today,prior?.raw_activity || null),app_updated_at:new Date().toISOString()});
+    all.set(result.workoutId,{...mapIntervalsWorkout(result.event,today,prior?.raw_activity || null,false,context.athlete?.sport_settings || []),app_updated_at:new Date().toISOString()});
   }
   const sessions=[...all.values()].sort((a,b)=>a.workout_date.localeCompare(b.workout_date));
   return {...context,history:sessions.filter(w=>w.workout_date<=today),planned:sessions.filter(w=>w.workout_date>=today)};
@@ -1314,6 +1314,7 @@ export async function handleRequest(req, res) {
           const snapshot=await loadSupabaseTrainingSnapshot(config) || await fetchIntervalsTrainingContext(config,{force:true});
           if(snapshot){
             const context={...applyVerifiedEvent(snapshot,result.workoutId,result,'create'),provider:'intervals',provider_connection:providerConnection(config)};
+            result.workout=[...context.history,...context.planned].find(w=>w.id===result.workoutId);
             result.context=await saveVerifiedSnapshot(config,context);
             await fs.writeFile(intervalsCachePath,JSON.stringify(context));
           }

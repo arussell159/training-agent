@@ -912,9 +912,123 @@
     font-size: 0.72rem;
   }
   .we-repeat-controls input {
-    width: 40px;
+    width: 48px;
+    padding-inline: 0.3rem;
+    text-align: center;
+    appearance: textfield;
+  }
+  .we-repeat-controls input::-webkit-inner-spin-button,
+  .we-repeat-controls input::-webkit-outer-spin-button {
+    appearance: none;
+    margin: 0;
   }
   .we-repeat > .we-node-heading > .we-row-actions > button:nth-child(-n + 2) {
     display: none;
+  }
+
+  .we-node:not(.we-repeat) {
+    display: grid;
+    grid-template-columns: 20px 20px minmax(0, 1fr);
+    gap: 0.7rem 0.4rem;
+    padding: 0.75rem;
+  }
+  .we-node:not(.we-repeat) > .we-node-heading {
+    display: contents;
+  }
+  .we-node:not(.we-repeat) > .we-node-heading > .we-drag {
+    grid-area: 1 / 1;
+    width: 20px;
+  }
+  .we-node:not(.we-repeat) > .we-node-heading > input[type="checkbox"] {
+    grid-area: 1 / 2;
+    align-self: center;
+    justify-self: center;
+    width: 16px;
+    height: 16px;
+  }
+  .we-node:not(.we-repeat) .we-step-name {
+    grid-area: 1 / 3;
+    width: 100%;
+    height: 2.5rem;
+    font-size: 0.875rem;
+  }
+  .we-node:not(.we-repeat) .we-heading-fields {
+    grid-area: 2 / 1 / auto / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+    margin: 0;
+  }
+  .we-heading-fields .we-field {
+    width: auto;
+  }
+  .we-node:not(.we-repeat) > .we-inline-fields {
+    grid-area: 3 / 1 / auto / -1;
+    padding: 0;
+  }
+  .we-prescription {
+    display: grid;
+    grid-template-columns: minmax(95px, 0.8fr) minmax(0, 1.2fr);
+    gap: 0.7rem 0.6rem;
+  }
+  .we-end-fields {
+    grid-column: 1;
+  }
+  .we-end-fields > .we-field:first-child {
+    width: 100%;
+    flex: 1;
+  }
+  .we-prescription > .we-target-fields {
+    display: contents;
+  }
+  .we-target-values,
+  .we-target-unavailable,
+  .we-no-target {
+    grid-column: 2;
+    min-width: 0;
+    gap: 0.35rem;
+  }
+  .we-target-values .we-field {
+    width: auto;
+  }
+  .we-zone-choice {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+  .we-step-options:empty {
+    display: none;
+  }
+  .we-node:not(.we-repeat) .we-field input,
+  .we-node:not(.we-repeat) .we-field button {
+    height: 2.5rem;
+  }
+  .we-node:not(.we-repeat) > .we-node-heading > .we-row-actions {
+    grid-area: 4 / 1 / auto / -1;
+    justify-self: end;
+    gap: 0.2rem;
+    margin: 0;
+    padding-top: 0.25rem;
+  }
+  .we-node:not(.we-repeat) .we-row-actions > button {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+  .we-node:not(.we-repeat) > .we-add-step {
+    grid-area: 4 / 1 / auto / -1;
+    justify-self: start;
+    align-self: center;
+    min-height: 2.5rem;
+    margin: 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .we-prescription > .we-end-fields,
+  .we-prescription > .we-target-fields > .we-target-values,
+  .we-prescription > .we-target-fields > .we-target-unavailable {
+    grid-column: 1 / -1;
+  }
+  .we-node:not(.we-repeat) .we-row-actions > button {
+    width: 2rem;
   }
 }

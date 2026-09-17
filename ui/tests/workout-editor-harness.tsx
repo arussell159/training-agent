@@ -5,6 +5,7 @@ import {
   WorkoutEditorMenu,
 } from "../src/components/workout-editor"
 import { WorkoutProfile } from "../src/components/workout-profile"
+import { WorkoutDescription } from "../src/components/workout-description"
 import { Button } from "../src/components/ui/button"
 import type { PlannedWorkout } from "../src/lib/training-context"
 import "../src/index.css"
@@ -90,7 +91,7 @@ function Harness() {
           <p className="my-2 text-sm">
             {workout.date} · {workout.duration}
           </p>
-          <pre className="text-sm whitespace-pre-wrap">{workout.details}</pre>
+          <WorkoutDescription workout={workout} />
           <WorkoutProfile workout={workout} />
         </section>
       )}

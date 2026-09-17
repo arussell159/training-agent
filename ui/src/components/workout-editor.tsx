@@ -215,7 +215,10 @@ function NumberField({
   return (
     <label className="we-field">
       <span>
-        {label}
+        {label
+          .replace(" target", "")
+          .replace("Range from", "From")
+          .replace("Range to", "To")}
         {unit ? " (" + unit + ")" : ""}
       </span>
       <Input
@@ -247,7 +250,11 @@ function PaceField({
   return (
     <label className="we-field">
       <span>
-        {label} ({unit})
+        {label
+          .replace(" target", "")
+          .replace("Range from", "From")
+          .replace("Range to", "To")}{" "}
+        ({unit})
       </span>
       <Input
         aria-label={label}
