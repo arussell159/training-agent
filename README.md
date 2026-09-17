@@ -54,14 +54,14 @@ The old chat implementation, generated workout comments, scheduled reviews, conv
 
 The GitHub Actions sync is the data pipeline. No local computer or Supabase sync worker is required. Set these **server-only** environment variables in Vercel Production, then redeploy:
 
-| Variable                      | Value                                                                                         |
-| ----------------------------- | --------------------------------------------------------------------------------------------- |
+| Variable                      | Value                                                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `TRAINING_DATA_GITHUB_TOKEN`  | Fine-grained token: Contents read-only and Actions read/write, restricted to your training repository |
-| `TRAINING_DATA_GITHUB_REPO`   | `arussell159/my-training-data` (or your own `owner/repository`)                               |
-| `TRAINING_DATA_GITHUB_BRANCH` | `main`                                                                                        |
-| `OPENAI_API_KEY`              | OpenAI project API key                                                                        |
-| `APP_PASSWORD`                | Unique app password of at least 20 characters; existing `COACH_ACCESS_PASSWORD` is a fallback |
-| `OPENAI_MODEL`                | Optional; defaults to `gpt-5.4-mini`, which supports Responses function calling               |
+| `TRAINING_DATA_GITHUB_REPO`   | `arussell159/my-training-data` (or your own `owner/repository`)                                       |
+| `TRAINING_DATA_GITHUB_BRANCH` | `main`                                                                                                |
+| `OPENAI_API_KEY`              | OpenAI project API key                                                                                |
+| `APP_PASSWORD`                | Unique app password of at least 20 characters; existing `COACH_ACCESS_PASSWORD` is a fallback         |
+| `OPENAI_MODEL`                | Optional; defaults to `gpt-5.4-mini`, which supports Responses function calling                       |
 
 Keep secrets out of frontend variables and the Settings API. For a local integration test, put the same variables in a git-ignored `.env.local` and run `node --env-file=.env.local app-backend/server.mjs` after building the UI. Do not commit that file. Open `/coach` on the backend's port (4173 by default). Vercel variables are not automatically available locally.
 

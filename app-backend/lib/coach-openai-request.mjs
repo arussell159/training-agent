@@ -45,10 +45,10 @@ export async function coachOpenAIRequest({
           } catch {
             continue;
           }
-          if (event.type === "response.output_text.delta" && event.delta)
-            onToken(event.delta);
+          if (event.type === "response.output_text.delta" && event.delta) onToken(event.delta);
           if (event.type === "response.completed") completed = event.response;
-          if (event.type === "error") throw new CoachError("OpenAI could not complete this response.");
+          if (event.type === "error")
+            throw new CoachError("OpenAI could not complete this response.");
         }
         if (done) break;
       }

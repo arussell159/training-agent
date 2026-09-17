@@ -71,13 +71,10 @@ export function createCoachHttp({
         getCalendar && config.githubToken && config.repo ? await getCalendar(req, config) : null;
       if (pathname === "/api/coach/session" && req.method === "GET") {
         const calendarSetup = calendar
-          ? await calendar
-              .checkSetup()
-              .catch((error) => ({
-                available: false,
-                error:
-                  error instanceof CoachError ? error.message : "Calendar push is unavailable.",
-              }))
+          ? await calendar.checkSetup().catch((error) => ({
+              available: false,
+              error: error instanceof CoachError ? error.message : "Calendar push is unavailable.",
+            }))
           : { available: false };
         json(200, {
           configured: !config.missing.length,
