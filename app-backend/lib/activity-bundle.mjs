@@ -83,11 +83,16 @@ export async function loadActivityView(archive, config, request, id, kind) {
     view = normalizeAnalysis(bundle.activity, bundle.streams, bundle.fitLaps);
     if (archive.ready) await archive.saveViews(id, { analysis: view });
   }
-  if (kind === "summary" && view.elapsed_time_seconds === undefined) {
+  if (
+    kind === "summary" &&
+    (view.elapsed_time_seconds === undefined || view.normalized_power === undefined)
+  ) {
     const bundle = await archive.load(id, "bundle", () =>
       downloadActivityBundle(request, id, (fileId) => downloadOriginalActivityFile(config, fileId))
     );
-    Object.assign(view, elapsedSummary(bundle.activity));
+    Object.assign(view, elapsedSummary(bundle.activity), {
+      normalized_power: bundle.activity.icu_weighted_avg_watts ?? null,
+    });
     if (archive.ready)
       await archive.saveViews(id, {
         analysis: bundle.analysis,

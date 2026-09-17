@@ -54,10 +54,17 @@ export async function reportEligibility(target, snapshot, config, now = Date.now
     if (target.completed) return reason("This session is complete. Use its post-workout report.");
     if (target.startDate !== today)
       return reason("Pre-workout reports are available on the scheduled day.");
-    if (!Number.isFinite(timestamp) || now - timestamp > 3600000 || timestamp - now > 300000)
-      return reason(
-        "Training data is over an hour old. Wait for the next GitHub sync before generating a readiness report."
-      );
+    const zone = latest.athlete_profile?.timezone || config.calendarTimeZone;
+    const overnight = latest.wellness_data?.find((day) => day.date === today);
+    if (
+      !Number.isFinite(timestamp) ||
+      timestamp - now > 300000 ||
+      athleteLocalDate(new Date(timestamp), zone) !== today ||
+      !Number.isFinite(overnight?.sleep_hours) ||
+      overnight.sleep_hours <= 0 ||
+      !latest.wellness_data?.some((day) => day.date === shiftReportDate(today, -1))
+    )
+      return reason("Waiting for today's overnight sleep and prior-day data in Section 11.");
   } else if (target.kind === "post") {
     if (!target.completed || !target.activityId)
       return reason("Available after Intervals.icu records this workout as complete.");

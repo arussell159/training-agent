@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react"
 import { Check, ChevronRight, FileText, LoaderCircle } from "lucide-react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { reportLines } from "../../../app-backend/lib/report-presentation.mjs"
+import { openReportReader } from "@/lib/report-navigation"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -11,7 +12,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { coachRequest, type CoachSource } from "@/lib/coach-client"
-import "./coach-prose.css"
+
 import { cachedTrainingContext } from "@/lib/training-context"
 import { shiftReportDate } from "../../../app-backend/lib/report-blocks.mjs"
 
@@ -53,23 +54,66 @@ export function Section11WeeklyReport({ startDate }: { startDate: string }) {
 export function Section11Report({
   target,
   savedOnly = false,
+  reader = false,
+  compactControl = false,
 }: {
   target: ReportTarget
   savedOnly?: boolean
+  reader?: boolean
+  compactControl?: boolean
 }) {
+  const [controlOpen, setControlOpen] = useState(false)
   const signature = JSON.stringify(target)
+  if (compactControl)
+    return (
+      <>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 shrink-0 gap-1 px-2 text-xs"
+          onClick={() => setControlOpen(true)}
+        >
+          <FileText className="size-3.5" />
+          Block report
+        </Button>
+        <Dialog open={controlOpen} onOpenChange={setControlOpen}>
+          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+            <DialogHeader>
+              <DialogTitle>Section 11 · block report</DialogTitle>
+              <DialogDescription>
+                {target.kind === "block" ? target.startDate : ""}
+              </DialogDescription>
+            </DialogHeader>
+            <ReportPanel
+              key={signature}
+              signature={signature}
+              savedOnly={savedOnly}
+              reader
+            />
+          </DialogContent>
+        </Dialog>
+      </>
+    )
   return (
-    <ReportPanel key={signature} signature={signature} savedOnly={savedOnly} />
+    <ReportPanel
+      key={signature}
+      signature={signature}
+      savedOnly={savedOnly}
+      reader={reader}
+    />
   )
 }
 
 function ReportPanel({
   signature,
   savedOnly,
+  reader,
 }: {
   signature: string
   savedOnly: boolean
+  reader: boolean
 }) {
+  const isMobile = useIsMobile()
   const target = JSON.parse(signature) as ReportTarget
   const [result, setResult] = useState<ReportResult | null>(null)
   const [error, setError] = useState("")
@@ -177,7 +221,8 @@ function ReportPanel({
     submitting.current = false
   }
   const complete = result?.status === "complete"
-  const compact = target.kind === "weekly" || target.kind === "block"
+  const compact =
+    !reader && (target.kind === "weekly" || target.kind === "block")
   const running = busy || result?.status === "running"
   const runUrl =
     result?.sync?.url &&
@@ -190,39 +235,45 @@ function ReportPanel({
   return (
     <div
       ref={root}
-      className="min-w-0 space-y-3 rounded-lg border bg-card p-3 text-left"
+      className={
+        reader
+          ? "min-w-0 space-y-3 text-left"
+          : "min-w-0 space-y-3 rounded-lg border bg-card p-3 text-left"
+      }
       aria-label={`Section 11 ${labels[target.kind]} report`}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="flex items-center gap-2 text-sm font-medium">
-          <FileText className="size-4 shrink-0" />
-          Section 11
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-auto min-h-8 text-left whitespace-normal"
-          disabled={
-            !result?.eligible ||
-            running ||
-            complete ||
-            (result?.needsCheckIn && checkIn.trim().length < 10)
-          }
-          onClick={() => void act("generate")}
-        >
-          {running ? (
-            <LoaderCircle className="size-4 animate-spin" />
-          ) : complete ? (
-            <Check className="size-4" />
-          ) : null}
-          {complete
-            ? "Report completed"
-            : running
-              ? "Preparing report…"
-              : `Generate ${labels[target.kind]} report`}
-        </Button>
-      </div>
+      {!(reader && complete) && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="flex items-center gap-2 text-sm font-medium">
+            <FileText className="size-4 shrink-0" />
+            Section 11
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-auto min-h-8 text-left whitespace-normal"
+            disabled={
+              !result?.eligible ||
+              running ||
+              complete ||
+              (result?.needsCheckIn && checkIn.trim().length < 10)
+            }
+            onClick={() => void act("generate")}
+          >
+            {running ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : complete ? (
+              <Check className="size-4" />
+            ) : null}
+            {complete
+              ? "Report completed"
+              : running
+                ? "Preparing report…"
+                : `Generate ${labels[target.kind]} report`}
+          </Button>
+        </div>
+      )}
       {!complete && !running && result?.needsCheckIn && (
         <label className="block space-y-2 text-xs leading-relaxed">
           <span>
@@ -300,7 +351,9 @@ function ReportPanel({
             <>
               <button
                 type="button"
-                onClick={() => setOpen(true)}
+                onClick={() =>
+                  isMobile ? openReportReader(target) : setOpen(true)
+                }
                 className="flex w-full items-center justify-between gap-3 rounded-md p-1 text-left text-sm leading-relaxed hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-ring"
                 aria-label={`Open full ${labels[target.kind]} report`}
               >
@@ -343,16 +396,17 @@ function ReportPanel({
 
 function ReportBody({ text }: { text?: string }) {
   return (
-    <article className="coach-prose section11-report-body min-w-0 overflow-x-auto text-sm leading-relaxed">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          img: () => null,
-          a: ({ children }) => <span>{children}</span>,
-        }}
-      >
-        {text}
-      </ReactMarkdown>
+    <article className="section11-report-body min-w-0 text-sm leading-relaxed font-normal break-words">
+      {reportLines(text).map((line, index) =>
+        line.label || line.text ? (
+          <p key={index} className="min-h-5 whitespace-pre-wrap">
+            <strong className="font-semibold">{line.label}</strong>
+            {line.text}
+          </p>
+        ) : (
+          <div key={index} className="h-3" aria-hidden="true" />
+        )
+      )}
     </article>
   )
 }

@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { downloadActivityBundle, downloadOriginalActivityFile } from "./activity-bundle.mjs";
+import {
+  downloadActivityBundle,
+  downloadOriginalActivityFile,
+  loadActivityView,
+} from "./activity-bundle.mjs";
 
 test("bundle retains every available stream and the original FIT bytes, with ready-to-display views", async () => {
   const bytes = Buffer.alloc(14);
@@ -89,4 +93,33 @@ test("transient provider failures must not be cached as empty successful downloa
     ),
     /offline/
   );
+});
+
+test("older cached summaries recover normalized power from the archived provider record", async () => {
+  let saved;
+  const archive = {
+    ready: true,
+    loadView: async () => ({ average_power: 150, elapsed_time_seconds: 1900, elapsed_speed: 6.5 }),
+    load: async () => ({
+      activity: { icu_weighted_avg_watts: 175, elapsed_time: 1900, distance: 12600 },
+      analysis: {},
+      route: [],
+    }),
+    saveViews: async (_id, views) => {
+      saved = views.summary;
+    },
+  };
+  const summary = await loadActivityView(
+    archive,
+    {},
+    () => {
+      throw Error("no provider download needed");
+    },
+    "i1",
+    "summary"
+  );
+  assert.equal(summary.normalized_power, 175);
+  assert.equal(summary.average_power, 150);
+  assert.equal(summary.elapsed_speed, 12600 / 1900);
+  assert.equal(saved.normalized_power, 175);
 });

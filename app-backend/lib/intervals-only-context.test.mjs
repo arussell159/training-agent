@@ -20,6 +20,9 @@ test("planned/completed summary preserves exact seconds, provider units and miss
     average_heartrate: 140,
     max_heartrate: 165,
     icu_joules: 120000,
+    icu_weighted_avg_watts: 180,
+    max_watts: 350,
+    max_cadence: 95,
   };
   const mapped = mapIntervalsWorkout(event, "2026-09-15", actual);
   assert.equal(mapped.workout_summary.planned.duration_seconds, 3265);
@@ -27,6 +30,9 @@ test("planned/completed summary preserves exact seconds, provider units and miss
   assert.equal(mapped.workout_summary.planned.calories, null);
   assert.equal(mapped.workout_summary.completed.average_hr, 140);
   assert.equal(mapped.workout_summary.completed.work_kj, 120);
+  assert.equal(mapped.workout_summary.completed.normalized_power, 180);
+  assert.equal(mapped.workout_summary.completed.max_power, 350);
+  assert.equal(mapped.workout_summary.completed.max_cadence, 95);
   assert.equal(mapIntervalsWorkout(event, "2026-09-15").workout_summary.completed, null);
   assert.equal(
     mapIntervalsWorkout({ ...event, id: "i999" }, "2026-09-15", null, true).workout_summary.planned,

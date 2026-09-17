@@ -12,7 +12,7 @@ export interface WorkoutSummaryValues {
   min_hr?:number|null;min_speed?:number|null;min_power?:number|null;max_power?:number|null;average_cadence?:number|null;min_cadence?:number|null;max_cadence?:number|null;
   duration_seconds?: number | null; distance_meters?: number | null; average_speed?: number | null; max_speed?: number | null;
   calories?: number | null; elevation_gain?: number | null; elevation_loss?: number | null; tss?: number | null;
-  intensity_factor?: number | null; work_kj?: number | null; average_power?: number | null; average_hr?: number | null; max_hr?: number | null;
+  normalized_power?: number | null; intensity_factor?: number | null; work_kj?: number | null; average_power?: number | null; average_hr?: number | null; max_hr?: number | null;
 }
 
 export interface PlannedWorkout {

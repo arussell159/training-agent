@@ -45,6 +45,10 @@ function harness() {
   const latest = {
     metadata: { last_updated: "2026-09-17T14:55:00", extended_range_days: 28 },
     athlete_profile: { timezone: "America/Chicago" },
+    wellness_data: [
+      { date: "2026-09-17", sleep_hours: 7 },
+      { date: "2026-09-16", sleep_hours: 8 },
+    ],
     recent_activities: [
       { id: "i2", date: "2026-09-17", has_intervals: true },
       { id: "walk", date: "2026-09-17" },
@@ -187,7 +191,7 @@ test("report targets reject client-authored facts and resolve saved workouts and
   );
 });
 
-test("pre-workout readiness follows athlete-local today, completed state and source freshness", async () => {
+test("pre-workout readiness uses current overnight data throughout the athlete-local day", async () => {
   const h = harness(),
     target = resolveReportTarget(pre, h.context);
   assert.equal((await reportEligibility(target, h.snapshot, config, epoch)).eligible, true);
@@ -201,7 +205,24 @@ test("pre-workout readiness follows athlete-local today, completed state and sou
     (await reportEligibility(target, h.snapshot, config, midnight)).reason,
     /scheduled day/
   );
-  assert.match((await reportEligibility(target, h.snapshot, config, epoch)).reason, /hour old/);
+  assert.match(
+    (await reportEligibility(target, h.snapshot, config, epoch)).reason,
+    /overnight sleep/
+  );
+  h.latest.metadata.last_updated = "2026-09-17T11:00:00Z";
+  assert.equal(
+    (await reportEligibility(target, h.snapshot, config, Date.parse("2026-09-18T03:30:00Z")))
+      .eligible,
+    true
+  );
+  h.latest.wellness_data[0].sleep_hours = null;
+  assert.equal((await reportEligibility(target, h.snapshot, config, epoch)).eligible, false);
+  h.latest.wellness_data[0].sleep_hours = 7;
+  h.latest.wellness_data = h.latest.wellness_data.slice(0, 1);
+  assert.equal((await reportEligibility(target, h.snapshot, config, epoch)).eligible, false);
+  h.latest.wellness_data.push({ date: "2026-09-16", sleep_hours: 8 });
+  h.latest.wellness_data[0].date = "2026-09-15";
+  assert.equal((await reportEligibility(target, h.snapshot, config, epoch)).eligible, false);
 });
 
 test("post-workout remains disabled after a green workflow until its actual ID and interval data are exported", async () => {

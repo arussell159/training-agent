@@ -1,3 +1,5 @@
+import { restoreReportReader } from '@/lib/report-navigation'
+import { ReportReaderPage } from '@/components/report-reader-page'
 import {BackgroundSync} from '@/components/background-sync'
 import { SidebarNavigationSlim } from "@/components/application/app-navigation/sidebar-navigation/sidebar-slim"
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
@@ -112,6 +114,7 @@ function itemPath(item: string) {
 }
 
 function AppWorkspace() {
+  const [selectedReport, setSelectedReport] = useState(restoreReportReader)
   const [activeItem, setActiveItem] = useState(routeItem)
   const [calendarNavigationVersion, setCalendarNavigationVersion] = useState(0)
   const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(()=>window.matchMedia('(max-width: 767px)').matches?restoreOpenWorkout([...cachedTrainingContext().planned,...cachedTrainingContext().history]):null)
@@ -132,6 +135,7 @@ function AppWorkspace() {
 
   useEffect(() => {
     const handlePopState = () => {
+      setSelectedReport(restoreReportReader())
       setSelectedWorkout(window.matchMedia('(max-width: 767px)').matches?restoreOpenWorkout([...cachedTrainingContext().planned,...cachedTrainingContext().history]):null)
       setActiveItem(routeItem())
     }
@@ -147,7 +151,14 @@ function AppWorkspace() {
     return()=>window.removeEventListener('training-context-updated',update)
   },[])
 
+  useEffect(() => {
+    const open = () => { setSelectedReport(restoreReportReader()); setSelectedWorkout(null); requestAnimationFrame(() => window.scrollTo({top: 0})) }
+    window.addEventListener("section11-report-open", open)
+    return () => window.removeEventListener("section11-report-open", open)
+  }, [])
+
   const selectItem = (item: string) => {
+    setSelectedReport(null)
     setSelectedWorkout(null)
     setActiveItem(item)
     if (item === "Calendar") setCalendarNavigationVersion((value) => value + 1)
@@ -224,7 +235,7 @@ function AppWorkspace() {
             : undefined
         }
       >
-        {!selectedWorkout &&
+        {!selectedReport && !selectedWorkout &&
           activeItem !== "Calendar" &&
           activeItem !== "Annual Plan" &&
           activeItem !== "Settings" && (
@@ -273,7 +284,7 @@ function AppWorkspace() {
           }`}
         >
           <Suspense fallback={<RouteFallback />}>
-            {selectedWorkout ? (
+            {selectedReport ? (<ReportReaderPage target={selectedReport} />) : selectedWorkout ? (
               <WorkoutDetailPage
                 workout={selectedWorkout}
                 onBack={closeWorkout}

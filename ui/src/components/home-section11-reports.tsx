@@ -84,35 +84,21 @@ function PeriodReport({
   title: string
   periods: Period[]
 }) {
-  const [selected, setSelected] = useState("")
-  const key = (period: Period) =>
-    `${period.planId || "week"}:${period.startDate}`
-  const period = periods.find((item) => key(item) === selected) || periods[0]
+  const period = periods[0]
   return (
     <div className="space-y-2">
-      <label className="block space-y-2 text-sm font-medium">
-        <span>{title}</span>
-        {period && (
-          <select
-            value={key(period)}
-            onChange={(event) => setSelected(event.target.value)}
-            className="w-full min-w-0 rounded-md border bg-background px-3 py-2 text-sm font-normal"
-            aria-label={`Choose ${title.toLowerCase()} period`}
-          >
-            {periods.map((item) => (
-              <option key={key(item)} value={key(item)}>
-                {item.title ? `${item.title} · ` : ""}
-                {dateLabel(item.startDate)} –{" "}
-                {dateLabel(item.endDate, {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}
-              </option>
-            ))}
-          </select>
-        )}
-      </label>
+      <p className="text-sm font-medium">{title}</p>
+      {period && (
+        <p className="text-xs text-muted-foreground">
+          {period.title ? period.title + " · " : ""}
+          {dateLabel(period.startDate)} –{" "}
+          {dateLabel(period.endDate, {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
+        </p>
+      )}
       {period ? (
         <Section11Report
           target={
