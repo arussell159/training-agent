@@ -1,6 +1,6 @@
 import { useContext, useState } from "react"
 import { MobileHeaderNavigation } from "@/components/ui/mobile-header-navigation"
-import { Ellipsis, Pencil, RefreshCw } from "lucide-react"
+import { BookOpen, Ellipsis, Pencil, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -58,6 +58,16 @@ export function MobileHeaderMenu({ onEditWorkout }: { onEditWorkout?: () => void
               Edit Workout
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem
+            className="whitespace-nowrap"
+            onClick={() => {
+              setOpen(false)
+              window.dispatchEvent(new Event("terms-open"))
+            }}
+          >
+            <BookOpen />
+            Terms &amp; definitions
+          </DropdownMenuItem>
           <DropdownMenuItem
             className="whitespace-nowrap"
             disabled={busy}

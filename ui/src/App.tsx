@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button"
 import { MobileNavbar } from "@/components/ui/navbars"
 import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
 import { MobileHeaderNavigation } from "@/components/ui/mobile-header-navigation"
+import { TermsReferenceDialog } from "@/components/terms-reference-dialog"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
   refreshRecentIntervals,
@@ -123,6 +124,7 @@ function AppWorkspace() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [intervalsDisconnected, setIntervalsDisconnected] =
     useState(false)
+  const [termsOpen, setTermsOpen] = useState(false)
   const workoutReturnScroll = useRef(0)
   const isCoachPage = activeItem === "Coach"
   const handleRefreshComplete = useCallback(() => setIsRefreshing(false), [])
@@ -155,6 +157,12 @@ function AppWorkspace() {
     const open = () => { setSelectedReport(restoreReportReader()); setSelectedWorkout(null); requestAnimationFrame(() => window.scrollTo({top: 0})) }
     window.addEventListener("section11-report-open", open)
     return () => window.removeEventListener("section11-report-open", open)
+  }, [])
+
+  useEffect(() => {
+    const openTerms = () => setTermsOpen(true)
+    window.addEventListener("terms-open", openTerms)
+    return () => window.removeEventListener("terms-open", openTerms)
   }, [])
 
   const selectItem = (item: string) => {
@@ -194,6 +202,7 @@ function AppWorkspace() {
       }}
     >
       <BackgroundSync />
+      <TermsReferenceDialog open={termsOpen} onOpenChange={setTermsOpen} />
       <AlertDialog
         open={intervalsDisconnected}
         onOpenChange={setIntervalsDisconnected}

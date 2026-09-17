@@ -10,6 +10,7 @@ import { CalendarDays, CalendarIcon, LoaderCircle, Pencil, Plus, Settings, Trash
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
 import { Calendar } from "@/components/ui/calendar"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -564,6 +565,7 @@ export function AnnualPlanCreator() {
         <Button type="button" size="icon-sm" variant="ghost" aria-label="Create new plan" onClick={() => { setPlanSubmitError(null); setPlanDialogInitial(defaultSettings(context)); setPlanDialogOpen(true) }}><Plus /></Button>
         <Button type="button" size="icon-sm" variant="ghost" aria-label="Plan settings" disabled={!plan} onClick={() => { if (plan) { setPlanSubmitError(null); setPlanDialogInitial(settingsFromPlan(plan)); setPlanDialogOpen(true) } }}><Settings /></Button>
         {plan && <p className="ml-auto hidden text-xs text-muted-foreground sm:block">{dateLabel(plan.startDate, { month: "short", day: "numeric", year: "numeric" })} – {dateLabel(plan.endDate, { month: "short", day: "numeric", year: "numeric" })}</p>}
+        <MobileHeaderMenu />
       </header>
 
       {plan ? <>
