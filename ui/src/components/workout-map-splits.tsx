@@ -3,12 +3,13 @@ import {useEffect,useMemo,useState} from 'react'
 import {apiFetch} from '@/lib/api-client'
 import type {PlannedWorkout} from '@/lib/training-context'
 import {segmentStatistics,type RecordedPoint} from '@/lib/segment-statistics'
+import {swimSplits,type SwimSplitAnalysis} from '@/lib/swim-splits'
 import {WorkoutTableCard} from '@/components/ui/workout-table-card'
 import {useIsMobile} from '@/hooks/use-mobile'
 import {DesktopWorkoutRouteMap} from '@/components/desktop-workout-route-map'
 
-type Split={number:number;start:number;end:number;distance:number;pace:number;power:number|null}
-type Analysis={points:RecordedPoint[]}
+type Split={number:number;start:number;end:number;distance:number;pace:number;power:number|null;estimated?:boolean}
+type Analysis=SwimSplitAnalysis & {points:RecordedPoint[]}
 
 const clock=(seconds:number)=>{const value=Math.max(0,Math.round(seconds));return `${Math.floor(value/60)}:${String(value%60).padStart(2,'0')}`}
 
@@ -29,11 +30,12 @@ export function WorkoutMapSplits({workout}:{workout:PlannedWorkout}){
  const id=workout.activity_id || (workout.id.startsWith('activity:')?workout.id.slice(9):null)
  const revision=(workout as PlannedWorkout & {activity_revision?:string}).activity_revision || ''
  const [analysis,setAnalysis]=useState<Analysis|null>(null)
- useEffect(()=>{if(!id)return;const controller=new AbortController();void apiFetch(`/api/activities/${encodeURIComponent(id)}/analysis?schema=5&v=${encodeURIComponent(revision)}`,{signal:controller.signal}).then(async response=>{if(!response.ok)throw Error();return await response.json() as Analysis}).then(value=>{if(!controller.signal.aborted)setAnalysis(value)}).catch(()=>{});return()=>controller.abort()},[id,revision])
+ useEffect(()=>{if(!id)return;const controller=new AbortController();void apiFetch(`/api/activities/${encodeURIComponent(id)}/analysis?schema=6&v=${encodeURIComponent(revision)}`,{signal:controller.signal}).then(async response=>{if(!response.ok)throw Error();return await response.json() as Analysis}).then(value=>{if(!controller.signal.aborted)setAnalysis(value)}).catch(()=>{});return()=>controller.abort()},[id,revision])
  const sport=workout.sport.toLowerCase(),swim=sport.includes('swim'),bike=sport.includes('bike')||sport.includes('ride')
  const splitDistance=swim?METERS_PER_100_YARDS:bike?8046.72:1609.344
  const distancePoints=useMemo(()=>(analysis?.points || []).filter(point=>point.distance!=null&&Number.isFinite(point.distance)).sort((a,b)=>a.time-b.time),[analysis])
  const splits=useMemo(()=>{
+  if(swim)return swimSplits(analysis || {})
   if(distancePoints.length<2)return []
   const startDistance=Number(distancePoints[0].distance),finishDistance=Number(distancePoints.at(-1)?.distance)
   if(!(finishDistance>startDistance))return []
@@ -43,10 +45,10 @@ export function WorkoutMapSplits({workout}:{workout:PlannedWorkout}){
    if(end>start&&distance>0)values.push({number:index,start,end,distance,pace:(end-start)*splitDistance/distance,power:segmentStatistics(analysis?.points || [],start,end).power})
   }
   return values
- },[analysis?.points,distancePoints,splitDistance])
+ },[analysis,distancePoints,splitDistance,swim])
  const routePoints=useMemo(()=>(analysis?.points || []).flatMap(point=>point.latitude!=null&&point.longitude!=null?[{time:point.time,latitude:point.latitude,longitude:point.longitude}]:[]),[analysis])
  const showPower=bike&&splits.some(split=>split.power!=null)
- const table=splits.length?<div className={mobile ? "data-table" : "max-h-[320px] overflow-y-auto"}><table className="w-full text-xs"><thead className="sticky top-0 bg-card"><tr className="border-b"><th className="label-cell px-4 py-2 text-left font-medium">Split</th><th className="numeric-cell px-4 py-2 text-right font-medium">Pace</th>{showPower&&<th className="numeric-cell px-4 py-2 text-right font-medium">Power</th>}</tr></thead><tbody>{splits.map(split=><tr key={split.number} className="border-b last:border-b-0"><td className="label-cell px-4 py-2.5 tabular-nums">{split.number}</td><td className="numeric-cell px-4 py-2.5 text-right font-medium tabular-nums">{clock(split.pace)} <span className="font-normal text-muted-foreground">/{bike?'5 mi':swim?'100 yd':'mi'}</span></td>{showPower&&<td className="numeric-cell px-4 py-2.5 text-right font-medium tabular-nums">{split.power!=null?`${Math.round(split.power)} W`:'—'}</td>}</tr>)}</tbody></table></div>:<p className="p-4 text-xs text-muted-foreground">Split data is not available for this recording.</p>
+ const table=splits.length?<div className={mobile ? "data-table" : "max-h-[320px] overflow-y-auto"}><table className="w-full text-xs"><thead className="sticky top-0 bg-card"><tr className="border-b"><th className="label-cell px-4 py-2 text-left font-medium">Split</th><th className="numeric-cell px-4 py-2 text-right font-medium">Pace</th>{showPower&&<th className="numeric-cell px-4 py-2 text-right font-medium">Power</th>}</tr></thead><tbody>{splits.map(split=><tr key={split.number} className="border-b last:border-b-0"><td className="label-cell px-4 py-2.5 tabular-nums">{split.number}{swim&&split.distance<METERS_PER_100_YARDS-.5&&<span className="ml-2 text-muted-foreground">{Math.round(split.distance/METERS_PER_100_YARDS*100)} yd</span>}</td><td className="numeric-cell px-4 py-2.5 text-right font-medium tabular-nums">{split.estimated?"~":""}{clock(split.pace)} <span className="font-normal text-muted-foreground">/{bike?'5 mi':swim?'100 yd':'mi'}</span></td>{showPower&&<td className="numeric-cell px-4 py-2.5 text-right font-medium tabular-nums">{split.power!=null?`${Math.round(split.power)} W`:'—'}</td>}</tr>)}</tbody></table></div>:<p className="p-4 text-xs text-muted-foreground">Split data is not available for this recording.</p>
  if(!id)return null
  if(mobile)return <section aria-label="Workout splits and route"><WorkoutTableCard title="Splits" subtitle={bike?'5 miles per split':swim?'100 yards per split':'1 mile per split'}>{table}</WorkoutTableCard></section>
  return <section aria-label="Workout splits and route" className="overflow-hidden rounded-xl border bg-card shadow-sm">

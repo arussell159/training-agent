@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFitLaps, normalizeAnalysis } from "./activity-analysis.mjs";
+import { readFitLaps, readFitSwimLengths, normalizeAnalysis } from "./activity-analysis.mjs";
 import { activityRoute } from "./activity-route.mjs";
 import { recordedExtremes } from "./recorded-extremes.mjs";
 import { mapIntervalsWorkout } from "./intervals.mjs";
@@ -28,7 +28,11 @@ export async function downloadActivityBundle(request, id, downloadFile) {
   }
   const bytes = activity.file_type ? await downloadFile(id) : null;
   const fitLaps = bytes && activity.file_type === "fit" ? readFitLaps(bytes) : [];
-  const analysis = normalizeAnalysis(activity, streams, fitLaps);
+  const fitSwimLengths =
+    bytes && activity.file_type === "fit" && /swim/i.test(activity.type || "")
+      ? readFitSwimLengths(bytes)
+      : [];
+  const analysis = normalizeAnalysis(activity, streams, fitLaps, fitSwimLengths);
   const summary = mapIntervalsWorkout(
     activity,
     String(activity.start_date_local || "").slice(0, 10),
@@ -41,6 +45,7 @@ export async function downloadActivityBundle(request, id, downloadFile) {
     activity,
     streams,
     fitLaps,
+    fitSwimLengths,
     analysis,
     summary,
     route: activityRoute(streams),
@@ -76,11 +81,16 @@ export async function loadActivityView(archive, config, request, id, kind) {
     kind,
     async () => (await loadActivityBundle(archive, config, request, id))[kind]
   );
-  if (kind === "analysis" && view.version !== 5) {
+  if (kind === "analysis" && view.version !== 6) {
     const bundle = await archive.load(id, "bundle", () =>
       downloadActivityBundle(request, id, (fileId) => downloadOriginalActivityFile(config, fileId))
     );
-    view = normalizeAnalysis(bundle.activity, bundle.streams, bundle.fitLaps);
+    const fitSwimLengths =
+      bundle.fitSwimLengths ??
+      (/swim/i.test(bundle.activity.type || "") && bundle.original_file?.type === "fit"
+        ? readFitSwimLengths(Buffer.from(bundle.original_file.data, "base64"))
+        : []);
+    view = normalizeAnalysis(bundle.activity, bundle.streams, bundle.fitLaps, fitSwimLengths);
     if (archive.ready) await archive.saveViews(id, { analysis: view });
   }
   if (

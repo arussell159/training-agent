@@ -2,12 +2,12 @@ import { dfaSignal } from "./dfa-signal.mjs";
 import { recordedSwimYards } from "./swim-units.mjs";
 import { gunzipSync } from "node:zlib";
 
-export function readFitLaps(buffer) {
+function readFitMessages(buffer, wanted) {
   const b = buffer[0] === 31 && buffer[1] === 139 ? gunzipSync(buffer) : buffer;
   if (b.length < 14 || b.toString("ascii", 8, 12) !== ".FIT")
     throw new Error("Not a FIT recording");
   const defs = new Map(),
-    laps = [];
+    messages = [];
   let p = b[0];
   const end = p + b.readUInt32LE(4);
   while (p < end) {
@@ -56,20 +56,54 @@ export function readFitLaps(buffer) {
         p += f.size;
       }
       p += d.extra;
-      if (d.global === 19 && v[2] != null && v[7] != null)
-        laps.push({
-          timestamp: v[2],
-          duration: v[7] / 1000,
-          power: v[19] ?? null,
-          heartRate: v[15] ?? null,
-          distance: v[9] != null ? v[9] / 100 : null,
-        });
+      if (wanted.has(d.global)) messages.push({ type: d.global, values: v });
     }
   }
-  return laps;
+  return messages;
 }
 
-export function normalizeAnalysis(activity, streams, fitLaps = []) {
+export function readFitLaps(buffer) {
+  return readFitMessages(buffer, new Set([19]))
+    .map((message) => message.values)
+    .filter((v) => v[2] != null && v[7] != null)
+    .map((v) => ({
+      timestamp: v[2],
+      duration: v[7] / 1000,
+      power: v[19] ?? null,
+      heartRate: v[15] ?? null,
+      distance: v[9] != null ? v[9] / 100 : null,
+    }));
+}
+
+// Garmin FIT profile: session.pool_length is metres / 100; length type 1 is
+// active, and total_timer_time is milliseconds of swimming, excluding pauses.
+// https://github.com/garmin/fit-python-sdk/blob/main/garmin_fit_sdk/profile.py
+export function readFitSwimLengths(buffer) {
+  const messages = readFitMessages(buffer, new Set([18, 101]));
+  const sessions = messages.filter((message) => message.type === 18 && message.values[44] > 0);
+  return messages
+    .filter((message) => message.type === 101)
+    .flatMap(({ values: v }) => {
+      if (v[12] !== 1 || v[2] == null || !((v[4] ?? v[3]) > 0)) return [];
+      // Some exports stamp every message with the session start. Use elapsed
+      // session duration for its bounds rather than that message timestamp.
+      const session = sessions.find(
+        ({ values: s }) =>
+          s[2] != null && v[2] >= s[2] && v[2] < (s[7] > 0 ? s[2] + s[7] / 1000 : s[253])
+      );
+      if (!session) return [];
+      return [
+        {
+          timestamp: v[2],
+          duration: (v[4] ?? v[3]) / 1000,
+          elapsedDuration: (v[3] ?? v[4]) / 1000,
+          distance: session.values[44] / 100,
+        },
+      ];
+    });
+}
+
+export function normalizeAnalysis(activity, streams, fitLaps = [], fitSwimLengths = []) {
   const byType = new Map(streams.map((s) => [s.type, s.data || []])),
     times = byType.get("time") || [];
   const location = streams.find((stream) => stream.type === "latlng");
@@ -147,11 +181,20 @@ export function normalizeAnalysis(activity, streams, fitLaps = []) {
       }))
     : laps;
   return {
-    version: 5,
+    version: 6,
     dfa: /ride|bike|cycl|run/i.test(activity.type || "") ? dfaSignal(points) : null,
     activityId: activity.id,
     points,
     laps: displayedLaps,
+    swimLengths:
+      swim && Number.isFinite(start)
+        ? fitSwimLengths.map((length) => ({
+            start: length.timestamp - start,
+            end: length.timestamp - start + length.elapsedDuration,
+            seconds: length.duration,
+            distance: length.distance,
+          }))
+        : [],
     intervals,
     duration: points.at(-1)?.time || 0,
   };
