@@ -1,14 +1,43 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
-import { ArrowUp, LoaderCircle, LockKeyhole, Square } from "lucide-react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
+import { LoaderCircle, LockKeyhole, Square } from "lucide-react"
 import "./coach-prose.css"
 import { Button } from "@/components/ui/button"
+import {
+  ChainOfThought,
+  ChainOfThoughtContent,
+  ChainOfThoughtHeader,
+  ChainOfThoughtStep,
+} from "@/components/ai-elements/chain-of-thought"
+import {
+  InlineCitation,
+  InlineCitationCard,
+  InlineCitationCardBody,
+  InlineCitationCardTrigger,
+  InlineCitationSource,
+  InlineCitationText,
+} from "@/components/ai-elements/inline-citation"
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from "@/components/ai-elements/message"
+import {
+  PromptInput,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  type PromptInputMessage,
+} from "@/components/ai-elements/prompt-input"
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@/components/ai-elements/reasoning"
 import { CoachCalendar } from "@/components/coach-calendar"
 import {
   askCoach,
   coachRequest,
   type CoachMessage,
+  type CoachProgressStep,
   type CoachSession,
   type CoachSource,
 } from "@/lib/coach-client"
@@ -19,6 +48,84 @@ const suggestions = [
   "Review my training this week.",
 ]
 
+const initialProgress: CoachProgressStep[] = [
+  {
+    id: "context",
+    label: "Read training context",
+    description: "Loading the latest training data and Section 11 guidance.",
+    status: "active",
+  },
+]
+
+function progressDescriptor(status: string) {
+  const text = status.toLowerCase()
+  if (text.includes("section 11")) {
+    return {
+      id: "protocol",
+      label: "Check Section 11 guidance",
+      description: status,
+    }
+  }
+  if (text.includes("training details")) {
+    return {
+      id: "training",
+      label: "Read requested training details",
+      description: status,
+    }
+  }
+  if (text.includes("calendar")) {
+    return {
+      id: "calendar",
+      label: "Prepare calendar preview",
+      description: status,
+    }
+  }
+  if (text.includes("reviewing")) {
+    return {
+      id: "review",
+      label: "Review source details",
+      description: status,
+    }
+  }
+  if (text.includes("pause") || text.includes("retry")) {
+    return {
+      id: "retry",
+      label: "Reconnect to the coach",
+      description: status,
+    }
+  }
+  return {
+    id: "context",
+    label: "Read training context",
+    description: status,
+  }
+}
+
+function advanceProgress(steps: CoachProgressStep[], status: string) {
+  const descriptor = progressDescriptor(status)
+  const next = steps.map((step) =>
+    step.status === "active" ? { ...step, status: "complete" as const } : step
+  )
+  const existing = next.findIndex((step) => step.id === descriptor.id)
+  if (existing >= 0) {
+    next[existing] = { ...next[existing], ...descriptor, status: "active" }
+  } else {
+    next.push({ ...descriptor, status: "active" })
+  }
+  return next
+}
+
+function completeProgress(steps: CoachProgressStep[]) {
+  return steps.map((step) => ({ ...step, status: "complete" as const }))
+}
+
+function progressSummary(steps: CoachProgressStep[]) {
+  return (
+    steps.find((step) => step.status === "active")?.description ||
+    "The coach used the current training context and the official Section 11 guidance."
+  )
+}
+
 export function CoachPage() {
   const [session, setSession] = useState<CoachSession | null>(null)
   const [messages, setMessages] = useState<CoachMessage[]>([])
@@ -28,6 +135,7 @@ export function CoachPage() {
   const [error, setError] = useState("")
   const [source, setSource] = useState<CoachSource | null>(null)
   const [calendarRevision, setCalendarRevision] = useState(0)
+  const progress = useRef<CoachProgressStep[]>([])
   const streamedAnswer = useRef("")
   const controller = useRef<AbortController | null>(null)
   const bottom = useRef<HTMLDivElement | null>(null)
@@ -81,27 +189,76 @@ export function CoachPage() {
     setDraft("")
     setBusy(true)
     setError("")
+    setSource(null)
     setStatus("Connecting to your coach…")
+    progress.current = initialProgress
     streamedAnswer.current = ""
+    setMessages([
+      ...next,
+      { role: "assistant", content: "", progress: initialProgress },
+    ])
     try {
       const answer = await askCoach(
         next,
         abort.signal,
         (text) => {
-          if (controller.current === abort && !abort.signal.aborted)
+          if (controller.current === abort && !abort.signal.aborted) {
+            progress.current = advanceProgress(progress.current, text)
             setStatus(text)
+            setMessages([
+              ...next,
+              {
+                role: "assistant",
+                content: streamedAnswer.current,
+                progress: progress.current,
+              },
+            ])
+          }
         },
         (text) => {
           if (controller.current !== abort || abort.signal.aborted) return
           streamedAnswer.current += text
+          const responseStep = progress.current.find(
+            (step) => step.id === "response"
+          )
+          progress.current = responseStep
+            ? progress.current.map((step) =>
+                step.id === "response"
+                  ? { ...step, status: "active" as const }
+                  : step.status === "active"
+                    ? { ...step, status: "complete" as const }
+                    : step
+              )
+            : [
+                ...completeProgress(progress.current),
+                {
+                  id: "response",
+                  label: "Draft response",
+                  description:
+                    "Writing the answer from the verified source context.",
+                  status: "active" as const,
+                },
+              ]
           setMessages([
             ...next,
-            { role: "assistant", content: streamedAnswer.current },
+            {
+              role: "assistant",
+              content: streamedAnswer.current,
+              progress: progress.current,
+            },
           ])
         }
       )
       if (controller.current !== abort || abort.signal.aborted) return
-      setMessages([...next, { role: "assistant", content: answer.text }])
+      setMessages([
+        ...next,
+        {
+          role: "assistant",
+          content: answer.text,
+          progress: completeProgress(progress.current),
+          source: answer.source,
+        },
+      ])
       setSource(answer.source)
     } catch (problem) {
       if (controller.current !== abort) return
@@ -127,10 +284,13 @@ export function CoachPage() {
   function stopResponse() {
     controller.current?.abort()
     controller.current = null
-    const pending = messages.at(-1)
-    if (pending?.role === "user") {
+    const pendingIndex = messages.findLastIndex(
+      (message) => message.role === "user"
+    )
+    const pending = pendingIndex >= 0 ? messages[pendingIndex] : undefined
+    if (pending) {
       setDraft((current) => current || pending.content)
-      setMessages(messages.slice(0, -1))
+      setMessages(messages.slice(0, pendingIndex))
     }
     setBusy(false)
     setStatus("")
@@ -219,41 +379,91 @@ export function CoachPage() {
                 </div>
               )}
               {messages.map((message, index) => (
-                <article
+                <Message
                   key={index}
-                  className={
-                    message.role === "user"
-                      ? "ml-8 rounded-2xl bg-muted px-5 py-4 md:ml-20"
-                      : "py-1"
-                  }
+                  from={message.role}
+                  className={message.role === "user" ? "ml-8 md:ml-20" : "py-1"}
                 >
-                  <p className="mb-2 text-xs font-medium text-muted-foreground">
-                    {message.role === "user" ? "You" : "Coach"}
-                  </p>
-                  {message.role === "user" ? (
-                    <p className="text-sm leading-7 wrap-anywhere whitespace-pre-wrap text-foreground">
-                      {message.content}
+                  <MessageContent
+                    className={
+                      message.role === "user"
+                        ? "rounded-2xl bg-muted px-5 py-4"
+                        : "py-1"
+                    }
+                  >
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">
+                      {message.role === "user" ? "You" : "Coach"}
                     </p>
-                  ) : (
-                    <div className="coach-prose text-sm leading-7 wrap-anywhere text-foreground">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        skipHtml
-                        components={{
-                          img: () => null,
-                          a: ({ children }) => <span>{children}</span>,
-                          table: ({ children }) => (
-                            <div className="overflow-x-auto">
-                              <table>{children}</table>
-                            </div>
-                          ),
-                        }}
-                      >
+                    {message.role === "user" ? (
+                      <p className="text-sm leading-7 wrap-anywhere whitespace-pre-wrap text-foreground">
                         {message.content}
-                      </ReactMarkdown>
-                    </div>
-                  )}
-                </article>
+                      </p>
+                    ) : (
+                      <>
+                        {message.progress && message.progress.length > 0 && (
+                          <div className="mb-3 space-y-1">
+                            <Reasoning
+                              isStreaming={
+                                busy && index === messages.length - 1
+                              }
+                              defaultOpen={
+                                busy && index === messages.length - 1
+                              }
+                            >
+                              <ReasoningTrigger />
+                              <ReasoningContent>
+                                {progressSummary(message.progress)}
+                              </ReasoningContent>
+                            </Reasoning>
+                            <ChainOfThought
+                              isStreaming={
+                                busy && index === messages.length - 1
+                              }
+                              defaultOpen={
+                                busy && index === messages.length - 1
+                              }
+                            >
+                              <ChainOfThoughtHeader />
+                              <ChainOfThoughtContent>
+                                {message.progress.map((step) => (
+                                  <ChainOfThoughtStep key={step.id} {...step} />
+                                ))}
+                              </ChainOfThoughtContent>
+                            </ChainOfThought>
+                          </div>
+                        )}
+                        {message.content && (
+                          <MessageResponse className="coach-prose text-sm leading-7">
+                            {message.content}
+                          </MessageResponse>
+                        )}
+                        {message.source && (
+                          <p className="mt-3 text-xs text-muted-foreground">
+                            <InlineCitationText>Based on</InlineCitationText>
+                            <InlineCitation>
+                              <InlineCitationCard>
+                                <InlineCitationCardTrigger
+                                  sources={[
+                                    "https://github.com/CrankAddict/section-11",
+                                  ]}
+                                >
+                                  Section 11 sources
+                                </InlineCitationCardTrigger>
+                                <InlineCitationCardBody>
+                                  <InlineCitationSource
+                                    title="Section 11 protocol and training snapshot"
+                                    url="https://github.com/CrankAddict/section-11"
+                                    description={`Protocol ${message.source.protocolRevision.slice(0, 12)}… · training snapshot ${message.source.dataRevision.slice(0, 12)}…`}
+                                  />
+                                </InlineCitationCardBody>
+                              </InlineCitationCard>
+                            </InlineCitation>
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </MessageContent>
+                </Message>
               ))}
               {busy && (
                 <p
@@ -290,17 +500,16 @@ export function CoachPage() {
                   : "No valid sync timestamp"}
               </p>
             )}
-            <form
-              onSubmit={(event) => {
-                event.preventDefault()
-                void send()
+            <PromptInput
+              onSubmit={(message: PromptInputMessage) => {
+                if (message.text.trim()) void send(message.text)
               }}
               className="flex items-end gap-2 rounded-2xl border bg-background p-2 shadow-sm focus-within:ring-1 focus-within:ring-ring"
             >
               <label htmlFor="coach-question" className="sr-only">
                 Message your coach
               </label>
-              <textarea
+              <PromptInputTextarea
                 ref={input}
                 id="coach-question"
                 rows={1}
@@ -337,21 +546,15 @@ export function CoachPage() {
                   <Square className="size-3" />
                 </Button>
               ) : (
-                <Button
-                  type="submit"
-                  size="icon"
-                  aria-label="Send message"
+                <PromptInputSubmit
                   onPointerDown={(event) => {
                     if (document.activeElement === input.current)
                       event.preventDefault()
                   }}
-                  key="send"
                   disabled={!draft.trim()}
-                >
-                  <ArrowUp />
-                </Button>
+                />
               )}
-            </form>
+            </PromptInput>
           </div>
         </>
       )}

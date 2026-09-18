@@ -7,7 +7,18 @@ export type CoachSource = {
   checkedAt: string
   freshness: "recent" | "delayed" | "unknown"
 }
-export type CoachMessage = { role: "user" | "assistant"; content: string }
+export type CoachProgressStep = {
+  id: string
+  label: string
+  description?: string
+  status: "complete" | "active" | "pending"
+}
+export type CoachMessage = {
+  role: "user" | "assistant"
+  content: string
+  progress?: CoachProgressStep[]
+  source?: CoachSource
+}
 export type CalendarProposal = {
   id: string
   state:
@@ -87,7 +98,11 @@ export async function askCoach(
   onStatus: (status: string) => void,
   onToken: (text: string) => void = () => {}
 ): Promise<CoachAnswer> {
-  const response = await coachRequest("message", { messages }, signal)
+  const response = await coachRequest(
+    "message",
+    { messages: messages.map(({ role, content }) => ({ role, content })) },
+    signal
+  )
   if (!response.headers.get("content-type")?.includes("text/event-stream"))
     throw new CoachRequestError(
       "The chat endpoint is unavailable. Check that the backend is running."

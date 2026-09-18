@@ -45,6 +45,7 @@ import { Button } from "@/components/ui/button"
 import { MobileNavbar, MobilePageTabs } from "@/components/ui/navbars"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { MobileHeaderNavigation } from "@/components/ui/mobile-header-navigation"
+import { MobileTermsPage } from "@/components/terms-reference/mobile-terms-page"
 import { useMobileViewport } from "@/hooks/use-mobile-viewport"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
@@ -289,6 +290,10 @@ function AppWorkspace() {
       }}
     >
       <BackgroundSync />
+      <MobileTermsPage
+        open={termsOpen}
+        onClose={() => setTermsOpen(false)}
+      />
       {termsOpen && (
         <Suspense fallback={null}>
           <TermsReferenceDialog open onOpenChange={setTermsOpen} />

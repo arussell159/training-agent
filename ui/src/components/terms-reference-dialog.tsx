@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react"
-import referenceMarkdown from "../../../docs/section-11-reference.md?raw"
 import { BookOpen, Search } from "lucide-react"
 
+import { MetricDetail } from "@/components/terms-reference/metric-detail"
 import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
@@ -11,81 +11,30 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { SORTED_METRIC_DEFINITIONS } from "@/lib/terms-reference-data"
 
-type ReferenceRow = {
-  section: string
-  subsection: string
-  term: string
-  headers: string[]
-  details: string[]
+const categoryOptions = [
+  ...new Set(
+    SORTED_METRIC_DEFINITIONS.map(
+      (metric) => metric.category || "Other training metrics"
+    )
+  ),
+]
+
+function metricSearchText(metric: (typeof SORTED_METRIC_DEFINITIONS)[number]) {
+  return [
+    metric.name,
+    metric.abbreviation,
+    metric.definition,
+    metric.category,
+    metric.phase,
+    ...(metric.notes || []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
 }
-
-function cleanCell(value: string) {
-  return value
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/\*\*/g, "")
-    .replace(/__/g, "")
-    .replace(/`/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-}
-
-function splitTableRow(line: string) {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map(cleanCell)
-}
-
-function parseReference(markdown: string): ReferenceRow[] {
-  const lines = markdown.split(/\r?\n/)
-  const rows: ReferenceRow[] = []
-  let section = "Section 11"
-  let subsection = "Reference"
-  let headers: string[] = []
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index].trim()
-    if (line.startsWith("## ")) {
-      section = cleanCell(line.slice(3))
-      subsection = section
-      headers = []
-      continue
-    }
-    if (line.startsWith("### ")) {
-      subsection = cleanCell(line.slice(4))
-      headers = []
-      continue
-    }
-    if (!line.startsWith("|")) continue
-
-    const cells = splitTableRow(line)
-    const nextLine = lines[index + 1]?.trim() || ""
-    if (nextLine.startsWith("|") && /^[|\s:*-]+$/.test(nextLine)) {
-      headers = cells
-      index += 1
-      continue
-    }
-    if (cells.length < 2 || !cells[0]) continue
-
-    rows.push({
-      section,
-      subsection,
-      term: cells[0],
-      headers: headers.slice(1),
-      details: cells.slice(1),
-    })
-  }
-
-  return rows
-}
-
-const referenceRows = parseReference(referenceMarkdown)
-const sectionOptions = [...new Set(referenceRows.map((row) => row.section))]
-
 export function TermsReferenceDialog({
   open,
   onOpenChange,
@@ -93,22 +42,26 @@ export function TermsReferenceDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const mobile = useIsMobile()
   const [query, setQuery] = useState("")
-  const [section, setSection] = useState("all")
+  const [category, setCategory] = useState("all")
   const popup = useRef<HTMLDivElement>(null)
 
-  const filteredRows = useMemo(() => {
+  const filteredMetrics = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
-    return referenceRows.filter((row) => {
-      const matchesSection = section === "all" || row.section === section
-      if (!matchesSection) return false
-      if (!normalizedQuery) return true
-      return [row.term, row.section, row.subsection, ...row.details]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalizedQuery)
+    return SORTED_METRIC_DEFINITIONS.filter((metric) => {
+      const matchesCategory =
+        category === "all" || metric.category === category
+      return (
+        matchesCategory &&
+        (!normalizedQuery || metricSearchText(metric).includes(normalizedQuery))
+      )
     })
-  }, [query, section])
+  }, [category, query])
+
+  // The mobile version is a Framework7 Page rendered by MobileTermsPage. Do
+  // not let the desktop dialog's portal cover it on narrow viewports.
+  if (mobile) return null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -135,19 +88,19 @@ export function TermsReferenceDialog({
               <Input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search e.g. ACWR, DFA a1, D-2, TSB…"
+                placeholder="Search e.g. ACWR, HRV, TSB, cardiac drift…"
                 aria-label="Search Section 11 terms"
                 className="h-9 pl-9 text-base md:text-sm"
               />
             </label>
             <select
-              value={section}
-              onChange={(event) => setSection(event.target.value)}
-              aria-label="Filter terms by section"
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+              aria-label="Filter terms by category"
               className="h-9 max-w-full min-w-0 truncate rounded-lg border border-input bg-background px-2.5 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:max-w-80 md:text-sm"
             >
-              <option value="all">All sections</option>
-              {sectionOptions.map((option) => (
+              <option value="all">All training metrics</option>
+              {categoryOptions.map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>
@@ -155,8 +108,8 @@ export function TermsReferenceDialog({
             </select>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            {filteredRows.length}{" "}
-            {filteredRows.length === 1 ? "entry" : "entries"}
+            {filteredMetrics.length}{" "}
+            {filteredMetrics.length === 1 ? "metric" : "metrics"}
           </p>
         </div>
 
@@ -166,42 +119,38 @@ export function TermsReferenceDialog({
           tabIndex={0}
         >
           <div className="space-y-3 p-4 sm:p-6">
-            {filteredRows.length ? (
-              filteredRows.map((row, index) => (
+            {filteredMetrics.length ? (
+              filteredMetrics.map((metric) => (
                 <article
-                  key={`${row.section}-${row.term}-${index}`}
+                  key={metric.id}
                   className="min-w-0 rounded-xl border bg-card p-4 break-words shadow-xs"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <h2 className="font-semibold tracking-tight">{row.term}</h2>
+                    <div className="min-w-0">
+                      {metric.abbreviation && (
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          {metric.abbreviation}
+                        </p>
+                      )}
+                      <h2 className="font-semibold tracking-tight">
+                        {metric.name}
+                      </h2>
+                    </div>
                     <Badge
                       variant="secondary"
                       className="max-w-full font-normal whitespace-normal"
                     >
-                      {row.subsection}
+                      {metric.category}
                     </Badge>
                   </div>
-                  <dl className="mt-3 space-y-2 text-sm">
-                    {row.details.map((detail, detailIndex) => (
-                      <div
-                        key={`${row.term}-${detailIndex}`}
-                        className="grid gap-1 sm:grid-cols-[9rem_minmax(0,1fr)] sm:gap-3"
-                      >
-                        <dt className="text-xs font-medium text-muted-foreground">
-                          {row.headers[detailIndex] ||
-                            (detailIndex === 0 ? "Definition" : "Detail")}
-                        </dt>
-                        <dd className="min-w-0 leading-relaxed whitespace-pre-wrap">
-                          {detail || "—"}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
+                  <div className="mt-3">
+                    <MetricDetail metric={metric} />
+                  </div>
                 </article>
               ))
             ) : (
               <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                No terms match “{query}”. Try a shorthand, metric, or race
+                No metrics match “{query}”. Try a shorthand, metric, or race
                 countdown day.
               </div>
             )}
