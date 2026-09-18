@@ -1,4 +1,6 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
+import { f7, f7ready } from "framework7-react"
+import type { Picker } from "framework7/types"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,88 +15,135 @@ import {
   parseDurationInput,
 } from "../../../app-backend/lib/workout-editor-inputs.mjs"
 
-const ROW_HEIGHT = 44
-
-function TimeWheel({
-  label,
-  value,
-  count,
+function MobileTimePicker({
+  initialValue,
   onChange,
 }: {
-  label: string
-  value: number
-  count: number
-  onChange: (value: number) => void
+  initialValue: number
+  onChange: (seconds: number) => void
 }) {
-  const scroll = useRef<HTMLDivElement>(null)
-  const selected = useRef(-1)
-  const id = useId()
-  useLayoutEffect(() => {
-    if (scroll.current && selected.current !== value) {
-      scroll.current.scrollTop = value * ROW_HEIGHT
-      selected.current = value
-    }
-  }, [value])
-  const choose = (next: number) =>
-    scroll.current?.scrollTo({
-      top: Math.max(0, Math.min(count - 1, next)) * ROW_HEIGHT,
-      behavior: "smooth",
-    })
-  return (
-    <div className="we-time-wheel-column">
-      <span>{label}</span>
-      <div
-        ref={scroll}
-        className="we-time-wheel"
-        role="listbox"
-        aria-label={label}
-        tabIndex={0}
-        aria-activedescendant={`${id}-${value}`}
-        onScroll={(event) => {
-          const next = Math.max(
-            0,
-            Math.min(
-              count - 1,
-              Math.round(event.currentTarget.scrollTop / ROW_HEIGHT)
+  const container = useRef<HTMLDivElement>(null)
+  const id = useId().replace(/:/g, "")
+  useEffect(() => {
+    let disposed = false
+    let picker: Picker.Picker | undefined
+    const cleanup: (() => void)[] = []
+    f7ready(() => {
+      if (disposed || !container.current) return
+      const values = (count: number) =>
+        Array.from({ length: count }, (_, n) => String(n).padStart(2, "0"))
+      const current = [
+        Math.floor(initialValue / 3600),
+        Math.floor(initialValue / 60) % 60,
+        initialValue % 60,
+      ].map((n) => String(n).padStart(2, "0"))
+      const updateAccessibility = () => {
+        picker?.cols
+          .filter((_, index) => index % 2 === 0)
+          .forEach((col, index) => {
+            const column = col.el
+            if (!column) return
+            column.setAttribute(
+              "aria-activedescendant",
+              id + "-" + index + "-" + col.value
             )
+            column
+              .querySelectorAll<HTMLElement>(".picker-item")
+              .forEach((item) =>
+                item.setAttribute(
+                  "aria-selected",
+                  String(item.dataset.pickerValue === col.value)
+                )
+              )
+          })
+      }
+      picker = f7.picker.create({
+        containerEl: container.current,
+        toolbar: false,
+        rotateEffect: true,
+        closeByOutsideClick: false,
+        value: current,
+        formatValue: (values) => values.join(":"),
+        cols: [
+          {
+            values: values(Math.max(100, Math.floor(initialValue / 3600) + 1)),
+            textAlign: "center",
+          },
+          { divider: true, content: ":" },
+          { values: values(60), textAlign: "center" },
+          { divider: true, content: ":" },
+          { values: values(60), textAlign: "center" },
+        ],
+        on: {
+          change: (_picker, value) => {
+            const parts = (value as string[]).map(Number)
+            if (parts.length === 3 && parts.every(Number.isFinite))
+              onChange(parts[0] * 3600 + parts[1] * 60 + parts[2])
+            updateAccessibility()
+          },
+        },
+      })
+      picker.cols
+        .filter((_, index) => index % 2 === 0)
+        .forEach((col, index) => {
+          const column = col.el
+          column.setAttribute("role", "listbox")
+          column.setAttribute(
+            "aria-label",
+            ["Hours", "Minutes", "Seconds"][index]
           )
-          if (next !== selected.current) {
-            selected.current = next
-            onChange(next)
-          }
-        }}
-        onKeyDown={(event) => {
-          const next =
-            event.key === "ArrowDown"
-              ? value + 1
-              : event.key === "ArrowUp"
-                ? value - 1
-                : event.key === "Home"
-                  ? 0
-                  : event.key === "End"
-                    ? count - 1
-                    : null
-          if (next != null) {
+          column.tabIndex = 0
+          column
+            .querySelectorAll<HTMLElement>(".picker-item")
+            .forEach((item) => {
+              item.setAttribute("role", "option")
+              item.id = id + "-" + index + "-" + item.dataset.pickerValue
+            })
+          const keydown = (event: KeyboardEvent) => {
+            const values = Array.from(
+              {
+                length:
+                  index === 0
+                    ? Math.max(100, Math.floor(initialValue / 3600) + 1)
+                    : 60,
+              },
+              (_, n) => String(n).padStart(2, "0")
+            )
+            const currentIndex = values.indexOf(String(col.value))
+            const next =
+              event.key === "ArrowDown"
+                ? currentIndex + 1
+                : event.key === "ArrowUp"
+                  ? currentIndex - 1
+                  : event.key === "Home"
+                    ? 0
+                    : event.key === "End"
+                      ? values.length - 1
+                      : null
+            if (next == null) return
             event.preventDefault()
-            choose(next)
+            col.setValue(values[Math.max(0, Math.min(values.length - 1, next))])
           }
-        }}
-      >
-        {Array.from({ length: count }, (_, n) => (
-          <button
-            type="button"
-            role="option"
-            aria-selected={value === n}
-            id={`${id}-${n}`}
-            key={n}
-            tabIndex={-1}
-            onClick={() => choose(n)}
-          >
-            {String(n).padStart(2, "0")}
-          </button>
-        ))}
+          column.addEventListener("keydown", keydown)
+          cleanup.push(() => column.removeEventListener("keydown", keydown))
+        })
+      updateAccessibility()
+    })
+    return () => {
+      disposed = true
+      cleanup.forEach((fn) => fn())
+      picker?.destroy()
+    }
+  }, [id, initialValue, onChange])
+  return (
+    <>
+      <div className="we-time-labels" aria-hidden="true">
+        <span>Hours</span>
+        <span>Minutes</span>
+        <span>Seconds</span>
       </div>
-    </div>
+      <div ref={container} className="we-framework7-time-picker" />
+    </>
   )
 }
 
@@ -121,9 +170,6 @@ export function DurationField({
     if (parsed !== null) onChange(parsed)
     setText(durationClock(parsed ?? value))
   }
-  const hours = Math.floor(draft / 3600),
-    minutes = Math.floor(draft / 60) % 60,
-    seconds = draft % 60
   return (
     <div className="we-field">
       <span>{label}</span>
@@ -190,35 +236,10 @@ export function DurationField({
           <DialogDescription className="sr-only">
             Scroll each wheel to choose hours, minutes, and seconds.
           </DialogDescription>
-          <div className="we-time-wheels">
-            <TimeWheel
-              label="Hours"
-              count={Math.max(100, hours + 1)}
-              value={hours}
-              onChange={(n) =>
-                setDraft((current) => n * 3600 + (current % 3600))
-              }
-            />
-            <TimeWheel
-              label="Minutes"
-              count={60}
-              value={minutes}
-              onChange={(n) =>
-                setDraft(
-                  (current) =>
-                    Math.floor(current / 3600) * 3600 + n * 60 + (current % 60)
-                )
-              }
-            />
-            <TimeWheel
-              label="Seconds"
-              count={60}
-              value={seconds}
-              onChange={(n) =>
-                setDraft((current) => Math.floor(current / 60) * 60 + n)
-              }
-            />
-          </div>
+          <MobileTimePicker
+            initialValue={Math.round(value)}
+            onChange={setDraft}
+          />
         </DialogContent>
       </Dialog>
     </div>

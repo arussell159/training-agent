@@ -90,9 +90,7 @@ export function MobileActionMenu({
           if (!disabled && action && !action.disabled) action.onSelect()
         }}
       >
-        <option value="" disabled>
-          {label}
-        </option>
+        <option value="" disabled hidden aria-hidden="true" />
         {actions.map((action) => (
           <option
             key={action.value}

@@ -2,6 +2,8 @@ import {useEffect,useMemo,useState} from 'react'
 import {apiFetch} from '@/lib/api-client'
 import type {PlannedWorkout} from '@/lib/training-context'
 import {segmentStatistics,type RecordedPoint} from '@/lib/segment-statistics'
+import {WorkoutTableCard} from '@/components/ui/workout-table-card'
+import {useIsMobile} from '@/hooks/use-mobile'
 import {DesktopWorkoutRouteMap} from '@/components/desktop-workout-route-map'
 
 type Split={number:number;start:number;end:number;distance:number;pace:number;power:number|null}
@@ -22,6 +24,7 @@ function timeAtDistance(points:RecordedPoint[],target:number){
 }
 
 export function WorkoutMapSplits({workout}:{workout:PlannedWorkout}){
+ const mobile=useIsMobile()
  const id=workout.activity_id || (workout.id.startsWith('activity:')?workout.id.slice(9):null)
  const revision=(workout as PlannedWorkout & {activity_revision?:string}).activity_revision || ''
  const [analysis,setAnalysis]=useState<Analysis|null>(null)
@@ -42,12 +45,14 @@ export function WorkoutMapSplits({workout}:{workout:PlannedWorkout}){
  },[analysis?.points,distancePoints,splitDistance])
  const routePoints=useMemo(()=>(analysis?.points || []).flatMap(point=>point.latitude!=null&&point.longitude!=null?[{time:point.time,latitude:point.latitude,longitude:point.longitude}]:[]),[analysis])
  const showPower=bike&&splits.some(split=>split.power!=null)
+ const table=splits.length?<div className={mobile ? "data-table" : "max-h-[320px] overflow-y-auto"}><table className="w-full text-xs"><thead className="sticky top-0 bg-card"><tr className="border-b"><th className="label-cell px-4 py-2 text-left font-medium">Split</th><th className="numeric-cell px-4 py-2 text-right font-medium">Pace</th>{showPower&&<th className="numeric-cell px-4 py-2 text-right font-medium">Power</th>}</tr></thead><tbody>{splits.map(split=><tr key={split.number} className="border-b last:border-b-0"><td className="label-cell px-4 py-2.5 tabular-nums">{split.number}</td><td className="numeric-cell px-4 py-2.5 text-right font-medium tabular-nums">{clock(split.pace)} <span className="font-normal text-muted-foreground">/{bike?'5 mi':swim?'100 yd':'mi'}</span></td>{showPower&&<td className="numeric-cell px-4 py-2.5 text-right font-medium tabular-nums">{split.power!=null?`${Math.round(split.power)} W`:'—'}</td>}</tr>)}</tbody></table></div>:<p className="p-4 text-xs text-muted-foreground">Split data is not available for this recording.</p>
  if(!id)return null
+ if(mobile)return <section aria-label="Workout splits and route"><WorkoutTableCard title="Splits" subtitle={bike?'5 miles per split':swim?'100 yards per split':'1 mile per split'}>{table}</WorkoutTableCard></section>
  return <section aria-label="Workout splits and route" className="overflow-hidden rounded-xl border bg-card shadow-sm">
   <div className={`grid ${swim?'':'md:grid-cols-[280px_minmax(0,1fr)]'}`}>
    <div className={swim?'':'border-b md:border-r md:border-b-0'}>
     <div className="border-b px-4 py-3"><h2 className="text-sm font-semibold">Splits</h2><p className="mt-0.5 text-[10px] text-muted-foreground">{bike?'5 miles':swim?'100 yards':'1 mile'} per split</p></div>
-    {splits.length?<div className="max-h-[320px] overflow-y-auto"><table className="w-full text-xs"><thead className="sticky top-0 bg-card"><tr className="border-b"><th className="px-4 py-2 text-left font-medium">Split</th><th className="px-4 py-2 text-right font-medium">Pace</th>{showPower&&<th className="px-4 py-2 text-right font-medium">Power</th>}</tr></thead><tbody>{splits.map(split=><tr key={split.number} className="border-b last:border-b-0"><td className="px-4 py-2.5 tabular-nums">{split.number}</td><td className="px-4 py-2.5 text-right font-medium tabular-nums">{clock(split.pace)} <span className="font-normal text-muted-foreground">/{bike?'5 mi':swim?'100 yd':'mi'}</span></td>{showPower&&<td className="px-4 py-2.5 text-right font-medium tabular-nums">{split.power!=null?`${Math.round(split.power)} W`:'—'}</td>}</tr>)}</tbody></table></div>:<p className="p-4 text-xs text-muted-foreground">Split data is not available for this recording.</p>}
+    {table}
    </div>
    {!swim&&<div className="hidden min-w-0 md:block"><DesktopWorkoutRouteMap workout={workout} timedPoints={routePoints}/></div>}
   </div>

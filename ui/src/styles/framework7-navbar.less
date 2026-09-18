@@ -10,6 +10,11 @@
 @media (width < 48rem) {
   @import "../../node_modules/framework7/components/app/app-vars.less";
   @import "../../node_modules/framework7/components/navbar/navbar.less";
+  @import "../../node_modules/framework7/components/toolbar/toolbar.less";
+  @import "../../node_modules/framework7/components/tabs/tabs.less";
+  @import "../../node_modules/framework7/components/card/card.less";
+  @import "../../node_modules/framework7/components/data-table/data-table.less";
+  @import "../../node_modules/framework7/components/picker/picker.less";
 
   .mobile-site-navbar {
     // Keep the existing calendar, map and chat offsets, with 44px touch targets.
@@ -17,6 +22,10 @@
     --f7-safe-area-top: 0px;
     --f7-navbar-text-color: var(--foreground);
     --f7-navbar-bg-color: var(--background);
+    // The outer shadow fits within the 6px above the controls, including in iOS standalone mode.
+    --f7-glass-shadow:
+      inset 0 0 0 0.5px rgb(128 128 128 / 18%),
+      inset 0 1px 1px rgb(255 255 255 / 65%), 0 2px 5px rgb(0 0 0 / 10%);
     position: sticky;
     top: 0;
     z-index: 50;
@@ -70,5 +79,87 @@
   .mobile-site-navbar-fixed {
     position: fixed;
     inset-inline: 0;
+  }
+
+  .mobile-navbar.toolbar {
+    --f7-toolbar-bg-color: var(--background);
+    --f7-tabbar-link-inactive-color: var(--foreground);
+    --f7-tabbar-link-active-color: var(--primary);
+    position: fixed;
+    z-index: 40;
+    bottom: 0;
+    pointer-events: none;
+    .toolbar-pane {
+      pointer-events: auto;
+    }
+    .tab-link {
+      flex: 1;
+      min-width: 0;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .tab-link svg {
+      width: 28px;
+      height: 28px;
+    }
+    .tabbar-label {
+      font-size: 10px;
+      line-height: 12px;
+    }
+  }
+  .mobile-page-tabs,
+  .mobile-page-tab.tab-active {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .workout-data-card.card {
+    --f7-card-margin-horizontal: 0px;
+    --f7-card-margin-vertical: 0px;
+    --f7-card-bg-color: var(--card);
+    --f7-card-text-color: var(--foreground);
+    --f7-card-border-radius: 16px;
+    --f7-card-header-font-size: 15px;
+    --f7-table-head-text-color: var(--muted-foreground);
+    --f7-table-head-bg-color: var(--card);
+    --f7-table-body-font-size: 12px;
+    --f7-table-cell-border-color: var(--border);
+    --f7-table-head-cell-height: 42px;
+    --f7-table-body-cell-height: 48px;
+    --f7-table-cell-padding-horizontal: 8px;
+    --f7-table-edge-cell-padding-horizontal: 12px;
+    --f7-table-label-cell-padding-horizontal: 12px;
+    --f7-table-selected-row-bg-color: #e0f2fe;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    .data-table {
+      max-height: 320px;
+      overflow: auto;
+      overscroll-behavior: contain;
+    }
+    .workout-laps-scroll {
+      max-height: 240px;
+    }
+    thead {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--card);
+    }
+    th,
+    td {
+      white-space: nowrap;
+    }
+    tr[aria-selected="true"] {
+      background: var(--f7-table-selected-row-bg-color);
+      color: #111827;
+    }
+    button {
+      min-height: 40px;
+      min-width: 30px;
+    }
   }
 }

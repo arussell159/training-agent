@@ -8,6 +8,7 @@ import { WorkoutCoachButton } from "@/components/workout-coach-button"
 import { lazy, Suspense, useEffect, useState } from "react"
 import { formatDuration } from "@/lib/duration"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { WorkoutDetailSurface } from "@/components/workout-detail-surface"
 const WorkoutAnalysis = lazy(() =>
   import("@/components/workout-analysis").then((m) => ({
     default: m.WorkoutAnalysis,
@@ -216,7 +217,7 @@ export function WorkoutDetailPage({
       )}
 
       {workout.status === "completed" && (
-        <div className="sticky top-0 z-0 transform-gpu will-change-transform md:hidden">
+        <div className="workout-mobile-map sticky top-0 z-0 transform-gpu will-change-transform md:hidden">
           <WorkoutRouteMap
             workout={workout}
             onAvailable={setMobileMapAvailable}
@@ -290,15 +291,11 @@ export function WorkoutDetailPage({
       </div>
 
       <div className="mx-auto w-full max-w-5xl px-0 md:px-6">
-        <article
+        <WorkoutDetailSurface
+          completed={workout.status === "completed"}
+          onClose={onBack}
           className={`relative z-10 flex w-full min-w-0 transform-gpu flex-col gap-6 bg-background px-5 pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-[0_-12px_30px_rgba(0,0,0,0.08)] will-change-transform sm:px-7 md:px-0 md:pt-5 md:pb-10 md:shadow-none ${mobileMapAvailable ? "-mt-7 rounded-t-[28px] pt-3" : "pt-[76px]"}`}
         >
-          {mobileMapAvailable && (
-            <div
-              aria-hidden="true"
-              className="mx-auto mb-2 h-1.5 w-12 rounded-full bg-muted-foreground/35 md:hidden"
-            />
-          )}
           <section
             className={`pt-1 md:hidden ${workout.status === "completed" ? "space-y-5" : "hidden"}`}
           >
@@ -448,7 +445,7 @@ export function WorkoutDetailPage({
           )}
 
           <WorkoutCoachButton workout={workout} />
-        </article>
+        </WorkoutDetailSurface>
       </div>
     </div>
   )

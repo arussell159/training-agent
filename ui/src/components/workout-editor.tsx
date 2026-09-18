@@ -119,6 +119,7 @@ import {
   type SportZoneSettings,
 } from "../../../app-backend/lib/workout-editor-zones.mjs"
 import { DurationField } from "@/components/workout-duration-field"
+import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import {
   durationClock,
   editorUnits,
@@ -1878,6 +1879,25 @@ function EditorWorkspace({
             }
           }}
         >
+          <MobileSiteNavbar
+            title={isNew ? "Create Workout" : "Edit Workout"}
+            onBack={requestClose}
+            backLabel="Close editor"
+            actions={[
+              {
+                value: "undo",
+                label: "Undo",
+                disabled: !history.past.length || saving,
+                onSelect: undo,
+              },
+              {
+                value: "redo",
+                label: "Redo",
+                disabled: !history.future.length || saving,
+                onSelect: redo,
+              },
+            ]}
+          />
           <header className="we-header">
             <div>
               <DialogTitle className="text-lg font-semibold">

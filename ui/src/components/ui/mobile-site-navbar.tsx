@@ -1,13 +1,15 @@
-import { useEffect, useRef, type ReactNode } from "react"
+import { useEffect, useRef, type ReactNode, type ComponentProps } from "react"
 import { f7, Navbar, NavLeft, NavRight, NavTitle } from "framework7-react"
 import { ChevronLeft } from "lucide-react"
 import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
+import { MobileActionMenu } from "@/components/ui/mobile-native-controls"
 
 export function MobileSiteNavbar({
   title,
   titleLabel,
+  actions,
   onBack,
   backLabel = "Back",
   onEditWorkout,
@@ -17,6 +19,7 @@ export function MobileSiteNavbar({
 }: {
   title: ReactNode
   titleLabel?: string
+  actions?: ComponentProps<typeof MobileActionMenu>["actions"]
   onBack?: () => void
   backLabel?: string
   onEditWorkout?: () => void
@@ -65,7 +68,15 @@ export function MobileSiteNavbar({
         </NavTitle>
         <NavRight>
           {right}
-          <MobileHeaderMenu onEditWorkout={onEditWorkout} />
+          {actions ? (
+            <MobileActionMenu
+              label="Page menu"
+              actions={actions}
+              className="size-11 p-0"
+            />
+          ) : (
+            <MobileHeaderMenu onEditWorkout={onEditWorkout} />
+          )}
         </NavRight>
       </Navbar>
     </header>

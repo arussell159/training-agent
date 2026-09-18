@@ -32,7 +32,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { MobileNavbar } from "@/components/ui/navbars"
+import { MobileNavbar, MobilePageTabs } from "@/components/ui/navbars"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { MobileHeaderNavigation } from "@/components/ui/mobile-header-navigation"
 import { useMobileViewport } from "@/hooks/use-mobile-viewport"
@@ -382,35 +382,37 @@ function AppWorkspace() {
                     : "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
           }`}
         >
-          <Suspense fallback={<RouteFallback />}>
-            {selectedReport ? (
-              <ReportReaderPage target={selectedReport} />
-            ) : selectedWorkout ? (
-              <WorkoutDetailPage
-                workout={selectedWorkout}
-                onBack={closeWorkout}
-              />
-            ) : activeItem === "Home" ? (
-              <TrainingDashboard
-                onWorkoutOpen={openWorkout}
-                refreshRequest={refreshRequest}
-                onRefreshComplete={handleRefreshComplete}
-              />
-            ) : activeItem === "Calendar" ? (
-              <TrainingCalendar
-                key={calendarNavigationVersion}
-                onWorkoutOpen={openWorkout}
-              />
-            ) : isCoachPage ? (
-              <CoachPage />
-            ) : activeItem === "Settings" ? (
-              <SettingsWorkspace />
-            ) : activeItem === "Library" ? (
-              <TrainingLibrary onWorkoutOpen={openWorkout} />
-            ) : activeItem === "Annual Plan" ? (
-              <AnnualPlanCreator />
-            ) : null}
-          </Suspense>
+          <MobilePageTabs activeItem={activeItem}>
+            <Suspense fallback={<RouteFallback />}>
+              {selectedReport ? (
+                <ReportReaderPage target={selectedReport} />
+              ) : selectedWorkout ? (
+                <WorkoutDetailPage
+                  workout={selectedWorkout}
+                  onBack={closeWorkout}
+                />
+              ) : activeItem === "Home" ? (
+                <TrainingDashboard
+                  onWorkoutOpen={openWorkout}
+                  refreshRequest={refreshRequest}
+                  onRefreshComplete={handleRefreshComplete}
+                />
+              ) : activeItem === "Calendar" ? (
+                <TrainingCalendar
+                  key={calendarNavigationVersion}
+                  onWorkoutOpen={openWorkout}
+                />
+              ) : isCoachPage ? (
+                <CoachPage />
+              ) : activeItem === "Settings" ? (
+                <SettingsWorkspace />
+              ) : activeItem === "Library" ? (
+                <TrainingLibrary onWorkoutOpen={openWorkout} />
+              ) : activeItem === "Annual Plan" ? (
+                <AnnualPlanCreator />
+              ) : null}
+            </Suspense>
+          </MobilePageTabs>
         </main>
 
         <MobileNavbar

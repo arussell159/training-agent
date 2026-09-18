@@ -1,3 +1,5 @@
+import type { ReactNode, MouseEvent, KeyboardEvent } from "react"
+import { Tab, Tabs, Toolbar, ToolbarPane } from "framework7-react"
 import {
   CalendarDays,
   Home,
@@ -5,16 +7,44 @@ import {
   MessageCircle,
   Settings,
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 const destinations = [
-  { label: "Home", icon: Home },
-  { label: "Calendar", icon: CalendarDays },
-  { label: "Coach", icon: MessageCircle },
-  { label: "Library", icon: Library },
-  { label: "Settings", icon: Settings },
+  { label: "Home", icon: Home, id: "home" },
+  { label: "Calendar", icon: CalendarDays, id: "calendar" },
+  { label: "Coach", icon: MessageCircle, id: "coach" },
+  { label: "Library", icon: Library, id: "library" },
+  { label: "Settings", icon: Settings, id: "settings" },
 ]
+
+export function MobilePageTabs({
+  activeItem,
+  children,
+}: {
+  activeItem: string
+  children: ReactNode
+}) {
+  const mobile = useIsMobile()
+  if (!mobile) return children
+  return (
+    <Tabs className="mobile-page-tabs">
+      {[...destinations, { label: "Annual Plan", id: "annual-plan" }].map(
+        ({ label, id }) => (
+          <Tab
+            key={id}
+            id={`mobile-panel-${id}`}
+            tabActive={activeItem === label}
+            className="mobile-page-tab"
+            {...{ role: "tabpanel" }}
+            aria-label={label}
+          >
+            {activeItem === label ? children : null}
+          </Tab>
+        )
+      )}
+    </Tabs>
+  )
+}
 
 export function MobileNavbar({
   activeItem,
@@ -25,36 +55,68 @@ export function MobileNavbar({
   onNavigate: (destination: string) => void
   onPrefetch?: (destination: string) => void
 }) {
+  const mobile = useIsMobile()
+  if (!mobile) return null
   return (
-    <div className="mobile-navbar pointer-events-none fixed inset-x-[calc(1rem+env(safe-area-inset-bottom))] bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 flex justify-center md:hidden">
-      <nav
-        aria-label="Primary navigation"
-        className="pointer-events-auto flex w-full items-center justify-between gap-1 rounded-full border border-border/70 bg-background/95 px-2 py-3 shadow-lg backdrop-blur"
-      >
-        {destinations.map(({ label, icon: Icon }) => (
-          <Button
-            key={label}
+    <Toolbar
+      bottom
+      tabbar
+      icons
+      className="mobile-navbar"
+      {...{ role: "navigation" }}
+      aria-label="Primary navigation"
+    >
+      <ToolbarPane {...{ role: "tablist" }} aria-label="App pages">
+        {destinations.map(({ label, icon: Icon, id }, index) => (
+          <button
+            key={id}
             type="button"
-            variant={label === "Coach" ? "default" : "ghost"}
-            size="icon"
+            data-tab={`#mobile-panel-${id}`}
+            className={
+              activeItem === label ? "tab-link tab-link-active" : "tab-link"
+            }
+            id={`mobile-tab-${id}`}
+            role="tab"
             aria-label={label}
-            aria-current={activeItem === label ? "page" : undefined}
-            onClick={() => onNavigate(label)}
+            aria-selected={activeItem === label}
+            aria-controls={`mobile-panel-${id}`}
+            tabIndex={
+              activeItem === label ||
+              (activeItem === "Annual Plan" && index === 0)
+                ? 0
+                : -1
+            }
+            onClick={(event: MouseEvent) => {
+              event.preventDefault()
+              onNavigate(label)
+            }}
             onPointerEnter={() => onPrefetch?.(label)}
             onFocus={() => onPrefetch?.(label)}
             onTouchStart={() => onPrefetch?.(label)}
-            className={cn(
-              "size-12 rounded-full transition-colors",
-              label !== "Coach" &&
-                activeItem === label &&
-                "bg-accent text-accent-foreground"
-            )}
+            onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+              const next =
+                event.key === "ArrowRight"
+                  ? (index + 1) % destinations.length
+                  : event.key === "ArrowLeft"
+                    ? (index + destinations.length - 1) % destinations.length
+                    : event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? destinations.length - 1
+                        : null
+              if (next == null) return
+              event.preventDefault()
+              onNavigate(destinations[next].label)
+              document
+                .getElementById(`mobile-tab-${destinations[next].id}`)
+                ?.focus()
+            }}
           >
-            <Icon className="size-7 -translate-y-0.5" />
-            <span className="sr-only">{label}</span>
-          </Button>
+            <Icon aria-hidden="true" />
+            <span className="tabbar-label">{label}</span>
+          </button>
         ))}
-      </nav>
-    </div>
+      </ToolbarPane>
+    </Toolbar>
   )
 }
