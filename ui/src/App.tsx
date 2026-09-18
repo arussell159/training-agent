@@ -13,6 +13,8 @@ import {
 } from "react"
 import {
   CalendarDays,
+  BookOpen,
+  Ellipsis,
   Home,
   Library,
   MessageCircle,
@@ -20,6 +22,14 @@ import {
   Settings,
   CalendarRange,
 } from "lucide-react"
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 import {
   AlertDialog,
@@ -353,25 +363,47 @@ function AppWorkspace() {
                   {activeItem}
                 </h1>
                 {activeItem === "Home" && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="ml-auto hidden cursor-pointer md:inline-flex"
-                    disabled={isRefreshing}
-                    onClick={() => {
-                      setIsRefreshing(true)
-                      setRefreshRequest((request) => request + 1)
-                    }}
-                  >
-                    <RefreshCw
-                      className={isRefreshing ? "animate-spin" : undefined}
-                    />
-                    <span className="hidden sm:inline">
-                      Refresh Intervals.icu
-                    </span>
-                    <span className="sm:hidden">Refresh</span>
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="ml-auto cursor-pointer"
+                          aria-label="Site menu"
+                          title="Site menu"
+                        />
+                      }
+                    >
+                      <Ellipsis className="size-5" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-max min-w-52">
+                      <DropdownMenuItem
+                        disabled={isRefreshing}
+                        className="whitespace-nowrap"
+                        onClick={() => {
+                          setIsRefreshing(true)
+                          setRefreshRequest((request) => request + 1)
+                        }}
+                      >
+                        <RefreshCw
+                          className={isRefreshing ? "animate-spin" : undefined}
+                        />
+                        Refresh Intervals.icu
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="whitespace-nowrap"
+                        onClick={() =>
+                          window.dispatchEvent(new Event("terms-open"))
+                        }
+                      >
+                        <BookOpen />
+                        Terms &amp; definitions
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
               </header>
             </>
