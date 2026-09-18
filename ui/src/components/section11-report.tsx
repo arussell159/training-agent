@@ -1,4 +1,8 @@
 import { WorkoutReportBody } from "@/components/workout-report-body"
+import {
+  WeeklyReportBody,
+  BlockReportBody,
+} from "@/components/catalog-report-body"
 import { useEffect, useRef, useState } from "react"
 import { Check, ChevronRight, FileText, LoaderCircle } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -435,7 +439,11 @@ function ReportPanel({
                     </DialogTitle>
                   </DialogHeader>
                   <div className="min-w-0 px-5 pt-6 pb-[45vh] sm:px-8">
-                    <ReportBody text={result.text} />
+                    <ReportBody
+                      text={result.text}
+                      kind={target.kind}
+                      period={period}
+                    />
                   </div>
                 </DialogContent>
               </Dialog>
@@ -443,18 +451,7 @@ function ReportPanel({
           ) : target.kind === "pre" || target.kind === "post" ? (
             <WorkoutReportBody text={result.text} kind={target.kind} />
           ) : (
-            <ReportBody text={result.text} />
-          )}
-          {!compact && (
-            <p className="border-t pt-2 text-[11px] text-muted-foreground">
-              Saved{" "}
-              {result.generatedAt
-                ? new Date(result.generatedAt).toLocaleString()
-                : ""}
-              {result.source?.lastSynced
-                ? ` · Training data synced ${new Date(result.source.lastSynced).toLocaleString()}`
-                : ""}
-            </p>
+            <ReportBody text={result.text} kind={target.kind} period={period} />
           )}
         </>
       )}
@@ -462,7 +459,31 @@ function ReportPanel({
   )
 }
 
-function ReportBody({ text }: { text?: string }) {
+function ReportBody({
+  text,
+  kind,
+  period,
+}: {
+  text?: string
+  kind?: ReportTarget["kind"]
+  period?: { startDate: string; endDate: string } | null
+}) {
+  if (kind === "weekly" || kind === "block") {
+    const report = {
+      id: "saved",
+      kind,
+      title: "",
+      text: text || "",
+      startDate: period?.startDate || "",
+      endDate: period?.endDate || "",
+      source: "intervals" as const,
+    }
+    return kind === "weekly" ? (
+      <WeeklyReportBody report={report} hideHeading />
+    ) : (
+      <BlockReportBody report={report} />
+    )
+  }
   return (
     <article className="section11-report-body min-w-0 text-sm leading-relaxed font-normal break-words">
       {reportLines(text).map((line, index) =>

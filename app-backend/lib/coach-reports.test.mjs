@@ -476,10 +476,18 @@ test("manual Refresh recovers an uncertain dispatch and permits retry after a fa
 
 test("report HTTP requires app login, same-origin POST and a validated target", async (t) => {
   let generated = 0;
+  const catalogReport = {
+    id: "intervals-note:1",
+    kind: "weekly",
+    startDate: "2026-09-07",
+    endDate: "2026-09-13",
+    text: "Saved Intervals report",
+    title: "Weekly report",
+  };
   const handler = createReportsHttp({
     env: () => env,
     getCatalog: async () => ({
-      reports: [{ id: "intervals-note:1", kind: "weekly" }],
+      reports: [catalogReport],
     }),
     getReports: async () => ({
       status: async () => ({ eligible: true }),
@@ -514,7 +522,16 @@ test("report HTTP requires app login, same-origin POST and a validated target", 
   assert.equal((await call("generate", headers, { ...pre, eligible: true })).status, 400);
   const catalog = await call("catalog");
   assert.equal(catalog.status, 200);
-  assert.deepEqual((await catalog.json()).reports, [{ id: "intervals-note:1", kind: "weekly" }]);
+  assert.deepEqual((await catalog.json()).reports, [catalogReport]);
+  const weekly = await (
+    await call("status", headers, { kind: "weekly", startDate: "2026-09-07" })
+  ).json();
+  assert.equal(weekly.status, "complete");
+  assert.equal(weekly.text, "Saved Intervals report");
+  const missing = await (
+    await call("status", headers, { kind: "weekly", startDate: "2026-08-31" })
+  ).json();
+  assert.equal(missing.eligible, false);
   assert.equal((await call("status")).status, 200);
   assert.equal(generated, 0);
   assert.equal(
