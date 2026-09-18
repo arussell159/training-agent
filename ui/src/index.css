@@ -34,48 +34,6 @@ html, body {
   html[data-mobile-keyboard-open="true"] .coach-page-main {
     padding-bottom: 0;
   }
-
-  .mobile-site-header {
-    position: sticky;
-    top: 0;
-    border-color: transparent;
-    background: linear-gradient(to bottom, rgb(255 255 255 / 24%) 0%, rgb(255 255 255 / 4%) 52%, transparent 100%);
-    -webkit-backdrop-filter: blur(1.5px);
-    backdrop-filter: blur(1.5px);
-    box-shadow: none;
-  }
-
-  .mobile-site-header .mobile-header-title {
-    position: absolute;
-    top: 50%;
-    left: 64px;
-    right: 64px;
-    margin: 0;
-    text-align: center;
-    pointer-events: none;
-    transform: translateY(-50%);
-  }
-
-  .mobile-site-header.workout-map-header {
-    position: fixed;
-    border-color: transparent;
-    background: linear-gradient(to bottom, rgb(255 255 255 / 24%) 0%, rgb(255 255 255 / 4%) 52%, transparent 100%);
-    box-shadow: none;
-    -webkit-backdrop-filter: blur(1.5px);
-    backdrop-filter: blur(1.5px);
-  }
-
-  .mobile-site-header.calendar-scroll-header {
-    position: fixed;
-    right: 0;
-    left: 0;
-    border-color: transparent;
-    background: transparent;
-    box-shadow: none;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-
 }
 
 @theme inline {

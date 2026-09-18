@@ -1,11 +1,10 @@
 import { apiFetch } from "@/lib/api-client"
 import { AccountSecurity } from "@/components/app-auth"
-import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
+import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { useEffect, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import {
   Activity,
-  ChevronLeft,
   ChevronRight,
   Database,
   Gauge,
@@ -302,14 +301,11 @@ export function SettingsWorkspace() {
     <div className="flex min-h-0 w-full flex-1 flex-col bg-background">
       {loadError && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 text-sm text-destructive"><p>{loadError}</p><Button variant="outline" size="sm" disabled={checkingConnection || saving} onClick={() => void retrySettingsConnection()}>{checkingConnection ? <LoaderCircle className="size-4 animate-spin"/> : null}Retry connection</Button></div>}
       <div className="flex min-h-0 flex-1 flex-col md:hidden">
-        <header className="mobile-site-header z-50 flex h-14 shrink-0 items-center border-b px-4">
-          {mobileSection ? (
-            <Button variant="ghost" size="icon-sm" aria-label="Back to settings menu" onClick={() => { setMobileSection(null); setFeedback("") }}><ChevronLeft /></Button>
-          ) : (
-            <h1 className="mobile-header-title text-sm font-semibold">Menu</h1>
-          )}
-          {mobileItem && <h1 className="mobile-header-title ml-2 truncate text-sm font-semibold">{mobileItem.label}</h1>}
-        <MobileHeaderMenu /></header>
+        <MobileSiteNavbar
+          title={mobileItem?.label || "Menu"}
+          backLabel="Back to settings menu"
+          onBack={mobileSection ? () => { setMobileSection(null); setFeedback("") } : undefined}
+        />
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
           {mobileSection ? renderPanel(mobileSection) : (
             <div className="space-y-5">

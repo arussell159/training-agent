@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { MobileNavbar } from "@/components/ui/navbars"
-import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
+import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { MobileHeaderNavigation } from "@/components/ui/mobile-header-navigation"
 import { useMobileViewport } from "@/hooks/use-mobile-viewport"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
@@ -338,33 +338,35 @@ function AppWorkspace() {
           activeItem !== "Calendar" &&
           activeItem !== "Annual Plan" &&
           activeItem !== "Settings" && (
-            <header className="mobile-site-header sticky top-0 z-50 flex h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur">
-              <h1 className="mobile-header-title min-w-0 truncate text-sm font-semibold">
-                {activeItem}
-              </h1>
-              {activeItem === "Home" && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="ml-auto hidden cursor-pointer md:inline-flex"
-                  disabled={isRefreshing}
-                  onClick={() => {
-                    setIsRefreshing(true)
-                    setRefreshRequest((request) => request + 1)
-                  }}
-                >
-                  <RefreshCw
-                    className={isRefreshing ? "animate-spin" : undefined}
-                  />
-                  <span className="hidden sm:inline">
-                    Refresh Intervals.icu
-                  </span>
-                  <span className="sm:hidden">Refresh</span>
-                </Button>
-              )}
-              <MobileHeaderMenu />
-            </header>
+            <>
+              <MobileSiteNavbar title={activeItem} />
+              <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:flex">
+                <h1 className="min-w-0 truncate text-sm font-semibold">
+                  {activeItem}
+                </h1>
+                {activeItem === "Home" && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="ml-auto hidden cursor-pointer md:inline-flex"
+                    disabled={isRefreshing}
+                    onClick={() => {
+                      setIsRefreshing(true)
+                      setRefreshRequest((request) => request + 1)
+                    }}
+                  >
+                    <RefreshCw
+                      className={isRefreshing ? "animate-spin" : undefined}
+                    />
+                    <span className="hidden sm:inline">
+                      Refresh Intervals.icu
+                    </span>
+                    <span className="sm:hidden">Refresh</span>
+                  </Button>
+                )}
+              </header>
+            </>
           )}
         <main
           key={contextVersion}

@@ -1,11 +1,18 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
+import Framework7 from "framework7/lite"
+import Framework7React, { App as Framework7App } from "framework7-react"
 
 import "./index.css"
+import "./styles/framework7-navbar.less"
 import App from "./App.tsx"
 import { AppAuth } from "@/components/app-auth"
 import { ThemeProvider } from "@/components/theme-provider.tsx"
 import { TooltipProvider } from "@/components/ui/tooltip"
+
+// Framework7's plugin registration method is not a React Hook.
+// eslint-disable-next-line react-hooks/rules-of-hooks
+Framework7.use(Framework7React)
 
 // Keep gestures as scrolling/inspection rather than changing the app scale.
 document.addEventListener("gesturestart", (event) => event.preventDefault(), {
@@ -37,12 +44,19 @@ if ("serviceWorker" in navigator) {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <AppAuth>
-      <ThemeProvider>
-        <TooltipProvider>
-          <App />
-        </TooltipProvider>
-      </ThemeProvider>
-    </AppAuth>
+    <Framework7App
+      name="Training Agent"
+      theme="ios"
+      clicks={{ externalLinks: "a" }}
+      touch={{ activeState: false, touchRipple: false, touchHighlight: false }}
+    >
+      <AppAuth>
+        <ThemeProvider>
+          <TooltipProvider>
+            <App />
+          </TooltipProvider>
+        </ThemeProvider>
+      </AppAuth>
+    </Framework7App>
   </StrictMode>
 )

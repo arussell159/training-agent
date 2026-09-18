@@ -1,0 +1,74 @@
+// Use Framework7's actual iOS Navbar styles without its global app/page resets.
+@import (reference) "../../node_modules/framework7/less/mixins.less";
+@import (reference) "../../node_modules/framework7/less/vars.less";
+@includeIosTheme: true;
+@includeMdTheme: false;
+@includeDarkTheme: true;
+@includeLightTheme: true;
+@rtl: false;
+
+@media (width < 48rem) {
+  @import "../../node_modules/framework7/components/app/app-vars.less";
+  @import "../../node_modules/framework7/components/navbar/navbar.less";
+
+  .mobile-site-navbar {
+    // Keep the existing calendar, map and chat offsets, with 44px touch targets.
+    --f7-navbar-height: 56px;
+    --f7-safe-area-top: 0px;
+    --f7-navbar-text-color: var(--foreground);
+    --f7-navbar-bg-color: var(--background);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    flex-shrink: 0;
+    width: 100%;
+    height: var(--f7-navbar-height);
+
+    .navbar {
+      z-index: auto;
+    }
+    .navbar-inner {
+      padding-top: 6px;
+      padding-bottom: 6px;
+    }
+    .title h1 {
+      margin: 0;
+      font: inherit;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .title select {
+      max-width: 100%;
+    }
+    .mobile-navbar-action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      flex-shrink: 0;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      outline-offset: 2px;
+      &:focus-visible {
+        outline: 2px solid var(--ring);
+      }
+      &:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      svg {
+        width: 22px;
+        height: 22px;
+      }
+    }
+  }
+
+  .mobile-site-navbar-fixed {
+    position: fixed;
+    inset-inline: 0;
+  }
+}

@@ -7,7 +7,7 @@ import {
 import { WorkoutCoachButton } from "@/components/workout-coach-button"
 import { lazy, Suspense, useEffect, useState } from "react"
 import { formatDuration } from "@/lib/duration"
-import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
+import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 const WorkoutAnalysis = lazy(() =>
   import("@/components/workout-analysis").then((m) => ({
     default: m.WorkoutAnalysis,
@@ -193,33 +193,24 @@ export function WorkoutDetailPage({
 
   return (
     <div className="min-h-svh w-full min-w-0 bg-background">
-      <header className="mobile-site-header workout-map-header fixed inset-x-0 top-0 z-40 flex h-14 items-center px-4 md:hidden">
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={onBack}
-          className="size-9 shrink-0 rounded-full bg-white/50 p-0 shadow-sm backdrop-blur-sm hover:bg-white/70"
-          aria-label="Back"
-        >
-          <ArrowLeft className="size-[18px]" />
-        </Button>
-        <span className="mobile-header-title flex-1 truncate text-center text-sm font-semibold">
-          {swim
+      <MobileSiteNavbar
+        fixed
+        onBack={onBack}
+        title={
+          swim
             ? "Swim"
             : bike
               ? "Ride"
               : /run/i.test(workout.sport)
                 ? "Run"
-                : workout.sport}
-        </span>
-        <MobileHeaderMenu
-          onEditWorkout={
-            workout.id.startsWith("event:")
-              ? () => setEditorOpen(true)
-              : undefined
-          }
-        />
-      </header>
+                : workout.sport
+        }
+        onEditWorkout={
+          workout.id.startsWith("event:")
+            ? () => setEditorOpen(true)
+            : undefined
+        }
+      />
       {editorOpen && (
         <WorkoutEditor workout={workout} onClose={() => setEditorOpen(false)} />
       )}

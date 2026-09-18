@@ -7,7 +7,7 @@ import {
   gradeWorkoutCompletion,
   type CompletionGrade,
 } from "@/lib/workout-completion"
-import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
+import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import {
   MobileActionMenu,
   MobileDatePicker,
@@ -1331,27 +1331,36 @@ export function TrainingCalendar({
         style={{ overflowAnchor: "none" }}
         className="flex w-full min-w-0 flex-1 flex-col"
       >
-        <header className="mobile-site-header calendar-scroll-header sticky top-0 z-50 flex h-14 w-full shrink-0 items-center px-4 md:bg-background md:shadow-none">
-          <MobileDatePicker
-            aria-label="Jump to calendar date"
-            value={activeWeek ? dateKey(activeWeek.start) : ""}
-            onValueChange={(value) => jumpToDate(new Date(`${value}T12:00:00`))}
-            displayValue={activeMonth}
-            className="mobile-header-title !pointer-events-auto mx-auto h-9 min-w-0 justify-center truncate rounded-md px-2 text-sm font-semibold"
-          >
-            <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
-              <PopoverTrigger className="mobile-header-title mx-auto h-9 min-w-0 truncate rounded-md px-2 text-left text-sm font-semibold hover:bg-muted md:mx-0 md:text-base">
-                {activeMonth}
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-auto p-0">
-                <Calendar
-                  mode="single"
-                  selected={activeWeek?.start}
-                  onSelect={jumpToDate}
-                />
-              </PopoverContent>
-            </Popover>
-          </MobileDatePicker>
+        <MobileSiteNavbar
+          fixed
+          titleLabel={activeMonth}
+          title={
+            <MobileDatePicker
+              aria-label="Jump to calendar date"
+              value={activeWeek ? dateKey(activeWeek.start) : ""}
+              onValueChange={(value) =>
+                jumpToDate(new Date(`${value}T12:00:00`))
+              }
+              displayValue={activeMonth}
+              className="h-11 min-w-0 justify-center truncate rounded-md px-2 font-semibold"
+            >
+              {null}
+            </MobileDatePicker>
+          }
+        />
+        <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center px-4 md:flex md:bg-background md:shadow-none">
+          <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+            <PopoverTrigger className="mx-auto h-9 min-w-0 truncate rounded-md px-2 text-left text-sm font-semibold hover:bg-muted md:mx-0 md:text-base">
+              {activeMonth}
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-auto p-0">
+              <Calendar
+                mode="single"
+                selected={activeWeek?.start}
+                onSelect={jumpToDate}
+              />
+            </PopoverContent>
+          </Popover>
           <div className="flex items-center gap-1 md:ml-4">
             <Button
               size="sm"
@@ -1361,7 +1370,6 @@ export function TrainingCalendar({
               Today
             </Button>
           </div>
-          <MobileHeaderMenu />
         </header>
         <div className="sticky top-14 z-40 hidden h-7 shrink-0 border-b bg-background shadow-sm md:flex">
           <div className="grid min-w-0 flex-1 grid-cols-7 divide-x">

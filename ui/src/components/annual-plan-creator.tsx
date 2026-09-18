@@ -10,7 +10,7 @@ import { CalendarDays, CalendarIcon, LoaderCircle, Pencil, Plus, Settings, Trash
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
+import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { MobileSelect, MobileDatePicker } from "@/components/ui/mobile-native-controls"
 import { Calendar } from "@/components/ui/calendar"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -557,16 +557,24 @@ export function AnnualPlanCreator() {
     } finally { setBusy(false) }
   }
 
+  const planSelector = plans.length > 0 ? <MobileSelect aria-label="Training plan" className="max-w-64 border-0 bg-transparent px-1 font-semibold" value={plan?.id || ""} onValueChange={(id) => { const next = plans.find((item) => item.id === id); if (next) persistPlan(next) }} options={plans.map((item) => ({ value: item.id, label: item.name }))}><Select value={plan?.id || ""} onValueChange={(id) => { const next = plans.find((item) => item.id === id); if (next) persistPlan(next) }}><SelectTrigger className="h-9 w-auto min-w-52 border-0 bg-transparent px-1 text-base font-semibold shadow-none"><span className="max-w-72 truncate">{plan?.name || "Training plan"}</span></SelectTrigger><SelectContent>{plans.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent></Select></MobileSelect> : "Training Plan"
+  const createPlan = () => { setPlanSubmitError(null); setPlanDialogInitial(defaultSettings(context)); setPlanDialogOpen(true) }
+  const editPlan = () => { if (plan) { setPlanSubmitError(null); setPlanDialogInitial(settingsFromPlan(plan)); setPlanDialogOpen(true) } }
+
   if (loading) return <div className="flex h-full w-full items-center justify-center"><LoaderCircle className="size-6 animate-spin text-muted-foreground" /></div>
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
-        {plans.length > 0 ? <MobileSelect aria-label="Training plan" className="max-w-64 border-0 bg-transparent px-1 font-semibold" value={plan?.id || ""} onValueChange={(id) => { const next = plans.find((item) => item.id === id); if (next) persistPlan(next) }} options={plans.map((item) => ({ value: item.id, label: item.name }))}><Select value={plan?.id || ""} onValueChange={(id) => { const next = plans.find((item) => item.id === id); if (next) persistPlan(next) }}><SelectTrigger className="h-9 w-auto min-w-52 border-0 bg-transparent px-1 text-base font-semibold shadow-none"><span className="max-w-72 truncate">{plan?.name || "Training plan"}</span></SelectTrigger><SelectContent>{plans.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent></Select></MobileSelect> : <h1 className="text-base font-semibold">Training Plan</h1>}
-        <Button type="button" size="icon-sm" variant="ghost" aria-label="Create new plan" onClick={() => { setPlanSubmitError(null); setPlanDialogInitial(defaultSettings(context)); setPlanDialogOpen(true) }}><Plus /></Button>
-        <Button type="button" size="icon-sm" variant="ghost" aria-label="Plan settings" disabled={!plan} onClick={() => { if (plan) { setPlanSubmitError(null); setPlanDialogInitial(settingsFromPlan(plan)); setPlanDialogOpen(true) } }}><Settings /></Button>
+      <MobileSiteNavbar
+        title={planSelector}
+        left={<button type="button" className="mobile-navbar-action" aria-label="Create new plan" onClick={createPlan}><Plus /></button>}
+        right={<button type="button" className="mobile-navbar-action" aria-label="Plan settings" disabled={!plan} onClick={editPlan}><Settings /></button>}
+      />
+      <header className="hidden h-14 shrink-0 items-center gap-2 border-b px-4 md:flex">
+        <div className="min-w-0 text-base font-semibold">{planSelector}</div>
+        <Button type="button" size="icon-sm" variant="ghost" aria-label="Create new plan" onClick={createPlan}><Plus /></Button>
+        <Button type="button" size="icon-sm" variant="ghost" aria-label="Plan settings" disabled={!plan} onClick={editPlan}><Settings /></Button>
         {plan && <p className="ml-auto hidden text-xs text-muted-foreground sm:block">{dateLabel(plan.startDate, { month: "short", day: "numeric", year: "numeric" })} – {dateLabel(plan.endDate, { month: "short", day: "numeric", year: "numeric" })}</p>}
-        <MobileHeaderMenu />
       </header>
 
       {plan ? <>
