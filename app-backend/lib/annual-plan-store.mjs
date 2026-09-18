@@ -19,7 +19,11 @@ async function bootstrap() {
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
   if (value && typeof value === "object")
-    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])]));
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, stable(value[key])])
+    );
   return value;
 }
 
@@ -44,7 +48,9 @@ export function createAnnualPlanStore({ readBootstrap = bootstrap, fetchImpl = f
       signal: AbortSignal.timeout(15_000),
       headers: {
         apikey: secret,
-        ...(!String(secret).startsWith("sb_secret_") ? { Authorization: `Bearer ${secret}` } : {}),
+        ...(!String(secret).startsWith("sb_secret_")
+          ? { Authorization: `Bearer ${secret}` }
+          : {}),
         "Content-Type": "application/json",
         Accept: "application/json",
         "Cache-Control": "no-cache",
@@ -60,7 +66,9 @@ export function createAnnualPlanStore({ readBootstrap = bootstrap, fetchImpl = f
     async readAll() {
       const { scope } = await config();
       const rows = await request(
-        `?scope=eq.${encodeURIComponent(scope)}&select=plan_id,plan,is_active,updated_at&order=updated_at.desc`
+        `?scope=eq.${encodeURIComponent(
+          scope
+        )}&select=plan_id,plan,is_active,updated_at&order=updated_at.desc`
       );
       const plans = rows.map((row) => row.plan);
       const activeId = rows.find((row) => row.is_active)?.plan_id || plans[0]?.id || null;
@@ -74,12 +82,24 @@ export function createAnnualPlanStore({ readBootstrap = bootstrap, fetchImpl = f
       if (
         existing.plans.length === normalized.length &&
         existing.activeId === (activeId || normalized[0]?.id || null) &&
-        normalized.every((plan) => existing.plans.some((candidate) => candidate.id === plan.id && sameJson(candidate, plan)))
+        normalized.every((plan) =>
+          existing.plans.some(
+            (candidate) => candidate.id === plan.id && sameJson(candidate, plan)
+          )
+        )
       ) {
-        return { plans: existing.plans, activeId: existing.activeId, verified: true, changed: false };
+        return {
+          plans: existing.plans,
+          activeId: existing.activeId,
+          verified: true,
+          changed: false,
+        };
       }
 
-      await request(`?scope=eq.${encodeURIComponent(scope)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+      await request(`?scope=eq.${encodeURIComponent(scope)}`, {
+        method: "DELETE",
+        headers: { Prefer: "return=minimal" },
+      });
       if (normalized.length) {
         const rows = normalized.map((plan) => ({
           scope,
@@ -99,9 +119,18 @@ export function createAnnualPlanStore({ readBootstrap = bootstrap, fetchImpl = f
       const verified =
         after.plans.length === normalized.length &&
         after.activeId === expectedActive &&
-        normalized.every((plan) => after.plans.some((candidate) => candidate.id === plan.id && sameJson(candidate, plan)));
+        normalized.every((plan) =>
+          after.plans.some(
+            (candidate) => candidate.id === plan.id && sameJson(candidate, plan)
+          )
+        );
       if (!verified) throw new Error("Annual plan mirror verification failed.");
-      return { plans: after.plans, activeId: after.activeId, verified: true, changed: true };
+      return {
+        plans: after.plans,
+        activeId: after.activeId,
+        verified: true,
+        changed: true,
+      };
     },
 
     async upsert(plan, activeId) {
@@ -109,18 +138,23 @@ export function createAnnualPlanStore({ readBootstrap = bootstrap, fetchImpl = f
       await request(`?scope=eq.${encodeURIComponent(scope)}&is_active=eq.true`, {
         method: "PATCH",
         headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ is_active: false, updated_at: new Date().toISOString() }),
+        body: JSON.stringify({
+          is_active: false,
+          updated_at: new Date().toISOString(),
+        }),
       });
       const rows = await request("?on_conflict=scope,plan_id", {
         method: "POST",
         headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-        body: JSON.stringify([{
-          scope,
-          plan_id: plan.id,
-          plan,
-          is_active: plan.id === activeId,
-          updated_at: new Date().toISOString(),
-        }]),
+        body: JSON.stringify([
+          {
+            scope,
+            plan_id: plan.id,
+            plan,
+            is_active: plan.id === activeId,
+            updated_at: new Date().toISOString(),
+          },
+        ]),
       });
       const saved = rows?.[0]?.plan;
       if (!sameJson(saved, plan)) throw new Error("Annual plan write verification failed.");
@@ -129,16 +163,27 @@ export function createAnnualPlanStore({ readBootstrap = bootstrap, fetchImpl = f
 
     async remove(planId, nextActiveId = null) {
       const { scope } = await config();
-      await request(`?scope=eq.${encodeURIComponent(scope)}&plan_id=eq.${encodeURIComponent(planId)}`, {
-        method: "DELETE",
-        headers: { Prefer: "return=minimal" },
-      });
-      if (nextActiveId) {
-        await request(`?scope=eq.${encodeURIComponent(scope)}&plan_id=eq.${encodeURIComponent(nextActiveId)}`, {
-          method: "PATCH",
+      await request(
+        `?scope=eq.${encodeURIComponent(scope)}&plan_id=eq.${encodeURIComponent(planId)}`,
+        {
+          method: "DELETE",
           headers: { Prefer: "return=minimal" },
-          body: JSON.stringify({ is_active: true, updated_at: new Date().toISOString() }),
-        });
+        }
+      );
+      if (nextActiveId) {
+        await request(
+          `?scope=eq.${encodeURIComponent(
+            scope
+          )}&plan_id=eq.${encodeURIComponent(nextActiveId)}`,
+          {
+            method: "PATCH",
+            headers: { Prefer: "return=minimal" },
+            body: JSON.stringify({
+              is_active: true,
+              updated_at: new Date().toISOString(),
+            }),
+          }
+        );
       }
       const after = await this.readAll();
       if (after.plans.some((plan) => plan.id === planId))
