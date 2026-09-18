@@ -2,10 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readDurableState, writeDurableState } from "./durable-state.mjs";
+import { createAnnualPlanStore } from "./annual-plan-store.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const dataPath = path.join(root, "local-data.json");
 let writeQueue = Promise.resolve();
+const annualPlanStore = createAnnualPlanStore();
 
 function seed() {
   return {
@@ -68,8 +70,58 @@ async function mutateData(mutator) {
   return operation;
 }
 
+function legacyAnnualPlanState(data) {
+  const plans = Array.isArray(data.annual_plans) ? data.annual_plans : [];
+  const activeId = data.active_annual_plan_id || plans[0]?.id || null;
+  return { plans, activeId };
+}
+
+function sameJson(a, b) {
+  const stable = (value) => {
+    if (Array.isArray(value)) return value.map(stable);
+    if (value && typeof value === "object")
+      return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])]));
+    return value;
+  };
+  return JSON.stringify(stable(a)) === JSON.stringify(stable(b));
+}
+
+function samePlanState(a, b) {
+  if (a.activeId !== b.activeId || a.plans.length !== b.plans.length) return false;
+  return a.plans.every((plan) =>
+    b.plans.some((candidate) => candidate.id === plan.id && sameJson(candidate, plan))
+  );
+}
+
+async function readAnnualPlanState(data) {
+  const legacy = legacyAnnualPlanState(data);
+  try {
+    const stored = await annualPlanStore.readAll();
+    if (!stored.plans.length && legacy.plans.length) {
+      return await annualPlanStore.replaceFromLegacy(legacy.plans, legacy.activeId);
+    }
+    if (!stored.plans.length && !legacy.plans.length) return stored;
+
+    // Once populated, the dedicated table is authoritative. Keep APP_DATA as a
+    // synchronized recovery copy so existing app semantics and rollback remain intact.
+    if (!samePlanState(stored, legacy)) {
+      await mutateData((current) => {
+        current.annual_plans = structuredClone(stored.plans);
+        current.active_annual_plan_id = stored.activeId;
+        return true;
+      });
+    }
+    return stored;
+  } catch {
+    // Zero-downtime fallback: any dedicated-store problem leaves the existing
+    // encrypted APP_DATA path fully functional.
+    return legacy;
+  }
+}
+
 export async function readLocalContext() {
   const data = await readData();
+  const annual = await readAnnualPlanState(data);
   // Only expose current app data; historical records remain in storage.
   return Object.fromEntries(
     [
@@ -80,12 +132,12 @@ export async function readLocalContext() {
       "workouts",
       "library",
       "training_preferences",
-      "annual_plans",
-      "active_annual_plan_id",
       "updated_at",
     ]
       .map((key) => [key, data[key]])
       .concat([
+        ["annual_plans", annual.plans],
+        ["active_annual_plan_id", annual.activeId],
         [
           "comments",
           (data.comments || []).filter((comment) => ["pre", "post"].includes(comment.type)),
@@ -113,13 +165,16 @@ export async function updateTrainingPreferences(preferences) {
 
 export async function listAnnualPlans() {
   const data = await readData();
-  return Array.isArray(data.annual_plans) ? data.annual_plans : [];
+  return (await readAnnualPlanState(data)).plans;
 }
 
 export async function saveAnnualPlanRecord(plan) {
   if (!plan?.id || !plan?.name || !Array.isArray(plan.weeks))
     throw new Error("A valid annual plan is required.");
-  return mutateData((data) => {
+
+  // Preserve the original APP_DATA behavior first. If the dedicated table is
+  // unavailable, the application remains fully functional on the legacy path.
+  const saved = await mutateData((data) => {
     data.annual_plans = Array.isArray(data.annual_plans) ? data.annual_plans : [];
     const index = data.annual_plans.findIndex((item) => item.id === plan.id);
     if (index >= 0) data.annual_plans[index] = plan;
@@ -127,17 +182,33 @@ export async function saveAnnualPlanRecord(plan) {
     data.active_annual_plan_id = plan.id;
     return plan;
   });
+
+  try {
+    await annualPlanStore.upsert(saved, saved.id);
+  } catch {
+    // The encrypted recovery copy is authoritative until the dedicated store
+    // succeeds on a later read/save.
+  }
+  return saved;
 }
 
 export async function deleteAnnualPlanRecord(id) {
-  return mutateData((data) => {
+  let nextActiveId = null;
+  const result = await mutateData((data) => {
     data.annual_plans = (Array.isArray(data.annual_plans) ? data.annual_plans : []).filter(
       (plan) => plan.id !== id
     );
     if (data.active_annual_plan_id === id)
       data.active_annual_plan_id = data.annual_plans[0]?.id || null;
+    nextActiveId = data.active_annual_plan_id || null;
     return true;
   });
+  try {
+    await annualPlanStore.remove(id, nextActiveId);
+  } catch {
+    // Legacy APP_DATA remains the recovery source if the dedicated store is unavailable.
+  }
+  return result;
 }
 
 export async function addLocalComment(workoutId, body) {
