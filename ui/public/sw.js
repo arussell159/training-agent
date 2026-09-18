@@ -1,6 +1,7 @@
 self.addEventListener('install',event=>{
   event.waitUntil((async()=>{
     try {const response=await fetch('/');if(response.ok && new URL(response.url).origin===self.location.origin && response.headers.get('content-type')?.includes('text/html'))await (await caches.open('training-agent-shell-v3')).put('/__app_shell__',response)}catch{ /* Existing shell still works offline. */ }
+    try {await (await caches.open('training-agent-shell-v3')).addAll(['/ar-performance-background.png','/ar-performance-favicon.png'])}catch{ /* Branding assets can be fetched again when online. */ }
     await self.skipWaiting()
   })())
 })

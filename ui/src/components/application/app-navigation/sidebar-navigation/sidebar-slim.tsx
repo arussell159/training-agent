@@ -60,9 +60,9 @@ export function SidebarNavigationSlim({
             onClick={() => onNavigate("Home")}
           >
             <img
-              src="/ar-performance-logo.png"
+              src="/ar-performance-favicon.png"
               alt=""
-              className="size-8 rounded-md object-contain"
+              className="size-8 object-contain"
             />
           </Button>
           <DropdownMenu>
