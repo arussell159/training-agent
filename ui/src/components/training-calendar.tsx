@@ -1665,10 +1665,18 @@ function WeekSummary({
   workouts: PlannedWorkout[]
   planWeek: AnnualPlanWeek | null
 }) {
-  const totalMinutes = workouts.reduce(
+  const completedTotalMinutes = workouts.reduce(
     (sum, item) => sum + completedMinutes(item),
     0
   )
+  const plannedTotalMinutes = workouts.reduce(
+    (sum, item) => sum + durationMinutes(item),
+    0
+  )
+  const completionPercent =
+    plannedTotalMinutes > 0
+      ? Math.min(100, (completedTotalMinutes / plannedTotalMinutes) * 100)
+      : 0
   const totals = workouts.reduce<Record<string, number>>((result, workout) => {
     const sport = workout.sport.toLowerCase()
     const discipline = sport.includes("swim")
@@ -1743,9 +1751,51 @@ function WeekSummary({
         </ChartContainer>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <strong className="text-base tabular-nums">
-            {formatDuration(totalMinutes)}
+            {formatDuration(completedTotalMinutes)}
           </strong>
           <span className="text-[10px] text-muted-foreground">Total time</span>
+        </div>
+      </div>
+      <div
+        className="space-y-2.5 border-t pt-3"
+        aria-label="Completed versus planned duration"
+      >
+        <div className="flex items-baseline justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">Time progress</p>
+            <p className="text-[11px] text-muted-foreground">
+              Completed vs planned
+            </p>
+          </div>
+          <span className="text-xs font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+            {Math.round(completionPercent)}%
+          </span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-emerald-500 transition-[width]"
+            style={{ width: `${completionPercent}%` }}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div className="min-w-0">
+            <div className="mb-0.5 flex items-center gap-1.5 text-muted-foreground">
+              <span className="size-2 rounded-full bg-emerald-500" />
+              <span>Completed</span>
+            </div>
+            <p className="font-semibold tabular-nums">
+              {formatDuration(completedTotalMinutes)}
+            </p>
+          </div>
+          <div className="min-w-0 text-right">
+            <div className="mb-0.5 flex items-center justify-end gap-1.5 text-muted-foreground">
+              <span className="size-2 rounded-full bg-muted-foreground/40" />
+              <span>Planned</span>
+            </div>
+            <p className="font-semibold tabular-nums">
+              {formatDuration(plannedTotalMinutes)}
+            </p>
+          </div>
         </div>
       </div>
       <div className="space-y-1.5">
