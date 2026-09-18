@@ -1,3 +1,5 @@
+import { SavedReportButton } from "@/components/saved-report-button"
+import { planReportBlocks } from "../../../app-backend/lib/report-blocks.mjs"
 import {
   useCallback,
   useEffect,
@@ -363,6 +365,11 @@ export function AnnualPlanCreator() {
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
   const tableScrollerRef = useRef<HTMLElement | null>(null)
   const centeredWeekRef = useRef<string | null>(null)
+  useEffect(() => {
+    const update = () => setContext(cachedTrainingContext())
+    window.addEventListener('training-context-updated', update)
+    return () => window.removeEventListener('training-context-updated', update)
+  }, [])
 
   const setCurrentPlan = useCallback((next: AnnualPlan | null) => {
     planRef.current = next
@@ -393,6 +400,7 @@ export function AnnualPlanCreator() {
     return () => { active = false }
   }, [])
 
+  const reportBlocks = useMemo(() => planReportBlocks(plan), [plan])
   const actuals = useMemo(() => calendarActuals(context, plan), [context, plan])
   const today = iso(new Date())
   const currentWeek = plan?.weeks.find(
@@ -586,6 +594,7 @@ export function AnnualPlanCreator() {
                 const monthChanged = index === 0 || week.startDate.slice(0, 7) !== plan.weeks[index - 1].startDate.slice(0, 7)
                 const events = plan.events.filter((event) => event.date >= week.startDate && event.date <= week.endDate)
                 const completed = actuals.get(week.id)?.completedHours ?? null
+                const reportBlock = reportBlocks.find(block => block.endDate === week.endDate)
                 const nextHours = () => { const next = plan.weeks[index + 1]; if (next) { const input = hoursRefs.current.get(next.id); input?.focus(); input?.select() } }
                 const nextNotes = () => { const next = plan.weeks[index + 1]; if (next) notesRefs.current.get(next.id)?.focus() }
                 return [
@@ -596,7 +605,7 @@ export function AnnualPlanCreator() {
                     <td className="p-0" style={{ backgroundColor: PHASE_COLORS[week.phase] }}><MobileSelect ref={(element)=>{if(element)phaseRefs.current.set(week.id,element);else phaseRefs.current.delete(week.id)}} aria-label={`Period for ${dateLabel(week.startDate)}`} className="h-10 w-full rounded-none border-0 bg-transparent px-2 font-semibold text-white" value={week.phase} options={PLAN_PHASES.map((phase)=>({ value: phase, label: phase === week.phase ? phaseLabel(week) : phase }))} onValueChange={(value)=>changePeriod(week.id,value as PlanPhase)} onKeyDown={(event)=>{if(event.key==='Tab'&&tabEditableCell(index,0,event.shiftKey))event.preventDefault()}}><Select value={week.phase} onValueChange={(value)=>changePeriod(week.id,value as PlanPhase)}><SelectTrigger ref={(element)=>{if(element)phaseRefs.current.set(week.id,element);else phaseRefs.current.delete(week.id)}} aria-label={`Period for ${dateLabel(week.startDate)}`} className="h-10 w-full rounded-none border-0 bg-transparent px-2 text-xs font-semibold text-white shadow-none hover:bg-white/10 focus-visible:border-white/80 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 dark:bg-transparent dark:hover:bg-white/10 [&_svg]:text-white" onKeyDown={(event)=>{if(event.key==='Tab'&&tabEditableCell(index,0,event.shiftKey))event.preventDefault()}}><SelectValue>{phaseLabel(week)}</SelectValue></SelectTrigger><SelectContent align="start">{PLAN_PHASES.map((phase)=><SelectItem key={phase} value={phase}>{phase}</SelectItem>)}</SelectContent></Select></MobileSelect></td>
                     <td className="p-0"><InlineHours value={week.targetHours} inputRef={(element) => { if (element) hoursRefs.current.set(week.id, element); else hoursRefs.current.delete(week.id) }} onCommit={(value) => changeWeek(week.id, { targetHours: value, manual: true })} onNext={nextHours} onTab={(backward)=>tabEditableCell(index,1,backward)} /></td>
                     <td className="p-0"><span className="flex h-8 items-center px-2 text-sm font-bold tabular-nums">{clockHours(completed) || "—"}</span></td>
-                    <td className="p-0"><InlineNotes value={week.notes} inputRef={(element) => { if (element) notesRefs.current.set(week.id, element); else notesRefs.current.delete(week.id) }} onCommit={(notes) => changeWeek(week.id, { notes })} onNext={nextNotes} onTab={(backward)=>tabEditableCell(index,2,backward)} /></td>
+                    <td className="p-0"><div className="flex items-center"><div className="min-w-0 flex-1"><InlineNotes value={week.notes} inputRef={(element) => { if (element) notesRefs.current.set(week.id, element); else notesRefs.current.delete(week.id) }} onCommit={(notes) => changeWeek(week.id, { notes })} onNext={nextNotes} onTab={(backward)=>tabEditableCell(index,2,backward)} /></div>{reportBlock && <SavedReportButton kind="block" startDate={reportBlock.startDate} />}</div></td>
                   </tr>,
                 ]
               })}

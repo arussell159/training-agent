@@ -47,8 +47,14 @@ html, body {
   }
 
   .coach-app-shell .mobile-navbar.toolbar {
+    --f7-toolbar-bg-color: transparent;
     background: transparent;
   }
+  .coach-app-shell .mobile-navbar .toolbar-background { background: transparent; backdrop-filter: none; }
+  .terms-page-backing { position: fixed; inset: 0; min-height: 100lvh; background: var(--muted); z-index: 699; }
+  .workout-detail-links { overflow: hidden; border-radius: 16px; background: var(--muted); }
+  .workout-detail-links .detail-sheet-row > button { border-radius: 0; background: transparent; border-bottom: 1px solid var(--border); }
+  .workout-detail-links > section:last-child .detail-sheet-row:last-child > button { border-bottom: 0; }
 
   .coach-app-shell .mobile-navbar.toolbar::before,
   .coach-app-shell .mobile-navbar.toolbar::after {

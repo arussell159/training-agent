@@ -63,7 +63,7 @@ export function TrainingLibrary({
   }, [])
 
   const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase()
+    const needle = mobile ? "" : query.trim().toLowerCase()
     return workouts.filter((workout) => {
       const matchesDiscipline =
         discipline === "All" ||
@@ -75,7 +75,7 @@ export function TrainingLibrary({
           .includes(needle)
       return matchesDiscipline && matchesQuery
     })
-  }, [discipline, query, workouts])
+  }, [discipline, query, workouts, mobile])
 
   if (mobile)
     return (
@@ -100,14 +100,6 @@ export function TrainingLibrary({
         </MobileSiteNavbar>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="coach-report-content">
-            <div className="px-4 pt-6">
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search workouts"
-                aria-label="Search workouts"
-              />
-            </div>
             {error ? (
               <p role="alert">{error}</p>
             ) : loading ? (

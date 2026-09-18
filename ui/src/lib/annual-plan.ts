@@ -49,11 +49,12 @@ function completedMinutes(workout:PlannedWorkout) {
   const seconds=workout.workout_summary?.completed?.duration_seconds
   return seconds!=null?seconds/60:workout.completed_data?.duration_minutes??workout.actualDurationMinutes??null
 }
-export function calendarActuals(context:TrainingContext,plan:AnnualPlan|null) {
+export function calendarActuals(context:TrainingContext,plan:AnnualPlan|null, now = new Date()) {
   const result=new Map<string,WeekActuals>()
   if(!plan)return result
-  const completedOverrides=new Set(plan.weeks.filter(week=>(week.completedHours??0)>0).map(week=>week.id))
-  for(const week of plan.weeks)result.set(week.id,{scheduledHours:null,scheduledTss:null,completedHours:week.completedHours??null,completedTss:null,scheduledCount:0,completedCount:0})
+  const today=new Intl.DateTimeFormat('en-CA',{timeZone:context.athlete.time_zone || 'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(now)
+  const completedOverrides=new Set(plan.weeks.filter(week=>week.endDate<today&&(week.completedHours??0)>0).map(week=>week.id))
+  for(const week of plan.weeks)result.set(week.id,{scheduledHours:null,scheduledTss:null,completedHours:completedOverrides.has(week.id)?week.completedHours??null:week.startDate<=today&&today<=week.endDate?0:null,completedTss:null,scheduledCount:0,completedCount:0})
   const workouts=[...new Map([...context.history,...context.planned].map(item=>[(item as PlannedWorkout).id,item as PlannedWorkout])).values()]
   for(const workout of workouts) {
     const day=workout.workout_date

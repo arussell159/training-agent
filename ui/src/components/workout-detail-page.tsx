@@ -429,6 +429,7 @@ export function WorkoutDetailPage({
           >
             <WorkoutAnalysis workout={workout} />
           </Suspense>
+          <div className="workout-detail-links md:contents">
           {workout.status === "completed" && (
             <div className="contents md:hidden">
               <DetailSheetRow
@@ -451,6 +452,7 @@ export function WorkoutDetailPage({
           )}
 
           {!library && <WorkoutCoachButton workout={workout} />}
+          </div>
         </WorkoutDetailSurface>
       </div>
     </div>

@@ -1,3 +1,5 @@
+import { SavedReportButton } from "@/components/saved-report-button"
+import { planReportBlocks } from "../../../app-backend/lib/report-blocks.mjs"
 import { WorkoutCoachButton } from "@/components/workout-coach-button"
 import { WorkoutDescription } from "@/components/workout-description"
 import { lazy, Suspense } from "react"
@@ -1598,6 +1600,8 @@ export function TrainingCalendar({
                               title={title}
                               workouts={week.workouts}
                               planWeek={planWeek}
+                              startDate={week.key}
+                              blockStart={planReportBlocks(annualPlan).find(block => block.endDate === dateKey(end))?.startDate}
                             />
                           </CollapsibleContent>
                         </Collapsible>
@@ -1653,10 +1657,14 @@ function WeekSummary({
   title,
   workouts,
   planWeek,
+  startDate,
+  blockStart,
 }: {
   title: string
   workouts: PlannedWorkout[]
   planWeek: AnnualPlanWeek | null
+  startDate: string
+  blockStart?: string
 }) {
   const completedTotalMinutes = workouts.reduce(
     (sum, item) => sum + completedMinutes(item),
@@ -1666,10 +1674,6 @@ function WeekSummary({
     (sum, item) => sum + durationMinutes(item),
     0
   )
-  const completionPercent =
-    plannedTotalMinutes > 0
-      ? Math.min(100, (completedTotalMinutes / plannedTotalMinutes) * 100)
-      : 0
   const totals = workouts.reduce<Record<string, number>>((result, workout) => {
     const sport = workout.sport.toLowerCase()
     const discipline = sport.includes("swim")
@@ -1694,7 +1698,7 @@ function WeekSummary({
     .filter((item) => item.minutes > 0)
 
   return (
-    <Card className="gap-3 rounded-md p-3">
+    <div className="space-y-3">
       <CardTitle className="text-center text-sm">{title}</CardTitle>
       <div className="relative">
         <ChartContainer
@@ -1749,48 +1753,11 @@ function WeekSummary({
           <span className="text-[10px] text-muted-foreground">Total time</span>
         </div>
       </div>
-      <div
-        className="space-y-2.5 border-t pt-3"
-        aria-label="Completed versus planned duration"
-      >
-        <div className="flex items-baseline justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold">Time progress</p>
-            <p className="text-[11px] text-muted-foreground">
-              Completed vs planned
-            </p>
-          </div>
-          <span className="text-xs font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-            {Math.round(completionPercent)}%
-          </span>
-        </div>
-        <div className="h-2 overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-emerald-500 transition-[width]"
-            style={{ width: `${completionPercent}%` }}
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-3 text-xs">
-          <div className="min-w-0">
-            <div className="mb-0.5 flex items-center gap-1.5 text-muted-foreground">
-              <span className="size-2 rounded-full bg-emerald-500" />
-              <span>Completed</span>
-            </div>
-            <p className="font-semibold tabular-nums">
-              {formatDuration(completedTotalMinutes)}
-            </p>
-          </div>
-          <div className="min-w-0 text-right">
-            <div className="mb-0.5 flex items-center justify-end gap-1.5 text-muted-foreground">
-              <span className="size-2 rounded-full bg-muted-foreground/40" />
-              <span>Planned</span>
-            </div>
-            <p className="font-semibold tabular-nums">
-              {formatDuration(plannedTotalMinutes)}
-            </p>
-          </div>
-        </div>
+      <div className="grid grid-cols-2 divide-x border-t pt-3 text-sm" aria-label="Completed versus planned duration">
+        <div className="pr-4"><p className="mb-1 text-xs text-muted-foreground">Planned</p><p className="font-semibold tabular-nums">{formatDuration(plannedTotalMinutes)}</p></div>
+        <div className="pl-4"><p className="mb-1 text-xs text-muted-foreground">Completed</p><p className="font-semibold tabular-nums">{formatDuration(completedTotalMinutes)}</p></div>
       </div>
+      <div className="flex flex-wrap gap-1"><SavedReportButton kind="weekly" startDate={startDate} />{blockStart && <SavedReportButton kind="block" startDate={blockStart} />}</div>
       <div className="space-y-1.5">
         {chartData.map((item) => (
           <div
@@ -1820,7 +1787,7 @@ function WeekSummary({
           )}
         </div>
       )}
-    </Card>
+    </div>
   )
 }
 

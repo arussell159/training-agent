@@ -19,7 +19,7 @@ export function WorkoutCoachButton({ workout }: { workout: PlannedWorkout }) {
 
   if (mobile)
     return (
-      <section className="space-y-2" aria-label="Workout reports">
+      <section className="contents" aria-label="Workout reports">
         {completed && (
           <DetailSheetRow
             title="Pre-workout report"

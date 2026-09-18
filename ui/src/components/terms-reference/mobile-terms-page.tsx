@@ -170,9 +170,21 @@ export function MobileTermsPage({
     navigation.metric(id)
   }
   if (!open || (!mobile && !view.open)) return null
+  const activateSearch = () => {
+    const instance = searchbar.current?.f7Searchbar()
+    if (!instance) return
+    // Make the expandable input visible before focusing within the tap gesture.
+    searchbar.current.el?.classList.add("searchbar-enabled")
+    instance.enable()
+    // Commit the visibility change before requesting focus on the same gesture.
+    const input = searchbar.current.el?.querySelector<HTMLInputElement>('input[type="search"]')
+    input?.getBoundingClientRect()
+    input?.focus({ preventScroll: true })
+  }
 
   return (
     <div id="terms-mobile-layer" className="contents" hidden={!mobile}>
+      <div className="terms-page-backing" aria-hidden="true" />
       <Page
         name="terms"
         noSwipeback
@@ -196,10 +208,11 @@ export function MobileTermsPage({
               type="button"
               className="mobile-navbar-action"
               aria-label="Expand metric search"
-              onClick={() => {
-                const instance = searchbar.current?.f7Searchbar()
-                instance?.enable()
-                instance?.inputEl.focus()
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                activateSearch()
               }}
             >
               <Search aria-hidden="true" />

@@ -317,7 +317,7 @@ function ReportPanel({
               Section 11 · {labels[target.kind]} report
             </p>
           )}
-          {!(compact && complete) && (
+          {(target.kind === "pre" || target.kind === "post") && !(compact && complete) && (
             <Button
               type="button"
               variant="outline"
@@ -369,7 +369,7 @@ function ReportPanel({
           {result?.reason ||
             (!result
               ? "Checking report availability…"
-              : "Generate once. Your report will be saved here.")}
+              : target.kind === "weekly" || target.kind === "block" ? "Waiting for the saved report from Intervals.icu." : "Generate once. Your report will be saved here.")}
         </p>
       )}
       {!complete && result?.sync && (

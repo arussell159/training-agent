@@ -32,7 +32,7 @@ export function DetailSheetRow({
     }
   }, [open, id])
   return (
-    <div>
+    <div className="detail-sheet-row">
       <button
         ref={trigger}
         type="button"
