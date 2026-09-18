@@ -11,6 +11,24 @@ alter table public.app_settings enable row level security;
 revoke all on table public.app_settings from public, anon, authenticated;
 grant select, insert, update on table public.app_settings to service_role;
 
+-- Annual plans are mirrored from legacy encrypted APP_DATA into a dedicated
+-- backend-only table. APP_DATA remains the recovery copy during/after cutover.
+create table if not exists public.annual_plans (
+  scope text not null default 'default',
+  plan_id text not null,
+  plan jsonb not null,
+  is_active boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (scope, plan_id)
+);
+create unique index if not exists annual_plans_one_active_per_scope
+  on public.annual_plans (scope)
+  where is_active;
+alter table public.annual_plans enable row level security;
+revoke all on table public.annual_plans from public, anon, authenticated;
+grant select, insert, update, delete on table public.annual_plans to service_role;
+
 create table if not exists workout_context (
   id text primary key,
   athlete_id text not null default 'default',
