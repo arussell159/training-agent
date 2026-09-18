@@ -1,5 +1,4 @@
 import { WorkoutCoachButton } from "@/components/workout-coach-button"
-import { Section11WeeklyReport } from "@/components/section11-report"
 import { WorkoutDescription } from "@/components/workout-description"
 import { lazy, Suspense } from "react"
 import { formatDuration } from "@/lib/duration"
@@ -1605,9 +1604,6 @@ export function TrainingCalendar({
                         </Collapsible>
                       </aside>
                     </div>
-                    <div className="hidden border-t p-3 md:block xl:hidden">
-                      <Section11WeeklyReport startDate={week.key} />
-                    </div>
                   </section>
                 )
               })}
@@ -1827,7 +1823,6 @@ function WeekSummary({
           )}
         </div>
       )}
-      <Section11WeeklyReport startDate={startDate} />
     </Card>
   )
 }
@@ -1937,7 +1932,6 @@ export function WorkoutDialog({
               <WorkoutDescription workout={workout} title="Description" />
             </div>
           </div>
-          <WorkoutCoachButton workout={workout} />
           {workout.status === "completed" && (
             <WorkoutMapSplits workout={workout} />
           )}
@@ -1948,6 +1942,7 @@ export function WorkoutDialog({
           >
             <WorkoutAnalysis workout={workout} />
           </Suspense>
+          <WorkoutCoachButton workout={workout} />
         </div>
       </DialogContent>
     </Dialog>
