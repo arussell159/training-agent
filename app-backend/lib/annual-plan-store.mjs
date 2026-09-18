@@ -48,17 +48,14 @@ export function createAnnualPlanStore({ readBootstrap = bootstrap, fetchImpl = f
       signal: AbortSignal.timeout(15_000),
       headers: {
         apikey: secret,
-        ...(!String(secret).startsWith("sb_secret_")
-          ? { Authorization: `Bearer ${secret}` }
-          : {}),
+        ...(!String(secret).startsWith("sb_secret_") ? { Authorization: `Bearer ${secret}` } : {}),
         "Content-Type": "application/json",
         Accept: "application/json",
         "Cache-Control": "no-cache",
         ...options.headers,
       },
     });
-    if (!response.ok)
-      throw new Error(`Annual plan storage request failed (${response.status}).`);
+    if (!response.ok) throw new Error(`Annual plan storage request failed (${response.status}).`);
     return response.status === 204 ? null : response.json();
   }
 
@@ -83,9 +80,7 @@ export function createAnnualPlanStore({ readBootstrap = bootstrap, fetchImpl = f
         existing.plans.length === normalized.length &&
         existing.activeId === (activeId || normalized[0]?.id || null) &&
         normalized.every((plan) =>
-          existing.plans.some(
-            (candidate) => candidate.id === plan.id && sameJson(candidate, plan)
-          )
+          existing.plans.some((candidate) => candidate.id === plan.id && sameJson(candidate, plan))
         )
       ) {
         return {
@@ -120,9 +115,7 @@ export function createAnnualPlanStore({ readBootstrap = bootstrap, fetchImpl = f
         after.plans.length === normalized.length &&
         after.activeId === expectedActive &&
         normalized.every((plan) =>
-          after.plans.some(
-            (candidate) => candidate.id === plan.id && sameJson(candidate, plan)
-          )
+          after.plans.some((candidate) => candidate.id === plan.id && sameJson(candidate, plan))
         );
       if (!verified) throw new Error("Annual plan mirror verification failed.");
       return {
@@ -172,9 +165,7 @@ export function createAnnualPlanStore({ readBootstrap = bootstrap, fetchImpl = f
       );
       if (nextActiveId) {
         await request(
-          `?scope=eq.${encodeURIComponent(
-            scope
-          )}&plan_id=eq.${encodeURIComponent(nextActiveId)}`,
+          `?scope=eq.${encodeURIComponent(scope)}&plan_id=eq.${encodeURIComponent(nextActiveId)}`,
           {
             method: "PATCH",
             headers: { Prefer: "return=minimal" },
