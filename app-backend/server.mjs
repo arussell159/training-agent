@@ -1,3 +1,4 @@
+import { readWorkoutLibrary, saveLibraryWorkout } from "./lib/workout-library.mjs";
 import {athleteLocalDate} from './lib/athlete-date.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
@@ -12,6 +13,7 @@ import { createGithubCoachSource } from './lib/github-coach-source.mjs';
 import { createWorkoutSync, freshWorkoutSync } from './lib/coach-workout-sync.mjs';
 import { createCoachReports, createReportSnapshotCache, freshReport } from './lib/coach-reports.mjs';
 import { createReportsHttp } from './lib/coach-reports-http.mjs';
+import { fetchIntervalsReportCatalog } from './lib/intervals-report-catalog.mjs';
 import { fileURLToPath } from 'node:url';
 import { createContextStore } from './lib/supabase-context.mjs';
 import {createCompletedWorkoutStore,providerConnection,mergeTrainingSnapshot,snapshotCoversRange} from './lib/completed-workout-store.mjs';
@@ -68,7 +70,13 @@ async function getReportServices(config = coachConfig()) {
   reportServices = { signature, sync, reports };
   return reportServices;
 }
-const handleReports = createReportsHttp({ getReports: async config => (await getReportServices(config)).reports });
+const handleReports = createReportsHttp({
+  getReports: async config => (await getReportServices(config)).reports,
+  getCatalog: async () => {
+    const config = await readConfig();
+    return fetchIntervalsReportCatalog(intervalsClient(config));
+  },
+});
 const uiDistPath = path.resolve(__dirname, '..', 'ui', 'dist');
 const intervalsCachePath = path.join(process.env.VERCEL ? '/tmp' : __dirname, 'intervals.cache');
 let completionConfirmation=null;
@@ -702,6 +710,10 @@ export async function handleRequest(req, res) {
       return;
     }
 
+    if(pathname==='/api/workout-library' && req.method==='GET') {
+      const config=await readConfig();
+      sendJson(req,res,{workouts:await readWorkoutLibrary(createIntervalsClient(config))});return;
+    }
     if(pathname==='/api/workouts/new/editor' && req.method==='GET') {
       const config=await readConfig();
       try { sendJson(req,res,await loadNewWorkoutEditor(createIntervalsClient(config),requestUrl.searchParams.get('date'))); }
@@ -712,6 +724,8 @@ export async function handleRequest(req, res) {
       const config=await readConfig();
       try {
         const result=await createWorkoutEditor(createIntervalsClient(config),await readBody(req),providerConnection(config));
+        try { result.libraryWorkout=await saveLibraryWorkout(createIntervalsClient(config),result.event); }
+        catch(error) { result.refreshWarning='The calendar workout was saved, but the library save could not be verified. Retry saving this same workout to reconcile the library copy.'; }
         intervalsMemoryCache=null;providerReads.clear();
         result.workout=mapIntervalsWorkout(result.event,athleteLocalDate(new Date(),config.TIME_ZONE || 'America/Chicago'));
         try {
@@ -734,6 +748,10 @@ export async function handleRequest(req, res) {
       try {
         if(req.method==='GET'){sendJson(req,res,await loadWorkoutEditor(request,id));return;}
         const result=await saveWorkoutEditor(request,id,await readBody(req),providerConnection(config));
+        if (String(result.event.external_id || '').startsWith('training-agent:editor:')) {
+          try { result.libraryWorkout=await saveLibraryWorkout(request,result.event); }
+          catch(error) { result.refreshWarning='The calendar workout is saved. Its library copy could not be verified; save again to retry.'; }
+        }
         intervalsMemoryCache=null;
         providerReads.clear();
         const today=athleteLocalDate(new Date(),config.TIME_ZONE || 'America/Chicago');

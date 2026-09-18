@@ -1,3 +1,4 @@
+import { WorkoutReportBody } from "@/components/workout-report-body"
 import { useEffect, useRef, useState } from "react"
 import { Check, ChevronRight, FileText, LoaderCircle } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -9,7 +10,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog"
 import { coachRequest, type CoachSource } from "@/lib/coach-client"
 
@@ -84,17 +84,22 @@ export function Section11Report({
         <Dialog open={controlOpen} onOpenChange={setControlOpen}>
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
             <DialogHeader>
-              <DialogTitle>Section 11 · block report</DialogTitle>
-              <DialogDescription>
-                {target.kind === "block" ? target.startDate : ""}
-              </DialogDescription>
+              <DialogTitle>
+                {dateRange
+                  ? `${dateRange.startDate} – ${dateRange.endDate}`
+                  : target.kind === "block"
+                    ? target.startDate
+                    : ""}
+              </DialogTitle>
             </DialogHeader>
-            <ReportPanel
-              key={signature}
-              signature={signature}
-              savedOnly={savedOnly}
-              reader
-            />
+            <div className="pb-[45vh]">
+              <ReportPanel
+                key={signature}
+                signature={signature}
+                savedOnly={savedOnly}
+                reader
+              />
+            </div>
           </DialogContent>
         </Dialog>
       </>
@@ -251,7 +256,21 @@ function ReportPanel({
     )
       ? result.sync.url
       : null
-  if (savedOnly && !complete) return <div ref={root} className="h-px" />
+  if (savedOnly && !complete)
+    return (
+      <div
+        ref={root}
+        className={reader ? "text-sm text-muted-foreground" : "h-px"}
+      >
+        {reader
+          ? error ||
+            result?.error ||
+            (!result
+              ? "Checking for a saved report…"
+              : "No saved report is available for this workout.")
+          : null}
+      </div>
+    )
   return (
     <div
       ref={root}
@@ -412,18 +431,17 @@ function ReportPanel({
                 <DialogContent className="no-scrollbar max-h-[94vh] gap-0 overflow-y-auto p-0 sm:max-w-5xl">
                   <DialogHeader className="border-b px-5 py-5 pr-12 sm:px-8 sm:pr-12">
                     <DialogTitle>
-                      Section 11 · {labels[target.kind]} report
-                    </DialogTitle>
-                    <DialogDescription>
                       {result.target?.startDate} – {result.target?.endDate}
-                    </DialogDescription>
+                    </DialogTitle>
                   </DialogHeader>
-                  <div className="min-w-0 px-5 py-6 sm:px-8">
+                  <div className="min-w-0 px-5 pt-6 pb-[45vh] sm:px-8">
                     <ReportBody text={result.text} />
                   </div>
                 </DialogContent>
               </Dialog>
             </>
+          ) : target.kind === "pre" || target.kind === "post" ? (
+            <WorkoutReportBody text={result.text} kind={target.kind} />
           ) : (
             <ReportBody text={result.text} />
           )}

@@ -1,3 +1,4 @@
+import { DetailSheetRow } from "@/components/detail-sheet-row"
 import { WorkoutDescription } from "@/components/workout-description"
 import { METERS_PER_100_YARDS } from "../../../app-backend/lib/swim-units.mjs"
 import {
@@ -21,14 +22,7 @@ import { WorkoutMapSplits } from "@/components/workout-map-splits"
 import { WorkoutRouteMap } from "@/components/workout-route-map"
 import { TrainingZonesDisplay } from "@/components/training-zones-display"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
-import {
-  ArrowLeft,
-  Bike,
-  ChevronRight,
-  Dumbbell,
-  Footprints,
-  Waves,
-} from "lucide-react"
+import { ArrowLeft, Bike, Dumbbell, Footprints, Waves } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -78,6 +72,7 @@ export function WorkoutDetailPage({
   onBack: () => void
 }) {
   const workout = useEditedWorkout(initialWorkout)
+  const library = workout.id.startsWith("library:")
   const [editorOpen, setEditorOpen] = useState(false)
   const [plannedTab, setPlannedTab] = useState<"summary" | "zones">("summary")
   const [athleteZones, setAthleteZones] = useState(
@@ -100,7 +95,13 @@ export function WorkoutDetailPage({
       : null
   const pace =
     values?.average_speed && values.average_speed > 0
-      ? Math.round((swim ? workout.status === "completed" ? METERS_PER_100_YARDS : 100 : 1609.344) / values.average_speed)
+      ? Math.round(
+          (swim
+            ? workout.status === "completed"
+              ? METERS_PER_100_YARDS
+              : 100
+            : 1609.344) / values.average_speed
+        )
       : null
   const duration =
     values?.duration_seconds != null
@@ -248,7 +249,7 @@ export function WorkoutDetailPage({
               </span>
             )}
           </h1>
-          <WorkoutEditorMenu workout={workout} />
+          {!library && <WorkoutEditorMenu workout={workout} />}
         </div>
         <section
           className={`rounded-xl border px-4 py-3 shadow-sm ${heroTone}`}
@@ -285,7 +286,7 @@ export function WorkoutDetailPage({
               compact
               desktopDetail
               tall={workout.status !== "completed"}
-              enableEditOnClick
+              enableEditOnClick={!library}
             />
           </div>
         )}
@@ -430,22 +431,26 @@ export function WorkoutDetailPage({
           </Suspense>
           {workout.status === "completed" && (
             <div className="contents md:hidden">
-              <WorkoutDescription workout={workout} collapsible />
+              <DetailSheetRow
+                title="Workout instructions"
+                date={formatWorkoutDate(workout)}
+                dark
+              >
+                <WorkoutDescription workout={workout} />
+              </DetailSheetRow>
               {(workout.structure || workout.editor_model) && (
-                <details key={workout.id} className="group">
-                  <summary className="flex cursor-pointer list-none items-center gap-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
-                    <ChevronRight className="size-3.5 shrink-0 transition-transform group-open:rotate-90" />
-                    Workout profile
-                  </summary>
-                  <div className="mt-3">
-                    <WorkoutProfile workout={workout} enableEditOnClick />
-                  </div>
-                </details>
+                <DetailSheetRow
+                  title="Workout profile"
+                  date={formatWorkoutDate(workout)}
+                  dark
+                >
+                  <WorkoutProfile workout={workout} />
+                </DetailSheetRow>
               )}
             </div>
           )}
 
-          <WorkoutCoachButton workout={workout} />
+          {!library && <WorkoutCoachButton workout={workout} />}
         </WorkoutDetailSurface>
       </div>
     </div>

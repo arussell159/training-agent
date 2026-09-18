@@ -101,7 +101,7 @@ export function WorkoutDescription({
             title
           )}
         </h3>
-        {showContent && !editing && (
+        {showContent && !editing && !workout.id.startsWith("library:") && (
           <Button
             variant="ghost"
             size="sm"

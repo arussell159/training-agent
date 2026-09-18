@@ -11,7 +11,7 @@ export function ReportReaderPage({ target }: { target: ReportTarget }) {
   return (
     <div className="min-h-svh w-full min-w-0 bg-background">
       <MobileSiteNavbar
-        title={target.kind === "block" ? "Block report" : "Weekly report"}
+        title={"startDate" in target ? target.startDate : "Workout report"}
         onBack={closeReportReader}
       />
       <header className="sticky top-0 z-40 hidden h-14 items-center gap-3 px-4 md:flex">
@@ -25,10 +25,10 @@ export function ReportReaderPage({ target }: { target: ReportTarget }) {
           <ArrowLeft className="size-[18px]" />
         </Button>
         <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {target.kind === "block" ? "Block report" : "Weekly report"}
+          {"startDate" in target ? target.startDate : "Workout report"}
         </h1>
       </header>
-      <div className="mx-auto max-w-3xl px-4 py-5">
+      <div className="mx-auto max-w-3xl px-4 pt-5 pb-[45vh]">
         <Section11Report target={target} reader />
       </div>
     </div>

@@ -4,6 +4,7 @@ import Framework7 from "framework7/lite"
 import Picker from "framework7/components/picker"
 import Searchbar from "framework7/components/searchbar"
 import Sheet from "framework7/components/sheet"
+import Accordion from "framework7/components/accordion"
 import Framework7React, { App as Framework7App } from "framework7-react"
 
 import "./index.css"
@@ -15,7 +16,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 
 // Framework7's plugin registration method is not a React Hook.
 // eslint-disable-next-line react-hooks/rules-of-hooks
-Framework7.use([Framework7React, Picker, Searchbar, Sheet])
+Framework7.use([Framework7React, Picker, Searchbar, Sheet, Accordion])
 
 // Keep gestures as scrolling/inspection rather than changing the app scale.
 document.addEventListener("gesturestart", (event) => event.preventDefault(), {

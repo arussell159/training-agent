@@ -11,8 +11,11 @@
   @import "../../node_modules/framework7/components/app/app-vars.less";
   @import "../../node_modules/framework7/components/page/page.less";
   @import "../../node_modules/framework7/components/navbar/navbar.less";
+  @import "../../node_modules/framework7/components/subnavbar/subnavbar.less";
   @import "../../node_modules/framework7/components/searchbar/searchbar.less";
+  @import "../../node_modules/framework7/components/button/button.less";
   @import "../../node_modules/framework7/components/list/list.less";
+  @import "../../node_modules/framework7/components/accordion/accordion.less";
   @import "../../node_modules/framework7/components/sheet/sheet.less";
   @import "../../node_modules/framework7/components/toolbar/toolbar.less";
   @import "../../node_modules/framework7/components/tabs/tabs.less";
@@ -83,6 +86,80 @@
   .mobile-site-navbar-fixed {
     position: fixed;
     inset-inline: 0;
+  }
+
+  .coach-report-page {
+    background: var(--muted);
+    color: var(--foreground);
+    .coach-report-content {
+      padding: 0 0 calc(6rem + env(safe-area-inset-bottom));
+    }
+    .coach-report-list.list {
+      margin: 32px 16px;
+      --f7-list-bg-color: var(--background);
+      --f7-list-border-color: var(--border);
+      --f7-list-item-border-color: var(--border);
+      --f7-list-item-title-text-color: var(--foreground);
+      --f7-list-item-subtitle-text-color: var(--muted-foreground);
+      .item-title {
+        font-size: 15px;
+        font-weight: 600;
+        white-space: normal;
+      }
+      .item-subtitle {
+        font-size: 12px;
+      }
+      .item-link .item-title-row::before {
+        display: none;
+      }
+      .item-link .item-title-row {
+        padding-right: 0;
+      }
+      .item-link:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: -3px;
+      }
+    }
+    .coach-report-chevron {
+      width: 18px;
+      height: 18px;
+      color: var(--muted-foreground);
+      transition: transform 180ms;
+    }
+    .coach-report-content > [role="alert"],
+    .coach-report-content > p,
+    .coach-report-content > .rounded-xl {
+      margin: 32px 16px;
+    }
+  }
+
+  :root {
+    --coach-native-glass-shadow: var(--f7-glass-shadow);
+  }
+
+  .coach-report-navbar {
+    height: calc(var(--f7-navbar-height) + var(--f7-subnavbar-height) + 20px);
+
+    > .navbar {
+      height: var(--f7-navbar-height);
+    }
+
+    .coach-report-subnavbar {
+      --f7-glass-shadow:
+        inset 0 0 0 0.5px rgb(128 128 128 / 18%),
+        inset 0 1px 1px rgb(255 255 255 / 65%),
+        0 3px 12px rgb(0 0 0 / 10%);
+      --f7-subnavbar-text-color: var(--foreground);
+      --f7-subnavbar-border-color: transparent;
+      top: calc(100% + 20px);
+      .segmented {
+        width: 100%;
+      }
+      .button {
+        font-size: 14px;
+        font-weight: 500;
+      }
+    }
   }
 
   .mobile-navbar.toolbar {
@@ -394,7 +471,7 @@
   .terms-metric-sheet-scroll {
     flex: 1;
     min-height: 0;
-    padding: 16px 0 24px;
+    padding: 16px 0 max(45dvh, 220px);
     overflow-y: auto;
     overscroll-behavior: contain;
     touch-action: pan-y;

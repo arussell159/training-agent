@@ -478,6 +478,9 @@ test("report HTTP requires app login, same-origin POST and a validated target", 
   let generated = 0;
   const handler = createReportsHttp({
     env: () => env,
+    getCatalog: async () => ({
+      reports: [{ id: "intervals-note:1", kind: "weekly" }],
+    }),
     getReports: async () => ({
       status: async () => ({ eligible: true }),
       generate: async () => {
@@ -509,7 +512,17 @@ test("report HTTP requires app login, same-origin POST and a validated target", 
   assert.equal((await call("generate", { ...headers, "X-Test-Login": "" })).status, 401);
   assert.equal((await call("generate", { ...headers, origin: "https://other.test" })).status, 403);
   assert.equal((await call("generate", headers, { ...pre, eligible: true })).status, 400);
+  const catalog = await call("catalog");
+  assert.equal(catalog.status, 200);
+  assert.deepEqual((await catalog.json()).reports, [
+    { id: "intervals-note:1", kind: "weekly" },
+  ]);
   assert.equal((await call("status")).status, 200);
+  assert.equal(generated, 0);
+  assert.equal(
+    (await call("generate", headers, { kind: "weekly", startDate: "2026-09-07" })).status,
+    409
+  );
   assert.equal(generated, 0);
   assert.equal((await call("generate")).status, 200);
   assert.equal(generated, 1);

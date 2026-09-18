@@ -292,10 +292,7 @@ function AppWorkspace() {
       }}
     >
       <BackgroundSync />
-      <MobileTermsPage
-        open={termsOpen}
-        onOpenChange={setTermsOpen}
-      />
+      <MobileTermsPage open={termsOpen} onOpenChange={setTermsOpen} />
       {termsOpen && !mobileTerms && (
         <Suspense fallback={null}>
           <TermsReferenceDialog open onOpenChange={setTermsOpen} />
@@ -344,7 +341,7 @@ function AppWorkspace() {
         inert={mobileTerms && termsOpen}
         aria-hidden={mobileTerms && termsOpen ? true : undefined}
         className={
-          isCoachPage && !selectedWorkout && !selectedReport
+          (isCoachPage || activeItem === "Library") && !selectedWorkout && !selectedReport
             ? "coach-app-shell h-dvh min-h-0 overflow-hidden"
             : (activeItem === "Settings" || activeItem === "Annual Plan") &&
                 !selectedWorkout
@@ -356,7 +353,8 @@ function AppWorkspace() {
           !selectedWorkout &&
           activeItem !== "Calendar" &&
           activeItem !== "Annual Plan" &&
-          activeItem !== "Settings" && (
+          activeItem !== "Settings" &&
+          !isCoachPage && activeItem !== "Library" && (
             <>
               <MobileSiteNavbar
                 title={
@@ -422,7 +420,7 @@ function AppWorkspace() {
           className={`flex min-h-0 flex-1 ${
             selectedWorkout
               ? "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
-              : isCoachPage
+              : isCoachPage || activeItem === "Library"
                 ? "coach-page-main overflow-hidden md:pb-0"
                 : activeItem === "Settings"
                   ? "overflow-hidden pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"

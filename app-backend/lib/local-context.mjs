@@ -1,3 +1,4 @@
+import { publishReportBlocks } from "./publish-report-blocks.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -197,6 +198,7 @@ export async function saveAnnualPlanRecord(plan) {
     // The encrypted recovery copy is authoritative until the dedicated store
     // succeeds on a later read/save.
   }
+  await publishReportBlocks(state.plans, state.activeId);
   return state.saved;
 }
 
@@ -217,6 +219,7 @@ export async function deleteAnnualPlanRecord(id) {
   } catch {
     // Legacy APP_DATA remains the recovery source if the dedicated store is unavailable.
   }
+  await publishReportBlocks(state.plans, state.activeId);
   return true;
 }
 
