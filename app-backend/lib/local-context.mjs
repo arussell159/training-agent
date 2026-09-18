@@ -174,41 +174,46 @@ export async function saveAnnualPlanRecord(plan) {
 
   // Preserve the original APP_DATA behavior first. If the dedicated table is
   // unavailable, the application remains fully functional on the legacy path.
-  const saved = await mutateData((data) => {
+  const state = await mutateData((data) => {
     data.annual_plans = Array.isArray(data.annual_plans) ? data.annual_plans : [];
     const index = data.annual_plans.findIndex((item) => item.id === plan.id);
     if (index >= 0) data.annual_plans[index] = plan;
     else data.annual_plans.unshift(plan);
     data.active_annual_plan_id = plan.id;
-    return plan;
+    return {
+      saved: plan,
+      plans: structuredClone(data.annual_plans),
+      activeId: data.active_annual_plan_id,
+    };
   });
 
   try {
-    await annualPlanStore.upsert(saved, saved.id);
+    await annualPlanStore.replaceFromLegacy(state.plans, state.activeId);
   } catch {
     // The encrypted recovery copy is authoritative until the dedicated store
     // succeeds on a later read/save.
   }
-  return saved;
+  return state.saved;
 }
 
 export async function deleteAnnualPlanRecord(id) {
-  let nextActiveId = null;
-  const result = await mutateData((data) => {
+  const state = await mutateData((data) => {
     data.annual_plans = (Array.isArray(data.annual_plans) ? data.annual_plans : []).filter(
       (plan) => plan.id !== id
     );
     if (data.active_annual_plan_id === id)
       data.active_annual_plan_id = data.annual_plans[0]?.id || null;
-    nextActiveId = data.active_annual_plan_id || null;
-    return true;
+    return {
+      plans: structuredClone(data.annual_plans),
+      activeId: data.active_annual_plan_id || null,
+    };
   });
   try {
-    await annualPlanStore.remove(id, nextActiveId);
+    await annualPlanStore.replaceFromLegacy(state.plans, state.activeId);
   } catch {
     // Legacy APP_DATA remains the recovery source if the dedicated store is unavailable.
   }
-  return result;
+  return true;
 }
 
 export async function addLocalComment(workoutId, body) {
