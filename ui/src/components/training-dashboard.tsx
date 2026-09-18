@@ -3,7 +3,6 @@ import { lazy, Suspense, useEffect, useState } from "react"
 import { ChartAreaInteractive } from "@/components/chart-area-interactive"
 import { SectionCards } from "@/components/section-cards"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { HomeSection11Reports } from "@/components/home-section11-reports"
 import {
   loadFullTrainingContext,
   loadTrainingContext,
@@ -107,7 +106,6 @@ export function TrainingDashboard({
     <div className="flex w-full min-w-0 flex-1 flex-col gap-3 p-3 sm:gap-4 sm:p-4 md:gap-6 md:p-6">
       <SectionCards context={context} onWorkoutOpen={openWorkout} />
       <ChartAreaInteractive context={context} />
-      {isMobile && <HomeSection11Reports />}
       {selectedWorkout ? (
         <Suspense fallback={null}>
           <WorkoutDialog
