@@ -9,13 +9,13 @@
   "icons": [
     {
       "src": "/ar-performance-favicon.png",
-      "sizes": "2000x2000",
+      "sizes": "1254x1254",
       "type": "image/png",
       "purpose": "any"
     },
     {
       "src": "/ar-performance-favicon.png",
-      "sizes": "2000x2000",
+      "sizes": "1254x1254",
       "type": "image/png",
       "purpose": "maskable"
     }
