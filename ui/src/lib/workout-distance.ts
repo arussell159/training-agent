@@ -19,12 +19,12 @@ export function plannedDistanceLabel(workout:PlannedWorkout):string{
   if(!totals.distance)return totals.unknownDistance?'—':'0'
   const steps=expandSteps(workout.editor_model.steps)
   const hasTime=steps.some(({step})=>step.end.kind!=='distance'&&step.role!=='rest')
-  const yards=/y$/.test(workout.editor_model.poolLength)||(!workout.editor_model.poolLength&&steps.some(({step})=>step.end.unit==='yd'))
-  const amount=/swim/i.test(workout.sport)?yards?`${Math.round(totals.distance/.9144).toLocaleString()} yds`:`${Math.round(totals.distance).toLocaleString()} m`:`${(totals.distance/1609.344).toFixed(2)} mi`
+  const swimDistance=totals.distance/.9144+steps.reduce((sum,{step})=>sum+(step.end.kind==='distance'&&step.end.unit==='m'?step.end.value-step.end.value/.9144:0),0)
+  const amount=/swim/i.test(workout.sport)?`${Math.round(swimDistance).toLocaleString()} yds`:`${(totals.distance/1609.344).toFixed(2)} mi`
   return `${totals.unknownDistance?'≥ ':hasTime?'~':''}${amount}`
  }
  const meters=completed?(workout.workout_summary?.completed?.distance_meters ?? workout.distance_meters ?? null):estimatedPlannedDistance(workout)
  if(meters==null)return '—'
  const prefix=completed?'':'~'
- return /swim/i.test(workout.sport)?`${prefix}${Math.round(meters/.9144).toLocaleString()} yds`:`${prefix}${(meters/1609.344).toFixed(2)} mi`
+ return /swim/i.test(workout.sport)?`${prefix}${Math.round(meters).toLocaleString()} yds`:`${prefix}${(meters/1609.344).toFixed(2)} mi`
 }

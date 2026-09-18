@@ -8,6 +8,8 @@ import {
 import { WorkoutLapsTable } from "@/components/workout-laps-table"
 import { WorkoutLapChart } from "@/components/workout-lap-chart"
 import { WorkoutChartStats } from "@/components/workout-chart-stats"
+import { WorkoutDfaChart } from "@/components/workout-dfa-chart"
+import type { DfaStatistics } from "@/components/workout-analysis"
 import type { WorkoutSummaryValues } from "@/lib/training-context"
 
 type Lap = {
@@ -24,12 +26,14 @@ export function MobileWorkoutSignals({
   duration,
   sport,
   summary,
+  dfa,
   onLapSelect,
 }: {
   points: RecordedPoint[]
   laps: Lap[]
   duration: number
   sport: string
+  dfa?: DfaStatistics | null
   summary?: WorkoutSummaryValues | null
   onLapSelect?: (lap: Lap | null) => void
 }) {
@@ -43,7 +47,7 @@ export function MobileWorkoutSignals({
   const value = (p: RecordedPoint, key: string) =>
     key === "pace"
       ? p.speed != null && p.speed > 0.15
-        ? (swim ? 91.44 : 1609.344) / p.speed
+        ? (swim ? 100 : 1609.344) / p.speed
         : null
       : key === "speed"
         ? p.speed == null
@@ -176,6 +180,7 @@ export function MobileWorkoutSignals({
           onSelect={selectLap}
         />
       </div>
+      {!swim && /bike|ride|cycl|run/i.test(sport) && <WorkoutDfaChart points={points} duration={duration} statistics={dfa} />}
       {tracks.map((key) => {
         const samples = points.filter(
           (_, i) => i % Math.max(1, Math.floor(points.length / 800)) === 0

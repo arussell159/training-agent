@@ -526,12 +526,22 @@ export async function handleRequest(req, res) {
       const context=job.state==='synced'?projectTrainingContext(snapshot,'full'):await saveVerifiedSnapshot(config,pending);
       sendJson(req,res,{queued:job.state!=='synced',verified:job.state==='synced',context,operationId:mutation.operationId});return;
     }
+    if(pathname==='/api/section11-sync' && req.method==='GET') {
+      const services=await getReportServices();
+      if(!services) { sendJson(req,res,{status:'unavailable',error:'Section 11 GitHub sync is not configured.'});return; }
+      sendJson(req,res,await services.sync.poll());return;
+    }
     if(pathname==='/api/sync' && req.method==='POST') {
       const config=await readConfig();
       const queue=await flushMutations(config,requestUrl.searchParams.get('retry')==='1');
       try {
         const context=await syncRecentTraining(config,{force:requestUrl.searchParams.get('force')==='1'});
-        sendJson(req,res,{context,queue,checked_at:new Date().toISOString()});
+        let section11Sync;
+        if(requestUrl.searchParams.get('force')==='1') {
+          try { const services=await getReportServices();section11Sync=services ? await services.sync.refresh() : {status:'unavailable',error:'Section 11 GitHub sync is not configured.'}; }
+          catch(error) {section11Sync={status:'failed',error:error.message};}
+        }
+        sendJson(req,res,{context,queue,section11Sync,checked_at:new Date().toISOString()});
       }catch(error){
         const view=await createContextStore(config).getSyncRecord(fastViewId(config));
         if(!view)throw error;

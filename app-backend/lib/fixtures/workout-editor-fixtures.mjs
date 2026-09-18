@@ -44,7 +44,18 @@ export function parseTestWorkout(description) {
             }
           : { value: Number(absolute[1]) * 60 + Number(absolute[2]) }),
       };
-    else if (zone) {
+    else if (/\d+:\d{2} Pace/.test(text)) {
+      const pace = text.match(/(\d+):(\d{2})(?:-(\d+):(\d{2}))? Pace/);
+      s.pace = {
+        units: "secs",
+        ...(pace[3]
+          ? {
+              start: Number(pace[1]) * 60 + Number(pace[2]),
+              end: Number(pace[3]) * 60 + Number(pace[4]),
+            }
+          : { value: Number(pace[1]) * 60 + Number(pace[2]) }),
+      };
+    } else if (zone) {
       const key = zone[3] === "HR" ? "hr" : zone[3] === "Pace" ? "pace" : "power";
       s[key] = {
         units: `${key}_zone`,
@@ -85,6 +96,8 @@ export function parseTestWorkout(description) {
       const factor = { mi: 1609.344, km: 1000, "100y": 91.44, "100m": 100 }[s.pace.units.slice(5)];
       s.duration = (s.distance / factor) * (s.pace.value ?? (s.pace.start + s.pace.end) / 2);
     }
+    if (!s.duration && s.distance && s.pace?.units === "secs")
+      s.duration = (s.distance / 100) * (s.pace.value ?? (s.pace.start + s.pace.end) / 2);
     (group ? group.steps : steps).push(s);
   }
   const sum = (nodes, key) =>

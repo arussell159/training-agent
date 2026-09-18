@@ -511,19 +511,30 @@ function targetText(t) {
     }[t.unit] ?? `${t.unit.replace("secs", "")} Pace`;
   return `${t.mode === "ramp" ? "ramp " : ""}${numbers}${suffix}`;
 }
-function nativeStep(step) {
+function nativeStep(step, swim = false) {
+  const target =
+    swim && step.target.kind === "pace" && ["secs/100y", "secs/100m"].includes(step.target.unit)
+      ? targetText({ ...step.target, unit: "secs/100m" }).replace(/\/100m(?= Pace)/g, "")
+      : targetText(step.target);
   const amount =
     step.end.kind === "distance"
-      ? `${round(step.end.value, 6)}${{ m: "mtr", km: "km", yd: "y", mi: "mi" }[step.end.unit]}`
+      ? `${round(step.end.value, 6)}${swim && ["m", "yd"].includes(step.end.unit) ? "mtr" : { m: "mtr", km: "km", yd: "y", mi: "mi" }[step.end.unit]}`
       : `${round(step.end.value)}s`;
   // Text prompts precede the prescription; detailed instructions are kept in
   // the readable outline and lossless editor data, away from parser tokens.
-  return `- ${step.end.kind === "lap" || step.end.pressLap ? "Press lap " : ""}${amount} ${targetText(step.target)}${step.cadence ? ` ${step.cadence.start === step.cadence.end ? step.cadence.start : `${step.cadence.start}-${step.cadence.end}`}rpm` : ""} intensity=${step.role === "other" ? "active" : step.role}`
+  return `- ${step.end.kind === "lap" || step.end.pressLap ? "Press lap " : ""}${amount} ${target}${step.cadence ? ` ${step.cadence.start === step.cadence.end ? step.cadence.start : `${step.cadence.start}-${step.cadence.end}`}rpm` : ""} intensity=${step.role === "other" ? "active" : step.role}`
     .replace(/ +/g, " ")
     .trim();
 }
-export function nativeWorkoutText(model) {
+export function nativeWorkoutText(model, legacy = false) {
   const blocks = [];
+  const swim = /swim/i.test(model.sport) && !legacy;
+  if (swim) {
+    // Flatten the device steps so Garmin cannot skip the final rest in a repeat.
+    return `Pool length: ${model.poolLength || "25y"}\n\n${expandSteps(model.steps)
+      .map(({ step }) => nativeStep(step, true))
+      .join("\n\n")}`;
+  }
   for (const node of model.steps) {
     if (node.kind === "step") {
       blocks.push(nativeStep(node));
@@ -607,6 +618,19 @@ export function readableDescription(description) {
   const head = String(description || "").split(DEFINITION_MARKER)[0];
   return head.startsWith("```\n") && head.endsWith("\n```") ? head.slice(4, -4) : head;
 }
+// This app's pool convention is numeric yards under Intervals metre tokens.
+// Normalize older editor documents only after verifying their original text.
+function swimYardModel(model) {
+  if (!/swim/i.test(model.sport)) return model;
+  const normalized = clone(model);
+  normalized.poolLength = (normalized.poolLength || "25y").replace(/m$/, "y");
+  walkNodes(normalized.steps, (step) => {
+    if (step.kind !== "step") return;
+    if (step.end.kind === "distance" && step.end.unit === "m") step.end.unit = "yd";
+    if (step.target.unit === "secs/100m") step.target.unit = "secs/100y";
+  });
+  return normalized;
+}
 export function readEditorModel(description) {
   try {
     const text = String(description || ""),
@@ -615,10 +639,12 @@ export function readEditorModel(description) {
     const model = JSON.parse(text.slice(index + DATA_MARKER.length).split("\n```")[0]);
     if (
       validateWorkout(model).length ||
-      nativeWorkoutText(model) !== text.split(DEFINITION_MARKER)[1]?.split(DATA_MARKER)[0]
+      ![nativeWorkoutText(model), nativeWorkoutText(model, true)].includes(
+        text.split(DEFINITION_MARKER)[1]?.split(DATA_MARKER)[0]
+      )
     )
       return null;
-    return model;
+    return swimYardModel(model);
   } catch {
     return null;
   }
@@ -671,14 +697,16 @@ export function importWorkout(event) {
         thresholds: base.thresholds,
       };
       const native = originalDescription.split(DEFINITION_MARKER)[1]?.split(DATA_MARKER)[0];
-      if (native !== nativeWorkoutText(model))
+      const legacy =
+        native === nativeWorkoutText(model, true) && native !== nativeWorkoutText(model);
+      if (native !== nativeWorkoutText(model) && !legacy)
         issues.push(
           "The remote workout text changed outside this editor. Its stored editor structure no longer matches; resolve it in Intervals.icu before editing."
         );
-      const parsedIssues = verifyParsedWorkout(model, event);
+      const parsedIssues = verifyParsedWorkout(model, event, legacy);
       issues.push(...parsedIssues);
       return {
-        model,
+        model: swimYardModel(model),
         issues: [...issues, ...validateWorkout(model)],
         warnings,
         originalDescription: readableDescription(originalDescription),
@@ -693,8 +721,7 @@ export function importWorkout(event) {
     issues.push(
       "This event has no parsed workout steps. Add a supported structured workout in Intervals.icu first."
     );
-  const swim = /swim/i.test(base.sport),
-    yards = /y$/.test(base.poolLength);
+  const swim = /swim/i.test(base.sport);
   let ambiguousSwim = false;
   const allowed = new Set([
     "duration",
@@ -735,8 +762,8 @@ export function importWorkout(event) {
         s.intensity === "interval"
           ? "active"
           : s.intensity || (s.warmup ? "warmup" : s.cooldown ? "cooldown" : "active");
-      if (swim && yards && s.distance && s.pace?.units === "secs") ambiguousSwim = true;
-      const paceUnit = swim ? (yards ? "secs/100y" : "secs/100m") : null;
+      // This athlete uses yard amounts under Intervals.icu metre tokens.
+      const paceUnit = swim ? "secs/100y" : null;
       if (s.pace?.units === "secs" && !paceUnit)
         issues.push("An absolute pace has no explicit units; resolve it in Intervals.icu first");
       for (const key of [...kinds, ...(s.cadence ? ["cadence"] : [])])
@@ -749,7 +776,7 @@ export function importWorkout(event) {
           ? {
               kind: "distance",
               value: s.distance,
-              unit: s.distance_units === "yards" ? "yd" : "m",
+              unit: swim || s.distance_units === "yards" ? "yd" : "m",
               ...(s.press_lap ? { pressLap: true } : {}),
             }
           : { kind: s.press_lap ? "lap" : "time", value: s.duration || 0, unit: "s" };
@@ -798,7 +825,12 @@ export function importWorkout(event) {
         const unit = { mtr: "m", meters: "m", yards: "yd", yrd: "yd", y: "yd", km: "km", mi: "mi" }[
           amount[2].toLowerCase()
         ];
-        step.end = { ...step.end, kind: "distance", value: Number(amount[1]), unit };
+        step.end = {
+          ...step.end,
+          kind: "distance",
+          value: Number(amount[1]),
+          unit: swim && unit === "m" ? "yd" : unit,
+        };
       }
       const leftover = line
         .replace(/^\s*-\s*/, "")
@@ -844,7 +876,7 @@ export function importWorkout(event) {
       "This legacy swim mixes metre tokens and yard-pool pace. Confirm the intended distance units before saving."
     );
   return {
-    model: base,
+    model: swimYardModel(base),
     issues: [...new Set([...issues, ...validateWorkout(base)])],
     warnings,
     originalDescription,
@@ -868,7 +900,8 @@ function providerLeaves(steps, out = [], depth = 0) {
 }
 // Compare semantic execution, including every repeat and recovery, using the
 // parsed response. Text equality alone is never a successful verification.
-export function verifyParsedWorkout(model, event) {
+export function verifyParsedWorkout(model, event, legacy = false) {
+  const swim = /swim/i.test(model.sport) && !legacy;
   const errors = [],
     intended = expandSteps(model.steps);
   let actual;
@@ -885,7 +918,13 @@ export function verifyParsedWorkout(model, event) {
       e = step.end,
       label = `Step ${i + 1}`;
     if (e.kind === "distance") {
-      if (!near(Number(a.distance), e.value * distanceFactors[e.unit], 0.6))
+      if (
+        !near(
+          Number(a.distance),
+          swim && ["yd", "m"].includes(e.unit) ? e.value : e.value * distanceFactors[e.unit],
+          0.6
+        )
+      )
         errors.push(`${label}: distance was not parsed as prescribed`);
     } else if (!near(Number(a.duration), e.value, 0.6))
       errors.push(`${label}: duration was not parsed as prescribed`);
@@ -944,7 +983,22 @@ export function verifyParsedWorkout(model, event) {
     errors.push("Parsed workout total duration differs");
   if (
     intended.every(({ step }) => step.end.kind === "distance" || step.role === "rest") &&
-    !near(Number(event.workout_doc?.distance), totals.distance, 1)
+    !near(
+      Number(event.workout_doc?.distance),
+      swim
+        ? intended.reduce(
+            (sum, { step }) =>
+              sum +
+              (step.end.kind === "distance"
+                ? ["yd", "m"].includes(step.end.unit)
+                  ? step.end.value
+                  : step.end.value * distanceFactors[step.end.unit]
+                : 0),
+            0
+          )
+        : totals.distance,
+      1
+    )
   )
     errors.push("Parsed workout total distance differs");
   const parsedDuration = actual.reduce((sum, step) => sum + Number(step.duration || 0), 0);

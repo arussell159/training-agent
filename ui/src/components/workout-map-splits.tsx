@@ -28,9 +28,9 @@ export function WorkoutMapSplits({workout}:{workout:PlannedWorkout}){
  const id=workout.activity_id || (workout.id.startsWith('activity:')?workout.id.slice(9):null)
  const revision=(workout as PlannedWorkout & {activity_revision?:string}).activity_revision || ''
  const [analysis,setAnalysis]=useState<Analysis|null>(null)
- useEffect(()=>{if(!id)return;const controller=new AbortController();void apiFetch(`/api/activities/${encodeURIComponent(id)}/analysis?v=${encodeURIComponent(revision)}`,{signal:controller.signal}).then(async response=>{if(!response.ok)throw Error();return await response.json() as Analysis}).then(value=>{if(!controller.signal.aborted)setAnalysis(value)}).catch(()=>{});return()=>controller.abort()},[id,revision])
+ useEffect(()=>{if(!id)return;const controller=new AbortController();void apiFetch(`/api/activities/${encodeURIComponent(id)}/analysis?schema=4&v=${encodeURIComponent(revision)}`,{signal:controller.signal}).then(async response=>{if(!response.ok)throw Error();return await response.json() as Analysis}).then(value=>{if(!controller.signal.aborted)setAnalysis(value)}).catch(()=>{});return()=>controller.abort()},[id,revision])
  const sport=workout.sport.toLowerCase(),swim=sport.includes('swim'),bike=sport.includes('bike')||sport.includes('ride')
- const splitDistance=swim?91.44:bike?8046.72:1609.344
+ const splitDistance=swim?100:bike?8046.72:1609.344
  const distancePoints=useMemo(()=>(analysis?.points || []).filter(point=>point.distance!=null&&Number.isFinite(point.distance)).sort((a,b)=>a.time-b.time),[analysis])
  const splits=useMemo(()=>{
   if(distancePoints.length<2)return []

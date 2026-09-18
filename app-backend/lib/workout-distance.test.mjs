@@ -19,13 +19,13 @@ test("swim summaries use yards and other sports use miles; power-only workouts d
   assert.equal(
     plannedDistanceLabel({
       sport: "Swim",
-      workout_summary: { planned: { distance_meters: 2900 * 0.9144 } },
+      workout_summary: { planned: { distance_meters: 2900 } },
     }),
     "~2,900 yds"
   );
   assert.equal(
-    plannedDistanceLabel({ sport: "Swim", status: "completed", distance_meters: 1609.344 }),
-    "1,760 yds"
+    plannedDistanceLabel({ sport: "Swim", status: "completed", distance_meters: 50 }),
+    "50 yds"
   );
   assert.equal(
     estimatedPlannedDistance({

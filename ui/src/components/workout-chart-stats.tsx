@@ -23,7 +23,7 @@ export function WorkoutChartStats({
       : null
   const pace = (speed: number | null | undefined) =>
     speed != null && speed > 0
-      ? `${formatSignalClock((swim ? 91.44 : 1609.344) / speed)} /${swim ? "100 yd" : "mi"}`
+      ? `${formatSignalClock((swim ? 100 : 1609.344) / speed)} /${swim ? "100 yd" : "mi"}`
       : null
   const speed = (value: number | null | undefined) =>
     number(value == null ? null : value * 2.2369362921, "mi/h", 1)

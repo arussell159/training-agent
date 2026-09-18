@@ -86,11 +86,10 @@ export function workoutStepLabel(step:WorkoutStep,sport:string){
   const duration=Number(step.duration || 0)
   const swim=/swim/i.test(sport)
   const distance=Number(step.distance ?? step.distance_meters ?? step.length)
-  const parsedYards=swim&&(step.distance_units==='yards'||step.pace?.units==='secs')
   // ICU swim steps may carry a duration for execution but their prescription
   // is distance-based. Never present that execution duration as the interval
   // amount when ICU supplied no usable distance.
-  const amount=distance>0?(swim?`${Math.round(parsedYards?distance:distance/.9144).toLocaleString()} yd`:`${(distance/1609.344).toFixed(2)} mi`):step.intensity==='rest'?intervalTime(duration):swim?'Distance unavailable':intervalTime(duration)
+  const amount=distance>0?(swim?`${Math.round(distance).toLocaleString()} yd`:`${(distance/1609.344).toFixed(2)} mi`):step.intensity==='rest'?intervalTime(duration):swim?'Distance unavailable':intervalTime(duration)
   if(step.intensity==='rest')return `${amount} rest`
   const target=step.power ?? step.pace
   if(!target)return amount

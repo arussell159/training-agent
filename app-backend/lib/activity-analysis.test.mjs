@@ -11,23 +11,23 @@ test("swim selects whole recorded work repeats, not individual lengths or recove
       type: "Swim",
       start_date: start,
       icu_intervals: [
-        { start_time: 0, end_time: 400, type: "WORK", distance: 365.76 },
+        { start_time: 0, end_time: 400, type: "WORK", distance: 400 },
         { start_time: 400, end_time: 430, type: "RECOVERY", distance: 0 },
-        { start_time: 430, end_time: 850, type: "WORK", distance: 365.76 },
+        { start_time: 430, end_time: 850, type: "WORK", distance: 400 },
       ],
     },
     [{ type: "time", data: [0, 400, 430, 850] }],
     Array.from({ length: 32 }, (_, i) => ({
       timestamp: timestamp + i * 25,
       duration: 25,
-      distance: 22.86,
+      distance: 25,
     }))
   );
   assert.equal(result.laps.length, 2);
   assert.equal(result.laps[0].label, "400 yd · Interval 1");
   assert.equal(result.laps[0].end, 400);
-  assert.equal(91.44 / result.laps[0].speed, 100);
-  assert.equal(91.44 / result.laps[1].speed, 105);
+  assert.equal(100 / result.laps[0].speed, 100);
+  assert.equal(100 / result.laps[1].speed, 105);
 });
 test("analysis keeps zero watts, gaps, elevation, GPS and real sample times; laps align to activity start", () => {
   const start = "2026-09-14T12:00:00Z",
@@ -58,7 +58,7 @@ test("analysis keeps zero watts, gaps, elevation, GPS and real sample times; lap
   assert.equal(result.points[2].elevation, null);
   assert.deepEqual([result.points[0].latitude, result.points[0].longitude], [30, -97]);
   assert.equal(result.points[2].latitude, null);
-  assert.equal(result.version, 3);
+  assert.equal(result.version, 4);
   assert.equal(result.laps[0].start, 2);
   assert.equal(result.laps[0].end, 5);
   assert.equal(result.intervals[0].kind, "interval");

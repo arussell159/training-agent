@@ -20,7 +20,7 @@ export function projectTrainingContext(context, scope = "week", now = new Date()
   ]
     .map((workout) => {
       const details = appWorkoutDescription(workout, context.athlete?.sport_settings || []);
-      return details ? { ...workout, details, app_description_version: 1 } : workout;
+      return details ? { ...workout, details, app_description_version: 2 } : workout;
     })
     .map(({ raw, raw_activity, ...workout }) => ({
       ...workout,

@@ -16,7 +16,7 @@ test("recognizes the real Intervals workout_doc.steps schema", () => {
 test("hover metadata retains actual repetition groups and sport-specific target units", () => {
   const work = {
     text: "Steady",
-    distance: 400 * 0.9144,
+    distance: 400,
     duration: 400,
     pace: { value: 3, units: "pace_zone" },
   };

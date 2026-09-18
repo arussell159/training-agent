@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import { CoachError } from "./github-coach-source.mjs";
 import { completedActivityIds } from "./report-targets.mjs";
 
-export const freshWorkoutSync = () => ({ seen: [], pending: [], active: null, last: null });
+export const freshWorkoutSync = () => ({
+  seen: [],
+  pending: [],
+  pendingRefresh: false,
+  active: null,
+  last: null,
+});
 
 // A durable dispatch claim covers all tabs and server instances. No model calls here.
 export function createWorkoutSync({
@@ -36,12 +42,13 @@ export function createWorkoutSync({
   }
   async function dispatch() {
     const current = await store.read();
-    if (current.active || !current.pending.length) return;
+    if (current.active || (!current.pending.length && !current.pendingRefresh)) return;
     const claim = await store.update((state) => {
-      if (state.active || !state.pending.length) return null;
+      if (state.active || (!state.pending.length && !state.pendingRefresh)) return null;
       const active = {
         requestId: randomUUID(),
         ids: [...state.pending],
+        manual: Boolean(state.pendingRefresh),
         startedAt: now(),
         runId: null,
         url: null,
@@ -49,6 +56,7 @@ export function createWorkoutSync({
       };
       state.active = active;
       state.pending = [];
+      state.pendingRefresh = false;
       return active;
     });
     if (!claim) return;
@@ -157,6 +165,15 @@ export function createWorkoutSync({
   return {
     queue,
     poll,
+    async refresh() {
+      await poll();
+      await store.update((state) => {
+        if (!state.active) state.pendingRefresh = true;
+      });
+      await dispatch();
+      const state = await store.read();
+      return state.active || state.last || { status: "idle" };
+    },
     async observe(previous, context) {
       const before = new Set(completedActivityIds(previous));
       const completed = completedActivityIds(context);

@@ -179,7 +179,7 @@ export function mapIntervalsWorkout(
     actualDurationMinutes: actualMinutes,
     goal: sourceDescription,
     details: appDescription || sourceDescription,
-    ...(appDescription ? { app_description_version: 1 } : {}),
+    ...(appDescription ? { app_description_version: 2 } : {}),
     status: actual ? "completed" : date === today ? "today" : "upcoming",
     completed: Boolean(actual),
     load: item.icu_training_load ?? item.load_target ?? 0,

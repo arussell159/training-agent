@@ -448,6 +448,32 @@ test("uncertain dispatch is recovered by request ID, not blindly repeated", asyn
   assert.equal(h.dispatches(), 2);
 });
 
+test("morning Refresh dispatches without a workout completion and coalesces simultaneous clicks", async () => {
+  const h = syncHarness();
+  await Promise.all([h.sync.refresh(), h.sync.refresh(), h.sync.refresh()]);
+  assert.equal(h.dispatches(), 1);
+  assert.deepEqual((await h.store.read()).active.ids, []);
+  assert.equal((await h.store.read()).active.manual, true);
+  h.runs[0].status = "completed";
+  h.runs[0].conclusion = "success";
+  assert.equal((await h.sync.poll()).status, "complete");
+  await h.sync.refresh();
+  assert.equal(h.dispatches(), 2);
+});
+
+test("manual Refresh recovers an uncertain dispatch and permits retry after a failed run", async () => {
+  const h = syncHarness();
+  h.uncertain();
+  assert.equal((await h.sync.refresh()).status, "checking");
+  await h.sync.refresh();
+  assert.equal(h.dispatches(), 1);
+  h.runs[0].status = "completed";
+  h.runs[0].conclusion = "failure";
+  assert.equal((await h.sync.poll()).status, "failed");
+  await h.sync.refresh();
+  assert.equal(h.dispatches(), 2);
+});
+
 test("report HTTP requires app login, same-origin POST and a validated target", async (t) => {
   let generated = 0;
   const handler = createReportsHttp({

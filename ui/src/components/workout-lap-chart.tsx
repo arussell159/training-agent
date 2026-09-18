@@ -28,7 +28,7 @@ export function WorkoutLapChart({
   const signal = (point: RecordedPoint) =>
     pace
       ? point.speed != null && point.speed > 0.15
-        ? (swim ? 91.44 : 1609.344) / point.speed
+        ? (swim ? 100 : 1609.344) / point.speed
         : null
       : point.power
   const bars = intervals

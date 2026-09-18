@@ -26,11 +26,12 @@ export function WorkoutDescription({
   const athlete = cachedTrainingContext().athlete as {
     sport_settings?: SportZoneSettings[]
   }
-  const original =
+  const sourceDescription =
     appWorkoutDescription(workout, athlete.sport_settings || []) ??
     workout.details ??
     workout.goal ??
     ""
+  const original = /swim/i.test(workout.sport) ? sourceDescription.replace(/(\d+(?:\.\d+)?)\s*(?:mtr|meters?|metres?)\b/gi, "$1 yd") : sourceDescription
   const [saved, setSaved] = useState(original),
     [draft, setDraft] = useState(original),
     [editing, setEditing] = useState(false),

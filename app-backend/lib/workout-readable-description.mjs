@@ -78,7 +78,12 @@ function targetText(target, model, settings) {
       (target.unit === "%pace" && thresholdPace > 0 && values.every((n) => n > 0)))
   ) {
     const unit = swimming ? "secs/100y" : "secs/mi";
-    const displayed = target.unit === "%pace" ? null : convertTarget(target, unit);
+    const displayed =
+      target.unit === "%pace"
+        ? null
+        : swimming && target.unit === "secs/100m"
+          ? { ...target, unit }
+          : convertTarget(target, unit);
     const paces = displayed
       ? displayed.mode === "single"
         ? [displayed.value]
@@ -117,7 +122,7 @@ export function formatWorkoutDescription(model, settings = []) {
     if (step.end.kind === "distance") {
       const metres = step.end.value * distanceFactors[step.end.unit];
       return swimming
-        ? `${number(metres / distanceFactors.yd)} yd`
+        ? `${number(["yd", "m"].includes(step.end.unit) ? step.end.value : metres / distanceFactors.yd)} yd`
         : `${number(metres / distanceFactors.mi)} mi`;
     }
     if (step.end.kind === "lap" && !(step.end.value > 0)) return "Until lap press";
@@ -275,9 +280,13 @@ export function eventWorkoutDescription(event, settings = []) {
 // Also covers previously cached workouts without requiring a provider write or
 // a forced sync. The original structure and all model objects stay untouched.
 export function appWorkoutDescription(workout, settings = []) {
-  if (!workout || workout.status === "completed" || workout.completed || workout.activity_id)
+  if (!workout) return null;
+  if (
+    !/swim/i.test(workout.sport || "") &&
+    (workout.status === "completed" || workout.completed || workout.activity_id)
+  )
     return null;
-  if (workout.app_description_version === 1 && typeof workout.details === "string")
+  if (workout.app_description_version === 2 && typeof workout.details === "string")
     return workout.details;
   try {
     if (workout.raw?.workout_doc) return eventWorkoutDescription(workout.raw, settings);

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { CoachError, boundedText } from "./github-coach-source.mjs";
+import { swimCalendarDefinition } from "./swim-device-definition.mjs";
 import { athleteLocalDate } from "./athlete-date.mjs";
 
 export const CALENDAR_SPORTS = [
@@ -97,7 +98,7 @@ export function validateCalendarWorkouts(value, today) {
         name: w.name.trim(),
         date: w.date,
         type: w.type,
-        description: w.description,
+        description: w.type === "Swim" ? swimCalendarDefinition(w.description) : w.description,
         duration_minutes: w.duration_minutes,
         tss: w.tss,
         target: w.target,
@@ -146,7 +147,7 @@ export const calendarProposalTool = {
             description: {
               type: "string",
               description:
-                "Exact native Intervals.icu workout text, with steps starting '-'. Minutes use m; swim distance uses mtr. Include all warm-up, work, recovery and cool-down steps.",
+                "Exact native Intervals.icu workout text, with steps starting '-'. Minutes use m. This athlete swims in yards: 50 yd is written 50mtr (same number, never convert distance or pace). Declare Pool length: 25y. Include the prescribed timed rest AFTER EVERY repetition, including the last repetition and last set. Include all warm-up, work, recovery and cool-down steps; if rest duration is unspecified, clarify it rather than inventing a value.",
             },
             duration_minutes: { type: ["number", "null"] },
             tss: { type: ["number", "null"] },

@@ -293,7 +293,7 @@ test("unsupported fields and mismatched editor data fail closed", () => {
   };
   assert.match(importWorkout(changed).issues.join(" "), /changed outside/);
 });
-test("import restores drill words dropped from workout_doc and flags ambiguous swim units", () => {
+test("import restores drill words and treats swim metre tokens as exact yard amounts", () => {
   const e = fixtureEvent("Swim");
   e.description =
     "Warm Up:\nOld intervals.\n\nCoach: retain me.\n\nIntervals.icu device definition:\nPool length: 25y\n\n- 100mtr 1:40 Pace free with fins";
@@ -302,7 +302,9 @@ test("import restores drill words dropped from workout_doc and flags ambiguous s
     steps: [{ distance: 100, duration: 110, pace: { units: "secs", value: 100 } }],
   };
   const r = importWorkout(e);
-  assert.equal(r.ambiguousSwim, true);
+  assert.equal(r.ambiguousSwim, false);
+  assert.equal(r.model.steps[0].end.value, 100);
+  assert.equal(r.model.steps[0].end.unit, "yd");
   assert.equal(r.model.steps[0].notes, "free with fins");
   assert.equal(r.model.notes, "Coach: retain me.");
 });
@@ -343,14 +345,14 @@ test("pool defaults retain distance with lap ending and timed rest through save 
     model: l.model,
     revision: l.revision,
   });
-  assert.match(saved.event.description, /Press lap 125y Z3 Pace/);
+  assert.match(saved.event.description, /Press lap 125mtr Z3 Pace/);
   assert.deepEqual(verifyParsedWorkout(l.model, saved.event), []);
   const reloaded = await loadWorkoutEditor(p.request, "event:100");
   assert.equal(reloaded.model.steps[1].steps[0].end.value, 125);
   assert.equal(reloaded.model.steps[1].steps[0].end.pressLap, true);
   assert.deepEqual(reloaded.issues, []);
   const corrupted = structuredClone(saved.event);
-  delete corrupted.workout_doc.steps[1].steps[0].press_lap;
+  delete corrupted.workout_doc.steps[1].press_lap;
   assert.match(verifyParsedWorkout(l.model, corrupted).join(" "), /lap ending/);
 });
 test("validation rejects empty date, invalid numbers and repeat expansion bombs", () => {

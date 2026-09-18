@@ -47,14 +47,14 @@ export function MobileHeaderMenu({
           },
           {
             value: "refresh",
-            label: busy ? "Refreshing Intervals.icu…" : "Refresh Intervals.icu",
+            label: busy ? "Refreshing…" : "Refresh",
             disabled: busy,
             onSelect: () => void runRefresh(),
           },
         ]}
       />
       <span role="status" className="sr-only">
-        {busy ? "Refreshing Intervals.icu…" : ""}
+        {busy ? "Refreshing…" : ""}
       </span>
       {error && (
         <p

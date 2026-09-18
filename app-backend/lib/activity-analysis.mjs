@@ -1,3 +1,4 @@
+import { dfaSignal } from "./dfa-signal.mjs";
 import { gunzipSync } from "node:zlib";
 
 export function readFitLaps(buffer) {
@@ -83,6 +84,9 @@ export function normalizeAnalysis(activity, streams, fitLaps = []) {
         longitude = numeric(position?.[1]);
       return {
         time: numeric(time),
+        dfaA1: numeric(byType.get("dfa_a1")?.[i]),
+        dfaArtifacts:
+          numeric(byType.get("artifacts")?.[i]) >= 0 ? numeric(byType.get("artifacts")?.[i]) : null,
         power: numeric(byType.get("watts")?.[i]),
         heartRate: numeric(byType.get("heartrate")?.[i]),
         cadence: numeric(byType.get("cadence")?.[i]),
@@ -133,14 +137,13 @@ export function normalizeAnalysis(activity, streams, fitLaps = []) {
     ? (workIntervals.length ? workIntervals : laps.filter((l) => l.distance > 0)).map((l, i) => ({
         ...l,
         label:
-          l.distance > 0
-            ? `${Math.round(l.distance / 0.9144)} yd · Interval ${i + 1}`
-            : `Interval ${i + 1}`,
+          l.distance > 0 ? `${Math.round(l.distance)} yd · Interval ${i + 1}` : `Interval ${i + 1}`,
         speed: l.distance > 0 && l.end > l.start ? l.distance / (l.end - l.start) : null,
       }))
     : laps;
   return {
-    version: 3,
+    version: 4,
+    dfa: /ride|bike|cycl|run/i.test(activity.type || "") ? dfaSignal(points) : null,
     activityId: activity.id,
     points,
     laps: displayedLaps,

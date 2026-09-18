@@ -173,9 +173,18 @@ export async function refreshRecentIntervals() {
     headers: { Accept: "application/json" },
   })
   if (!response.ok) throw new Error(`Intervals.icu refresh failed (${response.status})`)
-  const result = await response.json() as {context:TrainingContext;sync_error?:string}
+  const result = await response.json() as {context:TrainingContext;sync_error?:string;section11Sync?:{status:string;error?:string|null}}
   if(result.context)rememberTrainingContext(result.context)
   if(result.sync_error)throw Error(result.sync_error)
+  let progress=result.section11Sync
+  const deadline=Date.now()+180000
+  while(progress && ['dispatching','queued','running','checking'].includes(progress.status) && Date.now()<deadline){
+    await new Promise(resolve=>setTimeout(resolve,3000))
+    const status=await apiFetch('/api/section11-sync')
+    if(!status.ok)throw Error('Training refreshed; Section 11 sync status could not be checked.')
+    progress=await status.json()
+  }
+  if(progress && progress.status!=='complete')throw Error(progress.error || (['failed','unavailable'].includes(progress.status)?'Training refreshed; Section 11 sync failed. Try Refresh again.':'Training refreshed; Section 11 sync is still running. Check again shortly.'))
   return loadTrainingContext(false,'full',true)
 }
 
