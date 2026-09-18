@@ -3,10 +3,6 @@ import {
   f7ready,
   List,
   ListItem,
-  NavLeft,
-  NavRight,
-  NavTitle,
-  Navbar,
   Page,
   PageContent,
   Searchbar,
@@ -16,8 +12,9 @@ import type {
   Searchbar as SearchbarModule,
   Sheet as SheetModule,
 } from "framework7/types"
-import { ChevronLeft, ChevronRight, Search, X } from "lucide-react"
+import { ChevronRight, Search, X } from "lucide-react"
 import { MetricDetail } from "@/components/terms-reference/metric-detail"
+import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
   formatTermsAbbreviation,
@@ -188,21 +185,13 @@ export function MobileTermsPage({
           inert: Boolean(metric),
         }}
       >
-        <Navbar className="terms-mobile-navbar">
-          <NavLeft>
-            <button
-              type="button"
-              className="mobile-navbar-action"
-              aria-label="Back from terms"
-              onClick={() => navigation.back()}
-            >
-              <ChevronLeft aria-hidden="true" />
-            </button>
-          </NavLeft>
-          <NavTitle>
-            <h1>Terms</h1>
-          </NavTitle>
-          <NavRight>
+        <MobileSiteNavbar
+          className="terms-mobile-navbar"
+          title="Terms"
+          onBack={() => navigation.back()}
+          backLabel="Back from terms"
+          showMenu={false}
+          right={
             <button
               type="button"
               className="mobile-navbar-action"
@@ -215,7 +204,8 @@ export function MobileTermsPage({
             >
               <Search aria-hidden="true" />
             </button>
-          </NavRight>
+          }
+        >
           <Searchbar
             ref={searchbar}
             expandable
@@ -239,7 +229,7 @@ export function MobileTermsPage({
               <button
                 slot="input-wrap-end"
                 type="button"
-                className="terms-search-clear"
+                className="mobile-navbar-action terms-search-clear"
                 aria-label="Clear metric search"
                 onClick={() => {
                   searchbar.current?.f7Searchbar()?.clear()
@@ -252,14 +242,14 @@ export function MobileTermsPage({
             <button
               slot="inner-end"
               type="button"
-              className="terms-search-collapse"
+              className="mobile-navbar-action terms-search-collapse"
               aria-label="Collapse metric search"
               onClick={() => searchbar.current?.f7Searchbar()?.disable()}
             >
               <X aria-hidden="true" />
             </button>
           </Searchbar>
-        </Navbar>
+        </MobileSiteNavbar>
         <PageContent className="terms-mobile-content">
           {filteredMetrics.length ? (
             <List

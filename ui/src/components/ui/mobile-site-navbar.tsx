@@ -15,6 +15,9 @@ export function MobileSiteNavbar({
   onEditWorkout,
   left,
   right,
+  children,
+  showMenu = true,
+  className,
   fixed = false,
 }: {
   title: ReactNode
@@ -25,6 +28,9 @@ export function MobileSiteNavbar({
   onEditWorkout?: () => void
   left?: ReactNode
   right?: ReactNode
+  children?: ReactNode
+  showMenu?: boolean
+  className?: string
   fixed?: boolean
 }) {
   const mobile = useIsMobile()
@@ -45,7 +51,11 @@ export function MobileSiteNavbar({
   return (
     <header
       ref={header}
-      className={cn("mobile-site-navbar", fixed && "mobile-site-navbar-fixed")}
+      className={cn(
+        "mobile-site-navbar",
+        className,
+        fixed && "mobile-site-navbar-fixed"
+      )}
     >
       <Navbar>
         {(onBack || left) && (
@@ -68,16 +78,18 @@ export function MobileSiteNavbar({
         </NavTitle>
         <NavRight>
           {right}
-          {actions ? (
-            <MobileActionMenu
-              label="Page menu"
-              actions={actions}
-              className="size-11 p-0"
-            />
-          ) : (
-            <MobileHeaderMenu onEditWorkout={onEditWorkout} />
-          )}
+          {showMenu &&
+            (actions ? (
+              <MobileActionMenu
+                label="Page menu"
+                actions={actions}
+                className="size-11 p-0"
+              />
+            ) : (
+              <MobileHeaderMenu onEditWorkout={onEditWorkout} />
+            ))}
         </NavRight>
+        {children}
       </Navbar>
     </header>
   )

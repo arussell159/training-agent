@@ -132,23 +132,26 @@
     padding-top: env(safe-area-inset-top);
     box-sizing: border-box;
     overflow: hidden;
-    background: var(--background);
+    background: var(--muted);
     color: var(--foreground);
     isolation: isolate;
-    .terms-mobile-navbar.navbar {
-      --f7-navbar-height: 56px;
-      --f7-safe-area-top: 0px;
-      --f7-navbar-text-color: var(--foreground);
-      --f7-navbar-bg-color: var(--background);
-      --f7-glass-shadow: none;
+    .terms-mobile-navbar .navbar {
       --f7-searchbar-input-text-color: var(--foreground);
       --f7-searchbar-input-bg-color: var(--muted);
       --f7-searchbar-placeholder-color: var(--muted-foreground);
-      position: relative;
-      flex: 0 0 56px;
       .navbar-inner {
         padding-inline: max(12px, env(safe-area-inset-left))
           max(12px, env(safe-area-inset-right));
+      }
+      .navbar-bg {
+        background-color: var(--f7-glass-bg-color);
+        backdrop-filter: saturate(180%) blur(16px);
+      }
+      .navbar-bg::after {
+        background-image: none;
+      }
+      .navbar-bg::before {
+        display: none;
       }
       .title h1 {
         margin: 0;
