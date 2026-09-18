@@ -44,12 +44,18 @@ export function parseIntervalsReportNote(event) {
 }
 
 export function parseIntervalsReportNotes(event) {
-  const description = String(event.description || '');
-  const markers = [...description.matchAll(/\[\[SECTION11_REPORT:(WEEKLY|BLOCK)(?::([^\]]+))?\]\]/gi)];
+  const description = String(event.description || "");
+  const markers = [
+    ...description.matchAll(/\[\[SECTION11_REPORT:(WEEKLY|BLOCK)(?::([^\]]+))?\]\]/gi),
+  ];
   if (markers.length <= 1) return [parseIntervalsReportNote(event)].filter(Boolean);
   return markers.flatMap((marker, index) => {
     const body = description.slice(marker.index, markers[index + 1]?.index ?? description.length);
-    const report = parseIntervalsReportNote({ ...event, name: `Section 11 ${marker[1].toLowerCase()} report`, description: body });
+    const report = parseIntervalsReportNote({
+      ...event,
+      name: `Section 11 ${marker[1].toLowerCase()} report`,
+      description: body,
+    });
     return report ? [{ ...report, id: `${report.id}:${report.kind}:${report.startDate}` }] : [];
   });
 }

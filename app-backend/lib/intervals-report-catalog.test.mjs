@@ -7,13 +7,18 @@ import {
   parseIntervalsReportNotes,
 } from "./intervals-report-catalog.mjs";
 
-test('weekly and block reports sharing the same note remain separate', () => {
-  const reports = parseIntervalsReportNotes({id:1,category:'NOTE',description:'[[SECTION11_REPORT:WEEKLY:2026-09-14]]\nWeekly text\n[[/SECTION11_REPORT:WEEKLY:2026-09-14]]\n[[SECTION11_REPORT:BLOCK:2026-09-07:2026-09-20]]\nBlock text\n[[/SECTION11_REPORT:BLOCK:2026-09-07:2026-09-20]]'});
-  assert.equal(reports.length,2);
-  assert.equal(reports[0].text,'Weekly text');
-  assert.equal(reports[0].endDate,'2026-09-20');
-  assert.equal(reports[1].text,'Block text');
-  assert.notEqual(reports[0].id,reports[1].id);
+test("weekly and block reports sharing the same note remain separate", () => {
+  const reports = parseIntervalsReportNotes({
+    id: 1,
+    category: "NOTE",
+    description:
+      "[[SECTION11_REPORT:WEEKLY:2026-09-14]]\nWeekly text\n[[/SECTION11_REPORT:WEEKLY:2026-09-14]]\n[[SECTION11_REPORT:BLOCK:2026-09-07:2026-09-20]]\nBlock text\n[[/SECTION11_REPORT:BLOCK:2026-09-07:2026-09-20]]",
+  });
+  assert.equal(reports.length, 2);
+  assert.equal(reports[0].text, "Weekly text");
+  assert.equal(reports[0].endDate, "2026-09-20");
+  assert.equal(reports[1].text, "Block text");
+  assert.notEqual(reports[0].id, reports[1].id);
 });
 
 test("Intervals report notes expose weekly content without the storage marker", () => {
