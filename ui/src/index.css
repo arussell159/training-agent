@@ -5,6 +5,14 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@font-face {
+  font-family: "Alphacorsa";
+  src: url("./assets/fonts/alphacorsa-italic.ttf") format("truetype");
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+
 html, body {
   touch-action: pan-x pan-y;
 }
@@ -16,6 +24,16 @@ html, body {
 }
 
 @media (width < 48rem) {
+  .home-brand-title {
+    font-family: "Alphacorsa", sans-serif;
+    font-size: clamp(14px, 4.25vw, 17px);
+    font-style: italic;
+    font-weight: 400;
+    text-transform: uppercase;
+    display: inline-block;
+    padding-inline: 2px;
+  }
+
   .coach-app-shell {
     position: fixed;
     inset-inline: 0;

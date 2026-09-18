@@ -339,7 +339,15 @@ function AppWorkspace() {
           activeItem !== "Annual Plan" &&
           activeItem !== "Settings" && (
             <>
-              <MobileSiteNavbar title={activeItem} />
+              <MobileSiteNavbar
+                title={
+                  activeItem === "Home" ? (
+                    <span className="home-brand-title">AR Performance</span>
+                  ) : (
+                    activeItem
+                  )
+                }
+              />
               <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:flex">
                 <h1 className="min-w-0 truncate text-sm font-semibold">
                   {activeItem}
