@@ -8,13 +8,13 @@
   "theme_color": "#050505",
   "icons": [
     {
-      "src": "/ar-performance-favicon.png",
+      "src": "/ar-performance-background.png",
       "sizes": "1254x1254",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/ar-performance-favicon.png",
+      "src": "/ar-performance-background.png",
       "sizes": "1254x1254",
       "type": "image/png",
       "purpose": "maskable"
