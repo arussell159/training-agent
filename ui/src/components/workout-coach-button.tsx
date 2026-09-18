@@ -12,20 +12,22 @@ export function WorkoutCoachButton({ workout }: { workout: PlannedWorkout }) {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date())
+
   return (
-    <div className="space-y-3">
-      {completed ? (
+    <section className="space-y-3 border-t pt-4" aria-label="Workout reports">
+      {completed && (
         <Section11Report
-          unframed
-          target={{ kind: "post", workoutId: workout.id }}
-        />
-      ) : (
-        <Section11Report
-          unframed
           target={{ kind: "pre", workoutId: workout.id }}
-          savedOnly={workout.workout_date !== today}
+          savedOnly
         />
       )}
-    </div>
+      <Section11Report
+        target={{
+          kind: completed ? "post" : "pre",
+          workoutId: workout.id,
+        }}
+        savedOnly={!completed && workout.workout_date !== today}
+      />
+    </section>
   )
 }
