@@ -45,6 +45,7 @@ import { Button } from "@/components/ui/button"
 import { MobileNavbar, MobilePageTabs } from "@/components/ui/navbars"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { MobileHeaderNavigation } from "@/components/ui/mobile-header-navigation"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { MobileTermsPage } from "@/components/terms-reference/mobile-terms-page"
 import { useMobileViewport } from "@/hooks/use-mobile-viewport"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
@@ -161,6 +162,7 @@ function itemPath(item: string) {
 
 function AppWorkspace() {
   useMobileViewport()
+  const mobileTerms = useIsMobile()
   useEffect(() => {
     const warm = () => ["Home", "Calendar", "Coach"].forEach(preloadPage)
     if ("requestIdleCallback" in window) {
@@ -292,9 +294,9 @@ function AppWorkspace() {
       <BackgroundSync />
       <MobileTermsPage
         open={termsOpen}
-        onClose={() => setTermsOpen(false)}
+        onOpenChange={setTermsOpen}
       />
-      {termsOpen && (
+      {termsOpen && !mobileTerms && (
         <Suspense fallback={null}>
           <TermsReferenceDialog open onOpenChange={setTermsOpen} />
         </Suspense>
@@ -339,6 +341,8 @@ function AppWorkspace() {
       />
 
       <SidebarInset
+        inert={mobileTerms && termsOpen}
+        aria-hidden={mobileTerms && termsOpen ? true : undefined}
         className={
           isCoachPage && !selectedWorkout && !selectedReport
             ? "coach-app-shell h-dvh min-h-0 overflow-hidden"

@@ -121,233 +121,299 @@
   }
 
   .terms-mobile-page.page {
-    --terms-mobile-navbar-height: 56px;
     position: fixed;
     z-index: 700;
     inset-inline: 0;
     top: var(--app-viewport-top, 0px);
-    bottom: auto;
-    width: 100%;
     height: var(--app-viewport-height, 100dvh);
-    min-height: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    padding-top: env(safe-area-inset-top);
+    box-sizing: border-box;
     overflow: hidden;
     background: var(--background);
     color: var(--foreground);
     isolation: isolate;
-
     .terms-mobile-navbar.navbar {
       --f7-navbar-height: 56px;
       --f7-safe-area-top: 0px;
       --f7-navbar-text-color: var(--foreground);
       --f7-navbar-bg-color: var(--background);
+      --f7-searchbar-input-text-color: var(--foreground);
+      --f7-searchbar-input-bg-color: var(--muted);
+      --f7-searchbar-placeholder-color: var(--muted-foreground);
       position: relative;
-      z-index: 20;
-      flex-shrink: 0;
-
+      flex: 0 0 56px;
       .navbar-inner {
-        padding-top: 6px;
-        padding-bottom: 6px;
+        padding-inline: max(12px, env(safe-area-inset-left))
+          max(12px, env(safe-area-inset-right));
       }
-
       .title h1 {
         margin: 0;
         font: inherit;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
       }
-
-      .left,
-      .right {
+      // Keep a dedicated back target even while the expandable search is open.
+      &.with-searchbar-expandable-enabled .left,
+      &.with-searchbar-expandable-closing .left {
+        transform: none;
+        opacity: 1 !important;
         z-index: 230;
       }
-
-      .right {
-        padding-inline-end: env(safe-area-inset-right);
-      }
-
-      .terms-mobile-count {
-        min-width: 2rem;
-        padding-inline: 4px;
-        color: var(--muted-foreground);
-        font-size: 12px;
-        text-align: center;
-      }
-
       .searchbar-expandable {
-        z-index: 220;
+        left: calc(52px + env(safe-area-inset-left));
+        width: calc(100% - 52px - env(safe-area-inset-left));
+      }
+      .searchbar-inner {
+        left: 8px;
+        right: max(12px, env(safe-area-inset-right));
+      }
+      .searchbar-icon {
+        display: none;
+      }
+      .searchbar-expandable:not(.searchbar-enabled),
+      &.with-searchbar-expandable-enabled .right {
+        visibility: hidden;
+      }
+      .searchbar-icon::after {
+        content: none;
+      }
+      .mobile-navbar-action {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+      }
+      .mobile-navbar-action svg {
+        width: 22px;
+        height: 22px;
+      }
+      input[type="search"] {
+        font-size: 16px;
+        padding-inline: 36px 40px;
       }
     }
-
     .terms-mobile-content.page-content {
-      box-sizing: border-box;
-      height: calc(100% - var(--terms-mobile-navbar-height));
+      flex: 1;
       min-height: 0;
-      padding: 0 0 calc(1rem + env(safe-area-inset-bottom));
-      background: var(--background);
+      height: auto;
+      padding: 0 0 calc(16px + env(safe-area-inset-bottom));
+      overflow-y: auto;
       overscroll-behavior: contain;
     }
-
     .terms-mobile-intro {
-      padding: 18px calc(16px + env(safe-area-inset-right)) 4px
-        calc(16px + env(safe-area-inset-left));
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 16px;
     }
-
+    .terms-mobile-intro h2 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .terms-mobile-intro p {
+      color: var(--muted-foreground);
+      font-size: 12px;
+    }
     .terms-mobile-metric-list.list {
-      margin: 8px 0 0;
-      color: var(--foreground);
-      --f7-list-bg-color: var(--card);
+      margin: 0;
+      --f7-list-bg-color: var(--background);
       --f7-list-border-color: var(--border);
       --f7-list-item-border-color: var(--border);
-      --f7-list-item-text-color: var(--foreground);
-      --f7-list-item-after-text-color: var(--muted-foreground);
-
-      ul {
-        background: var(--card);
+      --f7-list-item-title-text-color: var(--foreground);
+      --f7-list-item-subtitle-text-color: var(--muted-foreground);
+      li {
+        position: relative;
       }
-
       .item-title {
+        font-size: 15px;
         font-weight: 600;
+        white-space: normal;
       }
-
       .item-subtitle {
-        color: var(--muted-foreground);
         font-size: 12px;
       }
-
-      .item-after {
-        color: var(--muted-foreground);
-        font-size: 12px;
+      .terms-metric-open {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        z-index: 1;
+        cursor: pointer;
+        border-radius: 0;
+      }
+      .terms-metric-open:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: -3px;
       }
     }
-
     .terms-mobile-empty {
-      margin: 24px 16px;
-      padding: 28px 18px;
-      border: 1px dashed var(--border);
-      border-radius: 16px;
-      color: var(--muted-foreground);
+      padding: 32px 16px;
       font-size: 14px;
       text-align: center;
+      color: var(--muted-foreground);
     }
   }
-
+  .terms-search-icon {
+    position: absolute;
+    z-index: 40;
+    width: 17px;
+    height: 17px;
+    top: 50%;
+    left: 12px;
+    transform: translateY(-50%);
+    color: var(--muted-foreground);
+    pointer-events: none;
+  }
+  .terms-search-clear,
+  .terms-search-collapse {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    color: var(--muted-foreground);
+  }
+  .terms-search-clear {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 40;
+  }
+  .terms-search-clear svg,
+  .terms-search-collapse svg {
+    width: 18px;
+    height: 18px;
+  }
+  .terms-metric-backdrop.sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 790;
+    background: rgb(0 0 0 / 35%);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 200ms,
+      visibility 200ms;
+  }
+  .terms-metric-backdrop.backdrop-in {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
   .terms-metric-sheet.sheet-modal {
     --f7-sheet-bg-color: var(--background);
+    position: fixed;
     z-index: 800;
-    display: flex;
-    flex-direction: column;
-    height: min(86dvh, calc(var(--app-viewport-height, 100dvh) - 1rem));
-    max-height: calc(var(--app-viewport-height, 100dvh) - 1rem);
-    padding: 0 calc(16px + env(safe-area-inset-right))
-      env(safe-area-inset-bottom) calc(16px + env(safe-area-inset-left));
+    bottom: 0;
+    height: min(
+      86dvh,
+      calc(var(--app-viewport-height, 100dvh) - env(safe-area-inset-top) - 12px)
+    );
+    max-height: calc(100dvh - env(safe-area-inset-top) - 12px);
+    padding: 0 max(16px, env(safe-area-inset-right)) env(safe-area-inset-bottom)
+      max(16px, env(safe-area-inset-left));
     border-radius: 24px 24px 0 0;
     background: var(--background);
     color: var(--foreground);
-    box-shadow: 0 -12px 40px rgb(0 0 0 / 18%);
-
+    box-shadow: 0 -8px 32px rgb(0 0 0 / 14%);
     .sheet-modal-inner {
       display: flex;
-      min-height: 0;
-      flex: 1;
       flex-direction: column;
+      min-height: 0;
       overflow: hidden;
     }
   }
-
   .terms-metric-sheet-handle {
     display: flex;
     align-items: center;
     justify-content: center;
-    align-self: center;
-    width: 88px;
-    height: 38px;
-    margin: 0 -8px;
+    height: 36px;
+    flex-shrink: 0;
     touch-action: none;
     cursor: grab;
-    flex-shrink: 0;
-    border-radius: 20px;
-    user-select: none;
-
-    &:active {
-      cursor: grabbing;
-    }
-
-    &:focus-visible {
-      outline: 2px solid var(--ring);
-    }
-
-    span {
-      width: 42px;
-      height: 5px;
-      border-radius: 999px;
-      background: var(--muted-foreground);
-      opacity: 0.45;
-    }
   }
-
+  .terms-metric-sheet-handle span {
+    width: 40px;
+    height: 5px;
+    border-radius: 99px;
+    background: var(--muted-foreground);
+    opacity: 0.4;
+  }
   .terms-metric-sheet-heading {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
-    padding: 0 0 14px;
+    gap: 8px;
+    padding-bottom: 14px;
+    flex-shrink: 0;
     border-bottom: 1px solid var(--border);
-
-    h2 {
-      margin: 2px 0 0;
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      line-height: 1.2;
-    }
   }
-
+  .terms-metric-sheet-heading h2 {
+    margin: 2px 0 0;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
   .terms-metric-sheet-abbreviation {
-    margin: 0;
     color: var(--muted-foreground);
     font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+    font-weight: 600;
   }
-
   .terms-metric-sheet-close {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
-    flex: 0 0 auto;
-    border: 0;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
     border-radius: 50%;
-    background: transparent;
-    color: var(--foreground);
-    cursor: pointer;
-
-    &:hover {
-      background: var(--muted);
-    }
-
-    &:focus-visible {
-      outline: 2px solid var(--ring);
-      outline-offset: 2px;
-    }
-
-    svg {
-      width: 20px;
-      height: 20px;
-    }
+    background: var(--muted);
   }
-
+  .terms-metric-sheet-close svg {
+    width: 20px;
+    height: 20px;
+  }
   .terms-metric-sheet-scroll {
-    min-height: 0;
     flex: 1;
-    padding: 16px 0 calc(24px + env(safe-area-inset-bottom));
+    min-height: 0;
+    padding: 16px 0 24px;
     overflow-y: auto;
     overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
+  }
+  .terms-metric-data-card.card {
+    --f7-card-margin-horizontal: 0px;
+    --f7-card-margin-vertical: 0px;
+    --f7-card-bg-color: var(--card);
+    --f7-card-text-color: var(--foreground);
+    margin: 16px 0;
+    .data-table {
+      overflow: visible;
+    }
+    table {
+      table-layout: fixed;
+      width: 100%;
+    }
+    th,
+    td {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      padding: 10px 8px;
+      height: auto;
+    }
+    th:first-child {
+      width: 21%;
+    }
+    th:nth-child(2),
+    td:nth-child(2) {
+      width: 29%;
+    }
   }
 
   .workout-data-card.card {

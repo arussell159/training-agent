@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
+  f7ready,
   List,
   ListItem,
   NavLeft,
@@ -11,176 +12,257 @@ import {
   Searchbar,
   Sheet,
 } from "framework7-react"
-import type { Searchbar as F7SearchbarModule } from "framework7/types"
-import { ChevronLeft, X } from "lucide-react"
-
+import type {
+  Searchbar as SearchbarModule,
+  Sheet as SheetModule,
+} from "framework7/types"
+import { ChevronLeft, Search, X } from "lucide-react"
 import { MetricDetail } from "@/components/terms-reference/metric-detail"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
   SORTED_METRIC_DEFINITIONS,
-  type MetricDefinition,
+  searchMetricDefinitions,
 } from "@/lib/terms-reference-data"
+import { createTermsNavigation, type TermsView } from "@/lib/terms-navigation"
 
 type SearchbarHandle = {
   el: HTMLElement | null
-  f7Searchbar: () => F7SearchbarModule.Searchbar
-}
-
-const termsHistoryState = "ar-performance-terms"
-
-function metricSearchText(metric: MetricDefinition) {
-  return [
-    metric.name,
-    metric.abbreviation,
-    metric.definition,
-    metric.phase,
-    ...(metric.notes || []),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase()
+  f7Searchbar: () => SearchbarModule.Searchbar
 }
 
 export function MobileTermsPage({
   open,
-  onClose,
+  onOpenChange,
 }: {
   open: boolean
-  onClose: () => void
+  onOpenChange: (open: boolean) => void
 }) {
   const mobile = useIsMobile()
   const [query, setQuery] = useState("")
-  const [selectedMetric, setSelectedMetric] = useState<MetricDefinition | null>(
+  const [view, setView] = useState<TermsView>({ open: false, metricId: null })
+  const [displayedMetricId, setDisplayedMetricId] = useState<string | null>(
     null
   )
-  const [sheetOpen, setSheetOpen] = useState(false)
   const searchbar = useRef<SearchbarHandle>({
     el: null,
-    f7Searchbar: () => null as unknown as F7SearchbarModule.Searchbar,
+    f7Searchbar: () => null!,
   })
-  const historyMarker = useRef(false)
-
-  const filteredMetrics = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase()
-    if (!normalizedQuery) return SORTED_METRIC_DEFINITIONS
-    return SORTED_METRIC_DEFINITIONS.filter((metric) =>
-      metricSearchText(metric).includes(normalizedQuery)
+  const sheet = useRef<{
+    el: HTMLElement | null
+    f7Sheet: () => SheetModule.Sheet
+  }>({ el: null, f7Sheet: () => null! })
+  const closeButton = useRef<HTMLButtonElement>(null)
+  const metricTrigger = useRef<HTMLElement | null>(null)
+  const changed = useRef(onOpenChange)
+  changed.current = onOpenChange
+  const [navigation] = useState(() =>
+    createTermsNavigation(
+      window.history,
+      (next) => {
+        if (!next.open) sheet.current?.f7Sheet()?.close(false)
+        setView(next)
+        if (next.metricId || !next.open) setDisplayedMetricId(next.metricId)
+        changed.current(next.open)
+      },
+      crypto.randomUUID()
     )
-  }, [query])
+  )
+  const filteredMetrics = useMemo(() => searchMetricDefinitions(query), [query])
+  const metric = SORTED_METRIC_DEFINITIONS.find(
+    (item) => item.id === displayedMetricId
+  )
 
   useEffect(() => {
-    if (!mobile || !open || historyMarker.current) return
-    window.history.pushState(
-      { ...(window.history.state || {}), [termsHistoryState]: true },
-      "",
-      window.location.href
-    )
-    historyMarker.current = true
-  }, [mobile, open])
-
-  useEffect(() => {
-    if (!mobile || !open) return
-    const expand = () => searchbar.current?.f7Searchbar()?.enable()
-    const frame = window.requestAnimationFrame(expand)
-    const retry = window.setTimeout(expand, 80)
-    return () => {
-      window.cancelAnimationFrame(frame)
-      window.clearTimeout(retry)
+    const pop = (event: PopStateEvent) => {
+      // This overlay does not navigate the underlying workout, calendar or tab.
+      // Handle its history before the application's route restoration listeners.
+      if (navigation.pop(event.state)) event.stopImmediatePropagation()
     }
-  }, [mobile, open])
-
-  useEffect(() => {
-    if (!mobile || !open) return
-    const handlePopState = () => {
-      if (!historyMarker.current) return
-      if (sheetOpen) {
-        setSheetOpen(false)
-        window.history.pushState(
-          { ...(window.history.state || {}), [termsHistoryState]: true },
-          "",
-          window.location.href
-        )
+    const keydown = (event: KeyboardEvent) => {
+      const current = navigation.current()
+      if (!current.open) return
+      if (event.key === "Escape") {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        navigation.back()
         return
       }
-      historyMarker.current = false
-      onClose()
+      if (event.key !== "Tab") return
+      const root = document.querySelector(
+        current.metricId ? ".terms-metric-sheet" : ".terms-mobile-page"
+      )
+      const targets = [
+        ...(root?.querySelectorAll<HTMLElement>(
+          'button, input, [tabindex="0"]'
+        ) || []),
+      ].filter(
+        (element) =>
+          element.getClientRects().length &&
+          getComputedStyle(element).visibility !== "hidden"
+      )
+      const first = targets[0],
+        last = targets.at(-1)
+      if (
+        first &&
+        last &&
+        ((event.shiftKey && document.activeElement === first) ||
+          (!event.shiftKey && document.activeElement === last))
+      ) {
+        event.preventDefault()
+        ;(event.shiftKey ? last : first).focus({ preventScroll: true })
+      }
     }
-    window.addEventListener("popstate", handlePopState)
-    return () => window.removeEventListener("popstate", handlePopState)
-  }, [mobile, onClose, open, sheetOpen])
-
-  useEffect(() => {
-    if (open) return
-    setSheetOpen(false)
-    setSelectedMetric(null)
-  }, [open])
-
-  if (!mobile || !open) return null
-
-  const closeTerms = () => {
-    if (sheetOpen) {
-      setSheetOpen(false)
-      return
+    window.addEventListener("popstate", pop, true)
+    window.addEventListener("keydown", keydown, true)
+    return () => {
+      window.removeEventListener("popstate", pop, true)
+      window.removeEventListener("keydown", keydown, true)
     }
-    if (historyMarker.current) {
-      window.history.back()
-      return
+  }, [navigation])
+
+  useLayoutEffect(() => {
+    if (mobile && open) navigation.open()
+    if (!mobile && navigation.current().open) navigation.dismiss()
+  }, [mobile, open, navigation])
+
+  useLayoutEffect(() => {
+    if (!mobile || !open) return
+    const body = document.body
+    const originalStyle = body.getAttribute("style")
+    const originalRestoration = history.scrollRestoration
+    const x = window.scrollX,
+      y = window.scrollY
+    const focused =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null
+    history.scrollRestoration = "manual"
+    Object.assign(body.style, {
+      position: "fixed",
+      top: `-${y}px`,
+      left: `-${x}px`,
+      width: "100%",
+      overflow: "hidden",
+    })
+    let cancelled = false
+    f7ready(() => {
+      if (cancelled) return
+      const instance = searchbar.current?.f7Searchbar()
+      instance?.inputEl.setAttribute("aria-label", "Search training metrics")
+      instance?.enable()
+    })
+    return () => {
+      cancelled = true
+      if (originalStyle === null) body.removeAttribute("style")
+      else body.setAttribute("style", originalStyle)
+      window.scrollTo({ left: x, top: y, behavior: "instant" })
+      history.scrollRestoration = originalRestoration
+      focused?.focus({ preventScroll: true })
     }
-    onClose()
+  }, [mobile, open])
+
+  const closeMetric = () => {
+    if (navigation.current().metricId) navigation.back()
   }
-
-  const openMetric = (metric: MetricDefinition) => {
-    setSelectedMetric(metric)
-    requestAnimationFrame(() => setSheetOpen(true))
+  const openMetric = (id: string, trigger: HTMLElement) => {
+    metricTrigger.current = trigger
+    searchbar.current?.f7Searchbar()?.inputEl.blur()
+    navigation.metric(id)
   }
+  if (!open || (!mobile && !view.open)) return null
 
   return (
-    <>
+    <div id="terms-mobile-layer" className="contents" hidden={!mobile}>
       <Page
         name="terms"
         noSwipeback
+        pageContent={false}
         className="terms-mobile-page"
-        aria-label="Terms and definitions"
+        {...{
+          role: "dialog",
+          "aria-modal": true,
+          "aria-label": "Terms and definitions",
+          inert: Boolean(metric),
+        }}
       >
         <Navbar className="terms-mobile-navbar">
           <NavLeft>
             <button
               type="button"
-              className="terms-mobile-back mobile-navbar-action"
-              aria-label={sheetOpen ? "Close metric details" : "Back"}
-              onClick={closeTerms}
+              className="mobile-navbar-action"
+              aria-label="Back from terms"
+              onClick={() => navigation.back()}
             >
               <ChevronLeft aria-hidden="true" />
             </button>
           </NavLeft>
           <NavTitle>
-            <h1>Terms &amp; definitions</h1>
+            <h1>Terms</h1>
           </NavTitle>
           <NavRight>
-            <span className="terms-mobile-count" aria-live="polite">
-              {filteredMetrics.length}
-            </span>
+            <button
+              type="button"
+              className="mobile-navbar-action"
+              aria-label="Expand metric search"
+              onClick={() => {
+                const instance = searchbar.current?.f7Searchbar()
+                instance?.enable()
+                instance?.inputEl.focus()
+              }}
+            >
+              <Search aria-hidden="true" />
+            </button>
           </NavRight>
           <Searchbar
             ref={searchbar}
             expandable
             form={false}
             customSearch
+            backdrop={false}
+            disableButton={false}
+            clearButton={false}
             value={query}
-            placeholder="Search metrics or abbreviations"
-            aria-label="Search training metrics"
-            clearButton
-            onInput={(event) => setQuery(event?.target?.value || "")}
+            placeholder="Search metrics"
+            onInput={(event) => setQuery(event.target.value)}
             onSearchbarClear={() => setQuery("")}
-          />
+            onSearchbarDisable={() => setQuery("")}
+          >
+            <Search
+              slot="input-wrap-start"
+              className="terms-search-icon"
+              aria-hidden="true"
+            />
+            {query && (
+              <button
+                slot="input-wrap-end"
+                type="button"
+                className="terms-search-clear"
+                aria-label="Clear metric search"
+                onClick={() => {
+                  searchbar.current?.f7Searchbar()?.clear()
+                  setQuery("")
+                }}
+              >
+                <X aria-hidden="true" />
+              </button>
+            )}
+            <button
+              slot="inner-end"
+              type="button"
+              className="terms-search-collapse"
+              aria-label="Collapse metric search"
+              onClick={() => searchbar.current?.f7Searchbar()?.disable()}
+            >
+              <X aria-hidden="true" />
+            </button>
+          </Searchbar>
         </Navbar>
-
         <PageContent className="terms-mobile-content">
           <div className="terms-mobile-intro">
-            <p className="text-sm font-semibold">Training metrics</p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Search by metric name or shorthand, then open a metric for its
-              supported ranges and essential notes.
+            <h2>Training metrics</h2>
+            <p role="status">
+              {filteredMetrics.length}{" "}
+              {filteredMetrics.length === 1 ? "metric" : "metrics"}
             </p>
           </div>
           {filteredMetrics.length ? (
@@ -190,76 +272,106 @@ export function MobileTermsPage({
               dividersIos
               strongIos
             >
-              {filteredMetrics.map((metric) => (
+              {filteredMetrics.map((item) => (
                 <ListItem
-                  key={metric.id}
-                  link
-                  title={metric.name}
-                  subtitle={metric.abbreviation || metric.category}
-                  after="View"
-                  onClick={() => openMetric(metric)}
-                />
+                  key={item.id}
+                  title={item.name}
+                  subtitle={item.abbreviation || item.category}
+                >
+                  <button
+                    slot="root-start"
+                    className="terms-metric-open"
+                    type="button"
+                    aria-label={
+                      item.abbreviation
+                        ? item.name + " (" + item.abbreviation + ")"
+                        : item.name
+                    }
+                    onClick={(event) =>
+                      openMetric(item.id, event.currentTarget)
+                    }
+                  />
+                </ListItem>
               ))}
             </List>
           ) : (
-            <div className="terms-mobile-empty" role="status">
-              No metrics match “{query}”. Try a full name or shorthand.
-            </div>
+            <p className="terms-mobile-empty" role="status">
+              No metrics match “{query}”.
+            </p>
           )}
         </PageContent>
       </Page>
-
-      {selectedMetric && (
-        <Sheet
-          className="terms-metric-sheet"
-          opened={sheetOpen}
-          swipeToClose
-          swipeHandler=".terms-metric-sheet-handle"
-          backdrop
-          closeByBackdropClick
-          closeOnEscape
-          onSheetClosed={() => {
-            setSheetOpen(false)
-            setSelectedMetric(null)
-          }}
-        >
-          <div
-            className="terms-metric-sheet-handle"
-            aria-label="Drag to close"
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault()
-                setSheetOpen(false)
-              }
-            }}
-          >
-            <span aria-hidden="true" />
-          </div>
-          <div className="terms-metric-sheet-heading">
-            <div className="min-w-0">
-              {selectedMetric.abbreviation && (
-                <p className="terms-metric-sheet-abbreviation">
-                  {selectedMetric.abbreviation}
-                </p>
-              )}
-              <h2>{selectedMetric.name}</h2>
+      <div
+        className={
+          "terms-metric-backdrop sheet-backdrop" +
+          (view.metricId ? " backdrop-in" : "")
+        }
+        aria-hidden="true"
+        onClick={closeMetric}
+      />
+      <Sheet
+        ref={sheet}
+        containerEl="#terms-mobile-layer"
+        className="terms-metric-sheet"
+        opened={Boolean(view.metricId)}
+        swipeToClose
+        swipeHandler=".terms-metric-sheet-handle"
+        backdrop
+        backdropEl=".terms-metric-backdrop"
+        closeByBackdropClick
+        closeOnEscape
+        {...{
+          role: "dialog",
+          "aria-modal": true,
+          "aria-labelledby": "terms-metric-title",
+        }}
+        onSheetOpened={() =>
+          closeButton.current?.focus({ preventScroll: true })
+        }
+        onSheetClose={closeMetric}
+        onSheetClosed={() => {
+          if (!navigation.current().metricId) {
+            setDisplayedMetricId(null)
+            requestAnimationFrame(() =>
+              metricTrigger.current?.focus({ preventScroll: true })
+            )
+          }
+        }}
+      >
+        {metric && (
+          <>
+            <div className="terms-metric-sheet-handle" aria-hidden="true">
+              <span />
             </div>
-            <button
-              type="button"
-              className="terms-metric-sheet-close"
-              aria-label="Close metric details"
-              onClick={() => setSheetOpen(false)}
+            <div className="terms-metric-sheet-heading">
+              <div className="min-w-0">
+                {metric.abbreviation && (
+                  <p className="terms-metric-sheet-abbreviation">
+                    {metric.abbreviation}
+                  </p>
+                )}
+                <h2 id="terms-metric-title">{metric.name}</h2>
+              </div>
+              <button
+                ref={closeButton}
+                type="button"
+                className="terms-metric-sheet-close"
+                aria-label="Close metric details"
+                onClick={closeMetric}
+              >
+                <X aria-hidden="true" />
+              </button>
+            </div>
+            <div
+              className="terms-metric-sheet-scroll"
+              tabIndex={0}
+              aria-label="Metric details"
             >
-              <X aria-hidden="true" />
-            </button>
-          </div>
-          <div className="terms-metric-sheet-scroll">
-            <MetricDetail metric={selectedMetric} compact />
-          </div>
-        </Sheet>
-      )}
-    </>
+              <MetricDetail metric={metric} compact />
+            </div>
+          </>
+        )}
+      </Sheet>
+    </div>
   )
 }

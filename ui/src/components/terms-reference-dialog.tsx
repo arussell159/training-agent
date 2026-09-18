@@ -12,7 +12,10 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { SORTED_METRIC_DEFINITIONS } from "@/lib/terms-reference-data"
+import {
+  SORTED_METRIC_DEFINITIONS,
+  searchMetricDefinitions,
+} from "@/lib/terms-reference-data"
 
 const categoryOptions = [
   ...new Set(
@@ -22,19 +25,6 @@ const categoryOptions = [
   ),
 ]
 
-function metricSearchText(metric: (typeof SORTED_METRIC_DEFINITIONS)[number]) {
-  return [
-    metric.name,
-    metric.abbreviation,
-    metric.definition,
-    metric.category,
-    metric.phase,
-    ...(metric.notes || []),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase()
-}
 export function TermsReferenceDialog({
   open,
   onOpenChange,
@@ -47,17 +37,10 @@ export function TermsReferenceDialog({
   const [category, setCategory] = useState("all")
   const popup = useRef<HTMLDivElement>(null)
 
-  const filteredMetrics = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase()
-    return SORTED_METRIC_DEFINITIONS.filter((metric) => {
-      const matchesCategory =
-        category === "all" || metric.category === category
-      return (
-        matchesCategory &&
-        (!normalizedQuery || metricSearchText(metric).includes(normalizedQuery))
-      )
-    })
-  }, [category, query])
+  const filteredMetrics = useMemo(
+    () => searchMetricDefinitions(query, category),
+    [query, category]
+  )
 
   // The mobile version is a Framework7 Page rendered by MobileTermsPage. Do
   // not let the desktop dialog's portal cover it on narrow viewports.
@@ -128,7 +111,7 @@ export function TermsReferenceDialog({
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       {metric.abbreviation && (
-                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                           {metric.abbreviation}
                         </p>
                       )}
