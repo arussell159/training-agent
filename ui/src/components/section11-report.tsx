@@ -291,7 +291,7 @@ function ReportPanel({
           ) : (
             <p className="flex items-center gap-2 text-sm font-medium">
               <FileText className="size-4 shrink-0" />
-              Section 11
+              Section 11 · {labels[target.kind]} report
             </p>
           )}
           {!(compact && complete) && (
