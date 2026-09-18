@@ -1,3 +1,4 @@
+import { METERS_PER_100_YARDS, recordedSwimYards } from "../../../app-backend/lib/swim-units.mjs"
 import {useEffect,useMemo,useRef,useState,type PointerEvent} from 'react'
 import {apiFetch} from '@/lib/api-client'
 import type {PlannedWorkout,WorkoutSummaryValues} from '@/lib/training-context'
@@ -26,10 +27,10 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
   const [range,setRange]=useState<[number,number]|null>(null),[cursor,setCursor]=useState<number|null>(null),[selection,setSelection]=useState<[number,number]|null>(null),[selected,setSelected]=useState(''),[hovered,setHovered]=useState<Lap|null>(null)
   const gesture=useRef<{x:number;time:number;range:[number,number];overview:boolean;pan:boolean}|null>(null)
   useEffect(()=>{const controller=new AbortController();void apiFetch(`/api/activities/${encodeURIComponent(id)}/summary?v=${encodeURIComponent(revision)}&schema=2`,{signal:controller.signal}).then(async response=>{if(!response.ok)throw Error();return await response.json() as WorkoutSummaryValues}).then(values=>{if(!controller.signal.aborted)setTotals({...summary,...values})}).catch(()=>{});return()=>controller.abort()},[id,revision,summary])
-  useEffect(()=>{if(cache.has(cacheKey)){setData(cache.get(cacheKey)!);return}const controller=new AbortController();setError('');void apiFetch(`/api/activities/${encodeURIComponent(id)}/analysis?schema=4&v=${encodeURIComponent(revision)}`,{signal:controller.signal}).then(async r=>{if(!r.ok)throw Error('The recording could not be loaded.');return await r.json() as Analysis}).then(d=>{cache.set(cacheKey,d);if(cache.size>20)cache.delete(cache.keys().next().value!);if(!controller.signal.aborted)setData(d)}).catch(e=>{if(e.name!=='AbortError')setError(e.message)});return()=>controller.abort()},[id,retry,revision,cacheKey])
+  useEffect(()=>{if(cache.has(cacheKey)){setData(cache.get(cacheKey)!);return}const controller=new AbortController();setError('');void apiFetch(`/api/activities/${encodeURIComponent(id)}/analysis?schema=5&v=${encodeURIComponent(revision)}`,{signal:controller.signal}).then(async r=>{if(!r.ok)throw Error('The recording could not be loaded.');return await r.json() as Analysis}).then(d=>{cache.set(cacheKey,d);if(cache.size>20)cache.delete(cache.keys().next().value!);if(!controller.signal.aborted)setData(d)}).catch(e=>{if(e.name!=='AbortError')setError(e.message)});return()=>controller.abort()},[id,retry,revision,cacheKey])
   const duration=data?.duration||1,view=range||[0,duration],swim=sport.toLowerCase().includes('swim'),run=sport.toLowerCase().includes('run')
   const available=useMemo(()=>({elevation:data?.points.some(p=>p.elevation!=null),power:!run&&!swim&&data?.points.some(p=>p.power!=null),speed:data?.points.some(p=>p.speed!=null),heartRate:data?.points.some(p=>p.heartRate!=null),cadence:data?.points.some(p=>p.cadence!=null)}),[data,run,swim])
-  const paceDistance=swim?100:1609.344
+  const paceDistance=swim?METERS_PER_100_YARDS:1609.344
   const value=(p:Point,key:string)=>key==='elevation'?(p.elevation==null?null:p.elevation*3.280839895):key==='pace'?(p.speed!=null&&p.speed>0.15?paceDistance/p.speed:null):key==='speed'?(p.speed==null?null:p.speed*2.2369362920544):key==='power'?p.power:key==='cadence'?(p.cadence??null):p.heartRate
   const unit=(key:string)=>key==='elevation'?'ft':key==='power'?'W':key==='heartRate'?'bpm':key==='cadence'?(run?'spm':swim?'strokes/min':'rpm'):key==='pace'?(swim?'/100 yd':'/mi'):'mph'
   const label=(key:string)=>key==='heartRate'?'Heart rate':key[0].toUpperCase()+key.slice(1)
@@ -56,7 +57,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
   const inspectedAverages=inspectedLap?segmentStatistics(data?.points || [],inspectedLap.start,inspectedLap.end):displayedAverages
   const statCards=[
     {label:inspectedLap?'Interval time':range||selection?'Selected time':'Moving time',value:clock(inspectedLap?inspectedLap.end-inspectedLap.start:!range&&!selection&&totals?.duration_seconds!=null?totals.duration_seconds:averages.duration),unit:''},
-    ...(inspectedLap?.distance!=null&&inspectedLap.distance>0?[{label:'Distance',value:swim?String(Math.round(inspectedLap.distance)):(inspectedLap.distance/1609.344).toFixed(2),unit:swim?'yd':'mi'}]:[]),
+    ...(inspectedLap?.distance!=null&&inspectedLap.distance>0?[{label:'Distance',value:swim?String(Math.round(recordedSwimYards(inspectedLap.distance))):(inspectedLap.distance/1609.344).toFixed(2),unit:swim?'yd':'mi'}]:[]),
     ...(available.speed?[{label:run||swim?'Avg moving pace':'Avg speed',value:inspectedAverages.speed!=null&&inspectedAverages.speed>0?(run||swim?format(paceDistance/inspectedAverages.speed,'pace'):(inspectedAverages.speed*2.2369362920544).toFixed(1)):'',unit:run||swim?unit('pace'):'mph'}]:[]),
     ...(available.power&&inspectedAverages.power!=null?[{label:'Avg power',value:String(Math.round(inspectedAverages.power)),unit:'W'}]:[]),
     ...(available.heartRate&&inspectedAverages.heartRate!=null?[{label:'Avg heart rate',value:String(Math.round(inspectedAverages.heartRate)),unit:'bpm'}]:[]),

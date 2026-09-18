@@ -1,3 +1,4 @@
+import { METERS_PER_100_YARDS } from "../../../app-backend/lib/swim-units.mjs"
 import { useMemo, useRef, useState } from "react"
 import {
   formatSignalClock,
@@ -28,7 +29,7 @@ export function WorkoutLapChart({
   const signal = (point: RecordedPoint) =>
     pace
       ? point.speed != null && point.speed > 0.15
-        ? (swim ? 100 : 1609.344) / point.speed
+        ? (swim ? METERS_PER_100_YARDS : 1609.344) / point.speed
         : null
       : point.power
   const bars = intervals

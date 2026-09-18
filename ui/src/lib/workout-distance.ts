@@ -1,4 +1,5 @@
 import type {PlannedWorkout} from './training-context'
+import {recordedSwimYards} from '../../../app-backend/lib/swim-units.mjs'
 import {expandSteps,workoutTotals} from '../../../app-backend/lib/workout-editor-model.mjs'
 
 export function estimatedPlannedDistance(workout:PlannedWorkout):number|null{
@@ -26,5 +27,5 @@ export function plannedDistanceLabel(workout:PlannedWorkout):string{
  const meters=completed?(workout.workout_summary?.completed?.distance_meters ?? workout.distance_meters ?? null):estimatedPlannedDistance(workout)
  if(meters==null)return '—'
  const prefix=completed?'':'~'
- return /swim/i.test(workout.sport)?`${prefix}${Math.round(meters).toLocaleString()} yds`:`${prefix}${(meters/1609.344).toFixed(2)} mi`
+ return /swim/i.test(workout.sport)?`${prefix}${Math.round(completed?recordedSwimYards(meters):meters).toLocaleString()} yds`:`${prefix}${(meters/1609.344).toFixed(2)} mi`
 }

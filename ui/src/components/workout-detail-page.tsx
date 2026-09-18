@@ -1,4 +1,5 @@
 import { WorkoutDescription } from "@/components/workout-description"
+import { METERS_PER_100_YARDS } from "../../../app-backend/lib/swim-units.mjs"
 import {
   WorkoutEditor,
   WorkoutEditorMenu,
@@ -99,7 +100,7 @@ export function WorkoutDetailPage({
       : null
   const pace =
     values?.average_speed && values.average_speed > 0
-      ? Math.round((swim ? 100 : 1609.344) / values.average_speed)
+      ? Math.round((swim ? workout.status === "completed" ? METERS_PER_100_YARDS : 100 : 1609.344) / values.average_speed)
       : null
   const duration =
     values?.duration_seconds != null

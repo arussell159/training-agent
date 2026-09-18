@@ -1,3 +1,4 @@
+import { METERS_PER_100_YARDS } from "../../../app-backend/lib/swim-units.mjs"
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react"
 import type { RecordedPoint } from "@/lib/segment-statistics"
 import {
@@ -47,7 +48,7 @@ export function MobileWorkoutSignals({
   const value = (p: RecordedPoint, key: string) =>
     key === "pace"
       ? p.speed != null && p.speed > 0.15
-        ? (swim ? 100 : 1609.344) / p.speed
+        ? (swim ? METERS_PER_100_YARDS : 1609.344) / p.speed
         : null
       : key === "speed"
         ? p.speed == null

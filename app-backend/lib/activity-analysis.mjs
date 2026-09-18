@@ -1,4 +1,5 @@
 import { dfaSignal } from "./dfa-signal.mjs";
+import { recordedSwimYards } from "./swim-units.mjs";
 import { gunzipSync } from "node:zlib";
 
 export function readFitLaps(buffer) {
@@ -124,8 +125,9 @@ export function normalizeAnalysis(activity, streams, fitLaps = []) {
       distance: l.distance ?? null,
       kind: "interval",
     }));
-  // Swim WORK intervals describe whole repeats, unlike pool-length samples.
-  // Keep recovery off the clicker and out of each repeat's average pace.
+  // FIT laps are the watch's recorded repeats with precise lap times. Prefer
+  // them to Intervals' inferred WORK boundaries; retain WORK as a fallback.
+  // Rest laps stay out of the pace chart and each swimming lap's pace.
   const swim = /swim/i.test(activity.type || "");
   const validIntervals = (activity.icu_intervals || []).filter(
     (l) => Number.isFinite(l.start_time) && Number.isFinite(l.end_time)
@@ -133,16 +135,19 @@ export function normalizeAnalysis(activity, streams, fitLaps = []) {
   const workIntervals = intervals.filter(
     (l, i) => validIntervals[i].type === "WORK" && l.end > l.start
   );
+  const swimLaps = laps.filter((l) => l.distance > 0 && l.end > l.start);
   const displayedLaps = swim
-    ? (workIntervals.length ? workIntervals : laps.filter((l) => l.distance > 0)).map((l, i) => ({
+    ? (swimLaps.length ? swimLaps : workIntervals).map((l, i) => ({
         ...l,
         label:
-          l.distance > 0 ? `${Math.round(l.distance)} yd · Interval ${i + 1}` : `Interval ${i + 1}`,
+          l.distance > 0
+            ? `${Math.round(recordedSwimYards(l.distance))} yd · ${swimLaps.length ? l.label : `Interval ${i + 1}`}`
+            : `Interval ${i + 1}`,
         speed: l.distance > 0 && l.end > l.start ? l.distance / (l.end - l.start) : null,
       }))
     : laps;
   return {
-    version: 4,
+    version: 5,
     dfa: /ride|bike|cycl|run/i.test(activity.type || "") ? dfaSignal(points) : null,
     activityId: activity.id,
     points,

@@ -42,7 +42,7 @@ export function MobileHeaderMenu({
             : []),
           {
             value: "terms",
-            label: "Terms & definitions",
+            label: "Terms",
             onSelect: () => window.dispatchEvent(new Event("terms-open")),
           },
           {

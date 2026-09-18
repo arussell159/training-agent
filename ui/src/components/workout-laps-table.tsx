@@ -1,3 +1,4 @@
+import { METERS_PER_100_YARDS, recordedSwimYards } from "../../../app-backend/lib/swim-units.mjs"
 import { useEffect, useRef } from "react"
 import { WorkoutTableCard } from "@/components/ui/workout-table-card"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -104,7 +105,7 @@ export function WorkoutLapsTable({
                     {lap.distance != null && (
                       <span className="mt-0.5 block text-[10px] text-muted-foreground">
                         {swim
-                          ? `${Math.round(lap.distance)} yd`
+                          ? `${Math.round(recordedSwimYards(lap.distance))} yd`
                           : `${(lap.distance / 1609.344).toFixed(2)} mi`}
                       </span>
                     )}
@@ -116,7 +117,7 @@ export function WorkoutLapsTable({
                 <td className="numeric-cell px-2 py-2">
                   {point.speed != null && point.speed > 0
                     ? pace
-                      ? `${formatSignalClock((swim ? 100 : 1609.344) / point.speed)} /${swim ? "100 yd" : "mi"}`
+                      ? `${formatSignalClock((swim ? METERS_PER_100_YARDS : 1609.344) / point.speed)} /${swim ? "100 yd" : "mi"}`
                       : `${(point.speed * 2.2369362921).toFixed(1)} mi/h`
                     : "—"}
                 </td>
