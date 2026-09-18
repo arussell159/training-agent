@@ -13,6 +13,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
+  formatTermsAbbreviation,
+  formatTermsHeading,
   SORTED_METRIC_DEFINITIONS,
   searchMetricDefinitions,
 } from "@/lib/terms-reference-data"
@@ -57,7 +59,7 @@ export function TermsReferenceDialog({
           <DialogHeader className="pr-8">
             <DialogTitle className="flex items-center gap-2 text-base leading-snug sm:text-lg">
               <BookOpen className="size-5 shrink-0 text-primary" />
-              Section 11 terms &amp; ranges
+              Section 11 Terms &amp; Ranges
             </DialogTitle>
             <DialogDescription className="sr-only sm:not-sr-only">
               Search the shorthand, formulas, thresholds, and race-week ranges
@@ -112,18 +114,20 @@ export function TermsReferenceDialog({
                     <div className="min-w-0">
                       {metric.abbreviation && (
                         <p className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                          {metric.abbreviation}
+                          {formatTermsAbbreviation(metric.abbreviation)}
                         </p>
                       )}
                       <h2 className="font-semibold tracking-tight">
-                        {metric.name}
+                        {formatTermsHeading(metric.name)}
                       </h2>
                     </div>
                     <Badge
                       variant="secondary"
                       className="max-w-full font-normal whitespace-normal"
                     >
-                      {metric.category}
+                      {formatTermsHeading(
+                        metric.category || "Other Training Metrics"
+                      )}
                     </Badge>
                   </div>
                   <div className="mt-3">

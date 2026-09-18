@@ -1,5 +1,10 @@
 import { Card } from "framework7-react"
-import type { MetricDefinition, MetricTone } from "@/lib/terms-reference-data"
+import {
+  formatTermsCopy,
+  formatTermsHeading,
+  type MetricDefinition,
+  type MetricTone,
+} from "@/lib/terms-reference-data"
 import { cn } from "@/lib/utils"
 
 const statusTextClasses: Record<MetricTone, string> = {
@@ -20,14 +25,14 @@ export function MetricDetail({
   return (
     <div className={cn("min-w-0", compact ? "space-y-4" : "space-y-5")}>
       <p className="text-sm leading-relaxed text-foreground">
-        {metric.definition}
+        {formatTermsCopy(metric.definition)}
       </p>
 
       {metric.bands?.length ? (
         <Container
           className="terms-metric-data-card overflow-hidden rounded-xl border bg-card shadow-xs"
           role="region"
-          aria-label={`${metric.name} status and range`}
+          aria-label={`${formatTermsHeading(metric.name)} status and range`}
         >
           {metric.bands?.length ? (
             <div className={compact ? "data-table" : "overflow-x-auto"}>
@@ -65,13 +70,13 @@ export function MetricDetail({
                             statusTextClasses[tone]
                           )}
                         >
-                          {row.status}
+                          {formatTermsCopy(row.status)}
                         </th>
                         <td className="w-[38%] px-3 py-2.5 align-top font-medium whitespace-pre-wrap">
-                          {row.range}
+                          {formatTermsCopy(row.range)}
                         </td>
                         <td className="px-3 py-2.5 align-top leading-relaxed">
-                          {row.meaning}
+                          {formatTermsCopy(row.meaning)}
                         </td>
                       </tr>
                     )
@@ -88,7 +93,9 @@ export function MetricDetail({
           <h3 className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">
             Phase adjustments
           </h3>
-          <p className="text-sm leading-relaxed">{metric.phase}</p>
+          <p className="text-sm leading-relaxed">
+            {formatTermsCopy(metric.phase)}
+          </p>
         </section>
       )}
 
@@ -99,7 +106,7 @@ export function MetricDetail({
           </h3>
           <ul className="space-y-1.5 pl-4 text-sm leading-relaxed marker:text-muted-foreground">
             {metric.notes.map((note) => (
-              <li key={note}>{note}</li>
+              <li key={note}>{formatTermsCopy(note)}</li>
             ))}
           </ul>
         </section>

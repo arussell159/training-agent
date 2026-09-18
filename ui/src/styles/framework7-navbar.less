@@ -140,6 +140,7 @@
       --f7-safe-area-top: 0px;
       --f7-navbar-text-color: var(--foreground);
       --f7-navbar-bg-color: var(--background);
+      --f7-glass-shadow: none;
       --f7-searchbar-input-text-color: var(--foreground);
       --f7-searchbar-input-bg-color: var(--muted);
       --f7-searchbar-placeholder-color: var(--muted-foreground);
@@ -162,11 +163,13 @@
       }
       .searchbar-expandable {
         left: calc(52px + env(safe-area-inset-left));
-        width: calc(100% - 52px - env(safe-area-inset-left));
+        right: max(12px, env(safe-area-inset-right));
+        width: auto;
       }
       .searchbar-inner {
         left: 8px;
-        right: max(12px, env(safe-area-inset-right));
+        right: 0;
+        width: auto;
       }
       .searchbar-icon {
         display: none;
@@ -184,7 +187,20 @@
         justify-content: center;
         width: 44px;
         height: 44px;
+        flex-shrink: 0;
+        border: 0;
         border-radius: 50%;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        outline-offset: 2px;
+      }
+      .mobile-navbar-action:focus-visible {
+        outline: 2px solid var(--ring);
+      }
+      .mobile-navbar-action:disabled {
+        opacity: 0.5;
+        cursor: default;
       }
       .mobile-navbar-action svg {
         width: 22px;
@@ -193,6 +209,7 @@
       input[type="search"] {
         font-size: 16px;
         padding-inline: 36px 40px;
+        box-shadow: none;
       }
     }
     .terms-mobile-content.page-content {
@@ -203,22 +220,7 @@
       overflow-y: auto;
       overscroll-behavior: contain;
     }
-    .terms-mobile-intro {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      padding: 16px;
-    }
-    .terms-mobile-intro h2 {
-      font-size: 16px;
-      font-weight: 600;
-    }
-    .terms-mobile-intro p {
-      color: var(--muted-foreground);
-      font-size: 12px;
-    }
     .terms-mobile-metric-list.list {
-      margin: 0;
       --f7-list-bg-color: var(--background);
       --f7-list-border-color: var(--border);
       --f7-list-item-border-color: var(--border);
@@ -235,15 +237,20 @@
       .item-subtitle {
         font-size: 12px;
       }
-      .terms-metric-open {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        z-index: 1;
-        cursor: pointer;
-        border-radius: 0;
+      .item-link .item-title-row::before {
+        display: none;
       }
-      .terms-metric-open:focus-visible {
+      .item-link .item-title-row {
+        padding-right: 0;
+      }
+      .terms-metric-chevron {
+        width: 18px;
+        height: 18px;
+        color: var(--muted-foreground);
+        transition: transform 180ms;
+      }
+
+      .item-link:focus-visible {
         outline: 2px solid var(--ring);
         outline-offset: -3px;
       }
@@ -274,7 +281,11 @@
     width: 44px;
     height: 44px;
     flex-shrink: 0;
-    color: var(--muted-foreground);
+    color: inherit;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
   }
   .terms-search-clear {
     position: absolute;
@@ -285,8 +296,8 @@
   }
   .terms-search-clear svg,
   .terms-search-collapse svg {
-    width: 18px;
-    height: 18px;
+    width: 22px;
+    height: 22px;
   }
   .terms-metric-backdrop.sheet-backdrop {
     position: fixed;
@@ -373,11 +384,14 @@
     height: 44px;
     flex-shrink: 0;
     border-radius: 50%;
-    background: var(--muted);
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
   }
   .terms-metric-sheet-close svg {
-    width: 20px;
-    height: 20px;
+    width: 22px;
+    height: 22px;
   }
   .terms-metric-sheet-scroll {
     flex: 1;

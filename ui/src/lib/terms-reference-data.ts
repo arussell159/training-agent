@@ -1564,6 +1564,33 @@ export const SORTED_METRIC_DEFINITIONS = [...METRIC_DEFINITIONS].sort((a, b) =>
   a.name.localeCompare(b.name)
 )
 
+/** Keep the reference UI's headings and copy consistently formatted. */
+export function formatTermsCopy(text: string) {
+  return text
+    .replace(/\s*:\s*/g, " : ")
+    .replace(/\s*[—–]\s*/g, " - ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+export function formatTermsHeading(text: string) {
+  return formatTermsCopy(text).replace(/\b[A-Za-z][A-Za-z0-9']*\b/g, (word) => {
+    // Preserve acronyms and mixed-case metric tokens such as rMSSD, eFTP,
+    // and kJ while capitalizing sentence-case headings.
+    if (word[0] === word[0].toUpperCase() || /[A-Z]/.test(word.slice(1))) {
+      return word
+    }
+    return word[0].toUpperCase() + word.slice(1)
+  })
+}
+
+export function formatTermsAbbreviation(text: string) {
+  // Unit strings such as "bpm / ms / W / J / rpm" are intentionally kept in
+  // their source casing; descriptive abbreviation labels still get heading
+  // capitalization (for example, "CTL slope" becomes "CTL Slope").
+  return text.includes("/") ? formatTermsCopy(text) : formatTermsHeading(text)
+}
+
 function searchText(text: string) {
   return text
     .normalize("NFKD")

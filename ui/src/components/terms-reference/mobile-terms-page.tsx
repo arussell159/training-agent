@@ -16,10 +16,12 @@ import type {
   Searchbar as SearchbarModule,
   Sheet as SheetModule,
 } from "framework7/types"
-import { ChevronLeft, Search, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Search, X } from "lucide-react"
 import { MetricDetail } from "@/components/terms-reference/metric-detail"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
+  formatTermsAbbreviation,
+  formatTermsHeading,
   SORTED_METRIC_DEFINITIONS,
   searchMetricDefinitions,
 } from "@/lib/terms-reference-data"
@@ -93,7 +95,7 @@ export function MobileTermsPage({
       )
       const targets = [
         ...(root?.querySelectorAll<HTMLElement>(
-          'button, input, [tabindex="0"]'
+          'button, input, a[href], [tabindex="0"]'
         ) || []),
       ].filter(
         (element) =>
@@ -149,7 +151,8 @@ export function MobileTermsPage({
       if (cancelled) return
       const instance = searchbar.current?.f7Searchbar()
       instance?.inputEl.setAttribute("aria-label", "Search training metrics")
-      instance?.enable()
+      instance?.disable()
+      setQuery("")
     })
     return () => {
       cancelled = true
@@ -258,38 +261,38 @@ export function MobileTermsPage({
           </Searchbar>
         </Navbar>
         <PageContent className="terms-mobile-content">
-          <div className="terms-mobile-intro">
-            <h2>Training metrics</h2>
-            <p role="status">
-              {filteredMetrics.length}{" "}
-              {filteredMetrics.length === 1 ? "metric" : "metrics"}
-            </p>
-          </div>
           {filteredMetrics.length ? (
             <List
               className="terms-mobile-metric-list"
               mediaList
+              insetIos
               dividersIos
               strongIos
             >
               {filteredMetrics.map((item) => (
                 <ListItem
                   key={item.id}
-                  title={item.name}
-                  subtitle={item.abbreviation || item.category}
+                  link="#"
+                  noChevron
+                  onClick={(event) => {
+                    event.preventDefault()
+                    openMetric(item.id, event.currentTarget)
+                  }}
+                  title={
+                    item.abbreviation
+                      ? formatTermsAbbreviation(item.abbreviation)
+                      : formatTermsHeading(item.name)
+                  }
+                  subtitle={formatTermsHeading(
+                    item.abbreviation
+                      ? item.name
+                      : item.category || "Other Training Metrics"
+                  )}
                 >
-                  <button
-                    slot="root-start"
-                    className="terms-metric-open"
-                    type="button"
-                    aria-label={
-                      item.abbreviation
-                        ? item.name + " (" + item.abbreviation + ")"
-                        : item.name
-                    }
-                    onClick={(event) =>
-                      openMetric(item.id, event.currentTarget)
-                    }
+                  <ChevronRight
+                    slot="after"
+                    className="terms-metric-chevron"
+                    aria-hidden="true"
                   />
                 </ListItem>
               ))}
@@ -347,10 +350,12 @@ export function MobileTermsPage({
               <div className="min-w-0">
                 {metric.abbreviation && (
                   <p className="terms-metric-sheet-abbreviation">
-                    {metric.abbreviation}
+                    {formatTermsAbbreviation(metric.abbreviation)}
                   </p>
                 )}
-                <h2 id="terms-metric-title">{metric.name}</h2>
+                <h2 id="terms-metric-title">
+                  {formatTermsHeading(metric.name)}
+                </h2>
               </div>
               <button
                 ref={closeButton}
