@@ -1596,7 +1596,6 @@ export function TrainingCalendar({
                           <CollapsibleContent className="p-3">
                             <WeekSummary
                               title={title}
-                              startDate={week.key}
                               workouts={week.workouts}
                               planWeek={planWeek}
                             />
@@ -1652,12 +1651,10 @@ const disciplineChartConfig = {
 
 function WeekSummary({
   title,
-  startDate,
   workouts,
   planWeek,
 }: {
   title: string
-  startDate: string
   workouts: PlannedWorkout[]
   planWeek: AnnualPlanWeek | null
 }) {
