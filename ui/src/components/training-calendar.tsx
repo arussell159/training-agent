@@ -150,11 +150,11 @@ function SportIcon({ sport }: { sport: string }) {
 const gradeStyles: Record<CompletionGrade, string> = {
   planned: "border-border bg-card text-card-foreground hover:bg-accent/50",
   unknown: "border-border bg-card text-card-foreground hover:bg-accent/50",
-  good: "border-green-500/50 bg-green-50 text-green-950 hover:bg-green-100 dark:bg-green-950/30 dark:text-green-100",
+  good: "border-green-600/60 bg-green-100 text-green-950 hover:bg-green-200 dark:border-green-700/60 dark:bg-green-950/40 dark:text-green-100",
   medium:
-    "border-orange-500/50 bg-orange-50 text-orange-950 hover:bg-orange-100 dark:bg-orange-950/30 dark:text-orange-100",
+    "border-orange-600/60 bg-orange-100 text-orange-950 hover:bg-orange-200 dark:border-orange-700/60 dark:bg-orange-950/40 dark:text-orange-100",
   failed:
-    "border-red-500/50 bg-red-50 text-red-950 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-100",
+    "border-red-600/60 bg-red-100 text-red-950 hover:bg-red-200 dark:border-red-700/60 dark:bg-red-950/40 dark:text-red-100",
 }
 function WorkoutPreview({
   workout,
@@ -1464,8 +1464,8 @@ export function TrainingCalendar({
                               disabled={moving}
                               className={
                                 isToday
-                                  ? "min-w-0 bg-primary/5 px-1.5 pt-16 pb-2 md:py-2"
-                                  : "min-w-0 px-1.5 py-2"
+                                  ? "min-w-0 bg-primary/5 px-3 pt-16 pb-2 md:px-1.5 md:py-2"
+                                  : "min-w-0 px-3 py-2 md:px-1.5"
                               }
                             >
                               {isToday && (
