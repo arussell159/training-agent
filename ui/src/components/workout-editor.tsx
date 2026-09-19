@@ -118,11 +118,9 @@ import {
   sportZoneSettings,
   type SportZoneSettings,
 } from "../../../app-backend/lib/workout-editor-zones.mjs"
-import {
-  DurationField,
-  PaceField,
-} from "@/components/workout-duration-field"
+import { DurationField, PaceField } from "@/components/workout-duration-field"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { useIsMobile } from "@/hooks/use-mobile"
 import {
   durationClock,
   editorUnits,
@@ -1370,6 +1368,7 @@ function EditorWorkspace({
   onSaved?: (w: PlannedWorkout) => void
   onReload: () => void
 }) {
+  const mobile = useIsMobile()
   const [history, setHistory] = useState({
     past: [] as WorkoutModel[],
     present: loaded.model,
@@ -1818,6 +1817,7 @@ function EditorWorkspace({
       >
         <DialogContent
           showCloseButton={false}
+          fullscreen={mobile}
           className="we-dialog"
           onKeyDown={(e) => {
             const a = keyActions.current,

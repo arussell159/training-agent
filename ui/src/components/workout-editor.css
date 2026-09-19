@@ -605,9 +605,6 @@
     border-radius: 0;
     inset: 0;
     height: 100dvh;
-    --tw-translate-y: 0;
-    transform: none;
-    translate: none;
     overflow-x: hidden;
   }
   .we-header {

@@ -49,7 +49,7 @@ export function WorkoutLapsTable({
         <th scope="row" className="py-4 text-left font-normal"><button type="button" aria-label={`Select ${lap.label}`} className="min-h-11 min-w-8 text-left" onClick={event => { event.stopPropagation(); onSelect(lap) }}>{index + 1}</button></th>
         <td className="py-4">{lap.distance != null ? swim ? `${Math.round(recordedSwimYards(lap.distance))} yd` : `${(lap.distance / 1609.344).toFixed(2)} mi` : "—"}</td>
         <td className="py-4">{formatSignalClock(lap.end - lap.start)}</td>
-        <td className="py-4">{point.speed != null && point.speed > 0 ? pace ? `${formatSignalClock((swim ? METERS_PER_100_YARDS : 1609.344) / point.speed)} /${swim ? "100 yd" : "mi"}` : `${(point.speed * 2.2369362921).toFixed(1)} mi/h` : "—"}</td>
+        <td className="py-4">{point.speed != null && point.speed > 0 ? pace ? `${formatSignalClock((swim ? METERS_PER_100_YARDS : 1609.344) / point.speed)} /${swim ? "100 yd" : "mi"}` : `${(point.speed * 2.2369362921).toFixed(1)} mph` : "—"}</td>
       </tr>)}</tbody>
     </table>
   )
@@ -130,7 +130,7 @@ export function WorkoutLapsTable({
                   {point.speed != null && point.speed > 0
                     ? pace
                       ? `${formatSignalClock((swim ? METERS_PER_100_YARDS : 1609.344) / point.speed)} /${swim ? "100 yd" : "mi"}`
-                      : `${(point.speed * 2.2369362921).toFixed(1)} mi/h`
+                      : `${(point.speed * 2.2369362921).toFixed(1)} mph`
                     : "—"}
                 </td>
                 {power && (

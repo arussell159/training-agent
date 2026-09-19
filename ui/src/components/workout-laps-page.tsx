@@ -22,9 +22,10 @@ export function WorkoutLapsPage({
   onClose: () => void
 }) {
   const page = useRef<HTMLDivElement>(null)
+  const rows = useRef<HTMLDivElement>(null)
   const selectChartLap = (lap: RecordedLap) => {
     onSelect(lap)
-    const viewport = page.current
+    const viewport = rows.current
     const row = viewport?.querySelector<HTMLElement>(
       `[data-lap-id="${CSS.escape(lap.id)}"]`
     )
@@ -76,7 +77,7 @@ export function WorkoutLapsPage({
   return createPortal(
     <div
       ref={page}
-      className="fixed inset-0 z-[100] overflow-x-hidden overflow-y-auto bg-background"
+      className="fixed inset-0 z-[100] flex flex-col overflow-hidden bg-background"
       aria-label="Workout laps page"
     >
       <MobileSiteNavbar
@@ -85,27 +86,35 @@ export function WorkoutLapsPage({
         backLabel="Back to workout"
         showMenu={false}
       />
-      <main className="mx-auto max-w-2xl px-4 pb-[calc(2rem+env(safe-area-inset-bottom))]">
-        <p className="-mx-4 mb-5 bg-muted/60 px-4 py-5 text-center text-sm">
-          Scroll through the workout to explore lap details.
-        </p>
-        <WorkoutLapChart
-          points={points}
-          laps={laps}
-          sport={sport}
-          selected={selected}
-          onSelect={selectChartLap}
-          expanded
-        />
-        <h2 className="-mx-4 mt-4 mb-2 bg-muted/60 px-4 py-3 text-xs font-semibold uppercase">
-          Laps
-        </h2>
-        <WorkoutLapsTable
-          intervals={intervalSignals(points, laps)}
-          sport={sport}
-          selected={selected}
-          onSelect={onSelect}
-        />
+      <main className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col px-4">
+        <div className="shrink-0">
+          <p className="-mx-4 mb-3 bg-muted/60 px-4 py-3 text-center text-sm">
+            Scroll through the workout to explore lap details.
+          </p>
+          <WorkoutLapChart
+            points={points}
+            laps={laps}
+            sport={sport}
+            selected={selected}
+            onSelect={selectChartLap}
+            expanded
+          />
+          <h2 className="-mx-4 mt-4 mb-2 bg-muted/60 px-4 py-3 text-xs font-semibold uppercase">
+            Laps
+          </h2>
+        </div>
+        <div
+          ref={rows}
+          aria-label="Lap rows"
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain pb-[calc(2rem+env(safe-area-inset-bottom))]"
+        >
+          <WorkoutLapsTable
+            intervals={intervalSignals(points, laps)}
+            sport={sport}
+            selected={selected}
+            onSelect={onSelect}
+          />
+        </div>
       </main>
     </div>,
     document.body

@@ -1,6 +1,6 @@
 import { useEffect } from "react"
 
-// Only claim a downward gesture that begins with the reader at its top.
+// The title/handle can always dismiss; the reader can dismiss only at its top.
 // Ordinary reading and horizontal gestures remain native browser scrolling.
 export function useSheetDismiss(
   id: string,
@@ -31,7 +31,7 @@ export function useSheetDismiss(
       sheet = event.target.closest<HTMLElement>(".sheet-modal")
       if (
         !sheet ||
-        (sheet.querySelector(".report-reader-scroll")?.scrollTop || 0) > 1
+        (event.target.closest(".report-reader-scroll")?.scrollTop || 0) > 1
       )
         return
       gesture = {

@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><title>Mobile verification frame</title></head>
 <body style="margin:0;background:#e5e7eb;font:14px system-ui">
-<p>Isolated fixtures — no live account. <select aria-label="Viewport width" id="width"><option>390</option><option>320</option><option>430</option><option>768</option></select> <button id="check">Check layout</button> <button id="gestures">Test report gestures</button></p>
+<p>Isolated fixtures — no live account. <select aria-label="Viewport width" id="width"><option>390</option><option>320</option><option>430</option><option>768</option></select> <select aria-label="Fixture" id="fixture"><option value="Run">Run</option><option value="Ride">Bike</option><option value="Long">20 laps</option></select> <button id="check">Check layout</button> <button id="gestures">Test report gestures</button></p>
 <iframe title="Mobile app" id="app" src="/tests/mobile-workout.html" style="width:390px;height:780px;border:0;background:white"></iframe>
 <pre id="result" style="white-space:pre-wrap"></pre>
 <script>
@@ -13,10 +13,10 @@ document.getElementById('gestures').onclick = async () => {
  const trigger=Array.from(doc.querySelectorAll('button')).find(el=>el.textContent.trim()==='Post-workout report');
  if(!trigger){document.getElementById('result').textContent='Open the completed workout first';return;}
  if(!opened()){trigger.click();await wait();}
- const swipe=async (dx,dy,{cancel=false,scrolled=false}={})=>{
+ const swipe=async (dx,dy,{cancel=false,scrolled=false,heading=false}={})=>{
    const sheet=opened(), reader=sheet.querySelector('.report-reader-scroll');
    reader.scrollTop=scrolled?200:0;
-   const target=reader.querySelector('p')||reader;
+   const target=heading?sheet.querySelector('.terms-metric-sheet-heading h2'):(reader.querySelector('p')||reader);
    const emit=(type,x,y)=>{const touch=new win.Touch({identifier:1,target,clientX:x,clientY:y}); target.dispatchEvent(new win.TouchEvent(type,{bubbles:true,cancelable:true,touches:type==='touchend'||type==='touchcancel'?[]:[touch],changedTouches:[touch]}));};
    emit('touchstart',150,350);emit('touchmove',150+dx,350+dy);emit(cancel?'touchcancel':'touchend',150+dx,350+dy);await wait();
  };
@@ -29,12 +29,15 @@ document.getElementById('gestures').onclick = async () => {
    await swipe(0,120,{cancel:true});assert('Cancelled touch resets',!!opened()&&!opened().style.transform);
    await swipe(0,120);assert('Downward swipe from report body at top closes',!opened());
    trigger.click();await wait();assert('Report reopens after swipe',!!opened());
+   await swipe(0,120,{scrolled:true,heading:true});assert('Title swipe closes a halfway-scrolled report',!opened());
+   trigger.click();await wait();
    opened().querySelector('[aria-label="Close Post-workout report"]').click();await wait();assert('Close button works on first press',!opened());
    assert('Closing keeps the workout open',!!Array.from(doc.querySelectorAll('button')).find(el=>el.textContent.trim()==='View workout'));
  }catch(error){results.push(error.message);}
  document.getElementById('result').textContent=results.join('\n');
 };
 document.getElementById('width').onchange = event => frame.style.width = event.target.value + 'px';
+document.getElementById('fixture').onchange = event => frame.src = '/tests/mobile-workout.html?sport=' + event.target.value + (event.target.value === 'Long' ? '&long=1' : '');
 document.getElementById('check').onclick = () => {
  const doc=frame.contentDocument, win=frame.contentWindow;
  const inspect=selector=>Array.from(doc.querySelectorAll(selector)).map(el=>{const box=el.getBoundingClientRect(),css=win.getComputedStyle(el);return {label:el.getAttribute('aria-label')||el.textContent.slice(0,60),radius:css.borderRadius,shadow:css.boxShadow,overflow:css.overflowY,maxHeight:css.maxHeight,x:box.x,y:box.y,width:box.width,height:box.height}});

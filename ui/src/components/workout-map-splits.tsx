@@ -11,6 +11,9 @@ import { DesktopWorkoutRouteMap } from "@/components/desktop-workout-route-map"
 
 type Analysis = SwimSplitAnalysis & { points: RecordedPoint[] }
 
+const splitMph = (split: DistanceSplit) =>
+  (split.distance * 3600) / (1609.344 * (split.end - split.start))
+
 export function WorkoutMapSplits({
   workout,
   analysis: suppliedAnalysis,
@@ -88,8 +91,10 @@ export function WorkoutMapSplits({
     </p>
   )
   if (mobile) {
-    const fastest = Math.min(...splits.map((split) => split.pace)),
-      slowest = Math.max(...splits.map((split) => split.pace))
+    const speed = (split: DistanceSplit) =>
+      bike ? splitMph(split) : -split.pace
+    const fastest = Math.max(...splits.map(speed)),
+      slowest = Math.min(...splits.map(speed))
     return (
       <section
         aria-label="Workout splits"
@@ -99,7 +104,7 @@ export function WorkoutMapSplits({
         {splits.length ? (
           <table className="w-full table-fixed text-xs tabular-nums">
             <caption className="sr-only">
-              {subtitle}. Pace,{" "}
+              {subtitle}. {bike ? "Speed in mph" : "Pace"},{" "}
               {swim
                 ? ""
                 : "net elevation in feet and average heart rate in bpm"}
@@ -123,10 +128,12 @@ export function WorkoutMapSplits({
                   {swim ? "Yd" : "Mi"}
                 </th>
                 <th scope="col" className="pb-3 text-left font-normal">
-                  Pace
+                  {bike ? "mph" : "Pace"}
                 </th>
                 <th scope="col">
-                  <span className="sr-only">Relative pace</span>
+                  <span className="sr-only">
+                    Relative {bike ? "speed" : "pace"}
+                  </span>
                 </th>
                 {!swim && (
                   <>
@@ -161,14 +168,16 @@ export function WorkoutMapSplits({
                   </th>
                   <td className="py-1.5">
                     {split.estimated ? "~" : ""}
-                    {formatSignalClock(split.pace)}
+                    {bike
+                      ? splitMph(split).toFixed(1)
+                      : formatSignalClock(split.pace)}
                   </td>
                   <td className="py-1.5 pr-1">
                     <div
                       aria-hidden="true"
                       className="h-5 rounded bg-[#0875d1]"
                       style={{
-                        width: `${slowest === fastest ? 100 : 25 + (75 * (slowest - split.pace)) / (slowest - fastest)}%`,
+                        width: `${slowest === fastest ? 100 : 25 + (75 * (speed(split) - slowest)) / (fastest - slowest)}%`,
                       }}
                     />
                   </td>
@@ -222,7 +231,9 @@ export function WorkoutMapSplits({
                 <thead className="sticky top-0 bg-card">
                   <tr className="border-b">
                     <th className="px-4 py-2 text-left font-medium">Split</th>
-                    <th className="px-4 py-2 text-right font-medium">Pace</th>
+                    <th className="px-4 py-2 text-right font-medium">
+                      {bike ? "Speed" : "Pace"}
+                    </th>
                     {showPower && (
                       <th className="px-4 py-2 text-right font-medium">
                         Power
@@ -238,8 +249,9 @@ export function WorkoutMapSplits({
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums">
                         {split.estimated ? "~" : ""}
-                        {formatSignalClock(split.pace)} /
-                        {bike ? "5 mi" : swim ? "100 yd" : "mi"}
+                        {bike
+                          ? `${splitMph(split).toFixed(1)} mph`
+                          : `${formatSignalClock(split.pace)} /${swim ? "100 yd" : "mi"}`}
                       </td>
                       {showPower && (
                         <td className="px-4 py-2.5 text-right">

@@ -13,7 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from post_workout_report import (
-    BASE_URL, READ_TIMEOUT, WRITE_TIMEOUT, build_report, get_messages,
+    BASE_URL, READ_TIMEOUT, WRITE_TIMEOUT, build_report, get_activity, get_messages,
     headers, match_plan, message_text, requests,
 )
 
@@ -126,6 +126,63 @@ def publish_once(activity_id, key, kind, text):
     return "saved_and_verified"
 
 
+def session_only_post(text, activity):
+    """Repair only the known legacy multi-session layout, preserving saved facts."""
+    marker = f"[[SECTION11_REPORT:POST_WORKOUT:{activity['id']}]]"
+    if not text.startswith(marker) or "\nWeekly totals (rolling 7d)\n" not in text:
+        return text
+    sessions, footer = text.split("\nWeekly totals (rolling 7d)\n", 1)
+    headings = list(re.finditer(r"^[A-Za-z][A-Za-z ]* — [^\n]+$", sessions, re.MULTILINE))
+    if len(headings) < 2:
+        return text
+    title = f"{activity.get('type') or 'Activity'} — {activity.get('name') or 'Unnamed'}"
+    blocks = [sessions[h.start():headings[i + 1].start() if i + 1 < len(headings) else len(sessions)].strip()
+              for i, h in enumerate(headings) if h.group() == title]
+    if len(blocks) > 1:
+        start = datetime.fromisoformat(activity['date']).strftime('%I:%M %p').lstrip('0')
+        blocks = [block for block in blocks if f"Start time: {start}" in block.splitlines()]
+    if len(blocks) != 1:
+        return text  # Never guess which same-name session owns a block.
+    return sessions[:headings[0].start()] + blocks[0] + "\n\nWeekly totals (rolling 7d)\n" + footer
+
+
+def repair_post(activity, key, messages):
+    activity_id = str(activity['id'])
+    marker = f"[[SECTION11_REPORT:POST_WORKOUT:{activity_id}]]"
+    repaired = False
+    for message in messages:
+        original = message_text(message)
+        if marker not in original:
+            continue
+        desired = session_only_post(original, activity)
+        if desired == original:
+            continue
+        # Resolve the chat through the selected activity, never a day-wide feed.
+        chat_id = get_activity(activity_id, key).get('icu_chat_id')
+        message_id = message.get('id')
+        if not isinstance(chat_id, int) or not isinstance(message_id, int):
+            raise RuntimeError('Report correction needs the activity chat and message ids')
+        if message.get('activity_id') not in (None, activity_id):
+            raise RuntimeError('Report message belongs to another activity')
+        current = next((m for m in get_messages(activity_id, key) if m.get('id') == message_id), None)
+        if message_text(current) != original:
+            raise RuntimeError('Report changed before correction; no write attempted')
+        try:
+            response = requests.put(f"{BASE_URL}/chats/{chat_id}/messages/{message_id}",
+                                    headers=headers(key), json={'content': desired}, timeout=WRITE_TIMEOUT)
+            response.raise_for_status()
+        except requests.RequestException:
+            # An uncertain update must be verified, never duplicated with a new comment.
+            current = next((m for m in get_messages(activity_id, key) if m.get('id') == message_id), None)
+            if message_text(current) != desired:
+                raise
+        current = next((m for m in get_messages(activity_id, key) if m.get('id') == message_id), None)
+        if message_text(current) != desired:
+            raise RuntimeError('Session report correction could not be verified')
+        repaired = True
+    return 'session_corrected_and_verified' if repaired else 'already_saved'
+
+
 def run(latest, intervals, key, today):
     results = []
     # Catch late uploads and a sync crossing midnight, without replaying history.
@@ -138,10 +195,14 @@ def run(latest, intervals, key, today):
         for kind in ("PRE_WORKOUT", "POST_WORKOUT"):
             # Check before loading archives or building a report.
             marker = f"[[SECTION11_REPORT:{kind}:{activity_id}]]"
-            if any(marker in message_text(m) for m in get_messages(activity_id, key)):
-                outcome = "already_saved"
+            messages = get_messages(activity_id, key)
+            if any(marker in message_text(m) for m in messages):
+                outcome = repair_post(activity, key, messages) if kind == "POST_WORKOUT" else "already_saved"
             else:
-                text = build_pre_report(pre_snapshot(activity), activity) if kind == "PRE_WORKOUT" else build_report(latest, intervals, activity, datetime.fromisoformat(day).date())
+                # The legacy builder used all same-day activities. Supply only the
+                # selected session, retaining the explicit weekly context separately.
+                scoped = {**latest, "recent_activities": [activity]}
+                text = build_pre_report(pre_snapshot(activity), activity) if kind == "PRE_WORKOUT" else build_report(scoped, intervals, activity, datetime.fromisoformat(day).date())
                 outcome = publish_once(activity_id, key, kind, text)
             results.append({"activity_id": activity_id, "kind": kind, "outcome": outcome})
     return results

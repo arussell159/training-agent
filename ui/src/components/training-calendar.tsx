@@ -1331,7 +1331,7 @@ export function TrainingCalendar({
       <div
         ref={calendarRef}
         style={{ overflowAnchor: "none" }}
-        className="flex w-full min-w-0 flex-1 flex-col"
+        className="flex w-full min-w-0 flex-1 flex-col max-md:max-w-full max-md:overflow-x-clip"
       >
         <MobileSiteNavbar
           fixed
