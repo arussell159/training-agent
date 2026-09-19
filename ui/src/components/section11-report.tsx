@@ -4,7 +4,7 @@ import {
   BlockReportBody,
 } from "@/components/catalog-report-body"
 import { useEffect, useRef, useState } from "react"
-import { Check, ChevronRight, FileText, LoaderCircle } from "lucide-react"
+import { ChevronRight, FileText, LoaderCircle } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { reportLines } from "../../../app-backend/lib/report-presentation.mjs"
 import { openReportReader } from "@/lib/report-navigation"
@@ -139,7 +139,6 @@ function ReportPanel({
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false)
-  const [checkIn, setCheckIn] = useState("")
   const root = useRef<HTMLDivElement>(null)
   const last = useRef<ReportResult | null>(null)
   const alive = useRef(true)
@@ -151,7 +150,7 @@ function ReportPanel({
     setResult(value)
   }
 
-  async function request(action: "status" | "generate" | "sync") {
+  async function request(action: "status" | "sync") {
     const controller = new AbortController()
     requests.current.add(controller)
     try {
@@ -159,9 +158,6 @@ function ReportPanel({
         `reports/${action}`,
         {
           ...JSON.parse(signature),
-          ...(action === "generate" && target.kind === "pre" && checkIn.trim()
-            ? { checkIn: checkIn.trim() }
-            : {}),
         },
         controller.signal
       )
@@ -216,24 +212,12 @@ function ReportPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature])
 
-  async function act(action: "generate" | "sync") {
-    if (
-      submitting.current ||
-      (action === "generate" &&
-        (!last.current?.eligible || last.current.status === "complete"))
-    )
-      return
+  async function act() {
+    if (submitting.current) return
     submitting.current = true
     setBusy(true)
     setError("")
-    if (action === "generate")
-      update({
-        ...last.current!,
-        status: "running",
-        eligible: false,
-        reason: "Section 11 is preparing your report. It will be saved here.",
-      })
-    await request(action)
+    await request("sync")
     if (alive.current) {
       setBusy(false)
       await request("status")
@@ -252,7 +236,6 @@ function ReportPanel({
           endDate: shiftReportDate(target.startDate, 6),
         }
       : null)
-  const running = busy || result?.status === "running"
   const runUrl =
     result?.sync?.url &&
     /^https:\/\/github\.com\/[^/]+\/[^/]+\/actions\/runs\/\d+$/.test(
@@ -317,49 +300,7 @@ function ReportPanel({
               Section 11 · {labels[target.kind]} report
             </p>
           )}
-          {(target.kind === "pre" || target.kind === "post") && !(compact && complete) && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-auto min-h-8 text-left whitespace-normal"
-              disabled={
-                !result?.eligible ||
-                running ||
-                complete ||
-                (result?.needsCheckIn && checkIn.trim().length < 10)
-              }
-              onClick={() => void act("generate")}
-            >
-              {running ? (
-                <LoaderCircle className="size-4 animate-spin" />
-              ) : complete ? (
-                <Check className="size-4" />
-              ) : null}
-              {complete
-                ? "Report completed"
-                : running
-                  ? "Preparing report…"
-                  : `Generate ${labels[target.kind]} report`}
-            </Button>
-          )}
         </div>
-      )}
-      {!complete && !running && result?.needsCheckIn && (
-        <label className="block space-y-2 text-xs leading-relaxed">
-          <span>
-            Before your next session: how do you feel now, how sore are you, and
-            do you have any new pain or symptoms?
-          </span>
-          <textarea
-            value={checkIn}
-            onChange={(event) => setCheckIn(event.target.value)}
-            maxLength={2000}
-            rows={3}
-            className="w-full rounded-md border bg-background p-2 text-sm"
-            placeholder="Feel now, soreness, and any new pain or symptoms…"
-          />
-        </label>
       )}
       {!complete && (
         <p
@@ -369,7 +310,7 @@ function ReportPanel({
           {result?.reason ||
             (!result
               ? "Checking report availability…"
-              : target.kind === "weekly" || target.kind === "block" ? "Waiting for the saved report from Intervals.icu." : "Generate once. Your report will be saved here.")}
+              : "Waiting for the saved report from Intervals.icu.")}
         </p>
       )}
       {!complete && result?.sync && (
@@ -404,7 +345,7 @@ function ReportPanel({
               variant="ghost"
               size="sm"
               disabled={busy}
-              onClick={() => void act("sync")}
+              onClick={() => void act()}
             >
               Retry sync
             </Button>

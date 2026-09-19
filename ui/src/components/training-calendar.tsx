@@ -150,11 +150,11 @@ function SportIcon({ sport }: { sport: string }) {
 const gradeStyles: Record<CompletionGrade, string> = {
   planned: "border-border bg-card text-card-foreground hover:bg-accent/50",
   unknown: "border-border bg-card text-card-foreground hover:bg-accent/50",
-  good: "border-green-600/60 bg-green-100 text-green-950 hover:bg-green-200 dark:border-green-700/60 dark:bg-green-950/40 dark:text-green-100",
+  good: "border-green-700/65 bg-green-200 text-green-950 hover:bg-green-300 dark:border-green-700/70 dark:bg-green-950/50 dark:text-green-100",
   medium:
-    "border-orange-600/60 bg-orange-100 text-orange-950 hover:bg-orange-200 dark:border-orange-700/60 dark:bg-orange-950/40 dark:text-orange-100",
+    "border-orange-700/65 bg-orange-200 text-orange-950 hover:bg-orange-300 dark:border-orange-700/70 dark:bg-orange-950/50 dark:text-orange-100",
   failed:
-    "border-red-600/60 bg-red-100 text-red-950 hover:bg-red-200 dark:border-red-700/60 dark:bg-red-950/40 dark:text-red-100",
+    "border-red-700/65 bg-red-200 text-red-950 hover:bg-red-300 dark:border-red-700/70 dark:bg-red-950/50 dark:text-red-100",
 }
 function WorkoutPreview({
   workout,
@@ -233,7 +233,7 @@ export function WorkoutCard({
           onClick()
         }
       }}
-      className={`group/workout w-full cursor-pointer gap-2 rounded-md px-2.5 py-3 shadow-sm transition-colors ${gradeStyles[grade]}`}
+      className={`group/workout w-full cursor-pointer gap-2 rounded-xl px-2.5 py-3 transition-colors ${gradeStyles[grade]}`}
     >
       <div className="flex min-w-0 flex-col items-start gap-2">
         <div className="flex w-full items-center justify-between">
@@ -1464,8 +1464,8 @@ export function TrainingCalendar({
                               disabled={moving}
                               className={
                                 isToday
-                                  ? "min-w-0 bg-primary/5 px-3 pt-16 pb-2 md:px-1.5 md:py-2"
-                                  : "min-w-0 px-3 py-2 md:px-1.5"
+                                  ? "min-w-0 bg-primary/5 px-4 pt-16 pb-2 md:px-1.5 md:py-2"
+                                  : "min-w-0 px-4 py-2 md:px-1.5"
                               }
                             >
                               {isToday && (

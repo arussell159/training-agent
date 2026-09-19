@@ -18,9 +18,11 @@ import {
 function MobileTimePicker({
   initialValue,
   onChange,
+  pace = false,
 }: {
   initialValue: number
   onChange: (seconds: number) => void
+  pace?: boolean
 }) {
   const container = useRef<HTMLDivElement>(null)
   const id = useId().replace(/:/g, "")
@@ -32,11 +34,14 @@ function MobileTimePicker({
       if (disposed || !container.current) return
       const values = (count: number) =>
         Array.from({ length: count }, (_, n) => String(n).padStart(2, "0"))
-      const current = [
-        Math.floor(initialValue / 3600),
-        Math.floor(initialValue / 60) % 60,
-        initialValue % 60,
-      ].map((n) => String(n).padStart(2, "0"))
+      const current = (pace
+        ? [Math.floor(initialValue / 60), initialValue % 60]
+        : [
+            Math.floor(initialValue / 3600),
+            Math.floor(initialValue / 60) % 60,
+            initialValue % 60,
+          ]
+      ).map((n) => String(n).padStart(2, "0"))
       const updateAccessibility = () => {
         picker?.cols
           .filter((_, index) => index % 2 === 0)
@@ -64,21 +69,33 @@ function MobileTimePicker({
         closeByOutsideClick: false,
         value: current,
         formatValue: (values) => values.join(":"),
-        cols: [
-          {
-            values: values(Math.max(100, Math.floor(initialValue / 3600) + 1)),
-            textAlign: "center",
-          },
-          { divider: true, content: ":" },
-          { values: values(60), textAlign: "center" },
-          { divider: true, content: ":" },
-          { values: values(60), textAlign: "center" },
-        ],
+        cols: pace
+          ? [
+              { values: values(60), textAlign: "center" },
+              { divider: true, content: ":" },
+              { values: values(60), textAlign: "center" },
+            ]
+          : [
+              {
+                values: values(
+                  Math.max(100, Math.floor(initialValue / 3600) + 1)
+                ),
+                textAlign: "center",
+              },
+              { divider: true, content: ":" },
+              { values: values(60), textAlign: "center" },
+              { divider: true, content: ":" },
+              { values: values(60), textAlign: "center" },
+            ],
         on: {
           change: (_picker, value) => {
             const parts = (value as string[]).map(Number)
-            if (parts.length === 3 && parts.every(Number.isFinite))
-              onChange(parts[0] * 3600 + parts[1] * 60 + parts[2])
+            if (parts.every(Number.isFinite)) {
+              if (pace && parts.length === 2)
+                onChange(parts[0] * 60 + parts[1])
+              else if (parts.length === 3)
+                onChange(parts[0] * 3600 + parts[1] * 60 + parts[2])
+            }
             updateAccessibility()
           },
         },
@@ -90,7 +107,9 @@ function MobileTimePicker({
           column.setAttribute("role", "listbox")
           column.setAttribute(
             "aria-label",
-            ["Hours", "Minutes", "Seconds"][index]
+            (pace ? ["Minutes", "Seconds"] : ["Hours", "Minutes", "Seconds"])[
+              index
+            ]
           )
           column.tabIndex = 0
           column
@@ -103,7 +122,7 @@ function MobileTimePicker({
             const values = Array.from(
               {
                 length:
-                  index === 0
+                  !pace && index === 0
                     ? Math.max(100, Math.floor(initialValue / 3600) + 1)
                     : 60,
               },
@@ -134,11 +153,14 @@ function MobileTimePicker({
       cleanup.forEach((fn) => fn())
       picker?.destroy()
     }
-  }, [id, initialValue, onChange])
+  }, [id, initialValue, onChange, pace])
   return (
     <>
-      <div className="we-time-labels" aria-hidden="true">
-        <span>Hours</span>
+      <div
+        className={`we-time-labels ${pace ? "we-time-labels-pace" : ""}`}
+        aria-hidden="true"
+      >
+        {!pace && <span>Hours</span>}
         <span>Minutes</span>
         <span>Seconds</span>
       </div>
@@ -239,6 +261,103 @@ export function DurationField({
           <MobileTimePicker
             initialValue={Math.round(value)}
             onChange={setDraft}
+          />
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+export function PaceField({
+  label,
+  value,
+  onChange,
+  unit,
+}: {
+  label: string
+  value: number
+  onChange: (value: number) => void
+  unit: string
+}) {
+  const mobile = useIsMobile()
+  const [text, setText] = useState(durationClock(value).replace(/^00:/, ""))
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState(value)
+  useEffect(
+    () => setText(durationClock(value).replace(/^00:/, "")),
+    [value]
+  )
+  const displayLabel = label
+    .replace(" target", "")
+    .replace("Range from", "From")
+    .replace("Range to", "To")
+  if (!mobile)
+    return (
+      <label className="we-field">
+        <span>
+          {displayLabel} ({unit})
+        </span>
+        <Input
+          aria-label={label}
+          value={text}
+          onChange={(event) => {
+            setText(event.target.value)
+            const match = event.target.value.match(/^(\d+):([0-5]\d)$/)
+            if (match) onChange(Number(match[1]) * 60 + Number(match[2]))
+          }}
+          onBlur={() =>
+            setText(durationClock(value).replace(/^00:/, ""))
+          }
+          inputMode="decimal"
+        />
+      </label>
+    )
+  return (
+    <div className="we-field">
+      <span>
+        {displayLabel} ({unit})
+      </span>
+      <button
+        type="button"
+        className="we-duration-button"
+        aria-label={label}
+        aria-haspopup="dialog"
+        onClick={() => {
+          setDraft(Math.round(value))
+          setOpen(true)
+        }}
+      >
+        {durationClock(value).replace(/^00:/, "")}
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent
+          className="we-duration-picker"
+          showCloseButton={false}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <div className="we-duration-picker-heading">
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <DialogTitle>{displayLabel}</DialogTitle>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                onChange(draft)
+                setText(durationClock(draft).replace(/^00:/, ""))
+                setOpen(false)
+              }}
+            >
+              Done
+            </Button>
+          </div>
+          <DialogDescription className="sr-only">
+            Scroll each wheel to choose minutes and seconds per mile.
+          </DialogDescription>
+          <MobileTimePicker
+            initialValue={Math.round(value)}
+            onChange={setDraft}
+            pace
           />
         </DialogContent>
       </Dialog>

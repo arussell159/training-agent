@@ -70,12 +70,21 @@ async function getReportServices(config = coachConfig()) {
   reportServices = { signature, sync, reports };
   return reportServices;
 }
+let intervalsReportCatalogCache = { expires: 0, request: null };
+async function intervalsReportCatalog() {
+  if (intervalsReportCatalogCache.request && Date.now() < intervalsReportCatalogCache.expires)
+    return intervalsReportCatalogCache.request;
+  const config = await readConfig();
+  const request = fetchIntervalsReportCatalog(intervalsClient(config)).catch((error) => {
+    intervalsReportCatalogCache = { expires: 0, request: null };
+    throw error;
+  });
+  intervalsReportCatalogCache = { expires: Date.now() + 30000, request };
+  return request;
+}
 const handleReports = createReportsHttp({
   getReports: async config => (await getReportServices(config)).reports,
-  getCatalog: async () => {
-    const config = await readConfig();
-    return fetchIntervalsReportCatalog(intervalsClient(config));
-  },
+  getCatalog: intervalsReportCatalog,
 });
 const uiDistPath = path.resolve(__dirname, '..', 'ui', 'dist');
 const intervalsCachePath = path.join(process.env.VERCEL ? '/tmp' : __dirname, 'intervals.cache');

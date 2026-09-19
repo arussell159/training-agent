@@ -2,17 +2,29 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { Sheet } from "framework7-react"
 import { ChevronRight, X } from "lucide-react"
+import { MobileActionMenu } from "@/components/ui/mobile-native-controls"
+
+type SheetAction = {
+  value: string
+  label: string
+  disabled?: boolean
+  onSelect: () => void
+}
 
 export function DetailSheetRow({
   title,
   date,
   children,
   dark = false,
+  actions,
+  fullHeight = false,
 }: {
   title: string
   date?: string
   children: ReactNode
   dark?: boolean
+  actions?: SheetAction[]
+  fullHeight?: boolean
 }) {
   const id = `detail-${useId().replace(/[^a-z0-9]/gi, "")}`
   const [open, setOpen] = useState(false)
@@ -51,7 +63,7 @@ export function DetailSheetRow({
           />
           <Sheet
             containerEl={`#${id}`}
-            className="terms-metric-sheet"
+            className={`terms-metric-sheet ${fullHeight ? "detail-sheet-full-height" : ""}`}
             opened={open}
             backdropEl={`#${id} .sheet-backdrop`}
             swipeToClose
@@ -73,14 +85,29 @@ export function DetailSheetRow({
             </div>
             <div className="terms-metric-sheet-heading">
               <h2>{date || title}</h2>
-              <button
-                type="button"
-                className="terms-metric-sheet-close"
-                aria-label={`Close ${title}`}
-                onClick={() => setOpen(false)}
-              >
-                <X />
-              </button>
+              <div className="flex items-center">
+                {actions?.length ? (
+                  <MobileActionMenu
+                    label="Options"
+                    actions={actions.map((action) => ({
+                      ...action,
+                      onSelect: () => {
+                        setOpen(false)
+                        action.onSelect()
+                      },
+                    }))}
+                    className="size-11"
+                  />
+                ) : null}
+                <button
+                  type="button"
+                  className="terms-metric-sheet-close"
+                  aria-label={`Close ${title}`}
+                  onClick={() => setOpen(false)}
+                >
+                  <X />
+                </button>
+              </div>
             </div>
             <div className="terms-metric-sheet-scroll report-reader-scroll">
               {open && children}

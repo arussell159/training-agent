@@ -1,5 +1,12 @@
 import { METERS_PER_100_YARDS } from "../../../app-backend/lib/swim-units.mjs"
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+  type ReactNode,
+} from "react"
 import type { RecordedPoint } from "@/lib/segment-statistics"
 import {
   formatSignalClock,
@@ -12,6 +19,7 @@ import { WorkoutChartStats } from "@/components/workout-chart-stats"
 import { WorkoutDfaChart } from "@/components/workout-dfa-chart"
 import type { DfaStatistics } from "@/components/workout-analysis"
 import type { WorkoutSummaryValues } from "@/lib/training-context"
+import { DetailSheetRow } from "@/components/detail-sheet-row"
 
 type Lap = {
   id: string
@@ -29,6 +37,7 @@ export function MobileWorkoutSignals({
   summary,
   dfa,
   onLapSelect,
+  afterLaps,
 }: {
   points: RecordedPoint[]
   laps: Lap[]
@@ -37,6 +46,7 @@ export function MobileWorkoutSignals({
   dfa?: DfaStatistics | null
   summary?: WorkoutSummaryValues | null
   onLapSelect?: (lap: Lap | null) => void
+  afterLaps?: ReactNode
 }) {
   const [time, setTime] = useState<number | null>(null),
     [lap, setLap] = useState<Lap | null>(null)
@@ -174,12 +184,15 @@ export function MobileWorkoutSignals({
           selected={lap}
           onSelect={selectLap}
         />
-        <WorkoutLapsTable
-          intervals={intervals}
-          sport={sport}
-          selected={lap}
-          onSelect={selectLap}
-        />
+        <DetailSheetRow title={swim ? "Swim intervals" : "Laps"} fullHeight>
+          <WorkoutLapsTable
+            intervals={intervals}
+            sport={sport}
+            selected={lap}
+            onSelect={selectLap}
+          />
+        </DetailSheetRow>
+        {afterLaps}
       </div>
       {!swim && /bike|ride|cycl|run/i.test(sport) && <WorkoutDfaChart points={points} duration={duration} statistics={dfa} />}
       {tracks.map((key) => {

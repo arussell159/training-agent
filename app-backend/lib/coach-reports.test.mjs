@@ -484,10 +484,19 @@ test("report HTTP requires app login, same-origin POST and a validated target", 
     text: "Saved Intervals report",
     title: "Weekly report",
   };
+  const workoutReport = {
+    id: "intervals-event:42:pre",
+    kind: "pre",
+    workoutId: "event:1",
+    startDate: "2026-09-17",
+    endDate: "2026-09-17",
+    text: "Saved pre-workout report",
+    title: "Pre-workout report",
+  };
   const handler = createReportsHttp({
     env: () => env,
     getCatalog: async () => ({
-      reports: [catalogReport],
+      reports: [catalogReport, workoutReport],
     }),
     getReports: async () => ({
       status: async () => ({ eligible: true }),
@@ -522,7 +531,10 @@ test("report HTTP requires app login, same-origin POST and a validated target", 
   assert.equal((await call("generate", headers, { ...pre, eligible: true })).status, 400);
   const catalog = await call("catalog");
   assert.equal(catalog.status, 200);
-  assert.deepEqual((await catalog.json()).reports, [catalogReport]);
+  assert.deepEqual((await catalog.json()).reports, [catalogReport, workoutReport]);
+  const importedPre = await (await call("status")).json();
+  assert.equal(importedPre.status, "complete");
+  assert.equal(importedPre.text, "Saved pre-workout report");
   const weekly = await (
     await call("status", headers, { kind: "weekly", startDate: "2026-09-07" })
   ).json();
@@ -532,7 +544,6 @@ test("report HTTP requires app login, same-origin POST and a validated target", 
     await call("status", headers, { kind: "weekly", startDate: "2026-08-31" })
   ).json();
   assert.equal(missing.eligible, false);
-  assert.equal((await call("status")).status, 200);
   assert.equal(generated, 0);
   assert.equal(
     (await call("generate", headers, { kind: "weekly", startDate: "2026-09-07" })).status,

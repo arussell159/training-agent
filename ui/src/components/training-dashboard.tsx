@@ -103,7 +103,7 @@ export function TrainingDashboard({
   }, [refreshRequest, onRefreshComplete])
 
   return (
-    <div className="flex w-full min-w-0 flex-1 flex-col gap-3 p-3 sm:gap-4 sm:p-4 md:gap-6 md:p-6">
+    <div className="flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:gap-4 md:gap-6 md:p-6">
       <SectionCards context={context} onWorkoutOpen={openWorkout} />
       <ChartAreaInteractive context={context} />
       {selectedWorkout ? (

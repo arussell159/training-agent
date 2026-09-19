@@ -28,41 +28,46 @@ export function createReportsHttp({ getReports, getCatalog, env = () => process.
         json(200, await getCatalog());
         return true;
       }
-      if (!config.githubToken || !config.repo)
-        throw new CoachError("Section 11's GitHub connection is not configured.", 503);
       const body = await bodyJson(req);
       const target = validateReportRequest(body);
       if (
         pathname === "/api/coach/reports/status" &&
-        ["weekly", "block"].includes(target.kind) &&
         getCatalog
       ) {
         const catalog = await getCatalog();
         const report = catalog.reports.find(
-          (report) => report.kind === target.kind && report.startDate === target.startDate
+          (report) =>
+            report.kind === target.kind &&
+            (["pre", "post"].includes(target.kind)
+              ? report.workoutId === target.workoutId
+              : report.startDate === target.startDate)
         );
-        json(
-          200,
-          report
-            ? {
-                status: "complete",
-                eligible: false,
-                text: report.text,
-                target: {
-                  title: report.title,
-                  startDate: report.startDate,
-                  endDate: report.endDate,
-                },
-              }
-            : {
-                status: "empty",
-                eligible: false,
-                reason:
-                  "The completed report will appear here after the GitHub workflow saves it in Intervals.icu.",
-              }
-        );
-        return true;
+        if (report || ["weekly", "block"].includes(target.kind)) {
+          json(
+            200,
+            report
+              ? {
+                  status: "complete",
+                  eligible: false,
+                  text: report.text,
+                  target: {
+                    title: report.title,
+                    startDate: report.startDate,
+                    endDate: report.endDate,
+                  },
+                }
+              : {
+                  status: "empty",
+                  eligible: false,
+                  reason:
+                    "The completed report will appear here after it is saved in Intervals.icu.",
+                }
+          );
+          return true;
+        }
       }
+      if (!config.githubToken || !config.repo)
+        throw new CoachError("Section 11's GitHub connection is not configured.", 503);
       const reports = await getReports(config);
       if (pathname === "/api/coach/reports/status") json(200, await reports.status(target));
       else if (

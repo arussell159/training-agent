@@ -76,7 +76,11 @@ export interface TrainingContext {
     form?: number
     recovery?: number
   }
-  wellness?: { hrv?: number | null; resting_hr?: number | null }
+  wellness?: {
+    hrv?: number | null
+    resting_hr?: number | null
+    sleep?: number | null
+  }
   wellness_history?: Array<{date?: string; id?: string; timeStamp?: string; [key:string]:unknown}>
   history: TrainingHistoryItem[]
   planned: PlannedWorkout[]

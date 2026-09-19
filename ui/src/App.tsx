@@ -166,10 +166,10 @@ function AppWorkspace() {
   useEffect(() => {
     const warm = () => ["Home", "Calendar", "Coach"].forEach(preloadPage)
     if ("requestIdleCallback" in window) {
-      const id = window.requestIdleCallback(warm, { timeout: 2500 })
+      const id = window.requestIdleCallback(warm, { timeout: 750 })
       return () => window.cancelIdleCallback(id)
     }
-    const id = setTimeout(warm, 1200)
+    const id = setTimeout(warm, 300)
     return () => clearTimeout(id)
   }, [])
   const [selectedReport, setSelectedReport] = useState(restoreReportReader)
@@ -261,6 +261,12 @@ function AppWorkspace() {
         setCalendarNavigationVersion((value) => value + 1)
     })
     window.history.pushState({}, "", itemPath(item))
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" })
+      requestAnimationFrame(() =>
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" })
+      )
+    })
   }
 
   const openWorkout = (workout: PlannedWorkout) => {

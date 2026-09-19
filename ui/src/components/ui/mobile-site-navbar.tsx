@@ -81,7 +81,7 @@ export function MobileSiteNavbar({
           {showMenu &&
             (actions ? (
               <MobileActionMenu
-                label="Page menu"
+                label="Options"
                 actions={actions}
                 className="size-11 p-0"
               />

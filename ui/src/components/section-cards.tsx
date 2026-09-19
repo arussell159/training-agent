@@ -1,7 +1,7 @@
 import {formatDuration} from '@/lib/duration'
 import {durationMinutes} from '@/lib/training-context'
 import {recoverySeries, todaysWorkout} from '@/lib/dashboard-metrics'
-import { Activity, Clock3, Gauge, HeartPulse } from "lucide-react"
+import { Activity, Clock3, Gauge, HeartPulse, MoonStar } from "lucide-react"
 import {
   Area,
   AreaChart,
@@ -238,6 +238,137 @@ function RecoveryTrendCard({
   )
 }
 
+function sleepDuration(value: number) {
+  const totalMinutes = Math.max(0, Math.round(value / 60))
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  return `${hours}h ${String(minutes).padStart(2, "0")}m`
+}
+
+function sleepLabel(key: string) {
+  return key
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .replace(/ Secs?$/i, "")
+}
+
+function formatSleepDetail(key: string, value: unknown) {
+  if (typeof value === "number") {
+    if (/secs?|seconds?/i.test(key) || /^sleep$/i.test(key))
+      return sleepDuration(value)
+    if (/hours?/i.test(key)) return `${value.toFixed(1)} h`
+    if (/percent|percentage/i.test(key)) return `${Math.round(value)}%`
+    return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(1)
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No"
+  if (typeof value === "string") return value
+  return null
+}
+
+function SleepCard({ context }: { context: TrainingContext }) {
+  const rows = [...(context.wellness_history || [])].sort((a, b) =>
+    String(a.date || a.id || "").localeCompare(String(b.date || b.id || ""))
+  )
+  const latest =
+    rows
+      .filter((row) =>
+        Object.keys(row).some((key) => /sleep|bed|wake|rem|nap/i.test(key)) ||
+        (Array.isArray(row.details) &&
+          row.details.some(
+            (detail) =>
+              detail &&
+              typeof detail === "object" &&
+              "label" in detail &&
+              /sleep|bed|wake|rem|nap/i.test(String(detail.label))
+          ))
+      )
+      .at(-1) || null
+  const total =
+    context.wellness?.sleep ??
+    (typeof latest?.sleepSecs === "number"
+      ? latest.sleepSecs
+      : typeof latest?.sleep === "number"
+        ? latest.sleep
+        : typeof latest?.sleep_hours === "number"
+          ? latest.sleep_hours * 3600
+          : null)
+  const details = latest
+    ? Object.entries(latest)
+        .filter(
+          ([key, value]) =>
+            value != null &&
+            !["sleep", "sleepSecs", "date", "id", "timeStamp"].includes(
+              key
+            ) &&
+            /sleep|bed|wake|rem|nap/i.test(key)
+        )
+        .flatMap(([key, value]) => {
+          const formatted = formatSleepDetail(key, value)
+          return formatted ? [{ label: sleepLabel(key), value: formatted }] : []
+        })
+    : []
+  const legacyDetails = Array.isArray(latest?.details)
+    ? latest.details.flatMap((detail) => {
+        if (!detail || typeof detail !== "object") return []
+        const item = detail as { label?: unknown; value?: unknown }
+        if (
+          typeof item.label !== "string" ||
+          !/sleep|bed|wake|rem|nap/i.test(item.label)
+        )
+          return []
+        const formatted = formatSleepDetail(item.label, item.value)
+        return formatted ? [{ label: item.label, value: formatted }] : []
+      })
+    : []
+  const allDetails = [...details, ...legacyDetails].filter(
+    (item, index, values) =>
+      values.findIndex((candidate) => candidate.label === item.label) === index
+  )
+  const date = latest?.date || latest?.id || latest?.timeStamp
+  return (
+    <Card className="col-span-2 min-w-0 [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-6">
+      <CardHeader>
+        <CardDescription>
+          Sleep
+          {date ? (
+            <span className="ml-2">
+              {new Date(`${String(date).slice(0, 10)}T12:00:00`).toLocaleDateString(
+                "en-US",
+                { month: "short", day: "numeric" }
+              )}
+            </span>
+          ) : null}
+        </CardDescription>
+        <CardTitle className="text-2xl tabular-nums sm:text-3xl">
+          {total != null && Number.isFinite(total) ? sleepDuration(total) : "—"}
+        </CardTitle>
+        <CardAction>
+          <MoonStar className="size-4 text-muted-foreground" />
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        {allDetails.length ? (
+          <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t pt-3 sm:grid-cols-3 sm:pt-4">
+            {allDetails.map((detail) => (
+              <div key={detail.label} className="min-w-0">
+                <p className="truncate text-xs text-muted-foreground">
+                  {detail.label}
+                </p>
+                <p className="mt-1 font-medium tabular-nums">{detail.value}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="border-t pt-3 text-xs text-muted-foreground sm:pt-4">
+            No additional sleep details are available from Intervals.icu.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 import { hasWorkoutStructure, structuredWorkoutProfile } from "@/lib/workout-structure"
 
 export function SectionCards({
@@ -327,6 +458,7 @@ export function SectionCards({
       <EventsCard context={context} />
       <RecoveryTrendCard context={context} metric="hrv" />
       <RecoveryTrendCard context={context} metric="resting_hr" />
+      <SleepCard context={context} />
 
       <Card className="col-span-2 min-w-0 [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-6">
         <CardHeader>

@@ -1,5 +1,5 @@
 import { METERS_PER_100_YARDS, recordedSwimYards } from "../../../app-backend/lib/swim-units.mjs"
-import {useEffect,useMemo,useRef,useState,type PointerEvent} from 'react'
+import {useEffect,useMemo,useRef,useState,type PointerEvent,type ReactNode} from 'react'
 import {apiFetch} from '@/lib/api-client'
 import type {PlannedWorkout,WorkoutSummaryValues} from '@/lib/training-context'
 import {Button} from '@/components/ui/button'
@@ -14,12 +14,12 @@ type Analysis={dfa?:DfaStatistics|null;version?:number;points:Point[];laps:Lap[]
 const cache=new Map<string,Analysis>()
 const clock=(seconds:number)=>{const s=Math.max(0,Math.round(seconds));return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`}
 const pace=(seconds:number)=>seconds>0&&Number.isFinite(seconds)?clock(seconds):'—'
-export function WorkoutAnalysis({workout,onLapSelection}:{workout:PlannedWorkout;onLapSelection?:(range:[number,number]|null)=>void}){
+export function WorkoutAnalysis({workout,onLapSelection,mobileAfterLaps}:{workout:PlannedWorkout;onLapSelection?:(range:[number,number]|null)=>void;mobileAfterLaps?:ReactNode}){
   const id=workout.activity_id || (workout.id.startsWith('activity:')?workout.id.slice(9):null)
   const revision=(workout as PlannedWorkout & {activity_revision?:string}).activity_revision || ''
-  return id?<ActivityGraph key={id+revision} id={id} revision={revision} workout={workout} summary={workout.workout_summary?.completed} onLapSelection={onLapSelection}/>:null
+  return id?<ActivityGraph key={id+revision} id={id} revision={revision} workout={workout} summary={workout.workout_summary?.completed} onLapSelection={onLapSelection} mobileAfterLaps={mobileAfterLaps}/>:null
 }
-function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;revision:string;workout:PlannedWorkout;summary?:WorkoutSummaryValues|null;onLapSelection?:(range:[number,number]|null)=>void}){
+function ActivityGraph({id,revision,workout,summary,onLapSelection,mobileAfterLaps}:{id:string;revision:string;workout:PlannedWorkout;summary?:WorkoutSummaryValues|null;onLapSelection?:(range:[number,number]|null)=>void;mobileAfterLaps?:ReactNode}){
   const sport=workout.sport
   const cacheKey=id+revision
   const [data,setData]=useState<Analysis|null>(cache.get(cacheKey)||null),[error,setError]=useState(''),[retry,setRetry]=useState(0)
@@ -82,7 +82,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
   const laps=data.laps,height=signalTracks.length*104+34
   const colors:Record<string,string>={elevation:'#65a30d',pace:'#0284c7',speed:'#0284c7',power:'#6d28d9',heartRate:'#dc2626',cadence:'#c026d3'}
   const hoverStart=hovered?Math.max(view[0],hovered.start):0,hoverEnd=hovered?Math.min(view[1],hovered.end):0
-  return <><div className="space-y-5 md:hidden"><MobileWorkoutSignals points={data.points} laps={laps} duration={duration} sport={sport} summary={totals} dfa={data.dfa} onLapSelect={lap=>setSelected(lap?.id || '')}/></div><section aria-label="Recorded workout analysis" className="workout-analysis-desktop hidden w-full min-w-0 overflow-hidden rounded-xl border bg-card p-4 shadow-sm md:block"><style>{`.workout-analysis-desktop svg text { font-size: .85em !important; }`}</style>
+  return <><div className="space-y-5 md:hidden"><MobileWorkoutSignals points={data.points} laps={laps} duration={duration} sport={sport} summary={totals} dfa={data.dfa} onLapSelect={lap=>setSelected(lap?.id || '')} afterLaps={mobileAfterLaps}/></div><section aria-label="Recorded workout analysis" className="workout-analysis-desktop hidden w-full min-w-0 overflow-hidden rounded-xl border bg-card p-4 shadow-sm md:block"><style>{`.workout-analysis-desktop svg text { font-size: .85em !important; }`}</style>
     {available.elevation&&<svg viewBox="0 0 1080 126" preserveAspectRatio="none" className="block h-32 w-full touch-none select-none cursor-crosshair" role="img" aria-label="Elevation profile" onPointerDown={e=>down(e)} onPointerMove={e=>move(e)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}} onPointerLeave={()=>{if(!gesture.current)setCursor(null)}}>
       {(()=>{const values=visible.map(p=>value(p,'elevation')).filter((v):v is number=>v!=null),min=Math.min(...values),max=Math.max(...values),span=Math.max(1,max-min),y=(v:number)=>88-(v-min)/span*68;let d='',firstX=0,lastX=0,previous=false;for(const p of visible){const v=value(p,'elevation');if(v==null){previous=false;continue}const px=x(p.time);if(!d)firstX=px;lastX=px;d+=`${previous?'L':'M'}${px.toFixed(1)},${y(v).toFixed(1)} `;previous=true}return <><rect x={plotLeft} y="12" width={plotWidth} height="80" fill={colors.elevation} fillOpacity=".025"/>{[0,.5,1].map(f=><line key={f} x1={plotLeft} x2={plotRight} y1={88-f*68} y2={88-f*68} stroke="currentColor" opacity=".08"/>)}<text x="14" y="28" fontSize="12" fontWeight="600" fill={colors.elevation}>Elevation</text><text x="14" y="51" fontSize="9" fill="currentColor" opacity=".55">Max</text><text x="42" y="51" fontSize="12" fontWeight="600" fill="currentColor">{format(max,'elevation')}</text><text x="14" y="72" fontSize="9" fill="currentColor" opacity=".55">Avg</text><text x="42" y="72" fontSize="12" fontWeight="600" fill="currentColor">{format(values.reduce((sum,item)=>sum+item,0)/values.length,'elevation')}</text><text x={unitLeft} y="55" textAnchor="start" fontSize="10" fill="currentColor" opacity=".55">ft</text>{d&&<path d={`${d}L${lastX.toFixed(1)},88 L${firstX.toFixed(1)},88 Z`} fill={colors.elevation} fillOpacity=".16"/>}<path d={d} fill="none" stroke={colors.elevation} strokeWidth="2"/>{hovered&&hoverEnd>hoverStart&&<rect x={x(hoverStart)} y="12" width={x(hoverEnd)-x(hoverStart)} height="80" fill="#64748b" fillOpacity=".16"/>}{nearest&&<line x1={x(nearest.time)} x2={x(nearest.time)} y1="12" y2="92" stroke="currentColor" opacity=".35" strokeDasharray="3 3"/>}{selection&&<rect x={Math.min(x(selection[0]),x(selection[1]))} y="12" width={Math.abs(x(selection[1])-x(selection[0]))} height="80" fill="currentColor" fillOpacity=".055" stroke="currentColor" strokeOpacity=".25"/>}{Array.from({length:6},(_,i)=>view[0]+(view[1]-view[0])*i/5).map(t=><text key={t} x={x(t)} y="116" fontSize="10" textAnchor="middle" fill="currentColor" opacity=".55">{clock(t)}</text>)}</>})()}
     </svg>}

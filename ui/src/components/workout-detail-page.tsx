@@ -22,10 +22,21 @@ import { WorkoutMapSplits } from "@/components/workout-map-splits"
 import { WorkoutRouteMap } from "@/components/workout-route-map"
 import { TrainingZonesDisplay } from "@/components/training-zones-display"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
-import { ArrowLeft, Bike, Dumbbell, Footprints, Waves } from "lucide-react"
+import { ArrowLeft, Bike, Dumbbell, Footprints, Trash2, Waves } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
+  changeWorkout,
   completedMinutes,
   cachedTrainingContext,
   durationMinutes,
@@ -74,6 +85,9 @@ export function WorkoutDetailPage({
   const workout = useEditedWorkout(initialWorkout)
   const library = workout.id.startsWith("library:")
   const [editorOpen, setEditorOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState("")
   const [plannedTab, setPlannedTab] = useState<"summary" | "zones">("summary")
   const [athleteZones, setAthleteZones] = useState(
     cachedTrainingContext().athlete.zones
@@ -194,8 +208,49 @@ export function WorkoutDetailPage({
     }
   }, [])
 
+  const workoutActions = [
+    ...(workout.id.startsWith("event:")
+      ? [
+        {
+          value: "edit",
+          label: "Edit workout",
+          disabled: deleting,
+          onSelect: () => setEditorOpen(true),
+        },
+        {
+          value: "delete",
+          label: "Delete workout",
+          disabled: deleting,
+          onSelect: () => setDeleteOpen(true),
+        },
+      ]
+      : []),
+    {
+      value: "terms",
+      label: "Terms & definitions",
+      onSelect: () => window.dispatchEvent(new Event("terms-open")),
+    },
+  ]
+
+  const deleteWorkout = async () => {
+    if (deleting || !workout.id.startsWith("event:")) return
+    setDeleting(true)
+    setDeleteError("")
+    try {
+      await changeWorkout(workout.id, "delete")
+      setDeleteOpen(false)
+      onBack()
+    } catch (error) {
+      setDeleteError(
+        error instanceof Error ? error.message : "Unable to delete workout."
+      )
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
-    <div className="min-h-svh w-full min-w-0 bg-background">
+    <div className="min-h-svh w-full min-w-0 max-w-full overflow-x-clip bg-background">
       <MobileSiteNavbar
         fixed
         onBack={onBack}
@@ -208,15 +263,41 @@ export function WorkoutDetailPage({
                 ? "Run"
                 : workout.sport
         }
-        onEditWorkout={
-          workout.id.startsWith("event:")
-            ? () => setEditorOpen(true)
-            : undefined
-        }
+        actions={workoutActions}
       />
       {editorOpen && (
         <WorkoutEditor workout={workout} onClose={() => setEditorOpen(false)} />
       )}
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete workout?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete “{workout.title}” from this app and Intervals.icu? This
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {deleteError}
+            </p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleting}
+              onClick={(event) => {
+                event.preventDefault()
+                void deleteWorkout()
+              }}
+            >
+              <Trash2 />
+              {deleting ? "Deleting…" : "Delete workout"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {workout.status === "completed" && !swim && (
         <div className="workout-mobile-map sticky top-0 z-0 transform-gpu will-change-transform md:hidden">
@@ -422,12 +503,21 @@ export function WorkoutDetailPage({
             </div>
           </div>
           {workout.status === "completed" && (
-            <WorkoutMapSplits workout={workout} />
+            <div className="hidden md:block">
+              <WorkoutMapSplits workout={workout} />
+            </div>
           )}
           <Suspense
             fallback={<div className="h-44 animate-pulse border bg-muted/30" />}
           >
-            <WorkoutAnalysis workout={workout} />
+            <WorkoutAnalysis
+              workout={workout}
+              mobileAfterLaps={
+                workout.status === "completed" ? (
+                  <WorkoutMapSplits workout={workout} />
+                ) : null
+              }
+            />
           </Suspense>
           <div className="workout-detail-links md:contents">
           {workout.status === "completed" && (
@@ -451,7 +541,9 @@ export function WorkoutDetailPage({
             </div>
           )}
 
-          {!library && <WorkoutCoachButton workout={workout} />}
+          {!library && (
+            <WorkoutCoachButton workout={workout} actions={workoutActions} />
+          )}
           </div>
         </WorkoutDetailSurface>
       </div>

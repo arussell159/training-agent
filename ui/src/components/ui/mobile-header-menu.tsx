@@ -28,7 +28,7 @@ export function MobileHeaderMenu({
   return (
     <div className="ml-auto shrink-0 md:hidden">
       <MobileActionMenu
-        label="Page menu"
+        label="Options"
         className="size-11 p-0"
         actions={[
           ...(onEditWorkout

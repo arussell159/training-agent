@@ -47,7 +47,7 @@ export function WorkoutLapsTable({
         ref={scroll}
         className={
           mobile
-            ? "data-table workout-laps-scroll"
+            ? "data-table"
             : "max-h-60 overflow-y-auto overscroll-y-contain rounded-xl border bg-card shadow-sm"
         }
         data-workout-lap-control

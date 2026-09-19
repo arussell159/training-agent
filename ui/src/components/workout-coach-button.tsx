@@ -6,10 +6,26 @@ import {
   type PlannedWorkout,
 } from "@/lib/training-context"
 
-export function WorkoutCoachButton({ workout }: { workout: PlannedWorkout }) {
+type ReportAction = {
+  value: string
+  label: string
+  disabled?: boolean
+  onSelect: () => void
+}
+
+export function WorkoutCoachButton({
+  workout,
+  actions,
+}: {
+  workout: PlannedWorkout
+  actions?: ReportAction[]
+}) {
   const mobile = useIsMobile()
   if (workout.id.startsWith("library:")) return null
   const completed = workout.status === "completed"
+  const postWorkoutId = workout.activity_id
+    ? `activity:${workout.activity_id}`
+    : workout.id
   const today = new Intl.DateTimeFormat("en-CA", {
     timeZone: cachedTrainingContext().athlete.time_zone || "America/Chicago",
     year: "numeric",
@@ -25,6 +41,8 @@ export function WorkoutCoachButton({ workout }: { workout: PlannedWorkout }) {
             title="Pre-workout report"
             date={workout.workout_date || workout.date}
             dark
+            actions={actions}
+            fullHeight
           >
             <Section11Report
               target={{ kind: "pre", workoutId: workout.id }}
@@ -37,9 +55,14 @@ export function WorkoutCoachButton({ workout }: { workout: PlannedWorkout }) {
           title={completed ? "Post-workout report" : "Pre-workout report"}
           date={workout.workout_date || workout.date}
           dark
+          actions={actions}
+          fullHeight
         >
           <Section11Report
-            target={{ kind: completed ? "post" : "pre", workoutId: workout.id }}
+            target={{
+              kind: completed ? "post" : "pre",
+              workoutId: completed ? postWorkoutId : workout.id,
+            }}
             savedOnly={!completed && workout.workout_date !== today}
             reader
           />
@@ -57,7 +80,7 @@ export function WorkoutCoachButton({ workout }: { workout: PlannedWorkout }) {
       <Section11Report
         target={{
           kind: completed ? "post" : "pre",
-          workoutId: workout.id,
+          workoutId: completed ? postWorkoutId : workout.id,
         }}
         savedOnly={!completed && workout.workout_date !== today}
       />

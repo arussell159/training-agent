@@ -82,7 +82,6 @@ import {
 } from "@/lib/training-context"
 import {
   chartSegments,
-  clock,
   clone,
   copyNodes,
   defaultTarget,
@@ -118,7 +117,10 @@ import {
   sportZoneSettings,
   type SportZoneSettings,
 } from "../../../app-backend/lib/workout-editor-zones.mjs"
-import { DurationField } from "@/components/workout-duration-field"
+import {
+  DurationField,
+  PaceField,
+} from "@/components/workout-duration-field"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import {
   durationClock,
@@ -246,42 +248,6 @@ function NumberField({
         onChange={(e) =>
           onChange(e.target.value === "" ? 0 : Number(e.target.value))
         }
-      />
-    </label>
-  )
-}
-function PaceField({
-  label,
-  value,
-  onChange,
-  unit,
-}: {
-  label: string
-  value: number
-  onChange: (n: number) => void
-  unit: string
-}) {
-  const [text, setText] = useState(clock(value))
-  useEffect(() => setText(clock(value)), [value])
-  return (
-    <label className="we-field">
-      <span>
-        {label
-          .replace(" target", "")
-          .replace("Range from", "From")
-          .replace("Range to", "To")}{" "}
-        ({unit})
-      </span>
-      <Input
-        aria-label={label}
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value)
-          const m = e.target.value.match(/^(\d+):([0-5]\d)$/)
-          if (m) onChange(Number(m[1]) * 60 + Number(m[2]))
-        }}
-        onBlur={() => setText(clock(value))}
-        inputMode="decimal"
       />
     </label>
   )
