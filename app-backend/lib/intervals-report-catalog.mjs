@@ -31,7 +31,11 @@ export function parseIntervalsReportNote(event) {
   const markerDates = String(marker?.[2] || "").match(DATE) || [];
   const contentDates = `${event.name || ""}\n${description}`.match(DATE) || [];
   const eventStart = String(event.start_date_local || event.start_date || "").slice(0, 10);
-  const startDate = markerDates[0] || contentDates[0] || eventStart;
+  const startDate =
+    markerDates[0] ||
+    ((kind === "pre" || kind === "post") && eventStart) ||
+    contentDates[0] ||
+    eventStart;
   if (!validReportDate(startDate)) return null;
   const eventEnd = String(event.end_date_local || event.end_date || "").slice(0, 10);
   const endDate =
@@ -52,7 +56,7 @@ export function parseIntervalsReportNote(event) {
     linkedId ||
     (kind === "pre" && event.__reportSource === "event" && event.id != null
       ? `event:${event.id}`
-      : kind === "post" && event.__reportSource === "activity" && event.id != null
+      : ["pre", "post"].includes(kind) && event.__reportSource === "activity" && event.id != null
         ? `activity:${event.id}`
         : null);
   if (["pre", "post"].includes(kind) && !workoutId) return null;
@@ -122,4 +126,47 @@ export async function fetchIntervalsReportCatalog(request, now = new Date()) {
     ).values(),
   ].sort((a, b) => b.endDate.localeCompare(a.endDate) || b.startDate.localeCompare(a.startDate));
   return { reports };
+}
+
+// Workout reports are stored as activity comments by the completion workflow.
+// Read just the selected workout, rather than every activity's comments on navigation.
+export async function fetchIntervalsWorkoutReports(request, workoutId) {
+  if (!/^(event:\d+|activity:[A-Za-z0-9_-]{1,100})$/.test(workoutId))
+    throw new Error("Invalid workout report target");
+  const [type, id] = workoutId.split(":");
+  const record = await request(type === "event" ? `/athlete/0/events/${id}` : `/activity/${id}`);
+  const activityId = type === "activity" ? id : record.paired_activity_id;
+  const candidates = [{ ...record, __reportSource: type }];
+  if (activityId && /^[A-Za-z0-9_-]{1,100}$/.test(String(activityId))) {
+    const [activity, messages] = await Promise.all([
+      type === "activity" ? record : request(`/activity/${activityId}`),
+      request(`/activity/${activityId}/messages`),
+    ]);
+    if (type !== "activity") candidates.push({ ...activity, __reportSource: "activity" });
+    for (const message of Array.isArray(messages) ? messages : []) {
+      candidates.push({
+        ...activity,
+        description: message.content || message.text || "",
+        __reportSource: "activity",
+      });
+    }
+  }
+  const aliases = new Set([
+    workoutId,
+    activityId && `activity:${activityId}`,
+    record.paired_event_id && `event:${record.paired_event_id}`,
+  ]);
+  if (type === "activity" && /^\d+$/.test(String(record.paired_event_id))) {
+    const event = await request(`/athlete/0/events/${record.paired_event_id}`).catch((error) => {
+      if (error.status === 404) return null;
+      throw error;
+    });
+    if (event) candidates.push({ ...event, __reportSource: "event" });
+  }
+  return {
+    reports: candidates
+      .flatMap(parseIntervalsReportNotes)
+      .filter((report) => aliases.has(report.workoutId))
+      .map((report) => ({ ...report, workoutId })),
+  };
 }

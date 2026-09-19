@@ -40,5 +40,8 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Test completion report automation
+        run: python3 app-backend/coach/github/test_workout_reports.py
+
       - name: Build deployable app
         run: npm run build

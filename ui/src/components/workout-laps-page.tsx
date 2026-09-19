@@ -22,6 +22,26 @@ export function WorkoutLapsPage({
   onClose: () => void
 }) {
   const page = useRef<HTMLDivElement>(null)
+  const selectChartLap = (lap: RecordedLap) => {
+    onSelect(lap)
+    const viewport = page.current
+    const row = viewport?.querySelector<HTMLElement>(
+      `[data-lap-id="${CSS.escape(lap.id)}"]`
+    )
+    if (viewport && row) {
+      viewport.scrollTo({
+        top:
+          viewport.scrollTop +
+          row.getBoundingClientRect().top -
+          viewport.getBoundingClientRect().top -
+          viewport.clientHeight / 2 +
+          row.offsetHeight / 2,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "instant"
+          : "smooth",
+      })
+    }
+  }
   useEffect(() => {
     const previous = window.history.state
     const overflow = document.body.style.overflow
@@ -74,7 +94,7 @@ export function WorkoutLapsPage({
           laps={laps}
           sport={sport}
           selected={selected}
-          onSelect={onSelect}
+          onSelect={selectChartLap}
           expanded
         />
         <h2 className="-mx-4 mt-4 mb-2 bg-muted/60 px-4 py-3 text-xs font-semibold uppercase">

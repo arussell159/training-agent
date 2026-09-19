@@ -1811,6 +1811,7 @@ function EditorWorkspace({
     <ZoneSettingsContext.Provider value={loaded.zoneSettings || []}>
       <Dialog
         open
+        disablePointerDismissal
         onOpenChange={(v) => {
           if (!v) requestClose()
         }}

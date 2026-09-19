@@ -3,7 +3,12 @@ import { CoachError } from "./github-coach-source.mjs";
 import { coachConfig } from "./github-coach.mjs";
 import { validateReportRequest } from "./report-targets.mjs";
 
-export function createReportsHttp({ getReports, getCatalog, env = () => process.env }) {
+export function createReportsHttp({
+  getReports,
+  getCatalog,
+  getWorkoutReports,
+  env = () => process.env,
+}) {
   return async function handleReports(req, res, pathname) {
     if (!pathname.startsWith("/api/coach/reports/")) return false;
     const json = (status, value) => {
@@ -31,7 +36,16 @@ export function createReportsHttp({ getReports, getCatalog, env = () => process.
       const body = await bodyJson(req);
       const target = validateReportRequest(body);
       if (pathname === "/api/coach/reports/status" && getCatalog) {
-        const catalog = await getCatalog();
+        let catalog =
+          ["pre", "post"].includes(target.kind) && getWorkoutReports
+            ? await getWorkoutReports(target.workoutId)
+            : await getCatalog();
+        if (
+          getWorkoutReports &&
+          ["pre", "post"].includes(target.kind) &&
+          !catalog.reports.some((report) => report.kind === target.kind)
+        )
+          catalog = await getCatalog();
         const report = catalog.reports.find(
           (report) =>
             report.kind === target.kind &&

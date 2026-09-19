@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
+import { useSheetDismiss } from "@/hooks/use-sheet-dismiss"
 import { createPortal } from "react-dom"
 import { Sheet } from "framework7-react"
 import { ChevronRight, X } from "lucide-react"
@@ -19,10 +27,14 @@ export function DetailSheetRow({
   const id = `detail-${useId().replace(/[^a-z0-9]/gi, "")}`
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
-  const close = () => {
+  const closing = useRef(false)
+  const close = useCallback(() => {
+    if (closing.current) return
+    closing.current = true
+    setOpen(false)
     if (window.history.state?.detailSheet === id) window.history.back()
-    else setOpen(false)
-  }
+  }, [id])
+  useSheetDismiss(id, open, close)
   useEffect(() => {
     if (!open) return
     const previous = window.history.state
@@ -43,7 +55,10 @@ export function DetailSheetRow({
       <button
         ref={trigger}
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          closing.current = false
+          setOpen(true)
+        }}
         className={`flex min-h-14 w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold ${dark ? "bg-muted" : "bg-background"}`}
       >
         {title}
@@ -52,7 +67,10 @@ export function DetailSheetRow({
       {createPortal(
         <div id={id}>
           <div
-            className={["terms-metric-backdrop sheet-backdrop", open ? "backdrop-in" : ""].join(" ")}
+            className={[
+              "terms-metric-backdrop sheet-backdrop",
+              open ? "backdrop-in" : "",
+            ].join(" ")}
             aria-hidden="true"
             onClick={close}
           />
@@ -61,8 +79,6 @@ export function DetailSheetRow({
             className={`terms-metric-sheet ${fullHeight ? "detail-sheet-full-height" : ""}`}
             opened={open}
             backdropEl={`#${id} .sheet-backdrop`}
-            swipeToClose
-            swipeHandler={`#${id} .detail-sheet-handle`}
             backdrop
             closeByBackdropClick
             closeOnEscape

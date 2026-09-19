@@ -1,11 +1,39 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><title>Mobile verification frame</title></head>
 <body style="margin:0;background:#e5e7eb;font:14px system-ui">
-<p>Isolated fixtures — no live account. <select aria-label="Viewport width" id="width"><option>390</option><option>320</option><option>430</option><option>768</option></select> <button id="check">Check layout</button></p>
+<p>Isolated fixtures — no live account. <select aria-label="Viewport width" id="width"><option>390</option><option>320</option><option>430</option><option>768</option></select> <button id="check">Check layout</button> <button id="gestures">Test report gestures</button></p>
 <iframe title="Mobile app" id="app" src="/tests/mobile-workout.html" style="width:390px;height:780px;border:0;background:white"></iframe>
 <pre id="result" style="white-space:pre-wrap"></pre>
 <script>
 const frame = document.getElementById('app');
+document.getElementById('gestures').onclick = async () => {
+ const doc=frame.contentDocument, win=frame.contentWindow, results=[];
+ const wait=()=>new Promise(resolve=>setTimeout(resolve,350));
+ const opened=()=>doc.querySelector('.detail-sheet-full-height.modal-in');
+ const trigger=Array.from(doc.querySelectorAll('button')).find(el=>el.textContent.trim()==='Post-workout report');
+ if(!trigger){document.getElementById('result').textContent='Open the completed workout first';return;}
+ if(!opened()){trigger.click();await wait();}
+ const swipe=async (dx,dy,{cancel=false,scrolled=false}={})=>{
+   const sheet=opened(), reader=sheet.querySelector('.report-reader-scroll');
+   reader.scrollTop=scrolled?200:0;
+   const target=reader.querySelector('p')||reader;
+   const emit=(type,x,y)=>{const touch=new win.Touch({identifier:1,target,clientX:x,clientY:y}); target.dispatchEvent(new win.TouchEvent(type,{bubbles:true,cancelable:true,touches:type==='touchend'||type==='touchcancel'?[]:[touch],changedTouches:[touch]}));};
+   emit('touchstart',150,350);emit('touchmove',150+dx,350+dy);emit(cancel?'touchcancel':'touchend',150+dx,350+dy);await wait();
+ };
+ const assert=(name,value)=>{results.push(`${value?'PASS':'FAIL'} ${name}`);if(!value)throw new Error(name);};
+ try{
+   await swipe(0,120,{scrolled:true});assert('Reading scroll does not dismiss',!!opened());
+   await swipe(0,-120);assert('Upward scroll does not dismiss',!!opened());
+   await swipe(120,15);assert('Horizontal scroll does not dismiss',!!opened());
+   await swipe(0,10);assert('Small movements do not dismiss',!!opened());
+   await swipe(0,120,{cancel:true});assert('Cancelled touch resets',!!opened()&&!opened().style.transform);
+   await swipe(0,120);assert('Downward swipe from report body at top closes',!opened());
+   trigger.click();await wait();assert('Report reopens after swipe',!!opened());
+   opened().querySelector('[aria-label="Close Post-workout report"]').click();await wait();assert('Close button works on first press',!opened());
+   assert('Closing keeps the workout open',!!Array.from(doc.querySelectorAll('button')).find(el=>el.textContent.trim()==='View workout'));
+ }catch(error){results.push(error.message);}
+ document.getElementById('result').textContent=results.join('\n');
+};
 document.getElementById('width').onchange = event => frame.style.width = event.target.value + 'px';
 document.getElementById('check').onclick = () => {
  const doc=frame.contentDocument, win=frame.contentWindow;

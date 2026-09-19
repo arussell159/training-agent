@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client"
 import Framework7 from "framework7/lite"
 import Picker from "framework7/components/picker"
 import Sheet from "framework7/components/sheet"
+import Searchbar from "framework7/components/searchbar"
 import Accordion from "framework7/components/accordion"
 import Framework7React, { App as Framework7App } from "framework7-react"
 import App from "../src/App"
@@ -16,7 +17,7 @@ import "../src/index.css"
 import "../src/styles/framework7-navbar.less"
 
 // eslint-disable-next-line react-hooks/rules-of-hooks
-Framework7.use([Framework7React, Picker, Sheet, Accordion])
+Framework7.use([Framework7React, Picker, Sheet, Accordion, Searchbar])
 const today = new Date().toLocaleDateString("en-CA")
 const originalFetch = window.fetch.bind(window)
 const planned: PlannedWorkout = {

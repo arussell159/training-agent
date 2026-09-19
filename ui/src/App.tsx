@@ -45,7 +45,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { MobileNavbar, MobilePageTabs } from "@/components/ui/navbars"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
-import { MobileHeaderNavigation } from "@/components/ui/mobile-header-navigation"
+import { MobileHeaderNavigation, MobileDefinitionsOpen } from "@/components/ui/mobile-header-navigation"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { MobileTermsPage } from "@/components/terms-reference/mobile-terms-page"
 import { useMobileViewport } from "@/hooks/use-mobile-viewport"
@@ -182,6 +182,7 @@ function AppWorkspace() {
   }, [])
   const [selectedReport, setSelectedReport] = useState(restoreReportReader)
   const [activeItem, setActiveItem] = useState(routeItem)
+  const [navigationItem, setNavigationItem] = useState(routeItem)
   const [calendarNavigationVersion, setCalendarNavigationVersion] = useState(0)
   const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(
     () =>
@@ -193,7 +194,6 @@ function AppWorkspace() {
         : null
   )
   const [refreshRequest, setRefreshRequest] = useState(0)
-  const [contextVersion, setContextVersion] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [intervalsDisconnected, setIntervalsDisconnected] = useState(false)
   const [termsOpen, setTermsOpen] = useState(false)
@@ -219,6 +219,7 @@ function AppWorkspace() {
           : null
       )
       setActiveItem(routeItem())
+      setNavigationItem(routeItem())
     }
     window.addEventListener("popstate", handlePopState)
     return () => window.removeEventListener("popstate", handlePopState)
@@ -260,6 +261,7 @@ function AppWorkspace() {
   }, [])
 
   const selectItem = (item: string) => {
+    setNavigationItem(item)
     preloadPage(item)
     startTransition(() => {
       setSelectedReport(null)
@@ -292,6 +294,7 @@ function AppWorkspace() {
   }
 
   return (
+    <MobileDefinitionsOpen.Provider value={mobileTerms && termsOpen}>
     <MobileHeaderNavigation.Provider
       value={async () => {
         const context = await refreshRecentIntervals()
@@ -302,7 +305,6 @@ function AppWorkspace() {
               ) as PlannedWorkout) || null
             : null
         )
-        setContextVersion((version) => version + 1)
       }}
     >
       <BackgroundSync />
@@ -346,7 +348,7 @@ function AppWorkspace() {
 
       <SidebarNavigationSlim
         items={navigation}
-        activeItem={activeItem}
+        activeItem={navigationItem}
         onNavigate={selectItem}
         onPrefetch={preloadPage}
       />
@@ -430,7 +432,6 @@ function AppWorkspace() {
             </>
           )}
         <main
-          key={contextVersion}
           className={`flex min-h-0 flex-1 ${
             selectedWorkout
               ? "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
@@ -478,12 +479,13 @@ function AppWorkspace() {
         </main>
 
         <MobileNavbar
-          activeItem={activeItem}
+          activeItem={navigationItem}
           onNavigate={selectItem}
           onPrefetch={preloadPage}
         />
       </SidebarInset>
     </MobileHeaderNavigation.Provider>
+    </MobileDefinitionsOpen.Provider>
   )
 }
 

@@ -170,6 +170,11 @@
     z-index: 40;
     bottom: 4px;
     pointer-events: none;
+    // React commits the selected tab immediately; don't animate its indicator
+    // through the previous destination after the new page has appeared.
+    .tab-link-highlight {
+      transition-duration: 0ms;
+    }
     .toolbar-pane {
       pointer-events: auto;
     }

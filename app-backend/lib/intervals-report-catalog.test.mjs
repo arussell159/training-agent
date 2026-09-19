@@ -3,9 +3,72 @@ import test from "node:test";
 
 import {
   fetchIntervalsReportCatalog,
+  fetchIntervalsWorkoutReports,
   parseIntervalsReportNote,
   parseIntervalsReportNotes,
 } from "./intervals-report-catalog.mjs";
+
+test("workout reports read activity comments, preserve local date and exclude other workouts", async () => {
+  const calls = [];
+  const activity = { id: "i42", start_date_local: "2026-09-19T07:00:00", paired_event_id: 10 };
+  const request = async (path) => {
+    calls.push(path);
+    if (path === "/activity/i42") return activity;
+    if (path === "/athlete/0/events/10") return { id: 10, paired_activity_id: "i42" };
+    if (path === "/activity/i42/messages")
+      return [
+        { content: "An ordinary comment" },
+        {
+          content:
+            "[[SECTION11_REPORT:PRE_WORKOUT:i42]]\nData last_updated (UTC): 2026-09-18T23:00:00\nArchived baseline\n[[/SECTION11_REPORT:PRE_WORKOUT:i42]]",
+        },
+        {
+          content:
+            "[[SECTION11_REPORT:POST_WORKOUT:i42]]\nCompleted\n[[/SECTION11_REPORT:POST_WORKOUT:i42]]",
+        },
+        { content: "[[SECTION11_REPORT:POST_WORKOUT:activity:other]]\nWrong workout" },
+      ];
+    throw new Error(`Unexpected ${path}`);
+  };
+  const actual = await fetchIntervalsWorkoutReports(request, "activity:i42");
+  assert.deepEqual(
+    actual.reports.map((r) => [r.kind, r.workoutId, r.startDate]),
+    [
+      ["pre", "activity:i42", "2026-09-19"],
+      ["post", "activity:i42", "2026-09-19"],
+    ]
+  );
+  assert.equal(actual.reports[1].text, "Completed");
+  assert.deepEqual(calls, ["/activity/i42", "/activity/i42/messages", "/athlete/0/events/10"]);
+  const paired = await fetchIntervalsWorkoutReports(request, "event:10");
+  assert.equal(paired.reports.length, 2);
+  assert.ok(paired.reports.every((r) => r.workoutId === "event:10"));
+});
+
+test("unpaired plans read descriptions and comment failures are not treated as missing reports", async () => {
+  const report = await fetchIntervalsWorkoutReports(async (path) => {
+    assert.equal(path, "/athlete/0/events/10");
+    return {
+      id: 10,
+      start_date_local: "2026-09-19T07:00:00",
+      description: "[[SECTION11_REPORT:PRE_WORKOUT:event:10]]\nSaved",
+    };
+  }, "event:10");
+  assert.equal(report.reports[0].text, "Saved");
+  await assert.rejects(
+    fetchIntervalsWorkoutReports(async (path) => {
+      if (path.endsWith("messages")) throw new Error("Network unavailable");
+      return { id: "i42" };
+    }, "activity:i42"),
+    /Network unavailable/
+  );
+  await assert.rejects(
+    fetchIntervalsWorkoutReports(() => {
+      throw new Error("Must not request");
+    }, "activity:../bad"),
+    /Invalid/
+  );
+});
 
 test("weekly and block reports sharing the same note remain separate", () => {
   const reports = parseIntervalsReportNotes({

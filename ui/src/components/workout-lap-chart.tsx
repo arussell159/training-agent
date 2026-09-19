@@ -45,7 +45,7 @@ export function WorkoutLapChart({
     1,
     bars.reduce((sum, bar) => sum + bar.lap.end - bar.lap.start, 0)
   )
-  const width = expanded ? Math.max(480, bars.length * 60) : 480
+  const width = Math.max(480, bars.length * 60)
   const gap = 2,
     plotWidth = width - gap * (bars.length - 1)
   let elapsed = 0
@@ -122,16 +122,16 @@ export function WorkoutLapChart({
         <div className="relative ml-12">
           <div
             ref={scroll}
-            className={expanded ? "overflow-x-auto overscroll-x-contain pb-1" : "pb-1"}
+            className="overflow-x-auto overscroll-x-contain pb-1"
           >
             <svg
-              width={expanded ? width : "100%"}
+              width={width}
               height="228"
               viewBox={`0 0 ${width} 228`}
               preserveAspectRatio="none"
               className="block select-none"
               role="group"
-              aria-label={expanded ? "Scrollable interval averages" : "Lap averages"}
+              aria-label="Scrollable interval averages"
             >
               {[0, 0.25, 0.5, 0.75, 1].map((f) => (
                 <line

@@ -76,19 +76,17 @@ export function MobileSiteNavbar({
         <NavTitle>
           <h1 aria-label={titleLabel}>{title}</h1>
         </NavTitle>
-        {(right || showMenu) && <NavRight>
-          {right}
-          {showMenu &&
-            (actions ? (
-              <MobileActionMenu
-                label="Options"
+        {(right || showMenu) && (
+          <NavRight>
+            {right}
+            {showMenu && (
+              <MobileHeaderMenu
                 actions={actions}
-                className="size-11 p-0"
+                onEditWorkout={onEditWorkout}
               />
-            ) : (
-              <MobileHeaderMenu onEditWorkout={onEditWorkout} />
-            ))}
-        </NavRight>}
+            )}
+          </NavRight>
+        )}
         {children}
       </Navbar>
     </header>

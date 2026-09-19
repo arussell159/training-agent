@@ -13,7 +13,7 @@ import { createGithubCoachSource } from './lib/github-coach-source.mjs';
 import { createWorkoutSync, freshWorkoutSync } from './lib/coach-workout-sync.mjs';
 import { createCoachReports, createReportSnapshotCache, freshReport } from './lib/coach-reports.mjs';
 import { createReportsHttp } from './lib/coach-reports-http.mjs';
-import { fetchIntervalsReportCatalog } from './lib/intervals-report-catalog.mjs';
+import { fetchIntervalsReportCatalog, fetchIntervalsWorkoutReports } from './lib/intervals-report-catalog.mjs';
 import { fileURLToPath } from 'node:url';
 import { createContextStore } from './lib/supabase-context.mjs';
 import {createCompletedWorkoutStore,providerConnection,mergeTrainingSnapshot,snapshotCoversRange} from './lib/completed-workout-store.mjs';
@@ -85,6 +85,7 @@ async function intervalsReportCatalog() {
 const handleReports = createReportsHttp({
   getReports: async config => (await getReportServices(config)).reports,
   getCatalog: intervalsReportCatalog,
+  getWorkoutReports: async workoutId => fetchIntervalsWorkoutReports(intervalsClient(await readConfig()), workoutId),
 });
 const uiDistPath = path.resolve(__dirname, '..', 'ui', 'dist');
 const intervalsCachePath = path.join(process.env.VERCEL ? '/tmp' : __dirname, 'intervals.cache');

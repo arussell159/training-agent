@@ -4,9 +4,22 @@ import { cn } from "cn"
 
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
+import { MobileDefinitionsOpen } from "@/components/ui/mobile-header-navigation"
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+  const definitionsOpen = React.useContext(MobileDefinitionsOpen)
+  return (
+    <DialogPrimitive.Root
+      data-slot="dialog"
+      {...props}
+      modal={definitionsOpen ? false : props.modal}
+      onOpenChange={(open, details) => {
+        // The shared Definitions page temporarily sits above an open editor.
+        // Keep its draft mounted, and let that page own focus until it closes.
+        if (open || !definitionsOpen) props.onOpenChange?.(open, details)
+      }}
+    />
+  )
 }
 
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
@@ -68,8 +81,7 @@ function DialogContent({
               />
             }
           >
-            <XIcon
-            />
+            <XIcon />
             <span className="sr-only">Close</span>
           </DialogPrimitive.Close>
         )}

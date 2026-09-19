@@ -46,8 +46,6 @@ import {
   type PlannedWorkout,
 } from "@/lib/training-context"
 
-const SECTION_11_CHAT_URL =
-  "https://chatgpt.com/g/g-p-6aad79afa0148191adb71e3a07a58fe4"
 
 function SportIcon({ sport }: { sport: string }) {
   const value = sport.toLowerCase(),
@@ -232,16 +230,6 @@ export function WorkoutDetailPage({
         },
       ]
       : []),
-    {
-      value: "chat",
-      label: "Chat",
-      onSelect: () => window.location.assign(SECTION_11_CHAT_URL),
-    },
-    {
-      value: "terms",
-      label: "Terms & definitions",
-      onSelect: () => window.dispatchEvent(new Event("terms-open")),
-    },
   ]
 
   const deleteWorkout = async () => {

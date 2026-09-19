@@ -45,7 +45,7 @@ export function WorkoutLapsTable({
     <table aria-label="Laps table" data-workout-lap-control className="w-full table-fixed text-right text-sm tabular-nums">
       <caption className="sr-only">Lap, distance, time, and {pace ? "pace" : "speed"}</caption>
       <colgroup><col className="w-8" /><col /><col /><col className="w-[32%]" /></colgroup>
-      <tbody>{intervals.map(({ lap, point }, index) => <tr key={lap.id} aria-selected={selected?.id === lap.id} className={selected?.id === lap.id ? "bg-sky-100 dark:bg-sky-950" : ""} onClick={() => onSelect(lap)}>
+      <tbody>{intervals.map(({ lap, point }, index) => <tr key={lap.id} data-lap-id={lap.id} aria-selected={selected?.id === lap.id} className={selected?.id === lap.id ? "bg-sky-100 dark:bg-sky-950" : ""} onClick={() => onSelect(lap)}>
         <th scope="row" className="py-4 text-left font-normal"><button type="button" aria-label={`Select ${lap.label}`} className="min-h-11 min-w-8 text-left" onClick={event => { event.stopPropagation(); onSelect(lap) }}>{index + 1}</button></th>
         <td className="py-4">{lap.distance != null ? swim ? `${Math.round(recordedSwimYards(lap.distance))} yd` : `${(lap.distance / 1609.344).toFixed(2)} mi` : "—"}</td>
         <td className="py-4">{formatSignalClock(lap.end - lap.start)}</td>

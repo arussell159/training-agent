@@ -1,11 +1,13 @@
-import { useContext, useState } from "react"
+import { useContext, useState, type ComponentProps } from "react"
 import { MobileHeaderNavigation } from "@/components/ui/mobile-header-navigation"
 import { MobileActionMenu } from "@/components/ui/mobile-native-controls"
 
 export function MobileHeaderMenu({
   onEditWorkout,
+  actions = [],
 }: {
   onEditWorkout?: () => void
+  actions?: ComponentProps<typeof MobileActionMenu>["actions"]
 }) {
   const refresh = useContext(MobileHeaderNavigation)
   const [busy, setBusy] = useState(false)
@@ -31,18 +33,9 @@ export function MobileHeaderMenu({
         label="Options"
         className="size-11 p-0"
         actions={[
-          ...(onEditWorkout
-            ? [
-                {
-                  value: "edit",
-                  label: "Edit Workout",
-                  onSelect: onEditWorkout,
-                },
-              ]
-            : []),
           {
             value: "terms",
-            label: "Terms",
+            label: "Definitions",
             onSelect: () => window.dispatchEvent(new Event("terms-open")),
           },
           {
@@ -51,6 +44,19 @@ export function MobileHeaderMenu({
             disabled: busy,
             onSelect: () => void runRefresh(),
           },
+          ...(onEditWorkout
+            ? [
+                {
+                  value: "edit",
+                  label: "Edit workout",
+                  onSelect: onEditWorkout,
+                },
+              ]
+            : []),
+          ...actions.filter(
+            (action) =>
+              !["terms", "definitions", "refresh"].includes(action.value)
+          ),
         ]}
       />
       <span role="status" className="sr-only">

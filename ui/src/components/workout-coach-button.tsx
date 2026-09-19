@@ -35,7 +35,7 @@ export function WorkoutCoachButton({
             fullHeight
           >
             <Section11Report
-              target={{ kind: "pre", workoutId: workout.id }}
+              target={{ kind: "pre", workoutId: postWorkoutId }}
               savedOnly
               reader
             />
@@ -62,7 +62,7 @@ export function WorkoutCoachButton({
     <section className="space-y-3 border-t pt-4" aria-label="Workout reports">
       {completed && (
         <Section11Report
-          target={{ kind: "pre", workoutId: workout.id }}
+          target={{ kind: "pre", workoutId: postWorkoutId }}
           savedOnly
         />
       )}
