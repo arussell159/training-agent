@@ -31,7 +31,7 @@ export function useSheetDismiss(
       sheet = event.target.closest<HTMLElement>(".sheet-modal")
       if (
         !sheet ||
-        (event.target.closest(".report-reader-scroll")?.scrollTop || 0) > 1
+        (event.target.closest("[data-sheet-scroll]")?.scrollTop || 0) > 1
       )
         return
       gesture = {

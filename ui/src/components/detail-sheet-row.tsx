@@ -107,7 +107,10 @@ export function DetailSheetRow({
                 </button>
               </div>
             </div>
-            <div className="terms-metric-sheet-scroll report-reader-scroll">
+            <div
+              className="terms-metric-sheet-scroll report-reader-scroll"
+              data-sheet-scroll
+            >
               {open && children}
             </div>
           </Sheet>

@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import {
   f7ready,
   List,
@@ -16,6 +23,7 @@ import { ChevronRight, Search, X } from "lucide-react"
 import { MetricDetail } from "@/components/terms-reference/metric-detail"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useSheetDismiss } from "@/hooks/use-sheet-dismiss"
 import {
   formatTermsAbbreviation,
   formatTermsHeading,
@@ -88,7 +96,9 @@ export function MobileTermsPage({
       }
       if (event.key !== "Tab") return
       const root = document.querySelector(
-        current.metricId ? ".terms-metric-sheet" : ".terms-mobile-page"
+        current.metricId
+          ? "#terms-mobile-layer .terms-metric-sheet"
+          : "#terms-mobile-layer .terms-mobile-page"
       )
       const targets = [
         ...(root?.querySelectorAll<HTMLElement>(
@@ -161,9 +171,10 @@ export function MobileTermsPage({
     }
   }, [mobile, open])
 
-  const closeMetric = () => {
+  const closeMetric = useCallback(() => {
     if (navigation.current().metricId) navigation.back()
-  }
+  }, [navigation])
+  useSheetDismiss("terms-mobile-layer", Boolean(view.metricId), closeMetric)
   const openMetric = (id: string, trigger: HTMLElement) => {
     metricTrigger.current = trigger
     searchbar.current?.f7Searchbar()?.inputEl.blur()
@@ -177,7 +188,9 @@ export function MobileTermsPage({
     searchbar.current.el?.classList.add("searchbar-enabled")
     instance.enable()
     // Commit the visibility change before requesting focus on the same gesture.
-    const input = searchbar.current.el?.querySelector<HTMLInputElement>('input[type="search"]')
+    const input = searchbar.current.el?.querySelector<HTMLInputElement>(
+      'input[type="search"]'
+    )
     input?.getBoundingClientRect()
     input?.focus({ preventScroll: true })
   }
@@ -320,10 +333,8 @@ export function MobileTermsPage({
         containerEl="#terms-mobile-layer"
         className="terms-metric-sheet"
         opened={Boolean(view.metricId)}
-        swipeToClose
-        swipeHandler=".terms-metric-sheet-handle"
         backdrop
-        backdropEl=".terms-metric-backdrop"
+        backdropEl="#terms-mobile-layer .terms-metric-backdrop"
         closeByBackdropClick
         closeOnEscape
         {...{
@@ -372,6 +383,7 @@ export function MobileTermsPage({
             </div>
             <div
               className="terms-metric-sheet-scroll"
+              data-sheet-scroll
               tabIndex={0}
               aria-label="Metric details"
             >
