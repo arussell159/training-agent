@@ -30,10 +30,7 @@ export function createReportsHttp({ getReports, getCatalog, env = () => process.
       }
       const body = await bodyJson(req);
       const target = validateReportRequest(body);
-      if (
-        pathname === "/api/coach/reports/status" &&
-        getCatalog
-      ) {
+      if (pathname === "/api/coach/reports/status" && getCatalog) {
         const catalog = await getCatalog();
         const report = catalog.reports.find(
           (report) =>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { canEditWorkout } from "@/lib/workout-permissions"
 import {
   queueWorkoutMutation,
   cachedTrainingContext,
@@ -101,7 +102,7 @@ export function WorkoutDescription({
             title
           )}
         </h3>
-        {showContent && !editing && !workout.id.startsWith("library:") && (
+        {showContent && !editing && canEditWorkout(workout) && (
           <Button
             variant="ghost"
             size="sm"

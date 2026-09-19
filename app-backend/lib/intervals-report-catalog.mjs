@@ -1,6 +1,7 @@
 import { shiftReportDate, validReportDate } from "./report-blocks.mjs";
 
-const REPORT_MARKER = /\[\[SECTION11_REPORT:(PRE(?:_WORKOUT)?|POST(?:_WORKOUT)?|WEEKLY|BLOCK)(?::([^\]]+))?\]\]/i;
+const REPORT_MARKER =
+  /\[\[SECTION11_REPORT:(PRE(?:_WORKOUT)?|POST(?:_WORKOUT)?|WEEKLY|BLOCK)(?::([^\]]+))?\]\]/i;
 const REPORT_WRAPPER = /\[\[\/?SECTION11_REPORT:[^\]]+\]\]/gi;
 const DATE = /\b\d{4}-\d{2}-\d{2}\b/g;
 
@@ -37,9 +38,7 @@ export function parseIntervalsReportNote(event) {
     kind === "pre" || kind === "post"
       ? startDate
       : markerDates[1] ||
-        (kind === "weekly" && markerDates[0]
-          ? shiftReportDate(startDate, 6)
-          : null) ||
+        (kind === "weekly" && markerDates[0] ? shiftReportDate(startDate, 6) : null) ||
         contentDates.find((date) => date !== startDate) ||
         (kind === "weekly" ? shiftReportDate(startDate, 6) : eventEnd);
   if (!validReportDate(endDate) || endDate < startDate) return null;
@@ -114,10 +113,13 @@ export async function fetchIntervalsReportCatalog(request, now = new Date()) {
       ? activities.map((activity) => ({ ...activity, __reportSource: "activity" }))
       : []),
   ];
-  const reports = [...new Map(candidates
-    .flatMap(parseIntervalsReportNotes)
-    .filter(Boolean)
-    .map((report) => [report.id, report])).values()]
-    .sort((a, b) => b.endDate.localeCompare(a.endDate) || b.startDate.localeCompare(a.startDate));
+  const reports = [
+    ...new Map(
+      candidates
+        .flatMap(parseIntervalsReportNotes)
+        .filter(Boolean)
+        .map((report) => [report.id, report])
+    ).values(),
+  ].sort((a, b) => b.endDate.localeCompare(a.endDate) || b.startDate.localeCompare(a.startDate));
   return { reports };
 }

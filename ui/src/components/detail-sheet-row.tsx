@@ -2,33 +2,27 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { Sheet } from "framework7-react"
 import { ChevronRight, X } from "lucide-react"
-import { MobileActionMenu } from "@/components/ui/mobile-native-controls"
-
-type SheetAction = {
-  value: string
-  label: string
-  disabled?: boolean
-  onSelect: () => void
-}
 
 export function DetailSheetRow({
   title,
   date,
   children,
   dark = false,
-  actions,
   fullHeight = false,
 }: {
   title: string
   date?: string
   children: ReactNode
   dark?: boolean
-  actions?: SheetAction[]
   fullHeight?: boolean
 }) {
   const id = `detail-${useId().replace(/[^a-z0-9]/gi, "")}`
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
+  const close = () => {
+    if (window.history.state?.detailSheet === id) window.history.back()
+    else setOpen(false)
+  }
   useEffect(() => {
     if (!open) return
     const previous = window.history.state
@@ -40,7 +34,8 @@ export function DetailSheetRow({
     window.addEventListener("popstate", back, true)
     return () => {
       window.removeEventListener("popstate", back, true)
-      if (window.history.state?.detailSheet === id) window.history.back()
+      if (window.history.state?.detailSheet === id)
+        window.history.replaceState(previous, "")
     }
   }, [open, id])
   return (
@@ -59,7 +54,7 @@ export function DetailSheetRow({
           <div
             className={["terms-metric-backdrop sheet-backdrop", open ? "backdrop-in" : ""].join(" ")}
             aria-hidden="true"
-            onClick={() => setOpen(false)}
+            onClick={close}
           />
           <Sheet
             containerEl={`#${id}`}
@@ -71,7 +66,7 @@ export function DetailSheetRow({
             backdrop
             closeByBackdropClick
             closeOnEscape
-            onSheetClose={() => setOpen(false)}
+            onSheetClose={close}
             onSheetClosed={() =>
               trigger.current?.focus({ preventScroll: true })
             }
@@ -86,24 +81,11 @@ export function DetailSheetRow({
             <div className="terms-metric-sheet-heading">
               <h2>{date || title}</h2>
               <div className="flex items-center">
-                {actions?.length ? (
-                  <MobileActionMenu
-                    label="Options"
-                    actions={actions.map((action) => ({
-                      ...action,
-                      onSelect: () => {
-                        setOpen(false)
-                        action.onSelect()
-                      },
-                    }))}
-                    className="size-11"
-                  />
-                ) : null}
                 <button
                   type="button"
                   className="terms-metric-sheet-close"
                   aria-label={`Close ${title}`}
-                  onClick={() => setOpen(false)}
+                  onClick={close}
                 >
                   <X />
                 </button>

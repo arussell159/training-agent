@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><title>Mobile verification frame</title></head>
+<body style="margin:0;background:#e5e7eb;font:14px system-ui">
+<p>Isolated fixtures — no live account. <select aria-label="Viewport width" id="width"><option>390</option><option>320</option><option>430</option><option>768</option></select> <button id="check">Check layout</button></p>
+<iframe title="Mobile app" id="app" src="/tests/mobile-workout.html" style="width:390px;height:780px;border:0;background:white"></iframe>
+<pre id="result" style="white-space:pre-wrap"></pre>
+<script>
+const frame = document.getElementById('app');
+document.getElementById('width').onchange = event => frame.style.width = event.target.value + 'px';
+document.getElementById('check').onclick = () => {
+ const doc=frame.contentDocument, win=frame.contentWindow;
+ const inspect=selector=>Array.from(doc.querySelectorAll(selector)).map(el=>{const box=el.getBoundingClientRect(),css=win.getComputedStyle(el);return {label:el.getAttribute('aria-label')||el.textContent.slice(0,60),radius:css.borderRadius,shadow:css.boxShadow,overflow:css.overflowY,maxHeight:css.maxHeight,x:box.x,y:box.y,width:box.width,height:box.height}});
+ document.getElementById('result').textContent=JSON.stringify({viewport:win.innerWidth,pageWidth:doc.documentElement.scrollWidth,scrollY:win.scrollY,splits:inspect('[aria-label="Workout splits"]'),laps:inspect('[aria-label="Laps table"]'),picker:inspect('.we-duration-picker'),cards:inspect('[aria-label="Performance Insights"] [data-slot="card"],.group\\/workout'),options:inspect('select[data-native-control="actions"]')},null,2);
+};
+</script></body></html>

@@ -8,6 +8,7 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react"
@@ -158,6 +159,13 @@ function itemPath(item: string) {
       } as Record<string, string>
     )[item] || "/coach"
   )
+}
+
+function RouteScrollReset({ route }: { route: string }) {
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" })
+  }, [route])
+  return null
 }
 
 function AppWorkspace() {
@@ -437,6 +445,7 @@ function AppWorkspace() {
         >
           <MobilePageTabs activeItem={activeItem}>
             <Suspense fallback={<RouteFallback />}>
+              <RouteScrollReset route={activeItem} />
               {selectedReport ? (
                 <ReportReaderPage target={selectedReport} />
               ) : selectedWorkout ? (

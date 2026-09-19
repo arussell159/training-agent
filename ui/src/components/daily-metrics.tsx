@@ -52,7 +52,7 @@ export function DailyMetricsCard({date,rows,onOpen}:{date:string; rows:Row[]; on
   const hrv = values.find(m => m.label === 'HRV')
   if (!values.length) return null
   return <Card role="button" tabIndex={0} onClick={onOpen} onKeyDown={e => {if(e.key === 'Enter' || e.key === ' ') {e.preventDefault();onOpen()}}}
-    aria-label={`Metrics for ${date}`} className="cursor-pointer gap-1.5 rounded-md border-slate-200 bg-slate-50/70 px-2.5 py-2.5 shadow-none hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900/50 dark:hover:bg-slate-800">
+    aria-label={`Metrics for ${date}`} className="cursor-pointer gap-1.5 rounded-xl bg-card px-2.5 py-3 hover:bg-accent/50">
     <span className="flex items-center justify-between text-[11px] font-medium"><span className="flex items-center gap-1.5"><HeartPulse className="size-3.5 text-slate-500" />Metrics</span><Plus className="size-3.5 text-muted-foreground" aria-hidden="true" /></span>
     <span className="grid grid-cols-2 gap-2">
       <span className="min-w-0"><span className="block text-[10px] text-muted-foreground">Sleep time</span><span className="block text-xs font-medium">{sleep ? `${sleep.value} hrs` : '—'}</span></span>

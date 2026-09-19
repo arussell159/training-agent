@@ -6,19 +6,10 @@ import {
   type PlannedWorkout,
 } from "@/lib/training-context"
 
-type ReportAction = {
-  value: string
-  label: string
-  disabled?: boolean
-  onSelect: () => void
-}
-
 export function WorkoutCoachButton({
   workout,
-  actions,
 }: {
   workout: PlannedWorkout
-  actions?: ReportAction[]
 }) {
   const mobile = useIsMobile()
   if (workout.id.startsWith("library:")) return null
@@ -41,7 +32,6 @@ export function WorkoutCoachButton({
             title="Pre-workout report"
             date={workout.workout_date || workout.date}
             dark
-            actions={actions}
             fullHeight
           >
             <Section11Report
@@ -55,7 +45,6 @@ export function WorkoutCoachButton({
           title={completed ? "Post-workout report" : "Pre-workout report"}
           date={workout.workout_date || workout.date}
           dark
-          actions={actions}
           fullHeight
         >
           <Section11Report

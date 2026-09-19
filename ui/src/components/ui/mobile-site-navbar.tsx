@@ -76,7 +76,7 @@ export function MobileSiteNavbar({
         <NavTitle>
           <h1 aria-label={titleLabel}>{title}</h1>
         </NavTitle>
-        <NavRight>
+        {(right || showMenu) && <NavRight>
           {right}
           {showMenu &&
             (actions ? (
@@ -88,7 +88,7 @@ export function MobileSiteNavbar({
             ) : (
               <MobileHeaderMenu onEditWorkout={onEditWorkout} />
             ))}
-        </NavRight>
+        </NavRight>}
         {children}
       </Navbar>
     </header>

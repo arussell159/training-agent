@@ -14,12 +14,14 @@ export function WorkoutLapChart({
   sport,
   selected,
   onSelect,
+  expanded = false,
 }: {
   points: RecordedPoint[]
   laps: RecordedLap[]
   sport: string
   selected: RecordedLap | null
   onSelect: (lap: RecordedLap) => void
+  expanded?: boolean
 }) {
   const scroll = useRef<HTMLDivElement>(null)
   const [hovered, setHovered] = useState<string | null>(null)
@@ -43,7 +45,7 @@ export function WorkoutLapChart({
     1,
     bars.reduce((sum, bar) => sum + bar.lap.end - bar.lap.start, 0)
   )
-  const width = Math.max(480, bars.length * 40)
+  const width = expanded ? Math.max(480, bars.length * 60) : 480
   const gap = 2,
     plotWidth = width - gap * (bars.length - 1)
   let elapsed = 0
@@ -98,12 +100,9 @@ export function WorkoutLapChart({
       data-workout-lap-control
       className="space-y-2 md:hidden"
     >
-      <h3 className="text-base font-semibold">
+      {!expanded && <h3 className="text-xl font-bold">
         {swim ? "Swim intervals" : "Laps"}
-      </h3>
-      <p className="text-xs text-muted-foreground">
-        Tap a lap to see its row below. Scroll left or right.
-      </p>
+      </h3>}
       <div className="relative">
         <div
           className="absolute top-0 bottom-0 left-0 z-10 w-12 bg-background"
@@ -118,19 +117,21 @@ export function WorkoutLapChart({
               {format(pace ? low + f * (high - low) : high - f * (high - low))}
             </span>
           ))}
+          <span className="absolute right-2 bottom-2 text-[10px] text-muted-foreground">{pace ? (swim ? "/100 yd" : "/mi") : "W"}</span>
         </div>
         <div className="relative ml-12">
           <div
             ref={scroll}
-            className="touch-pan-x overflow-x-auto overscroll-x-contain pb-1"
+            className={expanded ? "overflow-x-auto overscroll-x-contain pb-1" : "pb-1"}
           >
             <svg
-              width={width}
+              width={expanded ? width : "100%"}
               height="228"
               viewBox={`0 0 ${width} 228`}
+              preserveAspectRatio="none"
               className="block select-none"
               role="group"
-              aria-label="Scrollable interval averages"
+              aria-label={expanded ? "Scrollable interval averages" : "Lap averages"}
             >
               {[0, 0.25, 0.5, 0.75, 1].map((f) => (
                 <line

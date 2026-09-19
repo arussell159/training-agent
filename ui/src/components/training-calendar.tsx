@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/mobile-native-controls"
 import { WorkoutProfile } from "@/components/workout-profile"
 import { WorkoutSummary } from "@/components/workout-summary"
+import { canEditWorkout } from "@/lib/workout-permissions"
 import { WorkoutMapSplits } from "@/components/workout-map-splits"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
 import {
@@ -238,7 +239,7 @@ export function WorkoutCard({
       <div className="flex min-w-0 flex-col items-start gap-2">
         <div className="flex w-full items-center justify-between">
           <SportIcon sport={workout.sport} />
-          <div
+          {canEditWorkout(workout) && <div
             onClick={(event) => event.stopPropagation()}
             onMouseDown={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
@@ -324,7 +325,7 @@ export function WorkoutCard({
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-          </div>
+          </div>}
         </div>
         <span className="line-clamp-2 w-full text-left text-[13px] leading-tight font-semibold md:text-sm">
           {workout.title}
@@ -375,7 +376,7 @@ function DraggableWorkout({
   const { setNodeRef, listeners, isDragging } = useDraggable({
     id: workout.id,
     data: { workout },
-    disabled: disabled || race || !workout.id.startsWith("event:"),
+    disabled: disabled || race || !canEditWorkout(workout),
   })
   if (race)
     return (
@@ -397,7 +398,7 @@ function DraggableWorkout({
       <WorkoutCard
         workout={workout}
         onClick={onOpen}
-        onAction={workout.id.startsWith("event:") ? onAction : undefined}
+        onAction={canEditWorkout(workout) ? onAction : undefined}
         disabled={disabled}
       />
     </div>
@@ -736,7 +737,7 @@ export function TrainingCalendar({
     const workout = active.data.current?.workout as PlannedWorkout | undefined
     if (
       !workout ||
-      !workout.id.startsWith("event:") ||
+      !canEditWorkout(workout) ||
       !over ||
       String(over.id) === workout.workout_date ||
       moving
@@ -1507,7 +1508,7 @@ export function TrainingCalendar({
                                     ].map((metric) => (
                                       <Card
                                         key={metric.label}
-                                        className={`min-w-0 gap-1 rounded-md px-2.5 py-3 text-left shadow-none ${metric.color}`}
+                                        className={`min-w-0 gap-1 rounded-xl px-2.5 py-3 text-left ${metric.color}`}
                                       >
                                         <p className="text-base font-semibold tabular-nums">
                                           {Number.isFinite(metric.value)

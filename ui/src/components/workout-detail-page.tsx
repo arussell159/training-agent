@@ -1,4 +1,6 @@
 import { DetailSheetRow } from "@/components/detail-sheet-row"
+import { canEditWorkout } from "@/lib/workout-permissions"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { WorkoutDescription } from "@/components/workout-description"
 import { METERS_PER_100_YARDS } from "../../../app-backend/lib/swim-units.mjs"
 import {
@@ -86,6 +88,8 @@ export function WorkoutDetailPage({
   onBack: () => void
 }) {
   const workout = useEditedWorkout(initialWorkout)
+  const mobile = useIsMobile()
+  const editable = canEditWorkout(workout)
   const library = workout.id.startsWith("library:")
   const [editorOpen, setEditorOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -212,7 +216,7 @@ export function WorkoutDetailPage({
   }, [])
 
   const workoutActions = [
-    ...(workout.id.startsWith("event:")
+    ...(editable
       ? [
         {
           value: "edit",
@@ -241,7 +245,7 @@ export function WorkoutDetailPage({
   ]
 
   const deleteWorkout = async () => {
-    if (deleting || !workout.id.startsWith("event:")) return
+    if (deleting || !editable) return
     setDeleting(true)
     setDeleteError("")
     try {
@@ -273,7 +277,7 @@ export function WorkoutDetailPage({
         }
         actions={workoutActions}
       />
-      {editorOpen && (
+      {editorOpen && editable && (
         <WorkoutEditor workout={workout} onClose={() => setEditorOpen(false)} />
       )}
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
@@ -510,7 +514,7 @@ export function WorkoutDetailPage({
               />
             </div>
           </div>
-          {workout.status === "completed" && (
+          {workout.status === "completed" && !mobile && (
             <div className="hidden md:block">
               <WorkoutMapSplits workout={workout} />
             </div>
@@ -518,14 +522,7 @@ export function WorkoutDetailPage({
           <Suspense
             fallback={<div className="h-44 animate-pulse border bg-muted/30" />}
           >
-            <WorkoutAnalysis
-              workout={workout}
-              mobileAfterLaps={
-                workout.status === "completed" ? (
-                  <WorkoutMapSplits workout={workout} />
-                ) : null
-              }
-            />
+            <WorkoutAnalysis workout={workout} />
           </Suspense>
           <div className="workout-detail-links md:contents">
           {workout.status === "completed" && (
@@ -550,7 +547,7 @@ export function WorkoutDetailPage({
           )}
 
           {!library && (
-            <WorkoutCoachButton workout={workout} actions={workoutActions} />
+            <WorkoutCoachButton workout={workout} />
           )}
           </div>
         </WorkoutDetailSurface>

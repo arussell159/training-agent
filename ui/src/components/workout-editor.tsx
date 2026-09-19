@@ -1,3 +1,4 @@
+import { canEditWorkout } from "@/lib/workout-permissions"
 import {
   createContext,
   useContext,
@@ -1198,7 +1199,8 @@ export function WorkoutEditorMenu({
   onSaved?: (w: PlannedWorkout) => void
 }) {
   const [open, setOpen] = useState(false)
-  const editable = workout.id.startsWith("event:")
+  const editable = canEditWorkout(workout)
+  if (!editable) return null
   return (
     <>
       <MobileActionMenu

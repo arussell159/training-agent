@@ -1,6 +1,7 @@
 import { METERS_PER_100_YARDS } from "../../../app-backend/lib/swim-units.mjs"
 import {
   useEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -13,13 +14,12 @@ import {
   intervalSignals,
   tooltipPosition,
 } from "@/lib/interval-signals"
-import { WorkoutLapsTable } from "@/components/workout-laps-table"
+import { WorkoutLapsPage } from "@/components/workout-laps-page"
 import { WorkoutLapChart } from "@/components/workout-lap-chart"
 import { WorkoutChartStats } from "@/components/workout-chart-stats"
 import { WorkoutDfaChart } from "@/components/workout-dfa-chart"
 import type { DfaStatistics } from "@/components/workout-analysis"
 import type { WorkoutSummaryValues } from "@/lib/training-context"
-import { DetailSheetRow } from "@/components/detail-sheet-row"
 
 type Lap = {
   id: string
@@ -50,6 +50,8 @@ export function MobileWorkoutSignals({
 }) {
   const [time, setTime] = useState<number | null>(null),
     [lap, setLap] = useState<Lap | null>(null)
+  const [lapsOpen, setLapsOpen] = useState(false)
+  const closeLaps = useCallback(() => setLapsOpen(false), [])
   const swim = /swim/i.test(sport),
     run = /run/i.test(sport)
   const [activeTrack, setActiveTrack] = useState<string | null>(null)
@@ -166,7 +168,7 @@ export function MobileWorkoutSignals({
     setTime(null)
     setActiveTrack(null)
     onLapSelect?.(selected)
-    const box = lapSection.current?.getBoundingClientRect()
+    const box = !lapsOpen ? lapSection.current?.getBoundingClientRect() : null
     if (box && (box.top < 56 || box.bottom > window.innerHeight - 96))
       lapSection.current?.scrollIntoView({ block: "start", behavior: "smooth" })
   }
@@ -176,6 +178,7 @@ export function MobileWorkoutSignals({
       className="mx-auto w-full max-w-2xl space-y-5"
       aria-label="Recorded workout graphs"
     >
+      {lapsOpen && <WorkoutLapsPage points={points} laps={laps} sport={sport} selected={lap} onSelect={selectLap} onClose={closeLaps} />}
       <div ref={lapSection} className="scroll-mt-16 space-y-2">
         <WorkoutLapChart
           points={points}
@@ -184,14 +187,9 @@ export function MobileWorkoutSignals({
           selected={lap}
           onSelect={selectLap}
         />
-        <DetailSheetRow title={swim ? "Swim intervals" : "Laps"} fullHeight>
-          <WorkoutLapsTable
-            intervals={intervals}
-            sport={sport}
-            selected={lap}
-            onSelect={selectLap}
-          />
-        </DetailSheetRow>
+        {intervals.length > 0 && <div className="flex justify-end">
+          <button type="button" className="min-h-11 px-1 text-sm font-semibold text-primary" onClick={() => setLapsOpen(true)}>View workout</button>
+        </div>}
         {afterLaps}
       </div>
       {!swim && /bike|ride|cycl|run/i.test(sport) && <WorkoutDfaChart points={points} duration={duration} statistics={dfa} />}

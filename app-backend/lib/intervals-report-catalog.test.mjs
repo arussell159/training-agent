@@ -62,16 +62,14 @@ test("pre and post workout reports are read from their Intervals records", () =>
     category: "WORKOUT",
     __reportSource: "event",
     start_date_local: "2026-09-18T07:00:00",
-    description:
-      "[[SECTION11_REPORT:PRE_WORKOUT:event:42]]\nRecommendation: Go",
+    description: "[[SECTION11_REPORT:PRE_WORKOUT:event:42]]\nRecommendation: Go",
   });
   const post = parseIntervalsReportNote({
     id: "activity-7",
     category: "ACTIVITY",
     __reportSource: "activity",
     start_date_local: "2026-09-18T08:00:00",
-    description:
-      "[[SECTION11_REPORT:POST_WORKOUT:activity:activity-7]]\nOutcome: Complete",
+    description: "[[SECTION11_REPORT:POST_WORKOUT:activity:activity-7]]\nOutcome: Complete",
   });
   assert.equal(pre.kind, "pre");
   assert.equal(pre.workoutId, "event:42");
@@ -102,10 +100,7 @@ test("Intervals report catalog is read-only, filtered and newest first", async (
     ];
   }, new Date("2026-09-18T12:00:00Z"));
   assert.equal(requested[0], "/athlete/0/events?oldest=2020-01-01&newest=2026-09-18");
-  assert.equal(
-    requested[1],
-    "/athlete/0/activities?oldest=2026-03-22&newest=2026-09-18"
-  );
+  assert.equal(requested[1], "/athlete/0/activities?oldest=2026-03-22&newest=2026-09-18");
   assert.deepEqual(
     catalog.reports.map((report) => report.id),
     ["intervals-note:3", "intervals-note:1"]
