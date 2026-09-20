@@ -1,4 +1,4 @@
-import { HeartPulse, Plus } from "lucide-react"
+import { HeartPulse, Moon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
@@ -129,47 +129,51 @@ export function DailyMetricsCard({
   const values = metrics(rows.find((r) => r.date === date))
   const sleep = values.find((m) => m.label === "Sleep Hours")
   const hrv = values.find((m) => m.label === "HRV")
-  if (!values.length) return null
-  return (
-    <Card
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault()
-          onOpen()
+  const displayMetrics = [
+    sleep
+      ? {
+          label: "Sleep time",
+          value: (() => {
+            const totalMinutes = Math.round((sleep.numeric ?? 0) * 60)
+            return `${Math.floor(totalMinutes / 60)}h ${String(totalMinutes % 60).padStart(2, "0")}m`
+          })(),
+          icon: Moon,
         }
-      }}
+      : null,
+    hrv
+      ? {
+          label: "HRV",
+          value: `${hrv.value} ms`,
+          icon: HeartPulse,
+        }
+      : null,
+  ].filter((metric) => metric != null)
+  if (!displayMetrics.length) return null
+  return (
+    <button
+      type="button"
+      role="button"
+      onClick={onOpen}
       aria-label={`Metrics for ${date}`}
-      className="cursor-pointer gap-1.5 rounded-xl bg-card px-2.5 py-3 hover:bg-accent/50"
+      className="w-full bg-background text-left transition-colors active:bg-muted/60 md:rounded-xl md:border md:border-border md:hover:bg-accent/50"
     >
-      <span className="flex items-center justify-between text-[11px] font-medium">
-        <span className="flex items-center gap-1.5">
-          <HeartPulse className="size-3.5 text-slate-500" />
-          Metrics
-        </span>
-        <Plus className="size-3.5 text-muted-foreground" aria-hidden="true" />
-      </span>
-      <span className="grid grid-cols-2 gap-2">
-        <span className="min-w-0">
-          <span className="block text-[10px] text-muted-foreground">
-            Sleep time
+      {displayMetrics.map(({ label, value, icon: Icon }, index) => (
+        <span
+          key={label}
+          className={`grid min-h-14 grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-3 px-1 py-2 md:px-2.5 ${index < displayMetrics.length - 1 ? "border-b border-border/70" : ""}`}
+        >
+          <span className="flex size-8 items-center justify-center rounded-full bg-blue-500 text-white shadow-sm">
+            <Icon className="size-4" strokeWidth={2.25} aria-hidden="true" />
           </span>
-          <span className="block text-xs font-medium">
-            {sleep ? `${sleep.value} hrs` : "—"}
+          <span className="min-w-0 text-[16px] leading-5 font-semibold text-foreground">
+            {label}
           </span>
-        </span>
-        <span className="min-w-0">
-          <span className="block text-[10px] text-muted-foreground">
-            Overnight HRV
-          </span>
-          <span className="block text-xs font-medium">
-            {hrv ? `${hrv.value} ms` : "—"}
+          <span className="pl-2 text-[16px] leading-5 font-medium text-foreground tabular-nums">
+            {value}
           </span>
         </span>
-      </span>
-    </Card>
+      ))}
+    </button>
   )
 }
 
