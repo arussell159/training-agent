@@ -88,6 +88,30 @@ function sessionDuration(workout: PlannedWorkout) {
   return minutes > 0 ? formatDuration(minutes) : "—"
 }
 
+function clock(seconds: number) {
+  const rounded = Math.max(0, Math.round(seconds))
+  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}`
+}
+
+function sessionSpeed(workout: PlannedWorkout) {
+  const completed = workout.status === "completed"
+  const values = completed
+    ? workout.workout_summary?.completed
+    : workout.workout_summary?.planned
+  const speed = values?.average_speed
+  const kind = sportKind(workout.sport)
+  if (speed == null || speed <= 0)
+    return {
+      label: kind === "run" || kind === "swim" ? "Avg pace" : "Avg speed",
+      value: "—",
+    }
+  if (kind === "run")
+    return { label: "Avg pace", value: `${clock(1609.344 / speed)}/mi` }
+  if (kind === "swim")
+    return { label: "Avg pace", value: `${clock(91.44 / speed)}/100y` }
+  return { label: "Avg speed", value: `${(speed * 2.236936).toFixed(1)} mph` }
+}
+
 function SessionSlide({
   workout,
   onOpen,
@@ -98,6 +122,7 @@ function SessionSlide({
   const completed = workout.status === "completed"
   const distance = plannedDistanceLabel(workout)
   const kind = sportKind(workout.sport)
+  const speed = sessionSpeed(workout)
   return (
     <button
       type="button"
@@ -106,7 +131,7 @@ function SessionSlide({
       aria-label={`Open ${workout.title}`}
     >
       <div className="flex items-center justify-center px-12">
-        <span className="absolute left-3 flex size-9 items-center justify-center rounded-full border-2 border-current text-primary [&>svg]:size-4">
+        <span className="absolute top-0.5 left-3 flex size-9 items-center justify-center rounded-full border-2 border-current text-primary [&>svg]:size-4">
           <SportGlyph sport={workout.sport} />
         </span>
         <span className="text-base font-semibold tracking-wide uppercase">
@@ -142,10 +167,8 @@ function SessionSlide({
           <p className="text-[11px] text-muted-foreground">Distance</p>
         </div>
         <div className="px-1">
-          <p className="text-base font-semibold tabular-nums">
-            {workout.load != null ? Math.round(workout.load) : "—"}
-          </p>
-          <p className="text-[11px] text-muted-foreground">TSS</p>
+          <p className="text-base font-semibold tabular-nums">{speed.value}</p>
+          <p className="text-[11px] text-muted-foreground">{speed.label}</p>
         </div>
       </div>
     </button>
@@ -211,7 +234,7 @@ export function MobileDailySessions({
         {selectedSessions.length ? (
           <div
             ref={sessionScroller}
-            className="flex snap-x snap-mandatory [scrollbar-width:none] overflow-x-auto overscroll-x-contain [&::-webkit-scrollbar]:hidden"
+            className="flex snap-x snap-mandatory [scrollbar-width:none] overflow-x-auto overscroll-x-contain p-0.5 [&::-webkit-scrollbar]:hidden"
             onScroll={(event) => {
               const width = event.currentTarget.clientWidth
               if (width)
@@ -251,7 +274,7 @@ export function MobileDailySessions({
 
       <div
         ref={dateScroller}
-        className="mt-2 flex snap-x snap-mandatory [scrollbar-width:none] gap-1.5 overflow-x-auto overscroll-x-contain pb-1 [&::-webkit-scrollbar]:hidden"
+        className="mt-2 flex snap-x snap-mandatory [scrollbar-width:none] gap-1.5 overflow-x-auto overscroll-x-contain p-0.5 pb-1 [&::-webkit-scrollbar]:hidden"
         aria-label="Choose training day"
       >
         {days.map((day) => {

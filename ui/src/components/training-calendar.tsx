@@ -487,11 +487,13 @@ function DayMenu({
   count,
   disabled,
   onAction,
+  onCreate,
 }: {
   day: Date
   count: number
   disabled: boolean
   onAction: (action: "copy" | "delete") => void
+  onCreate: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -506,12 +508,19 @@ function DayMenu({
     >
       <MobileActionMenu
         label={`Workout actions for ${label}`}
-        disabled={disabled || count === 0}
+        disabled={disabled}
         actions={[
-          { value: "copy", label: "Copy", onSelect: () => onAction("copy") },
+          { value: "create", label: "Add workout", onSelect: onCreate },
+          {
+            value: "copy",
+            label: "Copy",
+            disabled: count === 0,
+            onSelect: () => onAction("copy"),
+          },
           {
             value: "delete",
             label: "Delete",
+            disabled: count === 0,
             onSelect: () => setDeleteOpen(true),
           },
         ]}
@@ -522,7 +531,7 @@ function DayMenu({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                disabled={disabled || count === 0}
+                disabled={disabled}
                 aria-label={`Workout actions for ${label}`}
               />
             }
@@ -530,11 +539,19 @@ function DayMenu({
             <Ellipsis className="size-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-36">
-            <DropdownMenuItem onClick={() => onAction("copy")}>
+            <DropdownMenuItem onClick={onCreate}>
+              <Plus />
+              Add workout
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={count === 0}
+              onClick={() => onAction("copy")}
+            >
               <Copy />
               Copy
             </DropdownMenuItem>
             <DropdownMenuItem
+              disabled={count === 0}
               variant="destructive"
               onClick={() => setDeleteOpen(true)}
             >
@@ -1682,16 +1699,17 @@ export function TrainingCalendar({
                                   </span>
                                   {day.getDate()}
                                 </span>
-                                {(!isToday || !isMobile) && (
-                                  <DayMenu
-                                    day={day}
-                                    count={dayWorkouts.length}
-                                    disabled={moving}
-                                    onAction={(action) =>
-                                      void runDayAction(day, action)
-                                    }
-                                  />
-                                )}
+                                <DayMenu
+                                  day={day}
+                                  count={dayWorkouts.length}
+                                  disabled={moving}
+                                  onAction={(action) =>
+                                    void runDayAction(day, action)
+                                  }
+                                  onCreate={() =>
+                                    setNewWorkoutDate(dateKey(day))
+                                  }
+                                />
                               </div>
                               <div className="space-y-2">
                                 <DailyMetricsCard
@@ -1721,20 +1739,6 @@ export function TrainingCalendar({
                                     />
                                   )
                                 )}
-                                <button
-                                  type="button"
-                                  aria-label={
-                                    "Create workout on " + dateKey(day)
-                                  }
-                                  disabled={moving}
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    setNewWorkoutDate(dateKey(day))
-                                  }}
-                                  className="flex h-12 w-full items-center justify-center rounded-sm border border-muted-foreground/40 text-muted-foreground opacity-100 transition-opacity hover:bg-accent focus-visible:opacity-100 md:opacity-0 md:group-hover/day:opacity-100"
-                                >
-                                  <Plus className="size-4" />
-                                </button>
                               </div>
                             </CalendarDay>
                           )
