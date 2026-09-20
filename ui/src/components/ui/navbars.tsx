@@ -88,11 +88,11 @@ export function MobileNavbar({
             }
             onClick={(event: MouseEvent) => {
               event.preventDefault()
-              onNavigate(label)
-            }}
-            onPointerDown={() => {
-              if (activeItem === "Calendar" && label === "Calendar")
+              if (activeItem === "Calendar" && label === "Calendar") {
                 window.dispatchEvent(new Event("calendar-go-today"))
+                return
+              }
+              onNavigate(label)
             }}
             onPointerEnter={() => onPrefetch?.(label)}
             onFocus={() => onPrefetch?.(label)}
