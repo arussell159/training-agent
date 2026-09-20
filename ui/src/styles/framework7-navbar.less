@@ -595,16 +595,16 @@
   --f7-card-margin-vertical: 0px;
   --f7-card-bg-color: var(--card);
   --f7-card-text-color: var(--foreground);
-  --f7-card-border-radius: 24px;
+  --f7-card-border-radius: 12px;
   margin: 0;
   border: 1px solid var(--border);
   overflow: hidden;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 4%);
+  box-shadow: none;
 }
 
 .training-history-filter-scroll {
   overflow-x: auto;
-  padding: 18px 18px 8px;
+  padding: 12px 12px 4px;
   scrollbar-width: none;
   overscroll-behavior-x: contain;
   &::-webkit-scrollbar {
@@ -616,18 +616,18 @@
   display: flex;
   width: max-content;
   min-width: 100%;
-  gap: 10px;
-  --f7-button-height: 42px;
+  gap: 6px;
+  --f7-button-height: 34px;
   --f7-button-border-radius: 999px;
-  --f7-button-font-size: 14px;
+  --f7-button-font-size: 12px;
   --f7-button-font-weight: 600;
   .button {
     display: inline-flex;
     flex: 0 0 auto;
     width: auto;
     min-width: max-content;
-    gap: 8px;
-    padding-inline: 16px;
+    gap: 6px;
+    padding-inline: 12px;
     border-color: var(--border);
     border-radius: 999px !important;
     border-width: 1px !important;
@@ -642,13 +642,13 @@
 
 .training-history-summary,
 .training-history-chart {
-  padding-inline: 18px;
+  padding-inline: 12px;
 }
 
 .training-history-summary {
-  padding-top: 20px;
+  padding-top: 12px;
   h2 {
-    margin: 0 0 22px;
+    margin: 0 0 14px;
     font-size: clamp(1.45rem, 4vw, 2rem);
     line-height: 1.1;
     font-weight: 750;
@@ -659,7 +659,7 @@
 .training-history-totals {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  gap: 12px;
   div {
     min-width: 0;
   }
@@ -684,8 +684,8 @@
 }
 
 .training-history-chart {
-  padding-top: 30px;
-  padding-bottom: 14px;
+  padding-top: 18px;
+  padding-bottom: 8px;
   h3 {
     margin: 0 0 10px;
     font-size: 1rem;
@@ -695,18 +695,18 @@
 
 @media (width >= 48rem) {
   .training-history-filter-scroll {
-    padding: 24px 24px 10px;
+    padding: 16px 16px 6px;
   }
   .training-history-summary,
   .training-history-chart {
-    padding-inline: 24px;
+    padding-inline: 16px;
   }
   .training-history-totals {
     max-width: 680px;
     gap: 32px;
   }
   .training-history-chart {
-    padding-top: 38px;
-    padding-bottom: 20px;
+    padding-top: 24px;
+    padding-bottom: 12px;
   }
 }
