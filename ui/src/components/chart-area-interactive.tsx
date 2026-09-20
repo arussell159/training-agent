@@ -1,14 +1,10 @@
 import { useMemo, useState, type ComponentType } from "react"
+import type { PointerEvent as ReactPointerEvent } from "react"
 import { Activity, Bike, Footprints, Waves } from "lucide-react"
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import { Button as F7Button, Card, CardContent } from "framework7-react"
 
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from "@/components/ui/chart"
+import { ChartContainer, type ChartConfig } from "@/components/ui/chart"
 import { MobileSelect } from "@/components/ui/mobile-native-controls"
 import {
   Select,
@@ -238,6 +234,7 @@ export function ChartAreaInteractive({
 }) {
   const [sport, setSport] = useState<SportFilter>("all")
   const [historyMetric, setHistoryMetric] = useState<HistoryMetric>("time")
+  const [inspectIndex, setInspectIndex] = useState<number | null>(null)
   const records = useMemo(
     () => completedHistory(context, sport),
     [context, sport]
@@ -253,6 +250,20 @@ export function ChartAreaInteractive({
     }))
   }, [history, historyMetric, sport])
   const totals = useMemo(() => weekTotals(records), [records])
+  const inspectHistory = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!chartHistory.length) return
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const left = 4
+    const right = 52
+    const ratio = Math.max(
+      0,
+      Math.min(
+        1,
+        (event.clientX - bounds.left - left) / (bounds.width - left - right)
+      )
+    )
+    setInspectIndex(Math.round(ratio * (chartHistory.length - 1)))
+  }
 
   return (
     <Card className="training-history-card m-0 min-w-0">
@@ -345,102 +356,134 @@ export function ChartAreaInteractive({
               </Select>
             </MobileSelect>
           </div>
-          <ChartContainer
-            config={historyChartConfig}
-            className="h-[245px] w-full sm:h-[320px]"
+          <div
+            className="relative touch-pan-y select-none"
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture(event.pointerId)
+              inspectHistory(event)
+            }}
+            onPointerMove={(event) => {
+              if (event.buttons) inspectHistory(event)
+            }}
+            onPointerUp={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId))
+                event.currentTarget.releasePointerCapture(event.pointerId)
+              setInspectIndex(null)
+            }}
+            onPointerCancel={() => setInspectIndex(null)}
           >
-            <AreaChart
-              data={chartHistory}
-              accessibilityLayer
-              margin={{ top: 16, right: 8, left: 0, bottom: 0 }}
-            >
-              <defs>
-                <linearGradient
-                  id="trainingHistoryFill"
-                  x1="0"
-                  y1="0"
-                  x2="0"
-                  y2="1"
+            {inspectIndex != null && chartHistory[inspectIndex] && (
+              <div className="pointer-events-none absolute top-4 right-[52px] bottom-8 left-1 z-10">
+                <div
+                  className="absolute top-0 bottom-0 border-l border-foreground/35"
+                  style={{
+                    left: `${(inspectIndex / Math.max(1, chartHistory.length - 1)) * 100}%`,
+                  }}
                 >
-                  <stop
-                    offset="0%"
-                    stopColor="var(--color-value)"
-                    stopOpacity={0.38}
-                  />
-                  <stop
-                    offset="100%"
-                    stopColor="var(--color-value)"
-                    stopOpacity={0.025}
-                  />
-                </linearGradient>
-              </defs>
-              <CartesianGrid vertical={false} />
-              <XAxis
-                dataKey="week"
-                axisLine={false}
-                tickLine={false}
-                tickMargin={12}
-                interval={0}
-                tick={{ fontSize: 11 }}
-                tickFormatter={(value, index) =>
-                  monthTick(String(value), index, chartHistory)
-                }
-              />
-              <YAxis
-                orientation="right"
-                axisLine={false}
-                tickLine={false}
-                width={44}
-                tick={{ fontSize: 11 }}
-                tickFormatter={(value) => {
-                  const amount = Number(value)
-                  if (historyMetric === "distance") {
-                    if (sport === "swim") return `${Math.round(amount)}yd`
-                    if (amount === 0) return "0mi"
-                    return `${amount.toFixed(amount < 10 ? 1 : 0)}mi`
+                  <span
+                    role="status"
+                    className="absolute top-0 text-sm font-semibold whitespace-nowrap text-foreground tabular-nums [text-shadow:0_1px_2px_var(--background),0_0_7px_var(--background),0_0_12px_var(--background)]"
+                    style={{
+                      transform:
+                        inspectIndex === 0
+                          ? "translateX(4px)"
+                          : inspectIndex === chartHistory.length - 1
+                            ? "translateX(calc(-100% - 4px))"
+                            : "translateX(-50%)",
+                    }}
+                  >
+                    {historyMetric === "time"
+                      ? formatHours(chartHistory[inspectIndex].value)
+                      : formatChartDistance(
+                          chartHistory[inspectIndex].value,
+                          sport
+                        )}
+                  </span>
+                </div>
+              </div>
+            )}
+            <ChartContainer
+              config={historyChartConfig}
+              className="h-[245px] w-full sm:h-[320px]"
+            >
+              <AreaChart
+                data={chartHistory}
+                accessibilityLayer
+                margin={{ top: 16, right: 8, left: 0, bottom: 0 }}
+              >
+                <defs>
+                  <linearGradient
+                    id="trainingHistoryFill"
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop
+                      offset="0%"
+                      stopColor="var(--color-value)"
+                      stopOpacity={0.38}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor="var(--color-value)"
+                      stopOpacity={0.025}
+                    />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid vertical={false} />
+                <XAxis
+                  dataKey="week"
+                  axisLine={false}
+                  tickLine={false}
+                  tickMargin={12}
+                  interval={0}
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(value, index) =>
+                    monthTick(String(value), index, chartHistory)
                   }
-                  if (amount === 0) return "0h"
-                  return amount < 1
-                    ? `${Math.round(amount * 60)}m`
-                    : `${amount.toFixed(amount < 10 ? 1 : 0)}h`
-                }}
-              />
-              <ChartTooltip
-                cursor={{ stroke: "var(--border)" }}
-                content={
-                  <ChartTooltipContent
-                    pointOnly
-                    formatter={(value) => (
-                      <span>
-                        {historyMetric === "time"
-                          ? formatHours(Number(value))
-                          : formatChartDistance(Number(value), sport)}
-                      </span>
-                    )}
-                  />
-                }
-              />
-              <Area
-                dataKey="value"
-                type="linear"
-                stroke="var(--color-value)"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="url(#trainingHistoryFill)"
-                dot={{ r: 3, fill: "var(--card)", strokeWidth: 2 }}
-                activeDot={{
-                  r: 5,
-                  fill: "var(--card)",
-                  strokeWidth: 2,
-                }}
-                isAnimationActive
-                animationBegin={0}
-                animationDuration={450}
-                animationEasing="linear"
-              />
-            </AreaChart>
-          </ChartContainer>
+                />
+                <YAxis
+                  orientation="right"
+                  axisLine={false}
+                  tickLine={false}
+                  width={44}
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(value) => {
+                    const amount = Number(value)
+                    if (historyMetric === "distance") {
+                      if (sport === "swim") return `${Math.round(amount)}yd`
+                      if (amount === 0) return "0mi"
+                      return `${amount.toFixed(amount < 10 ? 1 : 0)}mi`
+                    }
+                    if (amount === 0) return "0h"
+                    return amount < 1
+                      ? `${Math.round(amount * 60)}m`
+                      : `${amount.toFixed(amount < 10 ? 1 : 0)}h`
+                  }}
+                />
+                <Area
+                  dataKey="value"
+                  type="linear"
+                  stroke="var(--color-value)"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="url(#trainingHistoryFill)"
+                  dot={{ r: 3, fill: "var(--card)", strokeWidth: 2 }}
+                  activeDot={{
+                    r: 5,
+                    fill: "var(--card)",
+                    strokeWidth: 2,
+                  }}
+                  isAnimationActive
+                  animationBegin={0}
+                  animationDuration={450}
+                  animationEasing="linear"
+                />
+              </AreaChart>
+            </ChartContainer>
+          </div>
         </section>
       </CardContent>
     </Card>

@@ -152,6 +152,10 @@ export function mapIntervalsWorkout(
       average_hr: value.average_heartrate ?? null,
       max_hr: value.max_heartrate ?? null,
       average_cadence: value.average_cadence ?? null,
+      temperature_c: value.average_temp ?? value.average_temperature ?? value.temperature ?? null,
+      humidity_percent: value.average_humidity ?? value.relative_humidity ?? value.humidity ?? null,
+      latitude: value.start_latlng?.[0] ?? value.start_latitude ?? value.latitude ?? null,
+      longitude: value.start_latlng?.[1] ?? value.start_longitude ?? value.longitude ?? null,
       elapsed_time_seconds: value.elapsed_time ?? (value === actual ? null : durationSeconds),
       elapsed_speed:
         value.elapsed_time > 0 && distanceMeters > 0
@@ -202,7 +206,10 @@ export function mapIntervalsWorkout(
         }
       : {},
     // Calendar dates are local all-day values, not UTC timestamps.
-    scheduled_start_at: null,
+    scheduled_start_at:
+      !isActivity && /T(?!00:00(?::00)?(?:\.000)?(?:Z|$))/.test(String(item.start_date_local || ""))
+        ? item.start_date_local
+        : null,
     structure: item.workout_doc ? JSON.stringify(appWorkoutDoc(item.workout_doc, item.type)) : null,
     source_updated_at: item.updated || null,
     source: "intervals",

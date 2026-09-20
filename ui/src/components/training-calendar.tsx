@@ -191,9 +191,11 @@ function sportAccent(sport: string) {
 function MobileWorkoutRow({
   workout,
   onOpen,
+  showDivider,
 }: {
   workout: PlannedWorkout
   onOpen: () => void
+  showDivider: boolean
 }) {
   const minutes =
     workout.status === "completed" && completedMinutes(workout) > 0
@@ -204,7 +206,7 @@ function MobileWorkoutRow({
     <button
       type="button"
       onClick={onOpen}
-      className="grid min-h-16 w-full grid-cols-[4px_minmax(0,1fr)_auto] items-stretch gap-3 border-b border-border/70 bg-background px-1 py-2 text-left transition-colors active:bg-muted/60 md:hidden"
+      className={`grid min-h-16 w-full grid-cols-[4px_minmax(0,1fr)_auto] items-stretch gap-3 bg-background px-1 py-2 text-left transition-colors active:bg-muted/60 md:hidden ${showDivider ? "border-b border-border/70" : ""}`}
       aria-label={`Open ${workout.title}`}
     >
       <span
@@ -1717,12 +1719,16 @@ export function TrainingCalendar({
                                   rows={context.wellness_history || []}
                                   onOpen={() => setMetricsDate(dateKey(day))}
                                 />
-                                {dayWorkouts.map((workout) =>
+                                {dayWorkouts.map((workout, workoutIndex) =>
                                   isMobile ? (
                                     <MobileWorkoutRow
                                       key={workout.id}
                                       workout={workout}
                                       onOpen={() => openWorkout(workout)}
+                                      showDivider={
+                                        dayWorkouts.length > 1 &&
+                                        workoutIndex < dayWorkouts.length - 1
+                                      }
                                     />
                                   ) : (
                                     <DraggableWorkout

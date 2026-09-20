@@ -13,6 +13,7 @@ export interface WorkoutSummaryValues {
   duration_seconds?: number | null; distance_meters?: number | null; average_speed?: number | null; max_speed?: number | null;
   calories?: number | null; elevation_gain?: number | null; elevation_loss?: number | null; tss?: number | null;
   normalized_power?: number | null; intensity_factor?: number | null; work_kj?: number | null; average_power?: number | null; average_hr?: number | null; max_hr?: number | null;
+  temperature_c?: number | null; humidity_percent?: number | null; latitude?: number | null; longitude?: number | null;
 }
 
 export interface PlannedWorkout {

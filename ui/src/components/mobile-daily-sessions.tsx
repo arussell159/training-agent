@@ -5,7 +5,9 @@ import {
   Check,
   Dumbbell,
   Footprints,
+  Sun,
   Waves,
+  Zap,
 } from "lucide-react"
 
 import { Card } from "@/components/ui/card"
@@ -88,41 +90,150 @@ function sessionDuration(workout: PlannedWorkout) {
   return minutes > 0 ? formatDuration(minutes) : "—"
 }
 
-function clock(seconds: number) {
-  const rounded = Math.max(0, Math.round(seconds))
-  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}`
-}
-
-function sessionSpeed(workout: PlannedWorkout) {
+function sessionSummary(workout: PlannedWorkout) {
   const completed = workout.status === "completed"
-  const values = completed
+  return completed
     ? workout.workout_summary?.completed
     : workout.workout_summary?.planned
-  const speed = values?.average_speed
-  const kind = sportKind(workout.sport)
-  if (speed == null || speed <= 0)
-    return {
-      label: kind === "run" || kind === "swim" ? "Avg pace" : "Avg speed",
-      value: "—",
-    }
-  if (kind === "run")
-    return { label: "Avg pace", value: `${clock(1609.344 / speed)}/mi` }
-  if (kind === "swim")
-    return { label: "Avg pace", value: `${clock(91.44 / speed)}/100y` }
-  return { label: "Avg speed", value: `${(speed * 2.236936).toFixed(1)} mph` }
+}
+
+function sessionTime(workout: PlannedWorkout) {
+  const source =
+    workout.status === "completed"
+      ? workout.recorded_start_local
+      : workout.scheduled_start_at
+  const match = source?.match(/T(\d{2}):(\d{2})/)
+  if (!match) return "—"
+  const hour = Number(match[1])
+  return `${hour % 12 || 12}:${match[2]} ${hour >= 12 ? "PM" : "AM"}`
+}
+
+function sessionTss(workout: PlannedWorkout) {
+  const value =
+    sessionSummary(workout)?.tss ??
+    (workout.status === "completed"
+      ? workout.completed_data?.tss
+      : workout.planned?.tss) ??
+    workout.load
+  return value != null && Number.isFinite(value) ? Math.round(value) : null
+}
+
+function stressLabel(tss: number | null) {
+  if (tss == null) return "Stress unavailable"
+  if (tss < 50) return "Low stress"
+  if (tss < 100) return "Moderate stress"
+  if (tss < 150) return "High stress"
+  return "Extreme stress"
+}
+
+type Coordinates = { latitude: number; longitude: number }
+type Weather = { temperatureF: number | null; humidity: number | null }
+
+function useSessionWeather(
+  workout: PlannedWorkout,
+  fallbackLocation: Coordinates | null
+) {
+  const summary = sessionSummary(workout)
+  const directTemperature =
+    summary?.temperature_c != null ? summary.temperature_c * (9 / 5) + 32 : null
+  const directHumidity = summary?.humidity_percent ?? null
+  const fallbackLatitude = fallbackLocation?.latitude
+  const fallbackLongitude = fallbackLocation?.longitude
+  const [weather, setWeather] = useState<Weather>({
+    temperatureF: directTemperature,
+    humidity: directHumidity,
+  })
+
+  useEffect(() => {
+    setWeather({ temperatureF: directTemperature, humidity: directHumidity })
+    if (directTemperature != null && directHumidity != null) return
+    const latitude = summary?.latitude ?? fallbackLatitude
+    const longitude = summary?.longitude ?? fallbackLongitude
+    if (latitude == null || longitude == null || !workout.workout_date) return
+    const controller = new AbortController()
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - 5)
+    const historical = workout.workout_date < cutoff.toISOString().slice(0, 10)
+    const base = historical
+      ? "https://archive-api.open-meteo.com/v1/archive"
+      : "https://api.open-meteo.com/v1/forecast"
+    const query = new URLSearchParams({
+      latitude: String(latitude),
+      longitude: String(longitude),
+      start_date: workout.workout_date,
+      end_date: workout.workout_date,
+      hourly: "temperature_2m,relative_humidity_2m",
+      temperature_unit: "fahrenheit",
+      timezone: "auto",
+    })
+    void fetch(`${base}?${query}`, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error("Weather unavailable")
+        return response.json()
+      })
+      .then((result) => {
+        const times = result.hourly?.time as string[] | undefined
+        if (!times?.length) return
+        const start =
+          workout.recorded_start_local ||
+          workout.scheduled_start_at ||
+          `${workout.workout_date}T12:00`
+        const target = Date.parse(start)
+        const index = times.reduce(
+          (best, time, current) =>
+            Math.abs(Date.parse(time) - target) <
+            Math.abs(Date.parse(times[best]) - target)
+              ? current
+              : best,
+          0
+        )
+        setWeather({
+          temperatureF:
+            directTemperature ?? result.hourly.temperature_2m?.[index] ?? null,
+          humidity:
+            directHumidity ??
+            result.hourly.relative_humidity_2m?.[index] ??
+            null,
+        })
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [
+    directHumidity,
+    directTemperature,
+    fallbackLatitude,
+    fallbackLongitude,
+    summary?.latitude,
+    summary?.longitude,
+    workout.recorded_start_local,
+    workout.scheduled_start_at,
+    workout.workout_date,
+  ])
+  return weather
 }
 
 function SessionSlide({
   workout,
   onOpen,
+  fallbackLocation,
 }: {
   workout: PlannedWorkout
   onOpen: () => void
+  fallbackLocation: Coordinates | null
 }) {
   const completed = workout.status === "completed"
   const distance = plannedDistanceLabel(workout)
   const kind = sportKind(workout.sport)
-  const speed = sessionSpeed(workout)
+  const weather = useSessionWeather(workout, fallbackLocation)
+  const tss = sessionTss(workout)
+  const weatherLabel = [
+    weather.temperatureF != null
+      ? `${Math.round(weather.temperatureF)}°F`
+      : null,
+    weather.humidity != null ? `${Math.round(weather.humidity)}%` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ")
   return (
     <button
       type="button"
@@ -138,9 +249,20 @@ function SessionSlide({
           {kind === "other" ? workout.sport : kind}
         </span>
       </div>
-      <div className="flex flex-col items-center px-4 pt-3 text-center">
+      <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center px-3 text-center">
+        <span className="flex min-w-0 flex-col items-center">
+          <span className="flex size-11 items-center justify-center rounded-full border-4 border-muted text-muted-foreground">
+            <Sun className="size-5" aria-hidden="true" />
+          </span>
+          <strong className="mt-2 text-sm tabular-nums">
+            {sessionTime(workout)}
+          </strong>
+          <span className="mt-0.5 min-h-4 text-[11px] text-muted-foreground">
+            {weatherLabel || "Weather unavailable"}
+          </span>
+        </span>
         <span
-          className={`flex size-16 items-center justify-center rounded-full border-[5px] ${completed ? "border-emerald-500/80 text-emerald-500" : "border-primary/45 text-primary"}`}
+          className={`flex size-20 items-center justify-center rounded-full border-[6px] ${completed ? "border-emerald-500/80 text-emerald-500" : "border-primary/45 text-primary"}`}
         >
           {completed ? (
             <Check className="size-8" strokeWidth={2.5} aria-hidden="true" />
@@ -148,14 +270,27 @@ function SessionSlide({
             <SportGlyph sport={workout.sport} />
           )}
         </span>
-        <h2 className="mt-2 line-clamp-2 text-lg leading-tight font-semibold">
+        <span className="flex min-w-0 flex-col items-center">
+          <span className="flex size-11 items-center justify-center rounded-full border-4 border-primary/45 text-primary">
+            <Zap className="size-5" aria-hidden="true" />
+          </span>
+          <strong className="mt-2 text-sm tabular-nums">
+            {tss == null ? "—" : `${tss} TSS`}
+          </strong>
+          <span className="mt-0.5 text-[11px] text-muted-foreground">
+            {stressLabel(tss)}
+          </span>
+        </span>
+      </div>
+      <div className="px-4 text-center">
+        <h2 className="mt-4 line-clamp-2 text-lg leading-tight font-semibold">
           {workout.title}
         </h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
           {completed ? "Completed" : "Planned"}
         </p>
       </div>
-      <div className="mt-3 grid grid-cols-3 divide-x divide-border px-2 text-center">
+      <div className="mt-5 grid grid-cols-2 divide-x divide-border px-7 pb-2 text-center">
         <div className="px-1">
           <p className="text-base font-semibold tabular-nums">
             {sessionDuration(workout)}
@@ -165,10 +300,6 @@ function SessionSlide({
         <div className="px-1">
           <p className="text-base font-semibold tabular-nums">{distance}</p>
           <p className="text-[11px] text-muted-foreground">Distance</p>
-        </div>
-        <div className="px-1">
-          <p className="text-base font-semibold tabular-nums">{speed.value}</p>
-          <p className="text-[11px] text-muted-foreground">{speed.label}</p>
         </div>
       </div>
     </button>
@@ -198,6 +329,20 @@ export function MobileDailySessions({
   const selectedSessions = sessions.filter(
     (workout) => workout.workout_date === selectedDate
   )
+  const fallbackLocation = (() => {
+    for (const workout of sessions) {
+      const values = workout.workout_summary?.completed
+      if (values?.latitude != null && values.longitude != null)
+        return { latitude: values.latitude, longitude: values.longitude }
+    }
+    const athlete = context.athlete as TrainingContext["athlete"] & {
+      latitude?: number
+      longitude?: number
+    }
+    return athlete.latitude != null && athlete.longitude != null
+      ? { latitude: athlete.latitude, longitude: athlete.longitude }
+      : null
+  })()
 
   useEffect(() => {
     setActiveSession(0)
@@ -212,7 +357,7 @@ export function MobileDailySessions({
 
   return (
     <div className="col-span-2 min-w-0 md:hidden">
-      <Card className="relative gap-0 py-3">
+      <Card className="relative gap-0 py-5 shadow-lg ring-2 ring-foreground/15">
         {selectedSessions.length > 1 && (
           <div
             className="absolute top-5 right-3 z-10 flex items-center gap-1.5"
@@ -254,6 +399,7 @@ export function MobileDailySessions({
                 key={workout.id}
                 workout={workout}
                 onOpen={() => onWorkoutOpen?.(workout)}
+                fallbackLocation={fallbackLocation}
               />
             ))}
           </div>
@@ -274,7 +420,7 @@ export function MobileDailySessions({
 
       <div
         ref={dateScroller}
-        className="mt-2 flex snap-x snap-mandatory [scrollbar-width:none] gap-1.5 overflow-x-auto overscroll-x-contain p-0.5 pb-1 [&::-webkit-scrollbar]:hidden"
+        className="mt-3 flex snap-x snap-mandatory [scrollbar-width:none] gap-1.5 overflow-x-auto overscroll-x-contain rounded-xl bg-muted/35 p-2 ring-1 ring-foreground/5 [&::-webkit-scrollbar]:hidden"
         aria-label="Choose training day"
       >
         {days.map((day) => {
@@ -283,13 +429,14 @@ export function MobileDailySessions({
             (workout) => workout.workout_date === day
           )
           const selected = day === selectedDate
+          const isToday = day === today
           return (
             <button
               key={day}
               type="button"
               data-session-date={day}
               onClick={() => setSelectedDate(day)}
-              className={`flex min-w-[62px] snap-center flex-col items-center rounded-xl px-2 py-2 ring-1 transition-colors ${selected ? "bg-card text-foreground ring-primary/35" : "bg-card/55 text-muted-foreground ring-foreground/5"}`}
+              className={`flex min-w-[62px] snap-center flex-col items-center rounded-xl px-2 py-2 ring-1 transition-colors ${isToday ? "bg-primary/5 text-foreground ring-2 ring-primary" : selected ? "bg-card text-foreground ring-primary/50" : "bg-card/70 text-muted-foreground ring-foreground/10"}`}
               aria-pressed={selected}
             >
               <span className="text-lg font-semibold tabular-nums">
