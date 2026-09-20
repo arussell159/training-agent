@@ -105,47 +105,47 @@ function SessionSlide({
       className="relative w-full shrink-0 snap-center text-left"
       aria-label={`Open ${workout.title}`}
     >
-      <div className="flex items-center justify-center px-14 pt-1">
-        <span className="absolute left-4 flex size-11 items-center justify-center rounded-full border-2 border-current text-primary [&>svg]:size-5">
+      <div className="flex items-center justify-center px-12">
+        <span className="absolute left-3 flex size-9 items-center justify-center rounded-full border-2 border-current text-primary [&>svg]:size-4">
           <SportGlyph sport={workout.sport} />
         </span>
-        <span className="text-lg font-semibold tracking-wide uppercase">
+        <span className="text-base font-semibold tracking-wide uppercase">
           {kind === "other" ? workout.sport : kind}
         </span>
       </div>
-      <div className="flex flex-col items-center px-5 pt-6 text-center">
+      <div className="flex flex-col items-center px-4 pt-3 text-center">
         <span
-          className={`flex size-24 items-center justify-center rounded-full border-[7px] ${completed ? "border-emerald-500/80 text-emerald-500" : "border-primary/45 text-primary"}`}
+          className={`flex size-16 items-center justify-center rounded-full border-[5px] ${completed ? "border-emerald-500/80 text-emerald-500" : "border-primary/45 text-primary"}`}
         >
           {completed ? (
-            <Check className="size-11" strokeWidth={2.5} aria-hidden="true" />
+            <Check className="size-8" strokeWidth={2.5} aria-hidden="true" />
           ) : (
             <SportGlyph sport={workout.sport} />
           )}
         </span>
-        <h2 className="mt-4 line-clamp-2 text-xl leading-tight font-semibold">
+        <h2 className="mt-2 line-clamp-2 text-lg leading-tight font-semibold">
           {workout.title}
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           {completed ? "Completed" : "Planned"}
         </p>
       </div>
-      <div className="mt-6 grid grid-cols-3 divide-x divide-border px-3 pb-2 text-center">
+      <div className="mt-3 grid grid-cols-3 divide-x divide-border px-2 text-center">
         <div className="px-1">
-          <p className="text-lg font-semibold tabular-nums">
+          <p className="text-base font-semibold tabular-nums">
             {sessionDuration(workout)}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">Duration</p>
+          <p className="text-[11px] text-muted-foreground">Duration</p>
         </div>
         <div className="px-1">
-          <p className="text-lg font-semibold tabular-nums">{distance}</p>
-          <p className="mt-1 text-xs text-muted-foreground">Distance</p>
+          <p className="text-base font-semibold tabular-nums">{distance}</p>
+          <p className="text-[11px] text-muted-foreground">Distance</p>
         </div>
         <div className="px-1">
-          <p className="text-lg font-semibold tabular-nums">
+          <p className="text-base font-semibold tabular-nums">
             {workout.load != null ? Math.round(workout.load) : "—"}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">TSS</p>
+          <p className="text-[11px] text-muted-foreground">TSS</p>
         </div>
       </div>
     </button>
@@ -189,10 +189,10 @@ export function MobileDailySessions({
 
   return (
     <div className="col-span-2 min-w-0 md:hidden">
-      <Card className="relative gap-0 py-4">
+      <Card className="relative gap-0 py-3">
         {selectedSessions.length > 1 && (
           <div
-            className="absolute top-6 right-4 z-10 flex items-center gap-2"
+            className="absolute top-5 right-3 z-10 flex items-center gap-1.5"
             aria-label={`${activeSession + 1} of ${selectedSessions.length} sessions`}
           >
             <span className="text-xs font-semibold tabular-nums">
@@ -235,11 +235,11 @@ export function MobileDailySessions({
             ))}
           </div>
         ) : (
-          <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center">
-            <span className="flex size-20 items-center justify-center rounded-full border-4 border-muted text-muted-foreground">
-              <CalendarClock className="size-8" aria-hidden="true" />
+          <div className="flex min-h-48 flex-col items-center justify-center px-5 text-center">
+            <span className="flex size-14 items-center justify-center rounded-full border-4 border-muted text-muted-foreground">
+              <CalendarClock className="size-6" aria-hidden="true" />
             </span>
-            <h2 className="mt-4 text-xl font-semibold">
+            <h2 className="mt-3 text-lg font-semibold">
               No sessions scheduled
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -251,7 +251,7 @@ export function MobileDailySessions({
 
       <div
         ref={dateScroller}
-        className="mt-3 flex snap-x snap-mandatory [scrollbar-width:none] gap-2 overflow-x-auto overscroll-x-contain pb-1 [&::-webkit-scrollbar]:hidden"
+        className="mt-2 flex snap-x snap-mandatory [scrollbar-width:none] gap-1.5 overflow-x-auto overscroll-x-contain pb-1 [&::-webkit-scrollbar]:hidden"
         aria-label="Choose training day"
       >
         {days.map((day) => {
@@ -266,20 +266,20 @@ export function MobileDailySessions({
               type="button"
               data-session-date={day}
               onClick={() => setSelectedDate(day)}
-              className={`flex min-w-[72px] snap-center flex-col items-center rounded-xl px-3 py-3 ring-1 transition-colors ${selected ? "bg-card text-foreground ring-primary/35" : "bg-card/55 text-muted-foreground ring-foreground/5"}`}
+              className={`flex min-w-[62px] snap-center flex-col items-center rounded-xl px-2 py-2 ring-1 transition-colors ${selected ? "bg-card text-foreground ring-primary/35" : "bg-card/55 text-muted-foreground ring-foreground/5"}`}
               aria-pressed={selected}
             >
-              <span className="text-xl font-semibold tabular-nums">
+              <span className="text-lg font-semibold tabular-nums">
                 {date.getDate()}
               </span>
-              <span className="mt-0.5 text-sm">
+              <span className="text-xs">
                 {date.toLocaleDateString("en-US", { weekday: "short" })}
               </span>
-              <span className="mt-3 flex min-h-1.5 items-center justify-center gap-1">
+              <span className="mt-2 flex min-h-1 items-center justify-center gap-1">
                 {daySessions.map((workout) => (
                   <span
                     key={workout.id}
-                    className={`h-1.5 w-5 rounded-full ${sportColor[sportKind(workout.sport)]}`}
+                    className={`h-1 w-4 rounded-full ${sportColor[sportKind(workout.sport)]}`}
                     aria-hidden="true"
                   />
                 ))}
