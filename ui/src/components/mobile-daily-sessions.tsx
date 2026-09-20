@@ -141,7 +141,6 @@ function stressLabel(tss: number | null) {
   return "Extreme stress"
 }
 
-type Coordinates = { latitude: number; longitude: number }
 type Weather = { temperatureF: number | null; humidity: number | null }
 
 function temperatureBadgeStyle(temperatureF: number | null) {
@@ -155,118 +154,27 @@ function temperatureBadgeStyle(temperatureF: number | null) {
   }
 }
 
-function useBrowserLocation(enabled: boolean) {
-  const [location, setLocation] = useState<Coordinates | null>(null)
-  useEffect(() => {
-    if (!enabled || !navigator.geolocation) return
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) =>
-        setLocation({
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-        }),
-      () => {},
-      { enableHighAccuracy: false, maximumAge: 60 * 60 * 1000, timeout: 5000 }
-    )
-  }, [enabled])
-  return location
-}
-
-function useSessionWeather(
-  workout: PlannedWorkout,
-  fallbackLocation: Coordinates | null
-) {
+function sessionWeather(workout: PlannedWorkout): Weather {
   const summary = sessionSummary(workout)
-  const directTemperature =
-    summary?.temperature_c != null ? summary.temperature_c * (9 / 5) + 32 : null
-  const directHumidity = summary?.humidity_percent ?? null
-  const fallbackLatitude = fallbackLocation?.latitude
-  const fallbackLongitude = fallbackLocation?.longitude
-  const [weather, setWeather] = useState<Weather>({
-    temperatureF: directTemperature,
-    humidity: directHumidity,
-  })
-
-  useEffect(() => {
-    setWeather({ temperatureF: directTemperature, humidity: directHumidity })
-    if (directTemperature != null && directHumidity != null) return
-    const latitude = summary?.latitude ?? fallbackLatitude
-    const longitude = summary?.longitude ?? fallbackLongitude
-    if (latitude == null || longitude == null || !workout.workout_date) return
-    const controller = new AbortController()
-    const cutoff = new Date()
-    cutoff.setDate(cutoff.getDate() - 5)
-    const historical = workout.workout_date < cutoff.toISOString().slice(0, 10)
-    const base = historical
-      ? "https://archive-api.open-meteo.com/v1/archive"
-      : "https://api.open-meteo.com/v1/forecast"
-    const query = new URLSearchParams({
-      latitude: String(latitude),
-      longitude: String(longitude),
-      start_date: workout.workout_date,
-      end_date: workout.workout_date,
-      hourly: "temperature_2m,relative_humidity_2m",
-      temperature_unit: "fahrenheit",
-      timezone: "auto",
-    })
-    void fetch(`${base}?${query}`, { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error("Weather unavailable")
-        return response.json()
-      })
-      .then((result) => {
-        const times = result.hourly?.time as string[] | undefined
-        if (!times?.length) return
-        const start =
-          workout.recorded_start_local ||
-          workout.scheduled_start_at ||
-          `${workout.workout_date}T12:00`
-        const target = Date.parse(start)
-        const index = times.reduce(
-          (best, time, current) =>
-            Math.abs(Date.parse(time) - target) <
-            Math.abs(Date.parse(times[best]) - target)
-              ? current
-              : best,
-          0
-        )
-        setWeather({
-          temperatureF:
-            directTemperature ?? result.hourly.temperature_2m?.[index] ?? null,
-          humidity:
-            directHumidity ??
-            result.hourly.relative_humidity_2m?.[index] ??
-            null,
-        })
-      })
-      .catch(() => {})
-    return () => controller.abort()
-  }, [
-    directHumidity,
-    directTemperature,
-    fallbackLatitude,
-    fallbackLongitude,
-    summary?.latitude,
-    summary?.longitude,
-    workout.recorded_start_local,
-    workout.scheduled_start_at,
-    workout.workout_date,
-  ])
-  return weather
+  return {
+    temperatureF:
+      summary?.temperature_c != null
+        ? summary.temperature_c * (9 / 5) + 32
+        : null,
+    humidity: summary?.humidity_percent ?? null,
+  }
 }
 
 function SessionSlide({
   workout,
   onOpen,
-  fallbackLocation,
 }: {
   workout: PlannedWorkout
   onOpen: () => void
-  fallbackLocation: Coordinates | null
 }) {
   const completed = workout.status === "completed"
   const distance = plannedDistanceLabel(workout)
-  const weather = useSessionWeather(workout, fallbackLocation)
+  const weather = sessionWeather(workout)
   const tss = sessionTss(workout)
   const speed = sessionSpeed(workout)
   const weatherLabel = [
@@ -286,18 +194,24 @@ function SessionSlide({
     >
       <div className="grid grid-cols-[1fr_auto_1fr] items-center px-3 text-center">
         <span className="flex min-w-0 flex-col items-center">
-          <span
-            className="flex size-11 items-center justify-center rounded-full border-4 border-muted text-muted-foreground transition-colors"
-            style={temperatureBadgeStyle(weather.temperatureF)}
+          {weatherLabel && (
+            <span
+              className="flex size-11 items-center justify-center rounded-full border-4 border-muted text-muted-foreground transition-colors"
+              style={temperatureBadgeStyle(weather.temperatureF)}
+            >
+              <Sun className="size-5" aria-hidden="true" />
+            </span>
+          )}
+          <strong
+            className={`${weatherLabel ? "mt-2" : ""} text-sm tabular-nums`}
           >
-            <Sun className="size-5" aria-hidden="true" />
-          </span>
-          <strong className="mt-2 text-sm tabular-nums">
             {sessionTime(workout)}
           </strong>
-          <span className="mt-0.5 min-h-4 text-[11px] text-muted-foreground">
-            {weatherLabel || "Weather unavailable"}
-          </span>
+          {weatherLabel && (
+            <span className="mt-0.5 min-h-4 text-[11px] text-muted-foreground">
+              {weatherLabel}
+            </span>
+          )}
         </span>
         <span
           className={`flex size-20 items-center justify-center rounded-full border-[6px] ${completed ? "border-emerald-500/80 text-emerald-500" : "border-primary/45 text-primary"}`}
@@ -363,23 +277,6 @@ export function MobileDailySessions({
   const selectedSessions = sessions.filter(
     (workout) => workout.workout_date === selectedDate
   )
-  const savedLocation = (() => {
-    for (const workout of sessions) {
-      const values = workout.workout_summary?.completed
-      if (values?.latitude != null && values.longitude != null)
-        return { latitude: values.latitude, longitude: values.longitude }
-    }
-    const athlete = context.athlete as TrainingContext["athlete"] & {
-      latitude?: number
-      longitude?: number
-    }
-    return athlete.latitude != null && athlete.longitude != null
-      ? { latitude: athlete.latitude, longitude: athlete.longitude }
-      : null
-  })()
-  const browserLocation = useBrowserLocation(savedLocation == null)
-  const fallbackLocation = savedLocation ?? browserLocation
-
   useEffect(() => {
     setActiveSession(0)
     sessionScroller.current?.scrollTo({ left: 0, behavior: "smooth" })
@@ -454,7 +351,6 @@ export function MobileDailySessions({
                 key={workout.id}
                 workout={workout}
                 onOpen={() => onWorkoutOpen?.(workout)}
-                fallbackLocation={fallbackLocation}
               />
             ))}
           </div>

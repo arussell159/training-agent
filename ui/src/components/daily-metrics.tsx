@@ -160,15 +160,15 @@ export function DailyMetricsCard({
       {displayMetrics.map(({ label, value, icon: Icon }, index) => (
         <span
           key={label}
-          className={`grid min-h-14 grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-3 px-1 py-2 md:px-2.5 ${index < displayMetrics.length - 1 ? "border-b border-border/70" : ""}`}
+          className={`grid min-h-11 grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2 px-1 py-1.5 md:px-2.5 ${index < displayMetrics.length - 1 ? "border-b border-border/70" : ""}`}
         >
-          <span className="flex size-8 items-center justify-center rounded-full bg-blue-500 text-white shadow-sm">
-            <Icon className="size-4" strokeWidth={2.25} aria-hidden="true" />
+          <span className="flex size-6 items-center justify-center rounded-full bg-blue-500 text-white">
+            <Icon className="size-3.5" strokeWidth={2.25} aria-hidden="true" />
           </span>
-          <span className="min-w-0 text-[16px] leading-5 font-semibold text-foreground">
+          <span className="min-w-0 text-[14px] leading-5 font-medium text-foreground">
             {label}
           </span>
-          <span className="pl-2 text-[16px] leading-5 font-medium text-foreground tabular-nums">
+          <span className="pl-2 text-[14px] leading-5 text-foreground tabular-nums">
             {value}
           </span>
         </span>
