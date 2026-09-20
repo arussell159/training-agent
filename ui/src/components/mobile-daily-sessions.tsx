@@ -254,10 +254,10 @@ function SessionSlide({
     <button
       type="button"
       onClick={onOpen}
-      className="relative w-full shrink-0 snap-center text-left"
+      className="relative w-full shrink-0 snap-center px-1 py-8 text-left"
       aria-label={`Open ${workout.title}`}
     >
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center px-3 pt-3 text-center">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center px-3 text-center">
         <span className="flex min-w-0 flex-col items-center">
           <span className="flex size-11 items-center justify-center rounded-full border-4 border-muted text-muted-foreground">
             <Sun className="size-5" aria-hidden="true" />
@@ -290,15 +290,7 @@ function SessionSlide({
           </span>
         </span>
       </div>
-      <div className="px-4 pt-5 text-center">
-        <h2 className="line-clamp-2 text-lg leading-tight font-semibold">
-          {workout.title}
-        </h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {completed ? "Completed" : "Planned"}
-        </p>
-      </div>
-      <div className="mt-6 grid grid-cols-3 divide-x divide-border px-5 pb-3 text-center">
+      <div className="mt-8 grid grid-cols-3 divide-x divide-border px-5 text-center">
         <div className="px-1">
           <p className="text-base font-semibold tabular-nums">
             {sessionDuration(workout)}
@@ -356,22 +348,41 @@ export function MobileDailySessions({
 
   return (
     <div className="col-span-2 min-w-0 md:hidden">
-      <Card className="relative gap-0 py-8 shadow-md ring-1 ring-foreground/10">
-        {selectedSessions.length > 1 && (
-          <div
-            className="absolute top-5 right-3 z-10 flex items-center gap-1.5"
-            aria-label={`${activeSession + 1} of ${selectedSessions.length} sessions`}
-          >
-            <span className="text-xs font-semibold tabular-nums">
-              {activeSession + 1}/{selectedSessions.length}
+      <Card className="relative gap-0 overflow-hidden py-0 shadow-md ring-1 ring-foreground/10">
+        {selectedSessions.length > 0 && (
+          <div className="grid min-h-16 grid-cols-[1fr_auto_1fr] items-center border-b border-border/70 px-4 py-3">
+            <span className="flex size-10 items-center justify-center rounded-full border-2 border-primary text-primary [&>svg]:size-4">
+              <SportGlyph
+                sport={selectedSessions[activeSession]?.sport || "workout"}
+              />
             </span>
-            <span className="flex gap-1">
-              {selectedSessions.map((workout, index) => (
-                <span
-                  key={workout.id}
-                  className={`h-1.5 rounded-full transition-all ${index === activeSession ? "w-5 bg-primary" : "w-1.5 bg-muted-foreground/35"}`}
-                />
-              ))}
+            <span className="text-base font-semibold tracking-wide uppercase">
+              {(() => {
+                const workout = selectedSessions[activeSession]
+                if (!workout) return "Workout"
+                const kind = sportKind(workout.sport)
+                return kind === "other" ? workout.sport : kind
+              })()}
+            </span>
+            <span
+              className="flex items-center justify-end gap-1.5"
+              aria-label={`${activeSession + 1} of ${selectedSessions.length} sessions`}
+            >
+              {selectedSessions.length > 1 && (
+                <>
+                  <span className="text-xs font-semibold tabular-nums">
+                    {activeSession + 1}/{selectedSessions.length}
+                  </span>
+                  <span className="flex gap-1">
+                    {selectedSessions.map((workout, index) => (
+                      <span
+                        key={workout.id}
+                        className={`h-1.5 rounded-full transition-all ${index === activeSession ? "w-5 bg-primary" : "w-1.5 bg-muted-foreground/35"}`}
+                      />
+                    ))}
+                  </span>
+                </>
+              )}
             </span>
           </div>
         )}
