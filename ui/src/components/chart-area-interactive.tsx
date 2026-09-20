@@ -1,6 +1,6 @@
 import { useMemo, useState, type ComponentType } from "react"
 import { Activity, Bike, Footprints, Waves } from "lucide-react"
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import { Button as F7Button, Card, CardContent } from "framework7-react"
 
 import {
@@ -349,12 +349,32 @@ export function ChartAreaInteractive({
             config={historyChartConfig}
             className="h-[245px] w-full sm:h-[320px]"
           >
-            <LineChart
+            <AreaChart
               data={chartHistory}
               accessibilityLayer
               margin={{ top: 16, right: 8, left: 0, bottom: 0 }}
             >
-              <CartesianGrid vertical={false} strokeDasharray="3 3" />
+              <defs>
+                <linearGradient
+                  id="trainingHistoryFill"
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="1"
+                >
+                  <stop
+                    offset="0%"
+                    stopColor="var(--color-value)"
+                    stopOpacity={0.38}
+                  />
+                  <stop
+                    offset="100%"
+                    stopColor="var(--color-value)"
+                    stopOpacity={0.025}
+                  />
+                </linearGradient>
+              </defs>
+              <CartesianGrid vertical={false} />
               <XAxis
                 dataKey="week"
                 axisLine={false}
@@ -386,7 +406,7 @@ export function ChartAreaInteractive({
                 }}
               />
               <ChartTooltip
-                cursor={false}
+                cursor={{ stroke: "var(--border)" }}
                 content={
                   <ChartTooltipContent
                     indicator="dot"
@@ -414,25 +434,26 @@ export function ChartAreaInteractive({
                   />
                 }
               />
-              <Line
+              <Area
                 dataKey="value"
-                type="monotone"
+                type="linear"
                 stroke="var(--color-value)"
-                strokeWidth={1.5}
+                strokeWidth={2}
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                dot={{ r: 1.5, fill: "var(--color-value)", strokeWidth: 0 }}
+                fill="url(#trainingHistoryFill)"
+                dot={{ r: 3, fill: "var(--card)", strokeWidth: 2 }}
                 activeDot={{
-                  r: 3.5,
-                  fill: "var(--color-value)",
-                  strokeWidth: 0,
+                  r: 5,
+                  fill: "var(--card)",
+                  strokeWidth: 2,
                 }}
                 isAnimationActive
                 animationBegin={0}
                 animationDuration={450}
                 animationEasing="linear"
               />
-            </LineChart>
+            </AreaChart>
           </ChartContainer>
         </section>
       </CardContent>

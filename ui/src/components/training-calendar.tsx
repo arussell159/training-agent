@@ -54,6 +54,8 @@ import {
   PanelRightOpen,
   Waves,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react"
 import { f7ready } from "framework7-react"
 import type { Calendar as Framework7Calendar } from "framework7/types"
@@ -552,7 +554,8 @@ export function TrainingCalendar({
   const [metricsDate, setMetricsDate] = useState<string | null>(null)
   const [activeWeekKey, setActiveWeekKey] = useState(""),
     [datePickerOpen, setDatePickerOpen] = useState(false),
-    [visibleMonth, setVisibleMonth] = useState("")
+    [visibleMonth, setVisibleMonth] = useState(""),
+    [pickerMonthLabel, setPickerMonthLabel] = useState("")
   const [dragging, setDragging] = useState<PlannedWorkout | null>(null)
   const [moving, setMoving] = useState(false)
   const [moveNotice, setMoveNotice] = useState("")
@@ -853,6 +856,7 @@ export function TrainingCalendar({
   const mobilePickerContainerRef = useRef<HTMLDivElement>(null)
   const mobilePickerPanelRef = useRef<HTMLDivElement>(null)
   const mobilePickerTriggerRef = useRef<HTMLButtonElement>(null)
+  const mobilePickerRef = useRef<Framework7Calendar.Calendar | null>(null)
   const calendarUserScrolled = useRef(false)
   const initialAlignmentDone = useRef(false)
   const viewportAnchor = useRef<{
@@ -1357,19 +1361,17 @@ export function TrainingCalendar({
     const selected = activeWeek?.start ?? new Date()
     f7ready((app) => {
       if (destroyed || !mobilePickerContainerRef.current) return
-      const updateToolbar = (calendar: {
+      const updatePickerMonth = (calendar: {
         currentMonth: number
         currentYear: number
       }) => {
-        const label = mobilePickerContainerRef.current?.querySelector<HTMLElement>(
-          ".calendar-jump-toolbar-title"
-        )
-        if (label)
-          label.textContent = new Date(
+        setPickerMonthLabel(
+          new Date(
             calendar.currentYear,
             calendar.currentMonth,
             1
           ).toLocaleDateString("en-US", { month: "long", year: "numeric" })
+        )
       }
       picker = app.calendar.create({
         containerEl: mobilePickerContainerRef.current,
@@ -1378,30 +1380,24 @@ export function TrainingCalendar({
         maxDate: weeks[weeks.length - 1]?.days[6] ?? null,
         firstDay: 1,
         locale: "en-US",
-        toolbar: true,
+        toolbar: false,
         monthSelector: false,
         yearSelector: false,
         touchMove: true,
         animate: true,
         cssClass: "calendar-jump-inline",
-        renderToolbar: () => `
-          <div class="toolbar toolbar-top calendar-jump-toolbar">
-            <div class="toolbar-inner">
-              <button type="button" class="link icon-only calendar-prev-month-button" aria-label="Previous month"><span aria-hidden="true">‹</span></button>
-              <strong class="calendar-jump-toolbar-title"></strong>
-              <button type="button" class="link icon-only calendar-next-month-button" aria-label="Next month"><span aria-hidden="true">›</span></button>
-            </div>
-          </div>`,
         on: {
-          init: updateToolbar,
-          monthYearChangeStart: updateToolbar,
+          init: updatePickerMonth,
+          monthYearChangeStart: updatePickerMonth,
           dayClick: (_calendar, _dayEl, year, month, day) =>
             jumpToDate(new Date(year, month, day)),
         },
       })
+      mobilePickerRef.current = picker
     })
     return () => {
       destroyed = true
+      mobilePickerRef.current = null
       picker?.destroy()
     }
   }, [activeWeek?.start, datePickerOpen, isMobile, jumpToDate, weeks])
@@ -1412,7 +1408,8 @@ export function TrainingCalendar({
       const target = event.target as Node
       if (
         mobilePickerPanelRef.current?.contains(target) ||
-        mobilePickerTriggerRef.current?.contains(target)
+        mobilePickerTriggerRef.current?.contains(target) ||
+        (target instanceof Element && target.closest(".mobile-site-navbar"))
       )
         return
       setDatePickerOpen(false)
@@ -1420,6 +1417,9 @@ export function TrainingCalendar({
     document.addEventListener("pointerdown", dismiss)
     return () => document.removeEventListener("pointerdown", dismiss)
   }, [datePickerOpen, isMobile])
+
+  const displayedMonth =
+    datePickerOpen && pickerMonthLabel ? pickerMonthLabel : activeMonth
 
   const openWorkout = (workout: PlannedWorkout) => {
     if (isMobile && onWorkoutOpen) {
@@ -1447,7 +1447,7 @@ export function TrainingCalendar({
       >
         <MobileSiteNavbar
           fixed
-          titleLabel={activeMonth}
+          titleLabel={displayedMonth}
           title={
             <button
               ref={mobilePickerTriggerRef}
@@ -1458,10 +1458,35 @@ export function TrainingCalendar({
               onClick={() => setDatePickerOpen((open) => !open)}
               className="calendar-month-title-button"
             >
-              <span>{activeMonth}</span>
+              <span>{displayedMonth}</span>
               <ChevronDown aria-hidden="true" />
             </button>
           }
+          left={
+            datePickerOpen ? (
+              <button
+                type="button"
+                className="mobile-navbar-action"
+                aria-label="Previous month"
+                onClick={() => mobilePickerRef.current?.prevMonth(250)}
+              >
+                <ChevronLeft aria-hidden="true" />
+              </button>
+            ) : undefined
+          }
+          right={
+            datePickerOpen ? (
+              <button
+                type="button"
+                className="mobile-navbar-action"
+                aria-label="Next month"
+                onClick={() => mobilePickerRef.current?.nextMonth(250)}
+              >
+                <ChevronRight aria-hidden="true" />
+              </button>
+            ) : undefined
+          }
+          showMenu={!datePickerOpen}
         />
         {isMobile && datePickerOpen && (
           <div className="mobile-calendar-picker-layer">
