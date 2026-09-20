@@ -9,10 +9,7 @@ import {
   type CompletionGrade,
 } from "@/lib/workout-completion"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
-import {
-  MobileActionMenu,
-  MobileDatePicker,
-} from "@/components/ui/mobile-native-controls"
+import { MobileActionMenu } from "@/components/ui/mobile-native-controls"
 import { WorkoutProfile } from "@/components/workout-profile"
 import { WorkoutSummary } from "@/components/workout-summary"
 import { canEditWorkout } from "@/lib/workout-permissions"
@@ -24,6 +21,7 @@ import {
   restoreOpenWorkout,
 } from "@/lib/workout-navigation"
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -55,7 +53,10 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Waves,
+  ChevronDown,
 } from "lucide-react"
+import { f7ready } from "framework7-react"
+import type { Calendar as Framework7Calendar } from "framework7/types"
 import { Pie, PieChart } from "recharts"
 
 import { Button } from "@/components/ui/button"
@@ -239,93 +240,97 @@ export function WorkoutCard({
       <div className="flex min-w-0 flex-col items-start gap-2">
         <div className="flex w-full items-center justify-between">
           <SportIcon sport={workout.sport} />
-          {canEditWorkout(workout) && <div
-            onClick={(event) => event.stopPropagation()}
-            onMouseDown={(event) => event.stopPropagation()}
-            onTouchStart={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            <MobileActionMenu
-              label={`Options for ${workout.title}`}
-              disabled={disabled && Boolean(onAction)}
-              actions={[
-                {
-                  value: "copy",
-                  label: onAction ? "Copy" : "Recorded history is read-only",
-                  disabled: !onAction || disabled,
-                  onSelect: () => onAction?.("copy"),
-                },
-                {
-                  value: "delete",
-                  label: "Delete",
-                  disabled: !onAction || disabled,
-                  onSelect: () => setDeleteOpen(true),
-                },
-              ]}
+          {canEditWorkout(workout) && (
+            <div
+              onClick={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
+              onTouchStart={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
             >
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="-my-1 -mr-1 size-7 opacity-100 transition-opacity group-focus-within/workout:opacity-100 data-[popup-open]:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/workout:opacity-100"
-                      disabled={disabled && Boolean(onAction)}
-                      aria-label={`Options for ${workout.title}`}
-                    />
-                  }
-                >
-                  <Ellipsis className="size-4" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  className="min-w-36"
+              <MobileActionMenu
+                label={`Options for ${workout.title}`}
+                disabled={disabled && Boolean(onAction)}
+                actions={[
+                  {
+                    value: "copy",
+                    label: onAction ? "Copy" : "Recorded history is read-only",
+                    disabled: !onAction || disabled,
+                    onSelect: () => onAction?.("copy"),
+                  },
+                  {
+                    value: "delete",
+                    label: "Delete",
+                    disabled: !onAction || disabled,
+                    onSelect: () => setDeleteOpen(true),
+                  },
+                ]}
+              >
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="-my-1 -mr-1 size-7 opacity-100 transition-opacity group-focus-within/workout:opacity-100 data-[popup-open]:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/workout:opacity-100"
+                        disabled={disabled && Boolean(onAction)}
+                        aria-label={`Options for ${workout.title}`}
+                      />
+                    }
+                  >
+                    <Ellipsis className="size-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    className="min-w-36"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {!onAction && (
+                      <p className="max-w-48 px-2 py-1.5 text-xs text-muted-foreground">
+                        Recorded history is read-only.
+                      </p>
+                    )}
+                    <DropdownMenuItem
+                      disabled={!onAction || disabled}
+                      onClick={() => onAction?.("copy")}
+                    >
+                      <Copy />
+                      Copy
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={!onAction || disabled}
+                      variant="destructive"
+                      onClick={() => setDeleteOpen(true)}
+                    >
+                      <Trash2 />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </MobileActionMenu>
+              <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+                <AlertDialogContent
                   onClick={(event) => event.stopPropagation()}
                 >
-                  {!onAction && (
-                    <p className="max-w-48 px-2 py-1.5 text-xs text-muted-foreground">
-                      Recorded history is read-only.
-                    </p>
-                  )}
-                  <DropdownMenuItem
-                    disabled={!onAction || disabled}
-                    onClick={() => onAction?.("copy")}
-                  >
-                    <Copy />
-                    Copy
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={!onAction || disabled}
-                    variant="destructive"
-                    onClick={() => setDeleteOpen(true)}
-                  >
-                    <Trash2 />
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </MobileActionMenu>
-            <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-              <AlertDialogContent onClick={(event) => event.stopPropagation()}>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete workout?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Delete “{workout.title}” from your Intervals.icu calendar?
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    variant="destructive"
-                    onClick={() => onAction?.("delete")}
-                  >
-                    Delete workout
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>}
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete workout?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Delete “{workout.title}” from your Intervals.icu calendar?
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      variant="destructive"
+                      onClick={() => onAction?.("delete")}
+                    >
+                      Delete workout
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          )}
         </div>
         <span className="line-clamp-2 w-full text-left text-[13px] leading-tight font-semibold md:text-sm">
           {workout.title}
@@ -845,6 +850,9 @@ export function TrainingCalendar({
   const isMobile = useIsMobile()
   const weekRefs = useRef(new Map<string, HTMLElement>())
   const calendarRef = useRef<HTMLDivElement>(null)
+  const mobilePickerContainerRef = useRef<HTMLDivElement>(null)
+  const mobilePickerPanelRef = useRef<HTMLDivElement>(null)
+  const mobilePickerTriggerRef = useRef<HTMLButtonElement>(null)
   const calendarUserScrolled = useRef(false)
   const initialAlignmentDone = useRef(false)
   const viewportAnchor = useRef<{
@@ -1217,18 +1225,21 @@ export function TrainingCalendar({
     }
   }, [weekKeys, isMobile])
 
-  const scrollToWeek = (key: string, behavior: ScrollBehavior = "smooth") => {
-    const element = weekRefs.current.get(key)
-    if (!element) return
-    window.scrollTo({
-      top:
-        window.scrollY +
-        element.getBoundingClientRect().top -
-        (isMobile ? 56 : 84),
-      behavior,
-    })
-    setActiveWeekKey(key)
-  }
+  const scrollToWeek = useCallback(
+    (key: string, behavior: ScrollBehavior = "smooth") => {
+      const element = weekRefs.current.get(key)
+      if (!element) return
+      window.scrollTo({
+        top:
+          window.scrollY +
+          element.getBoundingClientRect().top -
+          (isMobile ? 56 : 84),
+        behavior,
+      })
+      setActiveWeekKey(key)
+    },
+    [isMobile]
+  )
 
   useEffect(() => {
     const trackVisibleWeek = () => {
@@ -1269,9 +1280,10 @@ export function TrainingCalendar({
     return () => window.removeEventListener("scroll", trackVisibleWeek)
   }, [activeWeekKey, weeks])
 
-  const goToToday = () => {
+  const goToToday = useCallback(() => {
     const target = dateKey(startOfMonday(new Date()))
     calendarWasDragged.current = true
+    setDatePickerOpen(false)
     const scrollToToday = () => {
       if (!isMobile) {
         scrollToWeek(target, "instant")
@@ -1289,7 +1301,12 @@ export function TrainingCalendar({
     }
     scrollToToday()
     requestAnimationFrame(scrollToToday)
-  }
+  }, [isMobile, scrollToWeek])
+
+  useEffect(() => {
+    window.addEventListener("calendar-go-today", goToToday)
+    return () => window.removeEventListener("calendar-go-today", goToToday)
+  }, [goToToday])
 
   const activeWeek =
     weeks.find((week) => week.key === activeWeekKey) ?? weeks[0]
@@ -1300,14 +1317,110 @@ export function TrainingCalendar({
       year: "numeric",
     }) ||
     "Calendar"
-  const jumpToDate = (date?: Date) => {
-    if (!date) return
-    const key = dateKey(startOfMonday(date))
-    calendarWasDragged.current = true
-    setDatePickerOpen(false)
-    setActiveWeekKey(key)
-    requestAnimationFrame(() => scrollToWeek(key, "smooth"))
-  }
+  const jumpToDate = useCallback(
+    (date?: Date) => {
+      if (!date) return
+      const key = dateKey(startOfMonday(date))
+      const selectedDateKey = dateKey(date)
+      calendarWasDragged.current = true
+      setDatePickerOpen(false)
+      setActiveWeekKey(key)
+      requestAnimationFrame(() => {
+        if (!isMobile) {
+          scrollToWeek(key, "smooth")
+          return
+        }
+        const element = calendarRef.current?.querySelector(
+          `[data-calendar-date="${selectedDateKey}"]`
+        )
+        if (!element) return
+        const headerOffset = selectedDateKey === dateKey(new Date()) ? 0 : 56
+        window.scrollTo({
+          top: Math.max(
+            0,
+            window.scrollY +
+              element.getBoundingClientRect().top -
+              headerOffset
+          ),
+          behavior: "smooth",
+        })
+      })
+    },
+    [isMobile, scrollToWeek]
+  )
+
+  useEffect(() => {
+    if (!isMobile || !datePickerOpen || !mobilePickerContainerRef.current)
+      return
+    let destroyed = false
+    let picker: Framework7Calendar.Calendar | null = null
+    const selected = activeWeek?.start ?? new Date()
+    f7ready((app) => {
+      if (destroyed || !mobilePickerContainerRef.current) return
+      const updateToolbar = (calendar: {
+        el: HTMLElement
+        currentMonth: number
+        currentYear: number
+      }) => {
+        const label = calendar.el.querySelector<HTMLElement>(
+          ".calendar-jump-toolbar-title"
+        )
+        if (label)
+          label.textContent = new Date(
+            calendar.currentYear,
+            calendar.currentMonth,
+            1
+          ).toLocaleDateString("en-US", { month: "long", year: "numeric" })
+      }
+      picker = app.calendar.create({
+        containerEl: mobilePickerContainerRef.current,
+        value: [selected],
+        minDate: weeks[0]?.days[0] ?? null,
+        maxDate: weeks[weeks.length - 1]?.days[6] ?? null,
+        firstDay: 1,
+        locale: "en-US",
+        toolbar: true,
+        monthSelector: false,
+        yearSelector: false,
+        touchMove: true,
+        animate: true,
+        cssClass: "calendar-jump-inline",
+        renderToolbar: () => `
+          <div class="toolbar toolbar-top calendar-jump-toolbar">
+            <div class="toolbar-inner">
+              <button type="button" class="link icon-only calendar-prev-month-button" aria-label="Previous month"><span aria-hidden="true">‹</span></button>
+              <strong class="calendar-jump-toolbar-title"></strong>
+              <button type="button" class="link icon-only calendar-next-month-button" aria-label="Next month"><span aria-hidden="true">›</span></button>
+            </div>
+          </div>`,
+        on: {
+          init: updateToolbar,
+          monthYearChangeStart: updateToolbar,
+          dayClick: (_calendar, _dayEl, year, month, day) =>
+            jumpToDate(new Date(year, month, day)),
+        },
+      })
+    })
+    return () => {
+      destroyed = true
+      picker?.destroy()
+    }
+  }, [activeWeek?.start, datePickerOpen, isMobile, jumpToDate, weeks])
+
+  useEffect(() => {
+    if (!isMobile || !datePickerOpen) return
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (
+        mobilePickerPanelRef.current?.contains(target) ||
+        mobilePickerTriggerRef.current?.contains(target)
+      )
+        return
+      setDatePickerOpen(false)
+    }
+    document.addEventListener("pointerdown", dismiss)
+    return () => document.removeEventListener("pointerdown", dismiss)
+  }, [datePickerOpen, isMobile])
 
   const openWorkout = (workout: PlannedWorkout) => {
     if (isMobile && onWorkoutOpen) {
@@ -1337,42 +1450,54 @@ export function TrainingCalendar({
           fixed
           titleLabel={activeMonth}
           title={
-            <MobileDatePicker
+            <button
+              ref={mobilePickerTriggerRef}
+              type="button"
               aria-label="Jump to calendar date"
-              value={activeWeek ? dateKey(activeWeek.start) : ""}
-              onValueChange={(value) =>
-                jumpToDate(new Date(`${value}T12:00:00`))
-              }
-              displayValue={activeMonth}
-              className="h-11 min-w-0 justify-center truncate rounded-md px-2 font-semibold"
+              aria-expanded={datePickerOpen}
+              aria-controls="mobile-calendar-date-picker"
+              onClick={() => setDatePickerOpen((open) => !open)}
+              className="calendar-month-title-button"
             >
-              {null}
-            </MobileDatePicker>
+              <span>{activeMonth}</span>
+              <ChevronDown aria-hidden="true" />
+            </button>
           }
         />
-        <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center px-4 md:flex md:bg-background md:shadow-none">
-          <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
-            <PopoverTrigger className="mx-auto h-9 min-w-0 truncate rounded-md px-2 text-left text-sm font-semibold hover:bg-muted md:mx-0 md:text-base">
-              {activeMonth}
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-auto p-0">
-              <Calendar
-                mode="single"
-                selected={activeWeek?.start}
-                onSelect={jumpToDate}
-              />
-            </PopoverContent>
-          </Popover>
-          <div className="flex items-center gap-1 md:ml-4">
-            <Button
-              size="sm"
-              className="hidden md:inline-flex"
-              onClick={goToToday}
+        {isMobile && datePickerOpen && (
+          <div className="mobile-calendar-picker-layer">
+            <div
+              ref={mobilePickerPanelRef}
+              id="mobile-calendar-date-picker"
+              className="mobile-calendar-picker-panel"
+              role="dialog"
+              aria-label="Choose calendar date"
             >
-              Today
-            </Button>
+              <div ref={mobilePickerContainerRef} />
+            </div>
           </div>
-        </header>
+        )}
+        {!isMobile && (
+          <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center px-4 md:flex md:bg-background md:shadow-none">
+            <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+              <PopoverTrigger className="mx-auto h-9 min-w-0 truncate rounded-md px-2 text-left text-sm font-semibold hover:bg-muted md:mx-0 md:text-base">
+                {activeMonth}
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-auto p-0">
+                <Calendar
+                  mode="single"
+                  selected={activeWeek?.start}
+                  onSelect={jumpToDate}
+                />
+              </PopoverContent>
+            </Popover>
+            <div className="flex items-center gap-1 md:ml-4">
+              <Button size="sm" onClick={goToToday}>
+                Today
+              </Button>
+            </div>
+          </header>
+        )}
         <div className="sticky top-14 z-40 hidden h-7 shrink-0 border-b bg-background shadow-sm md:flex">
           <div className="grid min-w-0 flex-1 grid-cols-7 divide-x">
             {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
@@ -1602,7 +1727,11 @@ export function TrainingCalendar({
                               workouts={week.workouts}
                               planWeek={planWeek}
                               startDate={week.key}
-                              blockStart={planReportBlocks(annualPlan).find(block => block.endDate === dateKey(end))?.startDate}
+                              blockStart={
+                                planReportBlocks(annualPlan).find(
+                                  (block) => block.endDate === dateKey(end)
+                                )?.startDate
+                              }
                             />
                           </CollapsibleContent>
                         </Collapsible>
@@ -1754,11 +1883,29 @@ function WeekSummary({
           <span className="text-[10px] text-muted-foreground">Total time</span>
         </div>
       </div>
-      <div className="grid grid-cols-2 divide-x border-t pt-3 text-sm" aria-label="Completed versus planned duration">
-        <div className="pr-4"><p className="mb-1 text-xs text-muted-foreground">Planned</p><p className="font-semibold tabular-nums">{formatDuration(plannedTotalMinutes)}</p></div>
-        <div className="pl-4"><p className="mb-1 text-xs text-muted-foreground">Completed</p><p className="font-semibold tabular-nums">{formatDuration(completedTotalMinutes)}</p></div>
+      <div
+        className="grid grid-cols-2 divide-x border-t pt-3 text-sm"
+        aria-label="Completed versus planned duration"
+      >
+        <div className="pr-4">
+          <p className="mb-1 text-xs text-muted-foreground">Planned</p>
+          <p className="font-semibold tabular-nums">
+            {formatDuration(plannedTotalMinutes)}
+          </p>
+        </div>
+        <div className="pl-4">
+          <p className="mb-1 text-xs text-muted-foreground">Completed</p>
+          <p className="font-semibold tabular-nums">
+            {formatDuration(completedTotalMinutes)}
+          </p>
+        </div>
       </div>
-      <div className="flex flex-wrap gap-1"><SavedReportButton kind="weekly" startDate={startDate} />{blockStart && <SavedReportButton kind="block" startDate={blockStart} />}</div>
+      <div className="flex flex-wrap gap-1">
+        <SavedReportButton kind="weekly" startDate={startDate} />
+        {blockStart && (
+          <SavedReportButton kind="block" startDate={blockStart} />
+        )}
+      </div>
       <div className="space-y-1.5">
         {chartData.map((item) => (
           <div
