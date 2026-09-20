@@ -90,6 +90,10 @@ export function MobileNavbar({
               event.preventDefault()
               onNavigate(label)
             }}
+            onPointerDown={() => {
+              if (activeItem === "Calendar" && label === "Calendar")
+                onNavigate(label)
+            }}
             onPointerEnter={() => onPrefetch?.(label)}
             onFocus={() => onPrefetch?.(label)}
             onTouchStart={() => onPrefetch?.(label)}
