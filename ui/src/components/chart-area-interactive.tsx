@@ -1,6 +1,6 @@
 import { useMemo, useState, type ComponentType } from "react"
 import { Activity, Bike, Footprints, Waves } from "lucide-react"
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
+import { Area, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from "recharts"
 import { Button as F7Button, Card, CardContent } from "framework7-react"
 
 import {
@@ -35,6 +35,9 @@ const sportOptions: SportOption[] = [
 
 const historyChartConfig = {
   value: { label: "Completed", color: "var(--chart-2)" },
+  average: { label: "4-week average", color: "var(--muted-foreground)" },
+  baselineHigh: { label: "Range high", color: "var(--muted)" },
+  baselineLow: { label: "Range low", color: "var(--card)" },
 } satisfies ChartConfig
 
 function numeric(value: unknown) {
@@ -202,14 +205,21 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
   const [historyMetric, setHistoryMetric] = useState<HistoryMetric>("time")
   const records = useMemo(() => completedHistory(context, sport), [context, sport])
   const history = useMemo(() => twelveWeekHistory(records), [records])
-  const chartHistory = useMemo(
-    () =>
-      history.map((row) => ({
+  const chartHistory = useMemo(() => {
+    const values = history.map((row) => ({
+      ...row,
+      value: historyMetric === "time" ? row.hours : chartDistance(row.distanceMeters, sport),
+    }))
+    return values.map((row, index) => {
+      const window = values.slice(Math.max(0, index - 3), index + 1).map((item) => item.value)
+      return {
         ...row,
-        value: historyMetric === "time" ? row.hours : chartDistance(row.distanceMeters, sport),
-      })),
-    [history, historyMetric, sport]
-  )
+        average: window.reduce((sum, value) => sum + value, 0) / window.length,
+        baselineLow: Math.min(...window),
+        baselineHigh: Math.max(...window),
+      }
+    })
+  }, [history, historyMetric, sport])
   const totals = useMemo(() => weekTotals(records), [records])
 
   return (
@@ -289,12 +299,40 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
             </MobileSelect>
           </div>
           <ChartContainer config={historyChartConfig} className="h-[245px] w-full sm:h-[320px]">
-            <LineChart
+            <ComposedChart
               data={chartHistory}
               accessibilityLayer
               margin={{ top: 16, right: 8, left: 0, bottom: 0 }}
             >
               <CartesianGrid vertical={false} strokeDasharray="3 3" />
+              <Area
+                dataKey="baselineHigh"
+                type="monotone"
+                fill="var(--color-baselineHigh)"
+                fillOpacity={0.8}
+                stroke="none"
+                tooltipType="none"
+                isAnimationActive={false}
+              />
+              <Area
+                dataKey="baselineLow"
+                type="monotone"
+                fill="var(--color-baselineLow)"
+                fillOpacity={1}
+                stroke="none"
+                tooltipType="none"
+                isAnimationActive={false}
+              />
+              <Line
+                dataKey="average"
+                type="monotone"
+                stroke="var(--color-average)"
+                strokeDasharray="3 3"
+                strokeWidth={1}
+                dot={false}
+                tooltipType="none"
+                isAnimationActive={false}
+              />
               <XAxis
                 dataKey="week"
                 axisLine={false}
@@ -314,6 +352,7 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
                   const amount = Number(value)
                   if (historyMetric === "distance") {
                     if (sport === "swim") return `${Math.round(amount)}yd`
+                    if (amount === 0) return "0mi"
                     return `${amount.toFixed(amount < 10 ? 1 : 0)}mi`
                   }
                   if (amount === 0) return "0h"
@@ -334,18 +373,42 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
                         timeZone: "UTC",
                       })}`
                     }
-                    formatter={(value) => (
-                      <div className="flex min-w-32 flex-1 justify-between gap-4">
-                        <span className="text-muted-foreground">
-                          {historyMetric === "time" ? "Time" : "Distance"}
-                        </span>
-                        <span className="font-mono font-medium tabular-nums">
-                          {historyMetric === "time"
-                            ? formatHours(Number(value))
-                            : formatChartDistance(Number(value), sport)}
-                        </span>
-                      </div>
-                    )}
+                    formatter={(value, _name, _item, _index, payload) => {
+                      const point = payload as unknown as {
+                        average?: number
+                        baselineLow?: number
+                        baselineHigh?: number
+                      }
+                      const formatValue = (amount: number) =>
+                        historyMetric === "time"
+                          ? formatHours(amount)
+                          : formatChartDistance(amount, sport)
+                      return (
+                        <div className="grid min-w-40 flex-1 gap-1">
+                          <div className="flex justify-between gap-4">
+                            <span className="text-muted-foreground">
+                              {historyMetric === "time" ? "Time" : "Distance"}
+                            </span>
+                            <span className="font-mono font-medium tabular-nums">
+                              {formatValue(Number(value))}
+                            </span>
+                          </div>
+                          <div className="flex justify-between gap-4">
+                            <span className="text-muted-foreground">4-week average</span>
+                            <span className="font-mono font-medium tabular-nums">
+                              {formatValue(Number(point.average ?? value))}
+                            </span>
+                          </div>
+                          <div className="flex justify-between gap-4">
+                            <span className="text-muted-foreground">Range</span>
+                            <span className="font-mono font-medium tabular-nums">
+                              {formatValue(Number(point.baselineLow ?? value))}–
+                              {formatValue(Number(point.baselineHigh ?? value))}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    }}
                   />
                 }
               />
@@ -356,8 +419,9 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
                 strokeWidth={2}
                 dot={{ r: 2, fill: "var(--color-value)", strokeWidth: 0 }}
                 activeDot={{ r: 4, fill: "var(--color-value)", strokeWidth: 0 }}
+                isAnimationActive={false}
               />
-            </LineChart>
+            </ComposedChart>
           </ChartContainer>
         </section>
       </CardContent>
