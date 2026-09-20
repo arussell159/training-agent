@@ -1,6 +1,6 @@
 import { useMemo, useState, type ComponentType } from "react"
 import { Activity, Bike, Footprints, Waves } from "lucide-react"
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
+import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
 import { Button as F7Button, Card, CardContent } from "framework7-react"
 
 import {
@@ -9,6 +9,8 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart"
+import { MobileSelect } from "@/components/ui/mobile-native-controls"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { TrainingContext } from "@/lib/training-context"
 
 const METERS_PER_MILE = 1609.344
@@ -16,6 +18,7 @@ const METERS_PER_YARD = 0.9144
 const METERS_PER_FOOT = 0.3048
 
 type SportFilter = "all" | "run" | "bike" | "swim"
+type HistoryMetric = "time" | "distance"
 type HistoryRecord = Record<string, unknown>
 type SportOption = {
   value: SportFilter
@@ -31,7 +34,7 @@ const sportOptions: SportOption[] = [
 ]
 
 const historyChartConfig = {
-  hours: { label: "Time", color: "var(--chart-2)" },
+  value: { label: "Completed", color: "var(--chart-2)" },
 } satisfies ChartConfig
 
 function numeric(value: unknown) {
@@ -131,12 +134,16 @@ function twelveWeekHistory(records: TrainingContext["history"], now = new Date()
   const rows = Array.from({ length: 12 }, (_, index) => {
     const date = new Date(currentDate)
     date.setUTCDate(currentDate.getUTCDate() - (11 - index) * 7)
-    return { week: date.toISOString().slice(0, 10), hours: 0 }
+    return { week: date.toISOString().slice(0, 10), hours: 0, distanceMeters: 0 }
   })
   const byWeek = new Map(rows.map((row) => [row.week, row]))
   for (const item of records) {
     const row = byWeek.get(weekStart(item.workout_date))
-    if (row) row.hours += completedValues(item).hours
+    if (row) {
+      const values = completedValues(item)
+      row.hours += values.hours
+      row.distanceMeters += values.distanceMeters
+    }
   }
   return rows
 }
@@ -166,6 +173,15 @@ function formatDistance(meters: number, filter: SportFilter) {
   })} mi`
 }
 
+function chartDistance(meters: number, filter: SportFilter) {
+  return meters / (filter === "swim" ? METERS_PER_YARD : METERS_PER_MILE)
+}
+
+function formatChartDistance(value: number, filter: SportFilter) {
+  if (filter === "swim") return `${Math.round(value).toLocaleString("en-US")} yd`
+  return `${value.toLocaleString("en-US", { maximumFractionDigits: 1 })} mi`
+}
+
 function weekTotals(records: TrainingContext["history"], now = new Date()) {
   const start = weekStart(dateKey(now))
   return records.reduce(
@@ -183,8 +199,17 @@ function weekTotals(records: TrainingContext["history"], now = new Date()) {
 
 export function ChartAreaInteractive({ context }: { context: TrainingContext }) {
   const [sport, setSport] = useState<SportFilter>("all")
+  const [historyMetric, setHistoryMetric] = useState<HistoryMetric>("time")
   const records = useMemo(() => completedHistory(context, sport), [context, sport])
   const history = useMemo(() => twelveWeekHistory(records), [records])
+  const chartHistory = useMemo(
+    () =>
+      history.map((row) => ({
+        ...row,
+        value: historyMetric === "time" ? row.hours : chartDistance(row.distanceMeters, sport),
+      })),
+    [history, historyMetric, sport]
+  )
   const totals = useMemo(() => weekTotals(records), [records])
 
   return (
@@ -229,17 +254,47 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
           </div>
         </section>
 
-        <section className="training-history-chart" aria-label="Completed training time over the past 12 weeks">
-          <h3>Past 12 weeks</h3>
+        <section
+          className="training-history-chart"
+          aria-label={`Completed training ${historyMetric} over the past 12 weeks`}
+        >
+          <div className="training-history-chart-heading">
+            <h3>Past 12 weeks</h3>
+            <MobileSelect
+              aria-label="Training history metric"
+              value={historyMetric}
+              onValueChange={(value) => setHistoryMetric(value as HistoryMetric)}
+              options={[
+                { value: "time", label: "Time" },
+                { value: "distance", label: "Distance" },
+              ]}
+              className="training-history-metric-select"
+            >
+              <Select
+                value={historyMetric}
+                onValueChange={(value) => value && setHistoryMetric(value as HistoryMetric)}
+              >
+                <SelectTrigger
+                  size="sm"
+                  aria-label="Training history metric"
+                  className="h-8 w-24 rounded-lg px-2 text-sm font-medium shadow-none"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  <SelectItem value="time">Time</SelectItem>
+                  <SelectItem value="distance">Distance</SelectItem>
+                </SelectContent>
+              </Select>
+            </MobileSelect>
+          </div>
           <ChartContainer config={historyChartConfig} className="h-[245px] w-full sm:h-[320px]">
-            <AreaChart data={history} accessibilityLayer margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="trainingHistoryFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--color-hours)" stopOpacity={0.42} />
-                  <stop offset="100%" stopColor="var(--color-hours)" stopOpacity={0.03} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid vertical={false} />
+            <LineChart
+              data={chartHistory}
+              accessibilityLayer
+              margin={{ top: 16, right: 8, left: 0, bottom: 0 }}
+            >
+              <CartesianGrid vertical={false} strokeDasharray="3 3" />
               <XAxis
                 dataKey="week"
                 axisLine={false}
@@ -247,7 +302,7 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
                 tickMargin={12}
                 interval={0}
                 tick={{ fontSize: 11 }}
-                tickFormatter={(value, index) => monthTick(String(value), index, history)}
+                tickFormatter={(value, index) => monthTick(String(value), index, chartHistory)}
               />
               <YAxis
                 orientation="right"
@@ -256,13 +311,19 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
                 width={44}
                 tick={{ fontSize: 11 }}
                 tickFormatter={(value) => {
-                  const hours = Number(value)
-                  if (hours === 0) return "0h"
-                  return hours < 1 ? `${Math.round(hours * 60)}m` : `${hours.toFixed(hours < 10 ? 1 : 0)}h`
+                  const amount = Number(value)
+                  if (historyMetric === "distance") {
+                    if (sport === "swim") return `${Math.round(amount)}yd`
+                    return `${amount.toFixed(amount < 10 ? 1 : 0)}mi`
+                  }
+                  if (amount === 0) return "0h"
+                  return amount < 1
+                    ? `${Math.round(amount * 60)}m`
+                    : `${amount.toFixed(amount < 10 ? 1 : 0)}h`
                 }}
               />
               <ChartTooltip
-                cursor={{ stroke: "var(--border)" }}
+                cursor={false}
                 content={
                   <ChartTooltipContent
                     indicator="dot"
@@ -275,25 +336,28 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
                     }
                     formatter={(value) => (
                       <div className="flex min-w-32 flex-1 justify-between gap-4">
-                        <span className="text-muted-foreground">Completed</span>
+                        <span className="text-muted-foreground">
+                          {historyMetric === "time" ? "Time" : "Distance"}
+                        </span>
                         <span className="font-mono font-medium tabular-nums">
-                          {formatHours(Number(value))}
+                          {historyMetric === "time"
+                            ? formatHours(Number(value))
+                            : formatChartDistance(Number(value), sport)}
                         </span>
                       </div>
                     )}
                   />
                 }
               />
-              <Area
-                dataKey="hours"
-                type="linear"
-                stroke="var(--color-hours)"
-                strokeWidth={3}
-                fill="url(#trainingHistoryFill)"
-                dot={{ r: 4, fill: "var(--card)", strokeWidth: 3 }}
-                activeDot={{ r: 6, strokeWidth: 3 }}
+              <Line
+                dataKey="value"
+                type="monotone"
+                stroke="var(--color-value)"
+                strokeWidth={2}
+                dot={{ r: 2, fill: "var(--color-value)", strokeWidth: 0 }}
+                activeDot={{ r: 4, fill: "var(--color-value)", strokeWidth: 0 }}
               />
-            </AreaChart>
+            </LineChart>
           </ChartContainer>
         </section>
       </CardContent>

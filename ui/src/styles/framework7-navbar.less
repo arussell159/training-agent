@@ -692,10 +692,26 @@
 .training-history-chart {
   padding-top: 16px;
   padding-bottom: 12px;
+  .training-history-chart-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
   h3 {
-    margin: 0 0 8px;
+    margin: 0;
     font-size: 16px;
     line-height: 22px;
+    font-weight: 500;
+  }
+  .training-history-metric-select {
+    width: 96px;
+    height: 32px;
+    flex: 0 0 auto;
+    border-radius: 8px;
+    padding-inline: 8px;
+    font-size: 14px;
     font-weight: 500;
   }
 }
