@@ -1,7 +1,7 @@
 import { useMemo, useState, type ComponentType } from "react"
 import { Activity, Bike, Footprints, Waves } from "lucide-react"
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
-import { Button as F7Button, Card, CardContent, Segmented } from "framework7-react"
+import { Button as F7Button, Card, CardContent } from "framework7-react"
 
 import {
   ChartContainer,
@@ -191,13 +191,13 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
     <Card className="training-history-card m-0 min-w-0">
       <CardContent className="p-0">
         <div className="training-history-filter-scroll" aria-label="Filter training history by sport">
-          <Segmented round className="training-history-filters">
+          <div className="training-history-filters" role="group">
             {sportOptions.map(({ value, label, icon: Icon }) => (
               <F7Button
                 key={value}
                 active={sport === value}
                 round
-                outline={sport !== value}
+                outline
                 aria-pressed={sport === value}
                 onClick={(event) => {
                   event.preventDefault()
@@ -208,7 +208,7 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
                 <span>{label}</span>
               </F7Button>
             ))}
-          </Segmented>
+          </div>
         </div>
 
         <section className="training-history-summary" aria-label="This week training totals">
