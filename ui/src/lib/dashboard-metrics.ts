@@ -10,7 +10,7 @@ export function todaysWorkout(context: TrainingContext, now = new Date()) {
   const workouts = [...context.planned, ...context.history.filter(w => 'id' in w) as PlannedWorkout[]]
   const today = workouts.filter(w => w.workout_date === date)
   // Keep today's planned prescription and its recording visible after completion.
-  return today.find(w => w.id.startsWith('event:')) ?? today[0]
+  return today.find(w => typeof w.id === 'string' && w.id.startsWith('event:')) ?? today[0]
 }
 
 export function recoverySeries(context: TrainingContext, key: 'hrv' | 'resting_hr') {

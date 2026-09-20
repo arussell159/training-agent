@@ -26,15 +26,21 @@ export function DetailSheetRow({
 }) {
   const id = `detail-${useId().replace(/[^a-z0-9]/gi, "")}`
   const [open, setOpen] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const closing = useRef(false)
   const close = useCallback(() => {
     if (closing.current) return
     closing.current = true
+    setExpanded(false)
     setOpen(false)
     if (window.history.state?.detailSheet === id) window.history.back()
   }, [id])
-  useSheetDismiss(id, open, close)
+  const expand = useCallback(() => setExpanded(true), [])
+  useSheetDismiss(id, open, close, {
+    expanded,
+    onExpand: fullHeight ? expand : undefined,
+  })
   useEffect(() => {
     if (!open) return
     const previous = window.history.state
@@ -57,6 +63,7 @@ export function DetailSheetRow({
         type="button"
         onClick={() => {
           closing.current = false
+          setExpanded(false)
           setOpen(true)
         }}
         className={`flex min-h-14 w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold ${dark ? "bg-muted" : "bg-background"}`}
@@ -76,7 +83,7 @@ export function DetailSheetRow({
           />
           <Sheet
             containerEl={`#${id}`}
-            className={`terms-metric-sheet ${fullHeight ? "detail-sheet-full-height" : ""}`}
+            className={`terms-metric-sheet ${fullHeight ? `detail-sheet-expandable ${expanded ? "detail-sheet-expanded" : ""}` : ""}`}
             opened={open}
             backdropEl={`#${id} .sheet-backdrop`}
             backdrop

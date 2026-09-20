@@ -9,7 +9,7 @@ const frame = document.getElementById('app');
 async function testSheetGestures(terms=false) {
  const doc=frame.contentDocument, win=frame.contentWindow, results=[];
  const wait=()=>new Promise(resolve=>setTimeout(resolve,350));
- const opened=()=>doc.querySelector(terms?'#terms-mobile-layer .terms-metric-sheet.modal-in':'.detail-sheet-full-height.modal-in');
+ const opened=()=>doc.querySelector(terms?'#terms-mobile-layer .terms-metric-sheet.modal-in':'.detail-sheet-expandable.modal-in');
  const termName=opened()?.querySelector('#terms-metric-title')?.textContent;
  const trigger=terms?Array.from(doc.querySelectorAll('.terms-mobile-metric-list .item-link')).find(el=>Array.from(el.querySelectorAll('.item-title,.item-subtitle')).some(text=>text.textContent===termName)):Array.from(doc.querySelectorAll('button')).find(el=>el.textContent.trim()==='Post-workout report');
  if(!trigger){document.getElementById('result').textContent=terms?'Open a term first':'Open the completed workout first';return;}
@@ -23,13 +23,15 @@ async function testSheetGestures(terms=false) {
  };
  const assert=(name,value)=>{results.push(`${value?'PASS':'FAIL'} ${name}`);if(!value)throw new Error(name);};
  try{
+   if(!terms)assert('Report opens at the normal snap point',!opened().classList.contains('detail-sheet-expanded'));
    await swipe(0,120,{scrolled:true});assert('Reading scroll does not dismiss',!!opened());
-   await swipe(0,-120);assert('Upward scroll does not dismiss',!!opened());
+   await swipe(0,-120);assert('Upward reading scroll does not resize',!!opened()&&(terms||!opened().classList.contains('detail-sheet-expanded')));
+   if(!terms){await swipe(0,-120,{heading:true});assert('Upward handle swipe expands and stays full screen',!!opened()&&opened().classList.contains('detail-sheet-expanded'));}
    await swipe(120,15);assert('Horizontal scroll does not dismiss',!!opened());
    await swipe(0,10);assert('Small movements do not dismiss',!!opened());
    await swipe(0,120,{cancel:true});assert('Cancelled touch resets',!!opened()&&!opened().style.transform);
    await swipe(0,120);assert('Downward swipe from content at top closes',!opened());
-   trigger.click();await wait();assert('Details reopen after swipe',!!opened());
+   trigger.click();await wait();assert('Details reopen after swipe at normal snap point',!!opened()&&(terms||!opened().classList.contains('detail-sheet-expanded')));
    await swipe(0,120,{scrolled:true,heading:true});assert('Title swipe closes halfway-scrolled details',!opened());
    trigger.click();await wait();
    opened().querySelector(terms?'[aria-label="Close metric details"]':'[aria-label="Close Post-workout report"]').click();await wait();assert('Close button works on first press',!opened());

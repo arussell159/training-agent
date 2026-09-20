@@ -22,10 +22,17 @@ const today = new Date().toLocaleDateString("en-CA")
 const originalFetch = window.fetch.bind(window)
 const bike = new URLSearchParams(location.search).get("sport") === "Ride"
 const longLaps = new URLSearchParams(location.search).has("long")
+const resetResponse = await originalFetch(
+  `/api/test/reset?sport=${bike ? "Ride" : "Run"}`
+)
+const resetWorkout = resetResponse.ok ? await resetResponse.json() : {}
 const planned: PlannedWorkout = {
-  ...(await (
-    await originalFetch(`/api/test/reset?sport=${bike ? "Ride" : "Run"}`)
-  ).json()),
+  ...resetWorkout,
+  id: resetWorkout.id || "event:998",
+  title: resetWorkout.title || `Planned ${bike ? "bike" : "run"} fixture`,
+  sport: resetWorkout.sport || (bike ? "Ride" : "Run"),
+  duration: resetWorkout.duration || "1h15m",
+  goal: resetWorkout.goal || "Fixture workout",
   workout_date: today,
   date: today,
   status: "today",
