@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Clock3 } from "lucide-react"
-import { Area, AreaChart, XAxis, YAxis } from "recharts"
 
 import {
   Card,
@@ -9,7 +8,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { ChartContainer, type ChartConfig } from "@/components/ui/chart"
 import { dashboardToday } from "@/lib/dashboard-metrics"
 import { formatDuration } from "@/lib/duration"
 import {
@@ -17,15 +15,9 @@ import {
   type PlannedWorkout,
   type TrainingContext,
 } from "@/lib/training-context"
-import {
-  hasWorkoutStructure,
-  structuredWorkoutProfile,
-} from "@/lib/workout-structure"
+import { workoutProfileSegments } from "@/lib/workout-structure"
 
 const DAY_RANGE = 14
-const workoutChartConfig = {
-  intensity: { label: "Intensity", color: "var(--chart-2)" },
-} satisfies ChartConfig
 
 function dateAt(day: string, offset: number) {
   const value = new Date(`${day}T12:00:00`)
@@ -95,6 +87,62 @@ function trainingLoad(workout: PlannedWorkout) {
   )
 }
 
+function compactProfile(workout: PlannedWorkout) {
+  const segments = workoutProfileSegments(workout.structure)
+  if (segments.length <= 96) return segments
+  const size = Math.ceil(segments.length / 96)
+  return Array.from(
+    { length: Math.ceil(segments.length / size) },
+    (_, index) => {
+      const group = segments.slice(index * size, (index + 1) * size)
+      const width = group.reduce((sum, segment) => sum + segment.width, 0)
+      const intensity = width
+        ? group.reduce(
+            (sum, segment) => sum + segment.intensity * segment.width,
+            0
+          ) / width
+        : 0
+      return { width, intensity }
+    }
+  )
+}
+
+function profileBarColor(intensity: number) {
+  if (intensity <= 8) return "bg-muted-foreground/25"
+  if (intensity < 45) return "bg-primary/45"
+  if (intensity < 70) return "bg-primary/70"
+  return "bg-primary"
+}
+
+function DashboardWorkoutProfile({ workout }: { workout: PlannedWorkout }) {
+  const bars = compactProfile(workout)
+  if (!bars.length) return null
+  return (
+    <div
+      className="relative h-24 overflow-hidden rounded-xl border border-border/70 bg-muted/25 p-2.5 shadow-inner"
+      role="img"
+      aria-label="Workout intensity profile"
+    >
+      <span className="pointer-events-none absolute inset-x-2.5 top-1/3 border-t border-border/45" />
+      <span className="pointer-events-none absolute inset-x-2.5 top-2/3 border-t border-border/45" />
+      <div className="relative z-10 flex h-full items-end gap-px">
+        {bars.map((bar, index) => (
+          <span
+            key={index}
+            className={`min-w-0 rounded-t-[3px] shadow-[0_-1px_0_rgba(255,255,255,0.16)] ${profileBarColor(bar.intensity)}`}
+            style={{
+              flexBasis: 0,
+              flexGrow: Math.max(1, bar.width),
+              height: `${Math.max(7, bar.intensity)}%`,
+            }}
+            aria-hidden="true"
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function SessionCard({
   workout,
   dayLabel,
@@ -108,7 +156,6 @@ function SessionCard({
   sessionCount: number
   onOpen: () => void
 }) {
-  const profile = structuredWorkoutProfile(workout.structure)
   const completed = workout.status === "completed"
   return (
     <Card
@@ -121,7 +168,7 @@ function SessionCard({
         event.preventDefault()
         onOpen()
       }}
-      className="relative w-full shrink-0 snap-center"
+      className="relative w-[calc(100%-2px)] shrink-0 snap-center border-border/90 shadow-sm ring-1 ring-foreground/10"
     >
       <CardHeader className="gap-3">
         <CardDescription>
@@ -153,31 +200,7 @@ function SessionCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col justify-end gap-4">
-        {hasWorkoutStructure(workout.structure) && (
-          <ChartContainer
-            config={workoutChartConfig}
-            className="h-20 w-full"
-            aria-label="Workout intensity profile"
-          >
-            <AreaChart data={profile} accessibilityLayer>
-              <XAxis
-                dataKey="position"
-                type="number"
-                hide
-                domain={["dataMin", "dataMax"]}
-              />
-              <YAxis hide domain={[0, 100]} />
-              <Area
-                dataKey="intensity"
-                type="linear"
-                fill="var(--color-intensity)"
-                fillOpacity={1}
-                stroke="none"
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ChartContainer>
-        )}
+        <DashboardWorkoutProfile workout={workout} />
         <div className="grid grid-cols-2 gap-4 border-t pt-4">
           <div>
             <p className="text-xs text-muted-foreground">Duration</p>
@@ -238,14 +261,16 @@ export function MobileDailySessions({
       {selectedSessions.length ? (
         <div
           ref={sessionScroller}
-          className="flex snap-x snap-mandatory [scrollbar-width:none] gap-3 overflow-x-auto overscroll-x-contain [&::-webkit-scrollbar]:hidden"
+          className="flex snap-x snap-mandatory [scrollbar-width:none] gap-3 overflow-x-auto overscroll-x-contain px-px py-1 [&::-webkit-scrollbar]:hidden"
           onScroll={(event) => {
-            const width = event.currentTarget.clientWidth
-            if (!width) return
+            const first = event.currentTarget
+              .firstElementChild as HTMLElement | null
+            const step = first ? first.offsetWidth + 12 : 0
+            if (!step) return
             setActiveSession(
               Math.min(
                 selectedSessions.length - 1,
-                Math.max(0, Math.round(event.currentTarget.scrollLeft / width))
+                Math.max(0, Math.round(event.currentTarget.scrollLeft / step))
               )
             )
           }}
