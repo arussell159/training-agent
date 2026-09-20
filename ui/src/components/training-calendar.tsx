@@ -1358,11 +1358,10 @@ export function TrainingCalendar({
     f7ready((app) => {
       if (destroyed || !mobilePickerContainerRef.current) return
       const updateToolbar = (calendar: {
-        el: HTMLElement
         currentMonth: number
         currentYear: number
       }) => {
-        const label = calendar.el.querySelector<HTMLElement>(
+        const label = mobilePickerContainerRef.current?.querySelector<HTMLElement>(
           ".calendar-jump-toolbar-title"
         )
         if (label)
