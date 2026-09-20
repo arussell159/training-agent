@@ -92,7 +92,7 @@ export function MobileNavbar({
             }}
             onPointerDown={() => {
               if (activeItem === "Calendar" && label === "Calendar")
-                onNavigate(label)
+                window.dispatchEvent(new Event("calendar-go-today"))
             }}
             onPointerEnter={() => onPrefetch?.(label)}
             onFocus={() => onPrefetch?.(label)}
