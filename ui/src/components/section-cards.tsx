@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/chart"
 import type { PlannedWorkout, TrainingContext } from "@/lib/training-context"
 import { EventsCard } from "@/components/race-events"
+import { MobileDailySessions } from "@/components/mobile-daily-sessions"
 
 const recoveryChartConfig = {
   value: { label: "Daily value", color: "var(--primary)" },
@@ -389,6 +390,7 @@ export function SectionCards({
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-12">
+      <MobileDailySessions context={context} onWorkoutOpen={onWorkoutOpen} />
       <Card
         role={onWorkoutOpen ? "button" : undefined}
         tabIndex={onWorkoutOpen ? 0 : undefined}
@@ -400,7 +402,7 @@ export function SectionCards({
           event.preventDefault()
           if (today) onWorkoutOpen(today)
         }}
-        className="col-span-2 min-w-0 lg:col-span-6 lg:row-span-2"
+        className="col-span-2 hidden min-w-0 md:flex lg:col-span-6 lg:row-span-2"
       >
         <CardHeader className="gap-3">
           <CardDescription>

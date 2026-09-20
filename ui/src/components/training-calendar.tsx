@@ -1663,65 +1663,10 @@ export function TrainingCalendar({
                               disabled={moving}
                               className={
                                 isToday
-                                  ? "min-w-0 bg-primary/5 px-4 pt-16 pb-2 md:px-1.5 md:py-2"
+                                  ? "min-w-0 px-4 pt-16 pb-2 md:bg-primary/5 md:px-1.5 md:py-2"
                                   : "min-w-0 px-4 py-2 md:px-1.5"
                               }
                             >
-                              {isToday && (
-                                <section
-                                  aria-label="Performance Insights"
-                                  className="mb-4 pt-2 md:hidden"
-                                >
-                                  <div className="mb-1 flex items-center justify-between">
-                                    <p className="text-sm font-semibold text-primary">
-                                      {day.toLocaleDateString("en-US", {
-                                        weekday: "short",
-                                      })}{" "}
-                                      - {day.getDate()}
-                                    </p>
-                                  </div>
-                                  <h2 className="mb-3 text-base font-semibold">
-                                    Performance Insights
-                                  </h2>
-                                  <div className="grid grid-cols-3 gap-1.5">
-                                    {[
-                                      {
-                                        label: "Fitness",
-                                        value: context.metrics.fitness,
-                                        color:
-                                          "text-blue-600 dark:text-blue-400",
-                                      },
-                                      {
-                                        label: "Form",
-                                        value: context.metrics.form,
-                                        color:
-                                          "text-emerald-600 dark:text-emerald-400",
-                                      },
-                                      {
-                                        label: "Fatigue",
-                                        value: context.metrics.fatigue,
-                                        color:
-                                          "text-orange-600 dark:text-orange-400",
-                                      },
-                                    ].map((metric) => (
-                                      <Card
-                                        key={metric.label}
-                                        className={`min-w-0 gap-1 rounded-xl px-2.5 py-3 text-left ${metric.color}`}
-                                      >
-                                        <p className="text-base font-semibold tabular-nums">
-                                          {Number.isFinite(metric.value)
-                                            ? Math.round(metric.value!)
-                                            : "—"}
-                                        </p>
-                                        <div className="border-t border-current" />
-                                        <p className="text-[11px]">
-                                          {metric.label}
-                                        </p>
-                                      </Card>
-                                    ))}
-                                  </div>
-                                </section>
-                              )}
                               <div className="mb-3 flex items-center justify-between gap-2">
                                 <span
                                   className={`px-0.5 text-lg font-bold md:text-sm ${isToday ? "text-primary" : "text-foreground"}`}
