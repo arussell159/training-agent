@@ -589,3 +589,124 @@
     }
   }
 }
+
+.training-history-card.card {
+  --f7-card-margin-horizontal: 0px;
+  --f7-card-margin-vertical: 0px;
+  --f7-card-bg-color: var(--card);
+  --f7-card-text-color: var(--foreground);
+  --f7-card-border-radius: 24px;
+  margin: 0;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 4%);
+}
+
+.training-history-filter-scroll {
+  overflow-x: auto;
+  padding: 18px 18px 8px;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.training-history-filters.segmented {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  gap: 10px;
+  --f7-button-height: 42px;
+  --f7-button-border-radius: 999px;
+  --f7-button-font-size: 14px;
+  --f7-button-font-weight: 600;
+  .button {
+    display: inline-flex;
+    flex: 0 0 auto;
+    width: auto;
+    min-width: max-content;
+    gap: 8px;
+    padding-inline: 16px;
+    border-color: var(--border);
+    border-radius: 999px !important;
+    border-width: 1px !important;
+    color: var(--foreground);
+  }
+  .button-active {
+    border-color: var(--color-hours, var(--chart-2));
+    color: var(--color-hours, var(--chart-2));
+    background: color-mix(in srgb, var(--chart-2) 9%, transparent);
+  }
+}
+
+.training-history-summary,
+.training-history-chart {
+  padding-inline: 18px;
+}
+
+.training-history-summary {
+  padding-top: 20px;
+  h2 {
+    margin: 0 0 22px;
+    font-size: clamp(1.45rem, 4vw, 2rem);
+    line-height: 1.1;
+    font-weight: 750;
+    letter-spacing: -0.025em;
+  }
+}
+
+.training-history-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  div {
+    min-width: 0;
+  }
+  span,
+  strong {
+    display: block;
+  }
+  span {
+    color: var(--muted-foreground);
+    font-size: 0.8rem;
+  }
+  strong {
+    margin-top: 4px;
+    overflow: hidden;
+    font-size: clamp(1.12rem, 4.8vw, 1.7rem);
+    line-height: 1.2;
+    font-weight: 750;
+    letter-spacing: -0.025em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.training-history-chart {
+  padding-top: 30px;
+  padding-bottom: 14px;
+  h3 {
+    margin: 0 0 10px;
+    font-size: 1rem;
+    font-weight: 550;
+  }
+}
+
+@media (width >= 48rem) {
+  .training-history-filter-scroll {
+    padding: 24px 24px 10px;
+  }
+  .training-history-summary,
+  .training-history-chart {
+    padding-inline: 24px;
+  }
+  .training-history-totals {
+    max-width: 680px;
+    gap: 32px;
+  }
+  .training-history-chart {
+    padding-top: 38px;
+    padding-bottom: 20px;
+  }
+}
