@@ -84,7 +84,9 @@ export function MobileNavbar({
           <button
             key={id}
             type="button"
-            data-tab={`#mobile-panel-${id}`}
+            data-tab={
+              activeItem === label ? undefined : `#mobile-panel-${id}`
+            }
             className={
               activeItem === label ? "tab-link tab-link-active" : "tab-link"
             }
