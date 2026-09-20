@@ -119,12 +119,12 @@ function DashboardWorkoutProfile({ workout }: { workout: PlannedWorkout }) {
   if (!bars.length) return null
   return (
     <div
-      className="relative h-24 overflow-hidden rounded-xl border border-border/70 bg-muted/25 p-2.5 shadow-inner"
+      className="relative h-20 overflow-hidden px-1"
       role="img"
       aria-label="Workout intensity profile"
     >
-      <span className="pointer-events-none absolute inset-x-2.5 top-1/3 border-t border-border/45" />
-      <span className="pointer-events-none absolute inset-x-2.5 top-2/3 border-t border-border/45" />
+      <span className="pointer-events-none absolute inset-x-1 top-1/3 border-t border-border/40" />
+      <span className="pointer-events-none absolute inset-x-1 top-2/3 border-t border-border/40" />
       <div className="relative z-10 flex h-full items-end gap-px">
         {bars.map((bar, index) => (
           <span
@@ -199,7 +199,7 @@ function SessionCard({
           </h1>
         </CardTitle>
       </CardHeader>
-      <CardContent className="flex flex-1 flex-col justify-end gap-4">
+      <CardContent className="flex flex-1 flex-col justify-end gap-0">
         <DashboardWorkoutProfile workout={workout} />
         <div className="grid grid-cols-2 gap-4 border-t pt-4">
           <div>
