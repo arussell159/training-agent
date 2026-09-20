@@ -168,7 +168,7 @@ function SessionCard({
         event.preventDefault()
         onOpen()
       }}
-      className="relative w-[calc(100%-2px)] shrink-0 snap-center border-border/90 shadow-sm ring-1 ring-foreground/10"
+      className="relative w-[calc(100%-1rem)] shrink-0 snap-center border-border/90 shadow-sm ring-1 ring-foreground/10"
     >
       <CardHeader className="gap-3">
         <CardDescription>
@@ -261,7 +261,7 @@ export function MobileDailySessions({
       {selectedSessions.length ? (
         <div
           ref={sessionScroller}
-          className="flex snap-x snap-mandatory [scrollbar-width:none] gap-3 overflow-x-auto overscroll-x-contain px-px py-1 [&::-webkit-scrollbar]:hidden"
+          className="flex snap-x snap-mandatory scroll-px-2 [scrollbar-width:none] gap-3 overflow-x-auto overscroll-x-contain p-2 [&::-webkit-scrollbar]:hidden"
           onScroll={(event) => {
             const first = event.currentTarget
               .firstElementChild as HTMLElement | null
