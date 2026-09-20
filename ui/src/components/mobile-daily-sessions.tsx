@@ -21,14 +21,6 @@ import {
   type TrainingContext,
 } from "@/lib/training-context"
 
-const DAY_RANGE = 14
-
-function dateAt(day: string, offset: number) {
-  const value = new Date(`${day}T12:00:00`)
-  value.setDate(value.getDate() + offset)
-  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
-}
-
 function sportKind(sport: string) {
   const value = sport.toLowerCase()
   if (value.includes("swim")) return "swim"
@@ -42,14 +34,6 @@ function sportKind(sport: string) {
   if (value.includes("strength")) return "strength"
   return "other"
 }
-
-const sportColor = {
-  swim: "bg-cyan-500",
-  bike: "bg-orange-500",
-  run: "bg-lime-500",
-  strength: "bg-violet-500",
-  other: "bg-slate-400",
-} as const
 
 function SportGlyph({ sport }: { sport: string }) {
   const kind = sportKind(sport)
@@ -97,6 +81,21 @@ function sessionSummary(workout: PlannedWorkout) {
     : workout.workout_summary?.planned
 }
 
+function clock(seconds: number) {
+  const rounded = Math.max(0, Math.round(seconds))
+  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}`
+}
+
+function sessionSpeed(workout: PlannedWorkout) {
+  const speed = sessionSummary(workout)?.average_speed
+  const kind = sportKind(workout.sport)
+  const label = kind === "run" || kind === "swim" ? "Avg pace" : "Avg speed"
+  if (speed == null || speed <= 0) return { label, value: "—" }
+  if (kind === "run") return { label, value: `${clock(1609.344 / speed)}/mi` }
+  if (kind === "swim") return { label, value: `${clock(91.44 / speed)}/100y` }
+  return { label, value: `${(speed * 2.236936).toFixed(1)} mph` }
+}
+
 function sessionTime(workout: PlannedWorkout) {
   const source =
     workout.status === "completed"
@@ -128,6 +127,23 @@ function stressLabel(tss: number | null) {
 
 type Coordinates = { latitude: number; longitude: number }
 type Weather = { temperatureF: number | null; humidity: number | null }
+
+function useBrowserLocation(enabled: boolean) {
+  const [location, setLocation] = useState<Coordinates | null>(null)
+  useEffect(() => {
+    if (!enabled || !navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) =>
+        setLocation({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        }),
+      () => {},
+      { enableHighAccuracy: false, maximumAge: 60 * 60 * 1000, timeout: 5000 }
+    )
+  }, [enabled])
+  return location
+}
 
 function useSessionWeather(
   workout: PlannedWorkout,
@@ -223,9 +239,9 @@ function SessionSlide({
 }) {
   const completed = workout.status === "completed"
   const distance = plannedDistanceLabel(workout)
-  const kind = sportKind(workout.sport)
   const weather = useSessionWeather(workout, fallbackLocation)
   const tss = sessionTss(workout)
+  const speed = sessionSpeed(workout)
   const weatherLabel = [
     weather.temperatureF != null
       ? `${Math.round(weather.temperatureF)}°F`
@@ -241,15 +257,7 @@ function SessionSlide({
       className="relative w-full shrink-0 snap-center text-left"
       aria-label={`Open ${workout.title}`}
     >
-      <div className="flex items-center justify-center px-12">
-        <span className="absolute top-0.5 left-3 flex size-9 items-center justify-center rounded-full border-2 border-current text-primary [&>svg]:size-4">
-          <SportGlyph sport={workout.sport} />
-        </span>
-        <span className="text-base font-semibold tracking-wide uppercase">
-          {kind === "other" ? workout.sport : kind}
-        </span>
-      </div>
-      <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center px-3 text-center">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center px-3 pt-3 text-center">
         <span className="flex min-w-0 flex-col items-center">
           <span className="flex size-11 items-center justify-center rounded-full border-4 border-muted text-muted-foreground">
             <Sun className="size-5" aria-hidden="true" />
@@ -282,15 +290,15 @@ function SessionSlide({
           </span>
         </span>
       </div>
-      <div className="px-4 text-center">
-        <h2 className="mt-4 line-clamp-2 text-lg leading-tight font-semibold">
+      <div className="px-4 pt-5 text-center">
+        <h2 className="line-clamp-2 text-lg leading-tight font-semibold">
           {workout.title}
         </h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
           {completed ? "Completed" : "Planned"}
         </p>
       </div>
-      <div className="mt-5 grid grid-cols-2 divide-x divide-border px-7 pb-2 text-center">
+      <div className="mt-6 grid grid-cols-3 divide-x divide-border px-5 pb-3 text-center">
         <div className="px-1">
           <p className="text-base font-semibold tabular-nums">
             {sessionDuration(workout)}
@@ -300,6 +308,10 @@ function SessionSlide({
         <div className="px-1">
           <p className="text-base font-semibold tabular-nums">{distance}</p>
           <p className="text-[11px] text-muted-foreground">Distance</p>
+        </div>
+        <div className="px-1">
+          <p className="text-base font-semibold tabular-nums">{speed.value}</p>
+          <p className="text-[11px] text-muted-foreground">{speed.label}</p>
         </div>
       </div>
     </button>
@@ -314,22 +326,13 @@ export function MobileDailySessions({
   onWorkoutOpen?: (workout: PlannedWorkout) => void
 }) {
   const today = dashboardToday(context)
-  const [selectedDate, setSelectedDate] = useState(today)
   const [activeSession, setActiveSession] = useState(0)
   const sessionScroller = useRef<HTMLDivElement>(null)
-  const dateScroller = useRef<HTMLDivElement>(null)
   const sessions = useMemo(() => allSessions(context), [context])
-  const days = useMemo(
-    () =>
-      Array.from({ length: DAY_RANGE * 2 + 1 }, (_, index) =>
-        dateAt(today, index - DAY_RANGE)
-      ),
-    [today]
-  )
   const selectedSessions = sessions.filter(
-    (workout) => workout.workout_date === selectedDate
+    (workout) => workout.workout_date === today
   )
-  const fallbackLocation = (() => {
+  const savedLocation = (() => {
     for (const workout of sessions) {
       const values = workout.workout_summary?.completed
       if (values?.latitude != null && values.longitude != null)
@@ -343,21 +346,17 @@ export function MobileDailySessions({
       ? { latitude: athlete.latitude, longitude: athlete.longitude }
       : null
   })()
+  const browserLocation = useBrowserLocation(savedLocation == null)
+  const fallbackLocation = savedLocation ?? browserLocation
 
   useEffect(() => {
     setActiveSession(0)
     sessionScroller.current?.scrollTo({ left: 0, behavior: "smooth" })
-  }, [selectedDate])
-
-  useEffect(() => {
-    dateScroller.current
-      ?.querySelector<HTMLElement>(`[data-session-date="${today}"]`)
-      ?.scrollIntoView({ inline: "center", block: "nearest" })
   }, [today])
 
   return (
     <div className="col-span-2 min-w-0 md:hidden">
-      <Card className="relative gap-0 py-5 shadow-lg ring-2 ring-foreground/15">
+      <Card className="relative gap-0 py-8 shadow-md ring-1 ring-foreground/10">
         {selectedSessions.length > 1 && (
           <div
             className="absolute top-5 right-3 z-10 flex items-center gap-1.5"
@@ -412,52 +411,11 @@ export function MobileDailySessions({
               No sessions scheduled
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Choose another day below.
+              Nothing planned for today.
             </p>
           </div>
         )}
       </Card>
-
-      <div
-        ref={dateScroller}
-        className="mt-3 flex snap-x snap-mandatory [scrollbar-width:none] gap-1.5 overflow-x-auto overscroll-x-contain rounded-xl bg-muted/35 p-2 ring-1 ring-foreground/5 [&::-webkit-scrollbar]:hidden"
-        aria-label="Choose training day"
-      >
-        {days.map((day) => {
-          const date = new Date(`${day}T12:00:00`)
-          const daySessions = sessions.filter(
-            (workout) => workout.workout_date === day
-          )
-          const selected = day === selectedDate
-          const isToday = day === today
-          return (
-            <button
-              key={day}
-              type="button"
-              data-session-date={day}
-              onClick={() => setSelectedDate(day)}
-              className={`flex min-w-[62px] snap-center flex-col items-center rounded-xl px-2 py-2 ring-1 transition-colors ${isToday ? "bg-primary/5 text-foreground ring-2 ring-primary" : selected ? "bg-card text-foreground ring-primary/50" : "bg-card/70 text-muted-foreground ring-foreground/10"}`}
-              aria-pressed={selected}
-            >
-              <span className="text-lg font-semibold tabular-nums">
-                {date.getDate()}
-              </span>
-              <span className="text-xs">
-                {date.toLocaleDateString("en-US", { weekday: "short" })}
-              </span>
-              <span className="mt-2 flex min-h-1 items-center justify-center gap-1">
-                {daySessions.map((workout) => (
-                  <span
-                    key={workout.id}
-                    className={`h-1 w-4 rounded-full ${sportColor[sportKind(workout.sport)]}`}
-                    aria-hidden="true"
-                  />
-                ))}
-              </span>
-            </button>
-          )
-        })}
-      </div>
     </div>
   )
 }
