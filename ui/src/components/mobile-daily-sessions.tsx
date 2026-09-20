@@ -21,6 +21,14 @@ import {
   type TrainingContext,
 } from "@/lib/training-context"
 
+const DAY_RANGE = 14
+
+function dateAt(day: string, offset: number) {
+  const value = new Date(`${day}T12:00:00`)
+  value.setDate(value.getDate() + offset)
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
+}
+
 function sportKind(sport: string) {
   const value = sport.toLowerCase()
   if (value.includes("swim")) return "swim"
@@ -34,6 +42,14 @@ function sportKind(sport: string) {
   if (value.includes("strength")) return "strength"
   return "other"
 }
+
+const sportColor = {
+  swim: "bg-cyan-500",
+  bike: "bg-orange-500",
+  run: "bg-lime-500",
+  strength: "bg-violet-500",
+  other: "bg-slate-400",
+} as const
 
 function SportGlyph({ sport }: { sport: string }) {
   const kind = sportKind(sport)
@@ -127,6 +143,17 @@ function stressLabel(tss: number | null) {
 
 type Coordinates = { latitude: number; longitude: number }
 type Weather = { temperatureF: number | null; humidity: number | null }
+
+function temperatureBadgeStyle(temperatureF: number | null) {
+  if (temperatureF == null) return undefined
+  const ratio = Math.max(0, Math.min(1, (temperatureF - 30) / 65))
+  const hue = Math.round(215 * (1 - ratio))
+  return {
+    color: `hsl(${hue} 78% 46%)`,
+    borderColor: `hsl(${hue} 78% 46%)`,
+    backgroundColor: `hsl(${hue} 78% 46% / 0.1)`,
+  }
+}
 
 function useBrowserLocation(enabled: boolean) {
   const [location, setLocation] = useState<Coordinates | null>(null)
@@ -259,7 +286,10 @@ function SessionSlide({
     >
       <div className="grid grid-cols-[1fr_auto_1fr] items-center px-3 text-center">
         <span className="flex min-w-0 flex-col items-center">
-          <span className="flex size-11 items-center justify-center rounded-full border-4 border-muted text-muted-foreground">
+          <span
+            className="flex size-11 items-center justify-center rounded-full border-4 border-muted text-muted-foreground transition-colors"
+            style={temperatureBadgeStyle(weather.temperatureF)}
+          >
             <Sun className="size-5" aria-hidden="true" />
           </span>
           <strong className="mt-2 text-sm tabular-nums">
@@ -318,11 +348,20 @@ export function MobileDailySessions({
   onWorkoutOpen?: (workout: PlannedWorkout) => void
 }) {
   const today = dashboardToday(context)
+  const [selectedDate, setSelectedDate] = useState(today)
   const [activeSession, setActiveSession] = useState(0)
   const sessionScroller = useRef<HTMLDivElement>(null)
+  const dateScroller = useRef<HTMLDivElement>(null)
   const sessions = useMemo(() => allSessions(context), [context])
+  const days = useMemo(
+    () =>
+      Array.from({ length: DAY_RANGE * 2 + 1 }, (_, index) =>
+        dateAt(today, index - DAY_RANGE)
+      ),
+    [today]
+  )
   const selectedSessions = sessions.filter(
-    (workout) => workout.workout_date === today
+    (workout) => workout.workout_date === selectedDate
   )
   const savedLocation = (() => {
     for (const workout of sessions) {
@@ -344,6 +383,12 @@ export function MobileDailySessions({
   useEffect(() => {
     setActiveSession(0)
     sessionScroller.current?.scrollTo({ left: 0, behavior: "smooth" })
+  }, [selectedDate])
+
+  useEffect(() => {
+    dateScroller.current
+      ?.querySelector<HTMLElement>(`[data-session-date="${today}"]`)
+      ?.scrollIntoView({ inline: "center", block: "nearest" })
   }, [today])
 
   return (
@@ -422,11 +467,52 @@ export function MobileDailySessions({
               No sessions scheduled
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Nothing planned for today.
+              Choose another day below.
             </p>
           </div>
         )}
       </Card>
+
+      <div
+        ref={dateScroller}
+        className="mt-3 flex snap-x snap-mandatory [scrollbar-width:none] gap-1.5 overflow-x-auto overscroll-x-contain px-0.5 py-1 [&::-webkit-scrollbar]:hidden"
+        aria-label="Choose training day"
+      >
+        {days.map((day) => {
+          const date = new Date(`${day}T12:00:00`)
+          const daySessions = sessions.filter(
+            (workout) => workout.workout_date === day
+          )
+          const selected = day === selectedDate
+          const isToday = day === today
+          return (
+            <button
+              key={day}
+              type="button"
+              data-session-date={day}
+              onClick={() => setSelectedDate(day)}
+              className={`flex min-w-[62px] snap-center flex-col items-center rounded-xl px-2 py-2.5 transition-colors ${selected ? "bg-muted/80 text-foreground ring-1 ring-foreground/20" : "bg-muted/40 text-muted-foreground"} ${isToday ? "ring-2 ring-primary" : ""}`}
+              aria-pressed={selected}
+            >
+              <span className="text-lg font-semibold tabular-nums">
+                {date.getDate()}
+              </span>
+              <span className="text-xs">
+                {date.toLocaleDateString("en-US", { weekday: "short" })}
+              </span>
+              <span className="mt-2 flex min-h-1 items-center justify-center gap-1">
+                {daySessions.map((workout) => (
+                  <span
+                    key={workout.id}
+                    className={`h-1 w-4 rounded-full ${sportColor[sportKind(workout.sport)]}`}
+                    aria-hidden="true"
+                  />
+                ))}
+              </span>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
