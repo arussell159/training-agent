@@ -419,7 +419,10 @@ export function ChartAreaInteractive({ context }: { context: TrainingContext }) 
                 strokeWidth={2}
                 dot={{ r: 2, fill: "var(--color-value)", strokeWidth: 0 }}
                 activeDot={{ r: 4, fill: "var(--color-value)", strokeWidth: 0 }}
-                isAnimationActive={false}
+                isAnimationActive
+                animationBegin={0}
+                animationDuration={450}
+                animationEasing="linear"
               />
             </ComposedChart>
           </ChartContainer>
