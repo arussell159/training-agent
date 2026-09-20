@@ -179,6 +179,53 @@ function estimatedDistance(workout: PlannedWorkout) {
   return label === "—" ? "" : label
 }
 
+function sportAccent(sport: string) {
+  const value = sport.toLowerCase()
+  if (value.includes("swim")) return "bg-cyan-500"
+  if (value.includes("bike") || value.includes("brick")) return "bg-violet-500"
+  if (value.includes("run")) return "bg-lime-500"
+  if (value.includes("strength")) return "bg-orange-500"
+  return "bg-slate-400"
+}
+
+function MobileWorkoutRow({
+  workout,
+  onOpen,
+}: {
+  workout: PlannedWorkout
+  onOpen: () => void
+}) {
+  const minutes =
+    workout.status === "completed" && completedMinutes(workout) > 0
+      ? completedMinutes(workout)
+      : durationMinutes(workout)
+  const distance = estimatedDistance(workout)
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="grid min-h-16 w-full grid-cols-[4px_minmax(0,1fr)_auto] items-stretch gap-3 border-b border-border/70 bg-background px-1 py-2 text-left transition-colors active:bg-muted/60 md:hidden"
+      aria-label={`Open ${workout.title}`}
+    >
+      <span
+        aria-hidden="true"
+        className={`my-0.5 w-1 rounded-full ${sportAccent(workout.sport)}`}
+      />
+      <span className="min-w-0 self-start pt-0.5 text-[17px] leading-5 font-semibold text-foreground">
+        {workout.title}
+      </span>
+      <span className="flex min-w-16 flex-col items-end justify-start gap-1 pl-2 text-right tabular-nums">
+        <span className="text-[16px] leading-5 font-medium text-foreground">
+          {minutes > 0 ? formatDuration(minutes) : "—"}
+        </span>
+        <span className="text-[15px] leading-5 text-muted-foreground">
+          {distance || "—"}
+        </span>
+      </span>
+    </button>
+  )
+}
+
 function workoutDate(value?: string) {
   if (!value) return null
   const date = new Date(`${value}T00:00:00`)
@@ -1342,9 +1389,7 @@ export function TrainingCalendar({
         window.scrollTo({
           top: Math.max(
             0,
-            window.scrollY +
-              element.getBoundingClientRect().top -
-              headerOffset
+            window.scrollY + element.getBoundingClientRect().top - headerOffset
           ),
           behavior: "smooth",
         })
@@ -1450,6 +1495,7 @@ export function TrainingCalendar({
       >
         <MobileSiteNavbar
           fixed
+          className={datePickerOpen ? "calendar-picker-navbar-open" : undefined}
           titleLabel={displayedMonth}
           title={
             <button
@@ -1676,17 +1722,18 @@ export function TrainingCalendar({
                                   </div>
                                 </section>
                               )}
-                              <div
-                                className={`mb-3 items-center justify-between gap-2 ${isToday ? "hidden md:flex" : "flex"}`}
-                              >
+                              <div className="mb-3 flex items-center justify-between gap-2">
                                 <span
-                                  className={`px-0.5 text-sm ${isToday ? "hidden font-semibold text-primary md:inline" : "text-foreground"}`}
+                                  className={`px-0.5 text-lg font-bold md:text-sm ${isToday ? "text-primary" : "text-foreground"}`}
                                 >
                                   <span className="md:hidden">
                                     {day.toLocaleDateString("en-US", {
-                                      weekday: "short",
+                                      weekday: "long",
+                                    })}
+                                    {" – "}
+                                    {day.toLocaleDateString("en-US", {
+                                      month: "short",
                                     })}{" "}
-                                    -{" "}
                                   </span>
                                   {day.getDate()}
                                 </span>
@@ -1707,19 +1754,28 @@ export function TrainingCalendar({
                                   rows={context.wellness_history || []}
                                   onOpen={() => setMetricsDate(dateKey(day))}
                                 />
-                                {dayWorkouts.map((workout) => (
-                                  <DraggableWorkout
-                                    key={workout.id}
-                                    workout={workout}
-                                    disabled={
-                                      moving || !workout.id.startsWith("event:")
-                                    }
-                                    onOpen={() => openWorkout(workout)}
-                                    onAction={(action) =>
-                                      void runWorkoutAction(workout, action)
-                                    }
-                                  />
-                                ))}
+                                {dayWorkouts.map((workout) =>
+                                  isMobile ? (
+                                    <MobileWorkoutRow
+                                      key={workout.id}
+                                      workout={workout}
+                                      onOpen={() => openWorkout(workout)}
+                                    />
+                                  ) : (
+                                    <DraggableWorkout
+                                      key={workout.id}
+                                      workout={workout}
+                                      disabled={
+                                        moving ||
+                                        !workout.id.startsWith("event:")
+                                      }
+                                      onOpen={() => openWorkout(workout)}
+                                      onAction={(action) =>
+                                        void runWorkoutAction(workout, action)
+                                      }
+                                    />
+                                  )
+                                )}
                                 <button
                                   type="button"
                                   aria-label={
@@ -1868,27 +1924,10 @@ function WeekSummary({
               wrapperStyle={{ zIndex: 999 }}
               content={
                 <ChartTooltipContent
+                  pointOnly
                   hideLabel
-                  formatter={(value, name) => (
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="size-2 rounded-full"
-                        style={{
-                          backgroundColor:
-                            disciplineChartConfig[
-                              name as keyof typeof disciplineChartConfig
-                            ]?.color,
-                        }}
-                      />
-                      <span>
-                        {disciplineChartConfig[
-                          name as keyof typeof disciplineChartConfig
-                        ]?.label || name}
-                      </span>
-                      <span className="ml-2 font-medium tabular-nums">
-                        {formatDuration(Number(value))}
-                      </span>
-                    </div>
+                  formatter={(value) => (
+                    <span>{formatDuration(Number(value))}</span>
                   )}
                 />
               }

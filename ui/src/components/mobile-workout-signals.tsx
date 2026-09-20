@@ -178,7 +178,16 @@ export function MobileWorkoutSignals({
       className="mx-auto w-full max-w-2xl space-y-5"
       aria-label="Recorded workout graphs"
     >
-      {lapsOpen && <WorkoutLapsPage points={points} laps={laps} sport={sport} selected={lap} onSelect={selectLap} onClose={closeLaps} />}
+      {lapsOpen && (
+        <WorkoutLapsPage
+          points={points}
+          laps={laps}
+          sport={sport}
+          selected={lap}
+          onSelect={selectLap}
+          onClose={closeLaps}
+        />
+      )}
       <div ref={lapSection} className="scroll-mt-16 space-y-2">
         <WorkoutLapChart
           points={points}
@@ -187,12 +196,22 @@ export function MobileWorkoutSignals({
           selected={lap}
           onSelect={selectLap}
         />
-        {intervals.length > 0 && <div className="flex justify-end">
-          <button type="button" className="min-h-11 px-1 text-sm font-semibold text-primary" onClick={() => setLapsOpen(true)}>View workout</button>
-        </div>}
+        {intervals.length > 0 && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className="min-h-11 px-1 text-sm font-semibold text-primary"
+              onClick={() => setLapsOpen(true)}
+            >
+              View workout
+            </button>
+          </div>
+        )}
         {afterLaps}
       </div>
-      {!swim && /bike|ride|cycl|run/i.test(sport) && <WorkoutDfaChart points={points} duration={duration} statistics={dfa} />}
+      {!swim && /bike|ride|cycl|run/i.test(sport) && (
+        <WorkoutDfaChart points={points} duration={duration} statistics={dfa} />
+      )}
       {tracks.map((key) => {
         const samples = points.filter(
           (_, i) => i % Math.max(1, Math.floor(points.length / 800)) === 0
@@ -257,22 +276,9 @@ export function MobileWorkoutSignals({
                   left: tooltipPosition(time, duration),
                   transform: "translateX(-50%)",
                 }}
-                className="pointer-events-none absolute top-7 z-[999] w-44 rounded-lg border bg-white px-3 py-2 text-xs text-slate-900 shadow-lg"
+                className="pointer-events-none absolute top-7 z-[999] text-sm font-semibold whitespace-nowrap text-foreground tabular-nums [text-shadow:0_1px_2px_var(--background),0_0_7px_var(--background),0_0_12px_var(--background)]"
               >
-                <p className="mb-1 truncate text-slate-500">
-                  {interval && (lap || plateau)
-                    ? `${interval.lap.label} · Average`
-                    : clock(time)}
-                </p>
-                <strong>
-                  {format(inspectedValue, key)} {unit(key)}
-                </strong>
-                {key === "pace" && interval && (
-                  <p className="mt-1">
-                    Interval duration{" "}
-                    {clock(interval.lap.end - interval.lap.start)}
-                  </p>
-                )}
+                {format(inspectedValue, key)} {unit(key)}
               </div>
             )}
             <svg
@@ -291,6 +297,12 @@ export function MobileWorkoutSignals({
               onPointerUp={(e) => {
                 if (e.currentTarget.hasPointerCapture(e.pointerId))
                   e.currentTarget.releasePointerCapture(e.pointerId)
+                setTime(null)
+                setActiveTrack(null)
+              }}
+              onPointerCancel={() => {
+                setTime(null)
+                setActiveTrack(null)
               }}
             >
               {[0, 0.25, 0.5, 0.75, 1].map((f) => (

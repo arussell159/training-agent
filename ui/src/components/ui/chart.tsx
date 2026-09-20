@@ -24,6 +24,7 @@ export type ChartConfig = Record<
 
 type ChartContextProps = {
   config: ChartConfig
+  tooltipPressed: boolean
 }
 
 const ChartContext = React.createContext<ChartContextProps | null>(null)
@@ -57,9 +58,21 @@ function ChartContainer({
 }) {
   const uniqueId = React.useId()
   const chartId = `chart-${id ?? uniqueId.replace(/:/g, "")}`
+  const [tooltipPressed, setTooltipPressed] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!tooltipPressed) return
+    const release = () => setTooltipPressed(false)
+    window.addEventListener("pointerup", release, true)
+    window.addEventListener("pointercancel", release, true)
+    return () => {
+      window.removeEventListener("pointerup", release, true)
+      window.removeEventListener("pointercancel", release, true)
+    }
+  }, [tooltipPressed])
 
   return (
-    <ChartContext.Provider value={{ config }}>
+    <ChartContext.Provider value={{ config, tooltipPressed }}>
       <div
         data-slot="chart"
         data-chart={chartId}
@@ -68,6 +81,16 @@ function ChartContainer({
           className
         )}
         {...props}
+        onPointerDownCapture={(event) => {
+          setTooltipPressed(true)
+          props.onPointerDownCapture?.(event)
+        }}
+        onPointerLeave={(event) => {
+          if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+            setTooltipPressed(false)
+          }
+          props.onPointerLeave?.(event)
+        }}
       >
         <ChartStyle id={chartId} config={config} />
         <RechartsPrimitive.ResponsiveContainer
@@ -113,7 +136,17 @@ ${colorConfig
   )
 }
 
-const ChartTooltip = RechartsPrimitive.Tooltip
+function ChartTooltip(
+  props: React.ComponentProps<typeof RechartsPrimitive.Tooltip>
+) {
+  const { tooltipPressed } = useChart()
+  return (
+    <RechartsPrimitive.Tooltip
+      {...props}
+      active={tooltipPressed ? undefined : false}
+    />
+  )
+}
 
 function ChartTooltipContent({
   active,
@@ -129,6 +162,7 @@ function ChartTooltipContent({
   color,
   nameKey,
   labelKey,
+  pointOnly = false,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
   React.ComponentProps<"div"> & {
     hideLabel?: boolean
@@ -136,6 +170,7 @@ function ChartTooltipContent({
     indicator?: "line" | "dot" | "dashed"
     nameKey?: string
     labelKey?: string
+    pointOnly?: boolean
   } & Omit<
     RechartsPrimitive.DefaultTooltipContentProps<
       TooltipValueType,
@@ -183,6 +218,25 @@ function ChartTooltipContent({
 
   if (!active || !payload?.length) {
     return null
+  }
+
+  if (pointOnly) {
+    const item = payload.find((entry) => entry.type !== "none")
+    if (!item || item.value == null) return null
+    return (
+      <div
+        className={cn(
+          "pointer-events-none text-sm font-semibold whitespace-nowrap text-foreground tabular-nums [text-shadow:0_1px_2px_var(--background),0_0_7px_var(--background),0_0_12px_var(--background)]",
+          className
+        )}
+      >
+        {formatter && item.name
+          ? formatter(item.value, item.name, item, 0, item.payload)
+          : typeof item.value === "number"
+            ? item.value.toLocaleString()
+            : String(item.value)}
+      </div>
+    )
   }
 
   const nestLabel = payload.length === 1 && indicator !== "dot"

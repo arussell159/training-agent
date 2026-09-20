@@ -409,27 +409,13 @@ export function ChartAreaInteractive({
                 cursor={{ stroke: "var(--border)" }}
                 content={
                   <ChartTooltipContent
-                    indicator="dot"
-                    labelFormatter={(value) =>
-                      `Week of ${new Date(
-                        `${value}T12:00:00Z`
-                      ).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        timeZone: "UTC",
-                      })}`
-                    }
+                    pointOnly
                     formatter={(value) => (
-                      <div className="flex min-w-32 flex-1 justify-between gap-4">
-                        <span className="text-muted-foreground">
-                          {historyMetric === "time" ? "Time" : "Distance"}
-                        </span>
-                        <span className="font-mono font-medium tabular-nums">
-                          {historyMetric === "time"
-                            ? formatHours(Number(value))
-                            : formatChartDistance(Number(value), sport)}
-                        </span>
-                      </div>
+                      <span>
+                        {historyMetric === "time"
+                          ? formatHours(Number(value))
+                          : formatChartDistance(Number(value), sport)}
+                      </span>
                     )}
                   />
                 }

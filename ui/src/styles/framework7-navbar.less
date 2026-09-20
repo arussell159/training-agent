@@ -93,6 +93,22 @@
     inset-inline: 0;
   }
 
+  .calendar-picker-navbar-open {
+    --f7-navbar-bg-color: var(--background);
+
+    .navbar,
+    .navbar-bg {
+      background: var(--background);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    .navbar::after,
+    .navbar-bg::after {
+      content: none;
+    }
+  }
+
   .calendar-month-title-button {
     display: inline-flex;
     min-width: 0;

@@ -1,6 +1,6 @@
-import {formatDuration} from '@/lib/duration'
-import {durationMinutes} from '@/lib/training-context'
-import {recoverySeries, todaysWorkout} from '@/lib/dashboard-metrics'
+import { formatDuration } from "@/lib/duration"
+import { durationMinutes } from "@/lib/training-context"
+import { recoverySeries, todaysWorkout } from "@/lib/dashboard-metrics"
 import { Activity, Clock3, Gauge, HeartPulse, MoonStar } from "lucide-react"
 import {
   Area,
@@ -60,13 +60,19 @@ export function workoutProfile(title = "", sport = "", details = "") {
     for (let repeat = 0; repeat < repeats; repeat += 1) {
       for (const part of parts) {
         const amount = Number(part.match(/\d+(?:\.\d+)?/)?.[0] ?? 1)
-        const unit = part.match(/\b(hours?|hrs?|mins?|minutes?|secs?|seconds?|yds?|yards?|meters?|km)\b/i)?.[0]?.toLowerCase()
+        const unit = part
+          .match(
+            /\b(hours?|hrs?|mins?|minutes?|secs?|seconds?|yds?|yards?|meters?|km)\b/i
+          )?.[0]
+          ?.toLowerCase()
         let width = amount
         if (unit?.startsWith("hour") || unit?.startsWith("hr")) width *= 3600
         else if (unit?.startsWith("min")) width *= 60
         else if (unit === "km") width *= 1000
 
-        const zones = [...part.matchAll(/Z([1-5])/gi)].map((match) => Number(match[1]))
+        const zones = [...part.matchAll(/Z([1-5])/gi)].map((match) =>
+          Number(match[1])
+        )
         const zone = zones.length
           ? zones.reduce((sum, value) => sum + value, 0) / zones.length
           : /rest|easy|valley|cool-down/i.test(part)
@@ -80,9 +86,9 @@ export function workoutProfile(title = "", sport = "", details = "") {
   }
 
   if (!segments.length) {
-    const titleSets = [...title.matchAll(/(\d+)\s*[x×]\s*(\d+)\s*(min|m|yd|km)?/gi)].map(
-      (match) => ({ repeats: Number(match[1]), amount: Number(match[2]) })
-    )
+    const titleSets = [
+      ...title.matchAll(/(\d+)\s*[x×]\s*(\d+)\s*(min|m|yd|km)?/gi),
+    ].map((match) => ({ repeats: Number(match[1]), amount: Number(match[2]) }))
     const baseAmount = Math.max(
       1,
       Math.min(...titleSets.map((set) => set.amount), 100)
@@ -123,19 +129,23 @@ function RecoveryTrendCard({
 }) {
   const data = latestRecoverySeries(context, metric)
   const isHrv = metric === "hrv"
-  const liveValue = isHrv
-    ? context.wellness?.hrv
-    : context.wellness?.resting_hr
+  const liveValue = isHrv ? context.wellness?.hrv : context.wellness?.resting_hr
   const current = liveValue ?? data.at(-1)?.value
-  const low = Math.min(...data.map((item) => Math.min(item.baselineLow, item.value)), current ?? 0)
-  const high = Math.max(...data.map((item) => Math.max(item.baselineHigh, item.value)), current ?? 1)
+  const low = Math.min(
+    ...data.map((item) => Math.min(item.baselineLow, item.value)),
+    current ?? 0
+  )
+  const high = Math.max(
+    ...data.map((item) => Math.max(item.baselineHigh, item.value)),
+    current ?? 1
+  )
 
   return (
     <Card className="min-w-0 overflow-hidden [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-2">
       <CardHeader className="pb-0">
         <CardDescription>{isHrv ? "HRV" : "RHR"}</CardDescription>
         <CardTitle className="text-2xl tabular-nums sm:text-3xl">
-          {current ?? '—'}
+          {current ?? "—"}
           <span className="ml-1 text-sm font-normal text-muted-foreground">
             {isHrv ? "ms" : "bpm"}
           </span>
@@ -149,7 +159,10 @@ function RecoveryTrendCard({
         </CardAction>
       </CardHeader>
       <CardContent className="px-1 pb-2 sm:px-2 sm:pb-3">
-        <ChartContainer config={recoveryChartConfig} className="h-20 w-full sm:h-24">
+        <ChartContainer
+          config={recoveryChartConfig}
+          className="h-20 w-full sm:h-24"
+        >
           <ComposedChart
             data={data}
             margin={{ top: 8, right: 8, bottom: 4, left: 8 }}
@@ -186,38 +199,13 @@ function RecoveryTrendCard({
               cursor={false}
               content={
                 <ChartTooltipContent
-                  labelFormatter={(value) =>
-                    new Date(`${value}T12:00:00`).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })
-                  }
-                  formatter={(value, _name, _item, _index, payload) => {
-                    const point = payload as unknown as { average?: number; date?: string; baselineLow?: number; baselineHigh?: number }
+                  pointOnly
+                  formatter={(value) => {
                     const unit = isHrv ? "ms" : "bpm"
-                    const dateLabel = point.date
-                      ? new Date(`${point.date}T12:00:00`).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                        })
-                      : "Date"
                     return (
-                      <div className="grid min-w-36 flex-1 gap-1">
-                        <div className="flex justify-between gap-4">
-                          <span className="text-muted-foreground">{dateLabel}</span>
-                          <span className="font-mono font-medium tabular-nums">
-                            {Number(value).toFixed(0)} {unit}
-                          </span>
-                        </div>
-                        <div className="flex justify-between gap-4">
-                          <span className="text-muted-foreground">7-day average</span>
-                          <span className="font-mono font-medium tabular-nums">
-                            {Number(point.average ?? value).toFixed(1)} {unit}
-                          </span>
-                        </div>
-                        <div className="flex justify-between gap-4"><span className="text-muted-foreground">Range</span><span className="font-mono font-medium tabular-nums">{point.baselineLow}–{point.baselineHigh} {unit}</span></div>
-                      </div>
+                      <span>
+                        {Number(value).toFixed(0)} {unit}
+                      </span>
                     )
                   }}
                 />
@@ -232,7 +220,18 @@ function RecoveryTrendCard({
             />
           </ComposedChart>
         </ChartContainer>
-        {data.length > 0 && <div className="flex flex-wrap justify-between gap-1 px-3 pt-1 text-[11px] text-muted-foreground" aria-label={`${isHrv ? 'HRV' : 'Resting heart rate'} baseline range`}><span>Low {data.at(-1)!.baselineLow}</span><span>Avg {data.at(-1)!.average}</span><span>High {data.at(-1)!.baselineHigh} {isHrv ? 'ms' : 'bpm'}</span></div>}
+        {data.length > 0 && (
+          <div
+            className="flex flex-wrap justify-between gap-1 px-3 pt-1 text-[11px] text-muted-foreground"
+            aria-label={`${isHrv ? "HRV" : "Resting heart rate"} baseline range`}
+          >
+            <span>Low {data.at(-1)!.baselineLow}</span>
+            <span>Avg {data.at(-1)!.average}</span>
+            <span>
+              High {data.at(-1)!.baselineHigh} {isHrv ? "ms" : "bpm"}
+            </span>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -272,16 +271,17 @@ function SleepCard({ context }: { context: TrainingContext }) {
   )
   const latest =
     rows
-      .filter((row) =>
-        Object.keys(row).some((key) => /sleep|bed|wake|rem|nap/i.test(key)) ||
-        (Array.isArray(row.details) &&
-          row.details.some(
-            (detail) =>
-              detail &&
-              typeof detail === "object" &&
-              "label" in detail &&
-              /sleep|bed|wake|rem|nap/i.test(String(detail.label))
-          ))
+      .filter(
+        (row) =>
+          Object.keys(row).some((key) => /sleep|bed|wake|rem|nap/i.test(key)) ||
+          (Array.isArray(row.details) &&
+            row.details.some(
+              (detail) =>
+                detail &&
+                typeof detail === "object" &&
+                "label" in detail &&
+                /sleep|bed|wake|rem|nap/i.test(String(detail.label))
+            ))
       )
       .at(-1) || null
   const total =
@@ -298,9 +298,7 @@ function SleepCard({ context }: { context: TrainingContext }) {
         .filter(
           ([key, value]) =>
             value != null &&
-            !["sleep", "sleepSecs", "date", "id", "timeStamp"].includes(
-              key
-            ) &&
+            !["sleep", "sleepSecs", "date", "id", "timeStamp"].includes(key) &&
             /sleep|bed|wake|rem|nap/i.test(key)
         )
         .flatMap(([key, value]) => {
@@ -333,10 +331,9 @@ function SleepCard({ context }: { context: TrainingContext }) {
           Sleep
           {date ? (
             <span className="ml-2">
-              {new Date(`${String(date).slice(0, 10)}T12:00:00`).toLocaleDateString(
-                "en-US",
-                { month: "short", day: "numeric" }
-              )}
+              {new Date(
+                `${String(date).slice(0, 10)}T12:00:00`
+              ).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
             </span>
           ) : null}
         </CardDescription>
@@ -369,7 +366,10 @@ function SleepCard({ context }: { context: TrainingContext }) {
   )
 }
 
-import { hasWorkoutStructure, structuredWorkoutProfile } from "@/lib/workout-structure"
+import {
+  hasWorkoutStructure,
+  structuredWorkoutProfile,
+} from "@/lib/workout-structure"
 
 export function SectionCards({
   context,
@@ -379,9 +379,12 @@ export function SectionCards({
   onWorkoutOpen?: (workout: PlannedWorkout) => void
 }) {
   const today = todaysWorkout(context)
-  const fitness = context.metrics.fitness == null ? '—' : Math.round(context.metrics.fitness)
-  const fatigue = context.metrics.fatigue == null ? '—' : Math.round(context.metrics.fatigue)
-  const form = context.metrics.form == null ? '—' : Math.round(context.metrics.form)
+  const fitness =
+    context.metrics.fitness == null ? "—" : Math.round(context.metrics.fitness)
+  const fatigue =
+    context.metrics.fatigue == null ? "—" : Math.round(context.metrics.fatigue)
+  const form =
+    context.metrics.form == null ? "—" : Math.round(context.metrics.form)
   const profile = structuredWorkoutProfile(today?.structure)
 
   return (
@@ -392,7 +395,8 @@ export function SectionCards({
         aria-label={onWorkoutOpen && today ? `Open ${today.title}` : undefined}
         onClick={() => today && onWorkoutOpen?.(today)}
         onKeyDown={(event) => {
-          if (!onWorkoutOpen || (event.key !== "Enter" && event.key !== " ")) return
+          if (!onWorkoutOpen || (event.key !== "Enter" && event.key !== " "))
+            return
           event.preventDefault()
           if (today) onWorkoutOpen(today)
         }}
@@ -401,7 +405,9 @@ export function SectionCards({
         <CardHeader className="gap-3">
           <CardDescription>
             Today&apos;s workout
-            {today?.status === 'completed' && <span className="ml-2 text-primary">Completed</span>}
+            {today?.status === "completed" && (
+              <span className="ml-2 text-primary">Completed</span>
+            )}
           </CardDescription>
           <CardTitle>
             <h1 className="text-2xl leading-tight font-semibold tracking-tight md:text-3xl">
@@ -410,31 +416,33 @@ export function SectionCards({
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-1 flex-col justify-end gap-3">
-          {hasWorkoutStructure(today?.structure) && <div>
-            <ChartContainer
-              config={workoutChartConfig}
-              className="h-20 w-full"
-              aria-label="Workout intensity profile"
-            >
-              <AreaChart data={profile} accessibilityLayer>
-                <XAxis
-                  dataKey="position"
-                  type="number"
-                  hide
-                  domain={["dataMin", "dataMax"]}
-                />
-                <YAxis hide domain={[0, 100]} />
-                <Area
-                  dataKey="intensity"
-                  type="linear"
-                  fill="var(--color-intensity)"
-                  fillOpacity={1}
-                  stroke="none"
-                  isAnimationActive={false}
-                />
-              </AreaChart>
-            </ChartContainer>
-          </div>}
+          {hasWorkoutStructure(today?.structure) && (
+            <div>
+              <ChartContainer
+                config={workoutChartConfig}
+                className="h-20 w-full"
+                aria-label="Workout intensity profile"
+              >
+                <AreaChart data={profile} accessibilityLayer>
+                  <XAxis
+                    dataKey="position"
+                    type="number"
+                    hide
+                    domain={["dataMin", "dataMax"]}
+                  />
+                  <YAxis hide domain={[0, 100]} />
+                  <Area
+                    dataKey="intensity"
+                    type="linear"
+                    fill="var(--color-intensity)"
+                    fillOpacity={1}
+                    stroke="none"
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ChartContainer>
+            </div>
+          )}
           <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
             {today?.goal ?? "Keep the day easy and protect recovery."}
           </p>
@@ -442,7 +450,8 @@ export function SectionCards({
             <div>
               <p className="text-xs text-muted-foreground">Duration</p>
               <p className="mt-1 flex items-center gap-2 font-medium">
-                <Clock3 className="size-4" /> {today ? formatDuration(durationMinutes(today)) : "—"}
+                <Clock3 className="size-4" />{" "}
+                {today ? formatDuration(durationMinutes(today)) : "—"}
               </p>
             </div>
             <div>
@@ -483,7 +492,7 @@ export function SectionCards({
           <div className="min-w-0 pl-2 sm:pl-5">
             <p className="text-xs text-muted-foreground">Form</p>
             <p className="mt-1 text-lg font-semibold tabular-nums">
-              {typeof form === 'number' && form > 0 ? "+" : ""}
+              {typeof form === "number" && form > 0 ? "+" : ""}
               {form} <span className="text-xs font-normal">TSB</span>
             </p>
           </div>
