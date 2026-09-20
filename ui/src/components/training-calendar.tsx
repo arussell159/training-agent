@@ -228,6 +228,38 @@ function MobileWorkoutRow({
   )
 }
 
+function DraggableMobileWorkoutRow({
+  workout,
+  onOpen,
+  showDivider,
+  disabled,
+}: {
+  workout: PlannedWorkout
+  onOpen: () => void
+  showDivider: boolean
+  disabled: boolean
+}) {
+  const { setNodeRef, listeners, attributes, isDragging } = useDraggable({
+    id: workout.id,
+    data: { workout },
+    disabled,
+  })
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={`select-none md:hidden ${isDragging ? "opacity-30" : ""}`}
+    >
+      <MobileWorkoutRow
+        workout={workout}
+        onOpen={onOpen}
+        showDivider={showDivider}
+      />
+    </div>
+  )
+}
+
 function workoutDate(value?: string) {
   if (!value) return null
   const date = new Date(`${value}T00:00:00`)
@@ -1721,13 +1753,18 @@ export function TrainingCalendar({
                                 />
                                 {dayWorkouts.map((workout, workoutIndex) =>
                                   isMobile ? (
-                                    <MobileWorkoutRow
+                                    <DraggableMobileWorkoutRow
                                       key={workout.id}
                                       workout={workout}
                                       onOpen={() => openWorkout(workout)}
                                       showDivider={
                                         dayWorkouts.length > 1 &&
                                         workoutIndex < dayWorkouts.length - 1
+                                      }
+                                      disabled={
+                                        moving ||
+                                        isRaceWorkout(workout) ||
+                                        !canEditWorkout(workout)
                                       }
                                     />
                                   ) : (
@@ -1804,8 +1841,16 @@ export function TrainingCalendar({
       </div>
       <DragOverlay>
         {dragging ? (
-          <div className="max-w-sm cursor-grabbing shadow-xl">
-            <WorkoutCard workout={dragging} onClick={() => {}} />
+          <div className="pointer-events-none max-w-sm cursor-grabbing shadow-xl">
+            {isMobile ? (
+              <MobileWorkoutRow
+                workout={dragging}
+                onOpen={() => {}}
+                showDivider={false}
+              />
+            ) : (
+              <WorkoutCard workout={dragging} onClick={() => {}} />
+            )}
           </div>
         ) : null}
       </DragOverlay>
