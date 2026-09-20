@@ -150,17 +150,14 @@ export function DailyMetricsCard({
   ].filter((metric) => metric != null)
   if (!displayMetrics.length) return null
   return (
-    <button
-      type="button"
-      role="button"
-      onClick={onOpen}
-      aria-label={`Metrics for ${date}`}
-      className="w-full bg-background text-left transition-colors active:bg-muted/60 md:rounded-xl md:border md:border-border md:hover:bg-accent/50"
-    >
-      {displayMetrics.map(({ label, value, icon: Icon }, index) => (
-        <span
+    <>
+      {displayMetrics.map(({ label, value, icon: Icon }) => (
+        <button
+          type="button"
           key={label}
-          className={`grid min-h-11 grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2 px-1 py-1.5 md:px-2.5 ${index < displayMetrics.length - 1 ? "border-b border-border/70" : ""}`}
+          onClick={onOpen}
+          aria-label={`${label} for ${date}: ${value}`}
+          className="grid min-h-10 w-full grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2 border-b border-border/70 bg-background px-1 py-1 text-left transition-colors active:bg-muted/60 md:hidden"
         >
           <span className="flex size-6 items-center justify-center rounded-full bg-blue-500 text-white">
             <Icon className="size-3.5" strokeWidth={2.25} aria-hidden="true" />
@@ -171,9 +168,26 @@ export function DailyMetricsCard({
           <span className="pl-2 text-[14px] leading-5 text-foreground tabular-nums">
             {value}
           </span>
-        </span>
+        </button>
       ))}
-    </button>
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Metrics for ${date}`}
+        className="hidden w-full rounded-xl border border-border bg-background p-2.5 text-left transition-colors hover:bg-accent/50 md:block"
+      >
+        <span className="grid grid-cols-2 gap-2">
+          {displayMetrics.map(({ label, value }) => (
+            <span key={label} className="min-w-0">
+              <span className="block text-[10px] text-muted-foreground">
+                {label}
+              </span>
+              <span className="block text-xs font-medium">{value}</span>
+            </span>
+          ))}
+        </span>
+      </button>
+    </>
   )
 }
 

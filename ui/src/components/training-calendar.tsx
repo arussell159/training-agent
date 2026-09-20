@@ -1713,7 +1713,7 @@ export function TrainingCalendar({
                                   }
                                 />
                               </div>
-                              <div className="space-y-2">
+                              <div className="space-y-0 md:space-y-2">
                                 <DailyMetricsCard
                                   date={dateKey(day)}
                                   rows={context.wellness_history || []}

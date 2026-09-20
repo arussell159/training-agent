@@ -3,9 +3,9 @@ import {
   Bike,
   CalendarClock,
   Check,
+  Clock3,
   Dumbbell,
   Footprints,
-  Sun,
   Waves,
   Zap,
 } from "lucide-react"
@@ -143,17 +143,6 @@ function stressLabel(tss: number | null) {
 
 type Weather = { temperatureF: number | null; humidity: number | null }
 
-function temperatureBadgeStyle(temperatureF: number | null) {
-  if (temperatureF == null) return undefined
-  const ratio = Math.max(0, Math.min(1, (temperatureF - 30) / 65))
-  const hue = Math.round(215 * (1 - ratio))
-  return {
-    color: `hsl(${hue} 78% 46%)`,
-    borderColor: `hsl(${hue} 78% 46%)`,
-    backgroundColor: `hsl(${hue} 78% 46% / 0.1)`,
-  }
-}
-
 function sessionWeather(workout: PlannedWorkout): Weather {
   const summary = sessionSummary(workout)
   return {
@@ -194,17 +183,10 @@ function SessionSlide({
     >
       <div className="grid grid-cols-[1fr_auto_1fr] items-center px-3 text-center">
         <span className="flex min-w-0 flex-col items-center">
-          {weatherLabel && (
-            <span
-              className="flex size-11 items-center justify-center rounded-full border-4 border-muted text-muted-foreground transition-colors"
-              style={temperatureBadgeStyle(weather.temperatureF)}
-            >
-              <Sun className="size-5" aria-hidden="true" />
-            </span>
-          )}
-          <strong
-            className={`${weatherLabel ? "mt-2" : ""} text-sm tabular-nums`}
-          >
+          <span className="flex size-11 items-center justify-center rounded-full border-4 border-muted text-muted-foreground">
+            <Clock3 className="size-5" aria-hidden="true" />
+          </span>
+          <strong className="mt-2 text-sm tabular-nums">
             {sessionTime(workout)}
           </strong>
           {weatherLabel && (
