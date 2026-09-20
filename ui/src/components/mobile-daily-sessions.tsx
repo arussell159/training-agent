@@ -15,6 +15,7 @@ import {
   type PlannedWorkout,
   type TrainingContext,
 } from "@/lib/training-context"
+import { workoutProfileSegments } from "@/lib/workout-structure"
 
 const DAY_RANGE = 14
 
@@ -86,6 +87,62 @@ function trainingLoad(workout: PlannedWorkout) {
   )
 }
 
+function compactProfile(workout: PlannedWorkout) {
+  const segments = workoutProfileSegments(workout.structure)
+  if (segments.length <= 96) return segments
+  const size = Math.ceil(segments.length / 96)
+  return Array.from(
+    { length: Math.ceil(segments.length / size) },
+    (_, index) => {
+      const group = segments.slice(index * size, (index + 1) * size)
+      const width = group.reduce((sum, segment) => sum + segment.width, 0)
+      const intensity = width
+        ? group.reduce(
+            (sum, segment) => sum + segment.intensity * segment.width,
+            0
+          ) / width
+        : 0
+      return { width, intensity }
+    }
+  )
+}
+
+function profileBarColor(intensity: number) {
+  if (intensity <= 8) return "bg-muted-foreground/25"
+  if (intensity < 45) return "bg-primary/45"
+  if (intensity < 70) return "bg-primary/70"
+  return "bg-primary"
+}
+
+function DashboardWorkoutProfile({ workout }: { workout: PlannedWorkout }) {
+  const bars = compactProfile(workout)
+  if (!bars.length) return null
+  return (
+    <div
+      className="relative h-24 overflow-hidden rounded-xl border border-border/70 bg-muted/25 p-2.5 shadow-inner"
+      role="img"
+      aria-label="Workout intensity profile"
+    >
+      <span className="pointer-events-none absolute inset-x-2.5 top-1/3 border-t border-border/45" />
+      <span className="pointer-events-none absolute inset-x-2.5 top-2/3 border-t border-border/45" />
+      <div className="relative z-10 flex h-full items-end gap-px">
+        {bars.map((bar, index) => (
+          <span
+            key={index}
+            className={`min-w-0 rounded-t-[3px] shadow-[0_-1px_0_rgba(255,255,255,0.16)] ${profileBarColor(bar.intensity)}`}
+            style={{
+              flexBasis: 0,
+              flexGrow: Math.max(1, bar.width),
+              height: `${Math.max(7, bar.intensity)}%`,
+            }}
+            aria-hidden="true"
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function SessionCard({
   workout,
   dayLabel,
@@ -143,6 +200,7 @@ function SessionCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col justify-end gap-4">
+        <DashboardWorkoutProfile workout={workout} />
         <div className="grid grid-cols-2 gap-4 border-t pt-4">
           <div>
             <p className="text-xs text-muted-foreground">Duration</p>
