@@ -72,17 +72,18 @@ test("unpaired plans read descriptions and comment failures are not treated as m
 
 test("event reports resolve the paired activity when the single-event response omits it", async () => {
   const request = async (path) => {
-    if (path === "/athlete/0/events/10")
-      return { id: 10, start_date_local: "2026-09-20T00:00:00" };
+    if (path === "/athlete/0/events/10") return { id: 10, start_date_local: "2026-09-20T00:00:00" };
     if (path === "/athlete/0/activities?oldest=2026-09-20&newest=2026-09-20")
       return [{ id: "i42", paired_event_id: 10 }];
     if (path === "/activity/i42")
       return { id: "i42", paired_event_id: 10, start_date_local: "2026-09-20T09:20:21" };
     if (path === "/activity/i42/messages")
-      return [{
-        content:
-          "[[SECTION11_REPORT:PRE_WORKOUT:i42]]\nSaved in Intervals\n[[/SECTION11_REPORT:PRE_WORKOUT:i42]]",
-      }];
+      return [
+        {
+          content:
+            "[[SECTION11_REPORT:PRE_WORKOUT:i42]]\nSaved in Intervals\n[[/SECTION11_REPORT:PRE_WORKOUT:i42]]",
+        },
+      ];
     throw new Error(`Unexpected ${path}`);
   };
   const actual = await fetchIntervalsWorkoutReports(request, "event:10");
