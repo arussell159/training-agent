@@ -1361,6 +1361,8 @@ export function TrainingCalendar({
     const selected = activeWeek?.start ?? new Date()
     f7ready((app) => {
       if (destroyed || !mobilePickerContainerRef.current) return
+      const container = mobilePickerContainerRef.current
+      container.replaceChildren()
       const updatePickerMonth = (calendar: {
         currentMonth: number
         currentYear: number
@@ -1374,7 +1376,7 @@ export function TrainingCalendar({
         )
       }
       picker = app.calendar.create({
-        containerEl: mobilePickerContainerRef.current,
+        containerEl: container,
         value: [selected],
         minDate: weeks[0]?.days[0] ?? null,
         maxDate: weeks[weeks.length - 1]?.days[6] ?? null,
@@ -1399,6 +1401,7 @@ export function TrainingCalendar({
       destroyed = true
       mobilePickerRef.current = null
       picker?.destroy()
+      mobilePickerContainerRef.current?.replaceChildren()
     }
   }, [activeWeek?.start, datePickerOpen, isMobile, jumpToDate, weeks])
 
