@@ -38,6 +38,7 @@ jobs:
         run: python test_workout_reports.py
       - name: Write and verify pre and post workout reports
         env:
+          ATHLETE_ID: ${{ secrets.ATHLETE_ID }}
           INTERVALS_KEY: ${{ secrets.INTERVALS_KEY }}
           TZ: America/Chicago
         run: python workout_reports.py

@@ -14,7 +14,7 @@ for key, value in dict(BASE_URL="https://intervals.invalid", READ_TIMEOUT=30, WR
                       build_report=Mock(return_value="post text"), get_activity=Mock(return_value={'icu_chat_id': 123}), get_messages=Mock(return_value=[]),
                       headers=lambda key: {}, match_plan=lambda a, p: next((x for x in p if x.get("name") == a.get("name")), None),
                       message_text=lambda m: (m or {}).get("content", ""),
-                      requests=types.SimpleNamespace(post=Mock(), put=Mock(), RequestException=RuntimeError)).items():
+                      requests=types.SimpleNamespace(get=Mock(), post=Mock(), put=Mock(), RequestException=RuntimeError)).items():
     setattr(stub, key, value)
 sys.modules["post_workout_report"] = stub
 spec = importlib.util.spec_from_file_location("workout_reports", Path(__file__).with_name("workout_reports.py"))
@@ -106,6 +106,36 @@ class ReportsTest(unittest.TestCase):
             self.assertEqual([c.args[0]['recent_activities'] for c in build.call_args_list], [[latest['recent_activities'][0]], [latest['recent_activities'][1]]])
             self.assertEqual(len(latest['recent_activities']), 3)
             self.assertEqual([c.args[:3:2] for c in publish.call_args_list], [("new", "PRE_WORKOUT"), ("new", "POST_WORKOUT"), ("yesterday", "PRE_WORKOUT"), ("yesterday", "POST_WORKOUT")])
+
+    def test_planned_pre_waits_for_complete_morning_checkin_and_no_prior_activity(self):
+        latest = {"metadata": {"last_updated": "2026-09-20T13:45:00Z"}, "wellness_data": [
+            {"date": "2026-09-19", "sleep_hours": 7},
+            {"date": "2026-09-20", "sleep_hours": 8.9, "weight_kg": 72.257},
+        ], "recent_activities": []}
+        self.assertTrue(reports.planned_pre_ready(latest, date(2026, 9, 20)))
+        self.assertFalse(reports.planned_pre_ready({**latest, "wellness_data": latest["wellness_data"][:-1]}, date(2026, 9, 20)))
+        self.assertFalse(reports.planned_pre_ready({**latest, "recent_activities": [{"date": "2026-09-20T07:00:00"}]}, date(2026, 9, 20)))
+
+    def test_planned_pre_creates_one_linked_note_and_verifies_it(self):
+        plan = {"id": 137077785, "date": "2026-09-20", "name": "Run 2x15min Race Pace"}
+        latest = {"metadata": {"last_updated": "2026-09-20T13:45:00Z"}, "planned_workouts": [plan]}
+        rows = []
+
+        def get(*_args, **_kwargs):
+            return types.SimpleNamespace(raise_for_status=lambda: None, json=lambda: list(rows))
+
+        def post(_url, **kwargs):
+            rows.extend(kwargs["json"])
+            return types.SimpleNamespace(raise_for_status=lambda: None)
+
+        with patch.object(stub.requests, "get", side_effect=get), patch.object(stub.requests, "post", side_effect=post) as posted:
+            outcome = reports.publish_planned_pre(plan, latest, "athlete", "key")
+            self.assertEqual(outcome, "saved_and_verified")
+            self.assertEqual(posted.call_count, 1)
+            self.assertIn("[[SECTION11_REPORT:PRE_WORKOUT:event:137077785]]", rows[0]["description"])
+            self.assertIn("verified morning check-in", rows[0]["description"])
+            self.assertEqual(reports.publish_planned_pre(plan, latest, "athlete", "key"), "already_saved")
+            self.assertEqual(posted.call_count, 1)
 
 
 if __name__ == "__main__":

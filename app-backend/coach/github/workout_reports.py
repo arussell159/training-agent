@@ -43,11 +43,13 @@ def pre_snapshot(activity, root=Path("archive")):
     return None
 
 
-def build_pre_report(snapshot, activity):
+def build_pre_report(snapshot, activity, retrospective=True):
     day = activity["date"][:10]
     lines = [
         "Pre-workout report",
-        "Source note: Recovered automatically after completion from data archived before this workout. No retrospective training decision or current-state check-in has been invented.",
+        ("Source note: Recovered automatically after completion from data archived before this workout. No retrospective training decision or current-state check-in has been invented."
+         if retrospective else
+         "Source note: Generated automatically before this workout from the verified morning check-in and current synced Section 11 snapshot."),
     ]
     if not snapshot:
         return "\n".join(lines + ["Pre-workout data: unavailable. No same-day snapshot predating the activity was archived."])
@@ -105,6 +107,96 @@ def build_pre_report(snapshot, activity):
     if prior:
         lines.append("Same-day continuation: a prior session was already recorded. Current Feel, soreness and symptoms were not collected by this automation; no continuation decision is inferred.")
     return "\n".join(lines)
+
+
+def planned_pre_ready(latest, today):
+    """Only publish after the complete morning snapshot and before any session."""
+    day = today.isoformat()
+    previous = (today - timedelta(days=1)).isoformat()
+    wellness = latest.get("wellness_data") or []
+    current = next((row for row in wellness if row.get("date") == day), None)
+    if not current or current.get("weight_kg") is None:
+        return False
+    try:
+        if float(current.get("sleep_hours") or 0) <= 0:
+            return False
+    except (TypeError, ValueError):
+        return False
+    if not any(row.get("date") == previous for row in wellness):
+        return False
+    updated = timestamp((latest.get("metadata") or {}).get("last_updated"))
+    if not updated or updated.astimezone(TZ).date() != today:
+        return False
+    # A later-session recommendation requires a fresh current-state check-in;
+    # the morning automation must not infer one after an activity is complete.
+    return not any(str(a.get("date") or "")[:10] == day for a in (latest.get("recent_activities") or []))
+
+
+def publish_planned_pre(plan, latest, athlete_id, key):
+    event_id = str(plan.get("id") or "")
+    day = str(plan.get("date") or "")
+    if not re.fullmatch(r"\d+", event_id) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        raise ValueError("Planned workout needs a numeric Intervals event ID and date")
+    external_id = f"section11-pre-report-{event_id}"
+    marker = f"[[SECTION11_REPORT:PRE_WORKOUT:event:{event_id}]]"
+    closing = f"[[/SECTION11_REPORT:PRE_WORKOUT:event:{event_id}]]"
+    events_url = f"{BASE_URL}/athlete/{athlete_id}/events"
+
+    def matches():
+        response = requests.get(
+            f"{events_url}?oldest={day}&newest={day}",
+            headers=headers(key), timeout=READ_TIMEOUT,
+        )
+        response.raise_for_status()
+        rows = response.json()
+        if not isinstance(rows, list):
+            raise ValueError("Intervals events payload is not a list")
+        found = [event for event in rows if event.get("external_id") == external_id]
+        if len(found) > 1:
+            raise RuntimeError("Multiple pre-workout report notes share the same event ID")
+        return found
+
+    before = matches()
+    if before and marker in str(before[0].get("description") or "") and closing in str(before[0].get("description") or ""):
+        return "already_saved"
+    if before:
+        raise RuntimeError("The pre-workout report note exists without a complete marked report")
+
+    activity = {"date": f"{day}T00:00:00", "name": plan.get("name")}
+    report = build_pre_report(latest, activity, retrospective=False)
+    description = f"{marker}\n{report}\n{closing}"
+    payload = [{
+        "category": "NOTE", "type": "Other", "start_date_local": f"{day}T00:00:00",
+        "external_id": external_id, "name": f"Section 11 pre-workout report · {plan.get('name') or 'Workout'}",
+        "description": description,
+    }]
+    error = None
+    try:
+        response = requests.post(
+            f"{events_url}/bulk?upsert=true", headers=headers(key), json=payload,
+            timeout=WRITE_TIMEOUT,
+        )
+        response.raise_for_status()
+    except requests.RequestException as caught:
+        error = caught
+    after = matches()
+    if len(after) != 1 or after[0].get("description") != description:
+        raise error or RuntimeError("Pre-workout report note could not be verified")
+    return "saved_and_verified" if error is None else "verified_after_write"
+
+
+def run_planned_pre(latest, key, athlete_id, today):
+    if not planned_pre_ready(latest, today):
+        return []
+    results = []
+    for plan in latest.get("planned_workouts") or []:
+        if plan.get("date") != today.isoformat():
+            continue
+        results.append({
+            "event_id": str(plan.get("id")), "kind": "PRE_WORKOUT",
+            "outcome": publish_planned_pre(plan, latest, athlete_id, key),
+        })
+    return results
 
 
 def publish_once(activity_id, key, kind, text):
@@ -210,8 +302,13 @@ def run(latest, intervals, key, today):
 
 if __name__ == "__main__":
     key = os.environ.get("INTERVALS_KEY", "").strip()
-    if not key:
-        raise SystemExit("INTERVALS_KEY is required")
+    athlete_id = os.environ.get("ATHLETE_ID", "").strip()
+    if not key or not athlete_id:
+        raise SystemExit("INTERVALS_KEY and ATHLETE_ID are required")
     latest = json.loads(Path("latest.json").read_text(encoding="utf-8"))
     intervals = json.loads(Path("intervals.json").read_text(encoding="utf-8"))
-    print(json.dumps({"verified_reports": run(latest, intervals, key, datetime.now(TZ).date())}, indent=2))
+    today = datetime.now(TZ).date()
+    print(json.dumps({"verified_reports": [
+        *run_planned_pre(latest, key, athlete_id, today),
+        *run(latest, intervals, key, today),
+    ]}, indent=2))
