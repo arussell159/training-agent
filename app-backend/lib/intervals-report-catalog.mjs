@@ -135,7 +135,18 @@ export async function fetchIntervalsWorkoutReports(request, workoutId) {
     throw new Error("Invalid workout report target");
   const [type, id] = workoutId.split(":");
   const record = await request(type === "event" ? `/athlete/0/events/${id}` : `/activity/${id}`);
-  const activityId = type === "activity" ? id : record.paired_activity_id;
+  let activityId = type === "activity" ? id : record.paired_activity_id;
+  // Intervals omits paired_activity_id from its single-event response even
+  // though the day-list response and paired activity both expose the link.
+  if (type === "event" && !activityId && !REPORT_MARKER.test(String(record.description || ""))) {
+    const date = String(record.start_date_local || record.start_date || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      const activities = await request(`/athlete/0/activities?oldest=${date}&newest=${date}`);
+      activityId = (Array.isArray(activities) ? activities : []).find(
+        (activity) => String(activity.paired_event_id) === id
+      )?.id;
+    }
+  }
   const candidates = [{ ...record, __reportSource: type }];
   if (activityId && /^[A-Za-z0-9_-]{1,100}$/.test(String(activityId))) {
     const [activity, messages] = await Promise.all([
@@ -146,7 +157,7 @@ export async function fetchIntervalsWorkoutReports(request, workoutId) {
     for (const message of Array.isArray(messages) ? messages : []) {
       candidates.push({
         ...activity,
-        description: message.content || message.text || "",
+        description: message.content || message.text || message.message || "",
         __reportSource: "activity",
       });
     }
