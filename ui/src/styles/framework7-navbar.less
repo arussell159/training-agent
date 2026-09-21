@@ -16,7 +16,10 @@
   @import "../../node_modules/framework7/components/button/button.less";
   @import "../../node_modules/framework7/components/list/list.less";
   @import "../../node_modules/framework7/components/accordion/accordion.less";
+  @import "../../node_modules/framework7/components/actions/actions.less";
+  @import "../../node_modules/framework7/components/dialog/dialog.less";
   @import "../../node_modules/framework7/components/sheet/sheet.less";
+  @import "../../node_modules/framework7/components/sortable/sortable.less";
   @import "../../node_modules/framework7/components/toolbar/toolbar.less";
   @import "../../node_modules/framework7/components/tabs/tabs.less";
   @import "../../node_modules/framework7/components/card/card.less";
@@ -717,7 +720,7 @@
 
 .training-history-filter-scroll {
   overflow-x: auto;
-  padding: 12px 12px 0;
+  padding: 8px 14px 0;
   scrollbar-width: none;
   overscroll-behavior-x: contain;
   &::-webkit-scrollbar {
@@ -729,7 +732,7 @@
   display: flex;
   width: max-content;
   min-width: 100%;
-  gap: 6px;
+  gap: 10px;
   --f7-button-height: 34px;
   --f7-button-border-radius: 999px;
   --f7-button-font-size: 14px;
@@ -739,8 +742,8 @@
     flex: 0 0 auto;
     width: auto;
     min-width: max-content;
-    gap: 6px;
-    padding-inline: 12px;
+    gap: 8px;
+    padding-inline: 18px;
     border: 1px solid var(--border) !important;
     border-radius: 999px !important;
     border-width: 1px !important;
@@ -826,7 +829,7 @@
 
 @media (width >= 48rem) {
   .training-history-filter-scroll {
-    padding: 16px 16px 0;
+    padding: 18px 18px 0;
   }
   .training-history-summary,
   .training-history-chart {
@@ -834,7 +837,7 @@
   }
   .training-history-totals {
     max-width: 680px;
-    gap: 32px;
+    gap: 36px;
   }
   .training-history-chart {
     padding-top: 24px;

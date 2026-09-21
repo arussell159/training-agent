@@ -25,6 +25,7 @@ import {
   ArrowDown,
   ArrowUp,
   Check,
+  ChevronRight,
   Copy,
   Ellipsis,
   GripVertical,
@@ -44,6 +45,17 @@ import {
   MobileActionMenu,
   MobileSelect,
 } from "@/components/ui/mobile-native-controls"
+import {
+  Actions,
+  ActionsButton,
+  ActionsGroup,
+  ActionsLabel,
+  List,
+  ListInput,
+  ListItem,
+  Sheet,
+} from "framework7-react"
+import type { Sheet as Framework7Sheet } from "framework7/types"
 import {
   Dialog,
   DialogContent,
@@ -97,8 +109,10 @@ import {
   paceFactors,
   removeNodes,
   roleNames,
+  roles,
   round,
   stepLabel,
+  targetLabel,
   templateNames,
   uid,
   updateNodes,
@@ -120,6 +134,7 @@ import {
 } from "../../../app-backend/lib/workout-editor-zones.mjs"
 import { DurationField, PaceField } from "@/components/workout-duration-field"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { confirmWithFramework7 } from "@/lib/framework7-confirm"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
   durationClock,
@@ -884,6 +899,1003 @@ function StepFields({
   )
 }
 
+function compactDuration(value: number) {
+  return durationClock(value).replace(/^00:/, "").replace(/^0(?=\d:)/, "")
+}
+
+function mobileStepTitle(step: Step) {
+  return roleNames[step.role]
+}
+
+function mobileNodeLine(node: WorkoutNode, model: WorkoutModel) {
+  if (node.kind === "repeat") {
+    const total = workoutTotals({ ...model, steps: [node] })
+    const distance = total.distance
+      ? `${round(total.distance / (/swim/i.test(model.sport) ? 0.9144 : 1609.344), /swim/i.test(model.sport) ? 0 : 2)} ${/swim/i.test(model.sport) ? "yd" : "mi"}`
+      : ""
+    return [compactDuration(total.seconds), distance].filter(Boolean).join(" · ")
+  }
+  const amount =
+    node.end.kind === "distance"
+      ? `${round(node.end.value)} ${node.end.unit}`
+      : compactDuration(node.end.value)
+  return `${amount}${node.target.kind === "none" ? "" : ` · ${targetLabel(node.target)}`}`
+}
+
+function MobileTimeListInput({
+  label,
+  value,
+  pace = false,
+  onChange,
+}: {
+  slot?: string
+  label: string
+  value: number
+  pace?: boolean
+  onChange: (value: number) => void
+}) {
+  const splitValue = (seconds: number) =>
+    pace
+      ? [Math.floor(seconds / 60), Math.round(seconds) % 60]
+      : [
+          Math.floor(seconds / 3600),
+          Math.floor(seconds / 60) % 60,
+          Math.round(seconds) % 60,
+        ]
+  const [parts, setParts] = useState(() => splitValue(value))
+  useEffect(() => {
+    setParts(splitValue(value))
+  }, [value, pace])
+  const labels = pace ? ["Minutes", "Seconds"] : ["Hours", "Minutes", "Seconds"]
+  const unitLabels = pace ? ["min", "sec"] : ["hr", "min", "sec"]
+  const updatePart = (index: number, raw: string) => {
+    const limit = index === parts.length - 1 || (!pace && index === 1) ? 59 : 999
+    const next = [...parts]
+    next[index] = Math.max(0, Math.min(limit, raw === "" ? 0 : Number(raw)))
+    setParts(next)
+    onChange(
+      pace
+        ? next[0] * 60 + next[1]
+        : next[0] * 3600 + next[1] * 60 + next[2]
+    )
+  }
+  return (
+    <ListItem className="we-mobile-time-row">
+      <div className="we-mobile-time-field">
+        <span className="item-title item-label">{label}</span>
+        <div className={`we-mobile-time-parts ${pace ? "we-mobile-time-parts-pace" : ""}`}>
+          {parts.map((part, index) => (
+            <label key={labels[index]}>
+              <input
+                aria-label={`${label} ${labels[index]}`}
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={index === parts.length - 1 || (!pace && index === 1) ? 59 : 999}
+                step={1}
+                value={part}
+                onFocus={(event) => event.currentTarget.select()}
+                onInput={(event) => updatePart(index, event.currentTarget.value)}
+              />
+              <span>{unitLabels[index]}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    </ListItem>
+  )
+}
+
+function targetDefault(kind: "power" | "pace" | "hr", sport: string): Target {
+  if (kind === "pace") {
+    const target = defaultTarget(sport)
+    return target.kind === "pace"
+      ? target
+      : { kind: "pace", unit: "secs/mi", mode: "single", value: 540 }
+  }
+  return kind === "power"
+    ? { kind, unit: "w", mode: "single", value: 150 }
+    : { kind, unit: "bpm", mode: "single", value: 140 }
+}
+
+function MobileTargetFields({
+  step,
+  model,
+  onChange,
+}: {
+  step: Step
+  model: WorkoutModel
+  onChange: (step: Step) => void
+}) {
+  const settings = useContext(ZoneSettingsContext)
+  const target = step.target
+  const zones = workoutZoneOptions(settings, model.sport, editorUnits(model.sport).target)
+  const selectedZone =
+    target.kind === "none"
+      ? "custom"
+      : zones.find((zone) => JSON.stringify(zone.target) === JSON.stringify(target))
+          ?.id ||
+        (target.unit.endsWith("_zone") && target.mode === "single"
+          ? String(target.value)
+          : "custom")
+  const setTarget = (next: Target) => onChange({ ...step, target: next })
+  const setValue = (key: "value" | "start" | "end", value: number) => {
+    if (target.kind !== "none") setTarget({ ...target, [key]: value })
+  }
+  const valueField = (label: string, key: "value" | "start" | "end") => {
+    if (target.kind === "none") return null
+    const value = target[key] ?? 0
+    return paceFactors[target.unit] ? (
+      <List key={key} strongIos dividersIos className="we-mobile-form-list">
+        <MobileTimeListInput
+          slot="list"
+          label={`${label} (${target.unit.replace("secs", "min")})`}
+          value={value}
+          pace
+          onChange={(next) => setValue(key, next)}
+        />
+      </List>
+    ) : (
+      <List key={key} strongIos dividersIos className="we-mobile-form-list">
+        <ListInput
+          label={`${label} (${target.unit})`}
+          type="number"
+          inputmode="decimal"
+          min={target.unit.includes("zone") ? 1 : 0}
+          step={target.unit.includes("zone") ? 1 : 0.1}
+          value={value}
+          onInput={(event) =>
+            setValue(
+              key,
+              event.currentTarget.value === ""
+                ? 0
+                : Number(event.currentTarget.value)
+            )
+          }
+        />
+      </List>
+    )
+  }
+  const fields: ReactNode[] = [
+      <ListInput
+        key="target-kind"
+        label="Target type"
+        type="select"
+        value={target.kind}
+        onChange={(event) => {
+          const kind = event.currentTarget.value as Target["kind"]
+          setTarget(kind === "none" ? { kind: "none" } : targetDefault(kind, model.sport))
+        }}
+      >
+        <option value="none">No target</option>
+        <option value="pace">Pace / speed</option>
+        <option value="power">Power</option>
+        <option value="hr">Heart rate</option>
+      </ListInput>,
+  ]
+  const valueFields: ReactNode[] = []
+  let zoneField: ReactNode = null
+  if (target.kind !== "none") {
+    fields.push(
+      <ListInput
+            key="target-mode"
+            label="Target mode"
+            type="select"
+            value={target.mode}
+            onChange={(event) => {
+              const mode = event.currentTarget.value as "single" | "range" | "ramp"
+              setTarget(
+                mode === "single"
+                  ? {
+                      ...target,
+                      mode,
+                      value: target.value ?? target.start ?? target.end ?? 0,
+                    }
+                  : {
+                      ...target,
+                      mode,
+                      start: target.start ?? target.value ?? 0,
+                      end: target.end ?? target.value ?? 0,
+                    }
+              )
+            }}
+          >
+            <option value="single">Single value</option>
+            <option value="range">Range</option>
+            {!target.unit.includes("zone") && <option value="ramp">Ramp</option>}
+      </ListInput>
+    )
+    if (target.mode === "single") {
+      const field = valueField("Target", "value")
+      if (field) valueFields.push(field)
+    } else {
+      const start = valueField(
+        target.mode === "ramp" ? "Start" : "From",
+        "start"
+      )
+      const end = valueField(target.mode === "ramp" ? "End" : "To", "end")
+      if (start) valueFields.push(start)
+      if (end) valueFields.push(end)
+    }
+    zoneField = (
+      <List strongIos dividersIos className="we-mobile-form-list">
+        <ListInput
+          label="Training zone"
+          type="select"
+          value={selectedZone}
+          onChange={(event) => {
+            const zone = zones.find(
+              (option) => option.id === event.currentTarget.value
+            )
+            if (zone) setTarget(zone.target)
+          }}
+        >
+          <option value="custom">Custom target</option>
+          {zones.map((zone) => (
+            <option key={zone.id} value={zone.id}>
+              {zone.label}
+            </option>
+          ))}
+        </ListInput>
+      </List>
+    )
+  }
+  return (
+    <>
+      <List strongIos dividersIos className="we-mobile-form-list">
+        {fields}
+      </List>
+      {valueFields}
+      {zoneField}
+    </>
+  )
+}
+
+function MobileIntervalSheet({
+  node,
+  model,
+  onChange,
+  onDelete,
+  onClose,
+}: {
+  node: WorkoutNode | null
+  model: WorkoutModel
+  onChange: (node: WorkoutNode) => void
+  onDelete: (id: string) => Promise<boolean>
+  onClose: () => void
+}) {
+  const [draft, setDraft] = useState<Step | null>(null)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const sheetRef = useRef<{
+    el: HTMLElement | null
+    f7Sheet: () => Framework7Sheet.Sheet
+  }>(null!)
+  const acceptedClose = useRef(false)
+  const confirmingClose = useRef(false)
+  const nodeRef = useRef(node)
+  nodeRef.current = node
+  const nodeId = node?.kind === "step" ? node.id : null
+  useEffect(() => {
+    const current = nodeRef.current
+    setDraft(current?.kind === "step" ? clone(current) : null)
+    setMoreOpen(false)
+    acceptedClose.current = false
+    confirmingClose.current = false
+  }, [nodeId])
+  const dirty = Boolean(draft && node && JSON.stringify(draft) !== JSON.stringify(node))
+  const acceptClose = () => {
+    acceptedClose.current = true
+    onClose()
+  }
+  const requestClose = async () => {
+    if (!dirty) {
+      acceptClose()
+      return
+    }
+    const discard = await confirmWithFramework7(
+      "Discard interval changes?",
+      "Your pending interval edits will be discarded."
+    )
+    if (discard) acceptClose()
+  }
+  const handleNativeClose = async () => {
+    if (acceptedClose.current) {
+      acceptedClose.current = false
+      return
+    }
+    if (confirmingClose.current) return
+    if (!dirty) {
+      onClose()
+      return
+    }
+    confirmingClose.current = true
+    const discard = await confirmWithFramework7(
+      "Discard interval changes?",
+      "Your pending interval edits will be discarded."
+    )
+    confirmingClose.current = false
+    if (discard) onClose()
+    else sheetRef.current?.f7Sheet()?.open()
+  }
+  const changeLengthMode = (kind: "time" | "distance") => {
+    if (!draft) return
+    const wasDistance = draft.end.kind === "distance"
+    setDraft({
+      ...draft,
+      end: {
+        kind,
+        value:
+          wasDistance === (kind === "distance")
+            ? draft.end.value
+            : kind === "distance"
+              ? /swim/i.test(model.sport)
+                ? 100
+                : 1
+              : 60,
+        unit: kind === "distance" ? editorUnits(model.sport).distance : "s",
+        ...(draft.end.pressLap || draft.end.kind === "lap" ? { pressLap: true } : {}),
+      },
+    })
+  }
+  return (
+    <>
+      <div
+        className="sheet-backdrop we-mobile-interval-backdrop"
+        onClick={() => void requestClose()}
+      />
+      <Sheet
+      ref={sheetRef}
+      className="we-mobile-interval-sheet"
+      containerEl=".we-dialog"
+      opened={Boolean(nodeId)}
+      backdrop
+      backdropEl=".we-mobile-interval-backdrop"
+      closeByBackdropClick={false}
+      closeOnEscape
+      swipeToClose
+      swipeHandler=".we-mobile-sheet-handle"
+      onSheetClose={() => void handleNativeClose()}
+      {...{ role: "dialog", "aria-modal": true, "aria-label": "Edit interval" }}
+    >
+      <div className="we-mobile-sheet-handle" aria-hidden="true">
+        <span />
+      </div>
+      <div className="we-mobile-sheet-nav">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Close interval editor"
+          onClick={() => void requestClose()}
+        >
+          <X size={18} />
+        </Button>
+        <strong>Edit Interval</strong>
+        <Button
+          type="button"
+          size="sm"
+          disabled={!draft}
+          onClick={() => {
+            if (!draft) return
+            onChange(draft)
+            acceptClose()
+          }}
+        >
+          Done
+        </Button>
+      </div>
+      {draft && (
+        <div className="we-mobile-sheet-scroll">
+          <List strongIos dividersIos className="we-mobile-form-list">
+            <ListInput
+              label="Interval type"
+              type="select"
+              value={draft.role}
+              onChange={(event) => {
+                const role = event.currentTarget.value as Role
+                setDraft({
+                  ...draft,
+                  role,
+                  label: roleNames[role],
+                  target:
+                    role === "rest"
+                      ? { kind: "none" }
+                      : draft.target.kind === "none"
+                        ? defaultTarget(model.sport)
+                        : draft.target,
+                })
+              }}
+            >
+              {roles.map((role) => (
+                <option key={role} value={role}>
+                  {roleNames[role as Role]}
+                </option>
+              ))}
+            </ListInput>
+            <ListInput
+              label="Length mode"
+              type="select"
+              value={draft.end.kind === "distance" ? "distance" : "time"}
+              onChange={(event) =>
+                changeLengthMode(event.currentTarget.value as "time" | "distance")
+              }
+            >
+              <option value="distance">Distance</option>
+              <option value="time">Duration</option>
+            </ListInput>
+          </List>
+          <List strongIos dividersIos className="we-mobile-form-list">
+            {draft.end.kind === "distance"
+              ? [
+                <ListInput
+                  key="distance"
+                  label={`Distance (${draft.end.unit})`}
+                  type="number"
+                  inputmode="decimal"
+                  min={0.001}
+                  step={/swim/i.test(model.sport) ? 1 : 0.01}
+                  value={draft.end.value}
+                  onInput={(event) =>
+                    setDraft({
+                      ...draft,
+                      end: {
+                        ...draft.end,
+                        value:
+                          event.currentTarget.value === ""
+                            ? 0
+                            : Number(event.currentTarget.value),
+                      },
+                    })
+                  }
+                />
+              ]
+              : (
+                  <MobileTimeListInput
+                    slot="list"
+                    label="Duration"
+                    value={draft.end.value}
+                    onChange={(value) =>
+                      setDraft({
+                        ...draft,
+                        end: { ...draft.end, value, unit: "s" },
+                      })
+                    }
+                  />
+                )}
+          </List>
+          <MobileTargetFields step={draft} model={model} onChange={setDraft} />
+          <section className="we-mobile-more-options">
+            <button
+              type="button"
+              className="we-mobile-more-toggle"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((open) => !open)}
+            >
+              <span>More options</span>
+              <ChevronRight className={moreOpen ? "rotate-90" : ""} />
+            </button>
+            {moreOpen && (
+              <List strongIos dividersIos className="we-mobile-form-list">
+                <ListInput
+                  label="Notes"
+                  type="textarea"
+                  value={draft.notes || ""}
+                  onInput={(event) =>
+                    setDraft({ ...draft, notes: event.currentTarget.value })
+                  }
+                />
+                {(/swim/i.test(model.sport) ||
+                  draft.end.pressLap ||
+                  draft.end.kind === "lap") && (
+                  <ListItem
+                    title="End on lap button"
+                    checkbox
+                    checked={Boolean(draft.end.pressLap || draft.end.kind === "lap")}
+                    onChange={(event) =>
+                      setDraft({
+                        ...draft,
+                        end: {
+                          ...draft.end,
+                          kind: draft.end.kind === "lap" ? "time" : draft.end.kind,
+                          pressLap: event.currentTarget.checked,
+                        },
+                      })
+                    }
+                  />
+                )}
+              </List>
+            )}
+          </section>
+          <Button
+            type="button"
+            variant="destructive"
+            className="we-mobile-delete"
+            onClick={() => {
+              void onDelete(draft.id).then((deleted) => {
+                if (deleted) acceptClose()
+              })
+            }}
+          >
+            <Trash2 size={16} /> Delete Interval
+          </Button>
+        </div>
+      )}
+      </Sheet>
+    </>
+  )
+}
+
+type MobileSortData = { from?: number; to?: number; el?: HTMLElement }
+type MobileRowsProps = {
+  nodes: WorkoutNode[]
+  parent: string | null
+  model: WorkoutModel
+  depth: number
+  expanded: Set<string>
+  setExpanded: (id: string) => void
+  open: (id: string) => void
+  openAdd: (parent: string) => void
+  openActions: (id: string) => void
+  onRepeatCount: (id: string, count: number) => void
+  onSort: (
+    nodes: WorkoutNode[],
+    parent: string | null,
+    data: MobileSortData
+  ) => void
+}
+
+function mobileIntervalRows(props: MobileRowsProps): ReactNode[] {
+  return props.nodes.flatMap((node) => {
+    const row = (
+      <ListItem
+        key={node.id}
+        id={`mobile-step-${node.id}`}
+        sortable
+        noChevron
+        className={`we-mobile-interval-row ${node.kind === "repeat" ? "we-mobile-repeat-row" : ""}`}
+        style={{ "--we-depth": props.depth } as React.CSSProperties}
+        onClick={() =>
+          node.kind === "repeat" ? props.setExpanded(node.id) : props.open(node.id)
+        }
+      >
+        <div className="we-mobile-row-content">
+          <span
+            className="we-mobile-role-mark"
+            style={{ background: node.kind === "step" ? tones[node.role] : tones.other }}
+            aria-hidden="true"
+          />
+          <div className="we-mobile-row-label min-w-0 flex-1">
+            <div className="truncate font-semibold">
+              {node.kind === "repeat"
+                ? `Repeat ${node.repetitions}×`
+                : mobileStepTitle(node)}
+            </div>
+            <div className="truncate text-xs text-muted-foreground">
+              {mobileNodeLine(node, props.model)}
+            </div>
+          </div>
+          {node.kind === "repeat" ? (
+            <div className="we-mobile-repeat-actions">
+              <span
+                className="we-mobile-repeat-stepper"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  aria-label="Decrease repeat count"
+                  disabled={node.repetitions <= 1}
+                  onClick={() =>
+                    props.onRepeatCount(
+                      node.id,
+                      Math.max(1, node.repetitions - 1)
+                    )
+                  }
+                >
+                  −
+                </button>
+                <span aria-label={`Repeat count ${node.repetitions}`}>
+                  {node.repetitions}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Increase repeat count"
+                  disabled={node.repetitions >= 100}
+                  onClick={() =>
+                    props.onRepeatCount(
+                      node.id,
+                      Math.min(100, node.repetitions + 1)
+                    )
+                  }
+                >
+                  +
+                </button>
+              </span>
+              <button
+                type="button"
+                className="we-mobile-row-action"
+                aria-label={`Actions for repeat ${node.repetitions}`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  props.openActions(node.id)
+                }}
+              >
+                <Ellipsis aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="we-mobile-expand"
+                aria-label={
+                  props.expanded.has(node.id)
+                    ? "Collapse repeat"
+                    : "Expand repeat"
+                }
+                aria-expanded={props.expanded.has(node.id)}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  props.setExpanded(node.id)
+                }}
+              >
+                <ChevronRight
+                  className={`transition-transform ${props.expanded.has(node.id) ? "rotate-90" : ""}`}
+                />
+              </button>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="we-mobile-row-action"
+                aria-label={`Actions for ${mobileStepTitle(node)}`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  props.openActions(node.id)
+                }}
+              >
+                <Ellipsis aria-hidden="true" />
+              </button>
+              <ChevronRight className="we-mobile-row-chevron" aria-hidden="true" />
+            </>
+          )}
+        </div>
+      </ListItem>
+    )
+    if (node.kind !== "repeat" || !props.expanded.has(node.id)) return [row]
+    const fixedRecovery = [node.recovery, node.setRecovery].filter(
+      (step): step is Step => Boolean(step)
+    )
+    const children = (
+      <li
+        key={`${node.id}:children`}
+        className="we-mobile-repeat-group disallow-sorting"
+      >
+        <List
+          sortable
+          sortableEnabled
+          sortableMoveElements={false}
+          dividersIos
+          className="we-mobile-interval-list we-mobile-nested-list"
+          onSortableSort={(data) => props.onSort(node.steps, node.id, data)}
+        >
+          {mobileIntervalRows({
+            ...props,
+            nodes: node.steps,
+            parent: node.id,
+            depth: props.depth + 1,
+          })}
+          {fixedRecovery.map((step) => (
+            <ListItem
+              key={step.id}
+              sortable={false}
+              noChevron
+              className="we-mobile-interval-row we-mobile-fixed-recovery"
+              style={{ "--we-depth": props.depth + 1 } as React.CSSProperties}
+              onClick={() => props.open(step.id)}
+            >
+              <div className="we-mobile-row-content">
+                <span
+                  className="we-mobile-role-mark"
+                  style={{ background: tones[step.role] }}
+                  aria-hidden="true"
+                />
+                <div className="we-mobile-row-label min-w-0 flex-1">
+                  <div className="truncate font-semibold">{mobileStepTitle(step)}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {mobileNodeLine(step, props.model)}
+                  </div>
+                </div>
+                <ChevronRight className="we-mobile-row-chevron" aria-hidden="true" />
+              </div>
+            </ListItem>
+          ))}
+        </List>
+        <Button
+          type="button"
+          variant="ghost"
+          className="we-mobile-add-repeat"
+          onClick={(event) => {
+            event.stopPropagation()
+            props.openAdd(node.id)
+          }}
+        >
+          <Plus size={16} /> Add interval
+        </Button>
+      </li>
+    )
+    return [row, children]
+  })
+}
+
+function MobileEditorBody({
+  model,
+  commit,
+  remove,
+  duplicate,
+  status,
+  error,
+  validation,
+}: {
+  model: WorkoutModel
+  commit: (model: WorkoutModel) => void
+  remove: (id?: string) => Promise<boolean>
+  duplicate: (id: string) => void
+  status: string
+  error: string
+  validation: string[]
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [actionId, setActionId] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
+    const ids = new Set<string>()
+    const visit = (nodes: WorkoutNode[]) =>
+      nodes.forEach((node) => {
+        if (node.kind === "repeat") {
+          ids.add(node.id)
+          visit(node.steps)
+        }
+      })
+    visit(model.steps)
+    return ids
+  })
+  const [addOpen, setAddOpen] = useState(false)
+  const [addParent, setAddParent] = useState<string | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const savedScrollTop = useRef(0)
+  const find = (id: string) => findNode(model.steps, id) || null
+  const open = (id: string) => {
+    savedScrollTop.current = scrollRef.current?.scrollTop || 0
+    setEditingId(id)
+  }
+  const closeEditor = () => {
+    setEditingId(null)
+    requestAnimationFrame(() => {
+      if (scrollRef.current) scrollRef.current.scrollTop = savedScrollTop.current
+    })
+  }
+  const addAt = (kind: "interval" | "rest" | "repeat") => {
+    const node =
+      kind === "repeat"
+        ? newRepeat([newStep(model.sport)])
+        : newStep(model.sport, kind === "rest" ? "rest" : "active")
+    const parent = addParent ? find(addParent) : null
+    const index =
+      parent?.kind === "repeat" ? parent.steps.length : model.steps.length
+    commit({
+      ...model,
+      steps: insertNodes(model.steps, addParent, index, [node]),
+    })
+    setAddOpen(false)
+    setAddParent(null)
+    if (node.kind === "repeat") {
+      setExpanded((current) => new Set(current).add(node.id))
+      setEditingId(null)
+    } else {
+      setEditingId(node.id)
+    }
+  }
+  const changeNode = (node: WorkoutNode) =>
+    commit({
+      ...model,
+      steps: updateNodes(model.steps, [node.id], () => node),
+    })
+  const changeRepeatCount = (id: string, count: number) => {
+    const repeat = find(id)
+    if (repeat?.kind === "repeat")
+      changeNode({ ...repeat, repetitions: count })
+  }
+  const toggleExpanded = (id: string) =>
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const sortNodes = (
+    siblings: WorkoutNode[],
+    parent: string | null,
+    data: MobileSortData
+  ) => {
+    const from = Number(data?.from)
+    const to = Number(data?.to)
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from === to) return
+    const rowId = data.el?.id
+    const id =
+      (rowId?.startsWith("mobile-step-")
+        ? rowId.slice("mobile-step-".length)
+        : "") || siblings[from]?.id
+    if (!id) return
+    const insertionIndex = to > from ? to + 1 : to
+    commit({
+      ...model,
+      steps: moveNode(model.steps, id, parent, insertionIndex),
+    })
+  }
+  const actionNode = actionId ? find(actionId) : null
+  const totals = workoutTotals(model)
+  return (
+    <div className="we-mobile-editor">
+      <div ref={scrollRef} className="we-mobile-editor-scroll">
+        <Input
+          aria-label="Workout name"
+          className="we-mobile-workout-name"
+          value={model.name}
+          onChange={(event) => commit({ ...model, name: event.target.value })}
+        />
+        <div className="we-mobile-summary">
+          <strong>{durationClock(totals.seconds)}</strong>
+          <strong>
+            {round(
+              totals.distance / (model.sport === "Swim" ? 0.9144 : 1609.344),
+              model.sport === "Swim" ? 0 : 2
+            )}{" "}
+            <small>{model.sport === "Swim" ? "yds" : "mi"}</small>
+          </strong>
+        </div>
+        <List
+          sortable
+          sortableEnabled
+          sortableMoveElements={false}
+          strongIos
+          dividersIos
+          className="we-mobile-interval-list"
+          onSortableSort={(data) => sortNodes(model.steps, null, data)}
+        >
+          {mobileIntervalRows({
+            nodes: model.steps,
+            parent: null,
+            model,
+            depth: 0,
+            expanded,
+            setExpanded: toggleExpanded,
+            open,
+            openAdd: (parent) => {
+              setAddParent(parent)
+              setAddOpen(true)
+            },
+            openActions: setActionId,
+            onRepeatCount: changeRepeatCount,
+            onSort: sortNodes,
+          })}
+        </List>
+        <Button
+          type="button"
+          variant="outline"
+          className="we-mobile-add-button"
+          onClick={() => {
+            setAddParent(null)
+            setAddOpen(true)
+          }}
+        >
+          <Plus size={16} /> Add interval
+        </Button>
+        {status === "failed" && (
+          <p role="alert" className="text-xs text-destructive">
+            Save failed; your draft is retained.
+          </p>
+        )}
+        {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+        {validation.length > 0 && (
+          <p role="alert" className="text-xs text-destructive">
+            {validation.join(". ")}
+          </p>
+        )}
+      </div>
+      <div
+        className="sheet-backdrop we-mobile-add-backdrop"
+        onClick={() => {
+          setAddOpen(false)
+          setAddParent(null)
+        }}
+      />
+      <Sheet
+        className="we-mobile-add-sheet"
+        containerEl=".we-dialog"
+        opened={addOpen}
+        backdrop
+        backdropEl=".we-mobile-add-backdrop"
+        closeByBackdropClick={false}
+        closeOnEscape
+        swipeToClose
+        onSheetClose={() => {
+          setAddOpen(false)
+          setAddParent(null)
+        }}
+      >
+        <div className="we-mobile-sheet-nav">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setAddOpen(false)
+              setAddParent(null)
+            }}
+          >
+            Cancel
+          </Button>
+          <strong>{addParent ? "Add to repeat" : "Add interval"}</strong>
+          <span />
+        </div>
+        <List inset strongIos>
+          <ListItem title="Interval" link onClick={() => addAt("interval")} />
+          <ListItem title="Rest" link onClick={() => addAt("rest")} />
+          <ListItem title="Repeat" link onClick={() => addAt("repeat")} />
+        </List>
+      </Sheet>
+      <div
+        className="sheet-backdrop we-mobile-actions-backdrop"
+        onClick={() => setActionId(null)}
+      />
+      <Actions
+        containerEl=".we-dialog"
+        opened={Boolean(actionNode)}
+        backdrop
+        backdropEl=".we-mobile-actions-backdrop"
+        closeByBackdropClick={false}
+        closeOnEscape
+        onActionsClosed={() => setActionId(null)}
+      >
+        <ActionsGroup>
+          <ActionsLabel>
+            {actionNode?.kind === "repeat"
+              ? `Repeat ${actionNode.repetitions}×`
+              : actionNode?.kind === "step"
+                ? mobileStepTitle(actionNode)
+                : "Interval actions"}
+          </ActionsLabel>
+          <ActionsButton
+            close
+            onClick={() => {
+              if (actionId) duplicate(actionId)
+            }}
+          >
+            Duplicate
+          </ActionsButton>
+          <ActionsButton
+            close
+            color="red"
+            onClick={() => {
+              if (actionId) void remove(actionId)
+            }}
+          >
+            Delete
+          </ActionsButton>
+        </ActionsGroup>
+        <ActionsGroup>
+          <ActionsButton close strong>
+            Cancel
+          </ActionsButton>
+        </ActionsGroup>
+      </Actions>
+      <MobileIntervalSheet
+        node={editingId ? find(editingId) : null}
+        model={model}
+        onChange={changeNode}
+        onDelete={remove}
+        onClose={closeEditor}
+      />
+    </div>
+  )
+}
+
 function IntervalChart({
   model,
   selected,
@@ -1392,6 +2404,7 @@ function EditorWorkspace({
   const [dragLabel, setDragLabel] = useState(""),
     [bulkSeconds, setBulkSeconds] = useState(60),
     [bulkTarget, setBulkTarget] = useState<Target>(defaultTarget(model.sport))
+  const saveInFlight = useRef(false)
   const draftKey = `workout-editor-draft:${trainingCacheScope()}:${workoutId}`,
     blocksKey = `workout-editor-blocks:${trainingCacheScope()}`
   const [recovered, setRecovered] = useState<Draft | null>(() => {
@@ -1535,9 +2548,20 @@ function EditorWorkspace({
       })
     commit({ ...model, steps: visit(model.steps) })
   }
-  const remove = (id?: string) => {
+  const remove = async (id?: string) => {
+    const count = id ? 1 : selected.length
+    const node = id ? findNode(model.steps, id) : null
+    if (
+      !count ||
+      !(await confirmWithFramework7(
+        node?.kind === "repeat" ? "Delete repeat?" : "Delete interval?",
+        `Delete ${count === 1 ? (node?.kind === "repeat" ? "this repeat and its intervals" : "this interval") : `${count} selected intervals`}?`
+      ))
+    )
+      return false
     commit({ ...model, steps: removeNodes(model.steps, id ? [id] : selected) })
     setSelected([])
+    return true
   }
   const group = () => {
     let changed = false
@@ -1645,16 +2669,35 @@ function EditorWorkspace({
     window.addEventListener("beforeunload", guard)
     return () => window.removeEventListener("beforeunload", guard)
   }, [dirty, saving])
+  const discardAndClose = () => {
+    try {
+      localStorage.removeItem(draftKey)
+    } catch {
+      /* Optional. */
+    }
+    onClose()
+  }
   const requestClose = () => {
     if (saving) return
-    if (dirty) setDiscardOpen(true)
-    else onClose()
+    if (!dirty) {
+      onClose()
+      return
+    }
+    if (mobile) {
+      void confirmWithFramework7(
+        "Discard unsaved changes?",
+        "Discard the local workout draft? Changes already saved remain unchanged."
+      ).then((discard) => {
+        if (discard) discardAndClose()
+      })
+    } else setDiscardOpen(true)
   }
   const validation = validateWorkout(model)
   const canSave =
     !saving && (dirty || isNew) && !loaded.issues.length && !validation.length
   const save = async () => {
-    if (!canSave) return
+    if (!canSave || saveInFlight.current) return
+    saveInFlight.current = true
     setStatus("saving")
     setError("")
     storeDraft()
@@ -1760,6 +2803,8 @@ function EditorWorkspace({
       setError(
         e instanceof Error ? e.message : "Save failed. Your draft is retained."
       )
+    } finally {
+      saveInFlight.current = false
     }
   }
   const keyActions = useRef({
@@ -1811,8 +2856,10 @@ function EditorWorkspace({
       <Dialog
         open
         disablePointerDismissal
-        onOpenChange={(v) => {
-          if (!v) requestClose()
+        onOpenChange={(open, details) => {
+          // Framework7 sheets are portalled outside this Base UI dialog. Their
+          // focus and close transitions must not dismiss the workout editor.
+          if (!open && details.reason === "escape-key") requestClose()
         }}
       >
         <DialogContent
@@ -1849,24 +2896,22 @@ function EditorWorkspace({
           }}
         >
           <MobileSiteNavbar
-            title={isNew ? "Create Workout" : "Edit Workout"}
-            onBack={requestClose}
-            backLabel="Close editor"
-            actions={[
-              {
-                value: "undo",
-                label: "Undo",
-                disabled: !history.past.length || saving,
-                onSelect: undo,
-              },
-              {
-                value: "redo",
-                label: "Redo",
-                disabled: !history.future.length || saving,
-                onSelect: redo,
-              },
-            ]}
+            title="Edit Workout"
+            showMenu={false}
+            left={mobile ? <button type="button" className="mobile-navbar-action" aria-label="Cancel workout editing" onClick={requestClose}><X aria-hidden="true" /></button> : undefined}
+            right={mobile ? <button type="button" className="mobile-navbar-action" aria-label="Save workout" disabled={!canSave || saving} onClick={() => void save()}><Check aria-hidden="true" /></button> : undefined}
           />
+          {mobile ? (
+            <MobileEditorBody
+              model={model}
+              commit={commit}
+              remove={remove}
+              duplicate={duplicate}
+              status={status}
+              error={error}
+              validation={validation}
+            />
+          ) : <>
           <header className="we-header">
             <div>
               <DialogTitle className="text-lg font-semibold">
@@ -2194,6 +3239,14 @@ function EditorWorkspace({
                         <Button
                           variant="outline"
                           size="sm"
+                          onClick={() => add("Rest")}
+                        >
+                          <Plus size={13} />
+                          Rest
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
                           disabled={
                             !selected.some(
                               (id) =>
@@ -2207,7 +3260,7 @@ function EditorWorkspace({
                         <Action
                           label="Delete selected steps"
                           disabled={!selected.length}
-                          onClick={() => remove()}
+                          onClick={() => void remove()}
                         >
                           <Trash2 size={15} />
                         </Action>
@@ -2384,6 +3437,7 @@ function EditorWorkspace({
               </Button>
             </div>
           </footer>
+          </>}
         </DialogContent>
       </Dialog>
       <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
@@ -2399,14 +3453,7 @@ function EditorWorkspace({
             <AlertDialogCancel>Keep editing</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              onClick={() => {
-                try {
-                  localStorage.removeItem(draftKey)
-                } catch {
-                  /* Optional. */
-                }
-                onClose()
-              }}
+              onClick={discardAndClose}
             >
               Discard changes
             </AlertDialogAction>
