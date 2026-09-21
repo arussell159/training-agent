@@ -547,9 +547,9 @@ test("report HTTP requires app login, same-origin POST and a validated target", 
   assert.equal(generated, 0);
   assert.equal(
     (await call("generate", headers, { kind: "weekly", startDate: "2026-09-07" })).status,
-    409
+    200
   );
-  assert.equal(generated, 0);
-  assert.equal((await call("generate")).status, 200);
   assert.equal(generated, 1);
+  assert.equal((await call("generate")).status, 200);
+  assert.equal(generated, 2);
 });

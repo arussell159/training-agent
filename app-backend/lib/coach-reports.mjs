@@ -138,6 +138,7 @@ export function createCoachReports({
   readContext,
   readPlans,
   answer,
+  publish = async () => ({ skipped: true }),
   now = () => Date.now(),
   timeoutMs = 240000,
 }) {
@@ -256,7 +257,7 @@ export function createCoachReports({
   async function generate(request) {
     const target = await resolve(request);
     const existing = await saved(target);
-    if (["complete", "running"].includes(existing.status))
+    if (["complete", "running"].includes(existing.status) && !target.force)
       return view(existing.target || target, existing);
     if (config.missing?.length)
       throw new CoachError(
@@ -278,7 +279,7 @@ export function createCoachReports({
         );
       const token = randomUUID();
       claim = await record(target.key).update((state) => {
-        if (["complete", "running"].includes(state.status)) return null;
+        if (["running"].includes(state.status)) return null;
         Object.assign(state, { status: "running", token, startedAt: now(), target, error: null });
         return token;
       });
@@ -313,10 +314,11 @@ export function createCoachReports({
         messages: [
           {
             role: "user",
-            content: `Generate the complete official Section 11 ${target.kind} report for the supplied reportSubject. This is a manually requested saved report. Use the exact official template and fresh source evidence; include all same-day activities for a post-workout report, identifying the selected workout. Use previous reports only for continuity. Do not schedule or change any workouts.`,
+            content: `Generate the complete official Section 11 ${target.kind} report for the supplied reportSubject. This is an automatic saved report. Use the exact official template and fresh source evidence; include all same-day activities for a post-workout report, identifying the selected workout. For weekly and block reports, preserve the template's exact opening title and section labels; for a block, use the phase and week range from reportSubject, which comes from the saved Supabase annual plan. Use previous reports only for continuity. Do not schedule or change any workouts.`,
           },
         ],
       });
+      const publication = await publish(target, result.text);
       const completed = await record(target.key).update((state) => {
         if (state.token !== claim || state.status !== "running") return state;
         Object.assign(state, {
@@ -328,6 +330,7 @@ export function createCoachReports({
           generatedAt: new Date(now()).toISOString(),
           template: { file: template.file, revision: template.revision },
           error: null,
+          publication,
         });
         return state;
       });
@@ -409,5 +412,47 @@ export function createCoachReports({
     const recentFirst = (a, b) => b.endDate.localeCompare(a.endDate);
     return { weeks: weeks.sort(recentFirst), blocks: blocks.sort(recentFirst) };
   }
-  return { status, generate, catalog };
+  async function generateDue() {
+    const context = await readContext();
+    const today = athleteLocalDate(
+      new Date(now()),
+      context?.athlete?.time_zone || config.calendarTimeZone
+    );
+    const targets = [];
+    const workouts = [
+      ...(context?.history || []),
+      ...(context?.planned || []),
+      ...(context?.workouts || []),
+    ];
+    const unique = new Map(workouts.filter((workout) => workout?.id).map((workout) => [workout.id, workout]));
+    for (const workout of unique.values()) {
+      const date = String(workout.workout_date || workout.date || "").slice(0, 10);
+      const completed = workout.status === "completed" || workout.completed === true;
+      if (date === today && !completed) {
+        const eventId = String(workout.id).match(/^(?:event:)?(\d+)$/)?.[1];
+        if (eventId) targets.push({ kind: "pre", workoutId: `event:${eventId}` });
+      }
+      const activityId = workout.activity_id || (String(workout.id).startsWith("activity:") ? String(workout.id).slice(9) : null);
+      if (completed && activityId && date >= shiftReportDate(today, -2) && date <= today)
+        targets.push({ kind: "post", workoutId: `activity:${activityId}` });
+    }
+    const previousMonday = shiftReportDate(today, -((new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7) - 7);
+    targets.push({ kind: "weekly", startDate: previousMonday });
+    for (const plan of await readPlans()) {
+      for (const block of planReportBlocks(plan)) {
+        if (block.endDate < today && block.endDate >= shiftReportDate(today, -7))
+          targets.push({ kind: "block", planId: plan.id, startDate: block.startDate });
+      }
+    }
+    const results = [];
+    for (const target of targets) {
+      try {
+        results.push(await generate(target));
+      } catch (error) {
+        if (!(error instanceof CoachError) || ![404, 409].includes(error.status)) throw error;
+      }
+    }
+    return results;
+  }
+  return { status, generate, generateDue, catalog };
 }

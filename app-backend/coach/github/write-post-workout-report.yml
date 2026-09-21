@@ -1,4 +1,4 @@
-name: Write Section 11 Post-Workout Reports
+name: Section 11 Report Worker (handled by app AI service)
 
 on:
   workflow_run:
@@ -21,7 +21,10 @@ concurrency:
 
 jobs:
   post-workout:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    # Report generation now runs in the app's AI service after the sync is
+    # confirmed. Keeping this workflow disabled prevents the legacy Python
+    # formatter from writing non-AI reports into Intervals.icu.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

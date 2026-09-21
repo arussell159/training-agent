@@ -19,7 +19,7 @@ import { resolveApiRoute, toFunctionUrl } from "./api-routing.mjs";
 
 const now = Date.parse("2026-09-17T15:00:00Z");
 const sha = "a".repeat(40),
-  officialSha = "b".repeat(40);
+  officialSha = "02f5572ae196b4aa63f813413f43398a4cf1e3e4";
 const env = {
   OPENAI_API_KEY: "dummy-openai",
   TRAINING_DATA_GITHUB_TOKEN: "dummy-github",

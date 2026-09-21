@@ -14,6 +14,7 @@ import { createWorkoutSync, freshWorkoutSync } from './lib/coach-workout-sync.mj
 import { createCoachReports, createReportSnapshotCache, freshReport } from './lib/coach-reports.mjs';
 import { createReportsHttp } from './lib/coach-reports-http.mjs';
 import { fetchIntervalsReportCatalog, fetchIntervalsWorkoutReports } from './lib/intervals-report-catalog.mjs';
+import { createIntervalsReportPublisher } from './lib/intervals-report-publisher.mjs';
 import { fileURLToPath } from 'node:url';
 import { createContextStore } from './lib/supabase-context.mjs';
 import {createCompletedWorkoutStore,providerConnection,mergeTrainingSnapshot,snapshotCoversRange} from './lib/completed-workout-store.mjs';
@@ -53,6 +54,7 @@ const handleAuth = createAppAuth({ readBootstrap: readBootstrapConfig });
 let reportServices;
 async function getReportServices(config = coachConfig()) {
   if (!config.githubToken || !config.repo) return null;
+  const intervalsConfig = await readConfig();
   const bootstrap = await readBootstrapConfig();
   const identity = `${config.repo}@${config.branch}`;
   const signature = createHash('sha256').update(JSON.stringify([config,bootstrap])).digest('hex');
@@ -60,11 +62,19 @@ async function getReportServices(config = coachConfig()) {
   const storage = (namespace, name, fresh, key = '') => createEncryptedRecordStore(bootstrap, `${identity}/${key}`, { namespace, name, fresh, timestampCas: true });
   const source = createGithubCoachSource();
   const snapshotCache = createReportSnapshotCache(source, config);
-  const sync = createWorkoutSync({ config, store: storage('coach-sync', 'COACH_WORKOUT_SYNC', freshWorkoutSync), onFinished: () => snapshotCache.invalidate() });
+  const sync = createWorkoutSync({
+    config,
+    store: storage('coach-sync', 'COACH_WORKOUT_SYNC', freshWorkoutSync),
+    onFinished: async () => {
+      snapshotCache.invalidate();
+      if (reportServices?.reports) await reportServices.reports.generateDue().catch(() => {});
+    },
+  });
   const reports = createCoachReports({ config, source, snapshotCache, sync,
     record: key => storage('coach-report', 'COACH_REPORT', freshReport, key),
     index: storage('coach-report-index', 'COACH_REPORT_INDEX', () => ({ reports: [] })),
     readContext: async () => loadSupabaseTrainingSnapshot(await readConfig()), readPlans: listAnnualPlans,
+    publish: createIntervalsReportPublisher(intervalsClient(intervalsConfig)).publish,
     answer: createCoach({ source }),
   });
   reportServices = { signature, sync, reports };

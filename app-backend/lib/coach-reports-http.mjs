@@ -81,14 +81,6 @@ export function createReportsHttp({
         throw new CoachError("Section 11's GitHub connection is not configured.", 503);
       const reports = await getReports(config);
       if (pathname === "/api/coach/reports/status") json(200, await reports.status(target));
-      else if (
-        pathname === "/api/coach/reports/generate" &&
-        ["weekly", "block"].includes(target.kind)
-      )
-        throw new CoachError(
-          "Weekly and block reports are read from Intervals.icu and cannot be generated here.",
-          409
-        );
       else if (pathname === "/api/coach/reports/generate")
         json(200, await reports.generate(target));
       else if (pathname === "/api/coach/reports/sync" && target.kind === "post")

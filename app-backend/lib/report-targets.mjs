@@ -47,8 +47,9 @@ export function validateReportRequest(input) {
         : ["kind", "workoutId"];
   if (
     Object.keys(input).some(
-      (k) => !keys.includes(k) && !(input.kind === "pre" && k === "checkIn")
+      (k) => !keys.includes(k) && !(k === "force" || (input.kind === "pre" && k === "checkIn"))
     ) ||
+    (input.force !== undefined && typeof input.force !== "boolean") ||
     keys.some((k) => typeof input[k] !== "string")
   )
     throw new CoachError("Invalid report target.", 400);
@@ -73,6 +74,7 @@ export function validateReportRequest(input) {
   return {
     ...Object.fromEntries(keys.map((k) => [k, input[k]])),
     ...(input.checkIn ? { checkIn: input.checkIn.trim() } : {}),
+    ...(input.force ? { force: true } : {}),
   };
 }
 export function resolveReportTarget(input, context, plans = []) {

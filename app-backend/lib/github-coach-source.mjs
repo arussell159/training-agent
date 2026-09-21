@@ -25,6 +25,9 @@ export const REFERENCE_FILES = [
   "SEASON_REPORT_TEMPLATE.md",
 ];
 const UPSTREAM = "CrankAddict/section-11";
+// The athlete supplied the report package from this exact Section 11 revision.
+// Do not silently drift to main for report generation.
+const UPSTREAM_REVISION = "02f5572ae196b4aa63f813413f43398a4cf1e3e4";
 
 // Keep the upstream wording intact. The index makes the complete document
 // available without resending its changelog and every specialty on every call.
@@ -177,7 +180,7 @@ export function createGithubCoachSource({
 
   async function references(signal) {
     if (referenceCache && now() - referenceCache.checkedAt < 600000) return referenceCache;
-    const sha = await revision(UPSTREAM, "main", null, signal);
+    const sha = UPSTREAM_REVISION;
     if (sha === referenceCache?.sha) {
       referenceCache = { ...referenceCache, checkedAt: now() };
       return referenceCache;
