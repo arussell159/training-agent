@@ -45,7 +45,7 @@
   overflow-x: hidden;
   overscroll-behavior: contain;
   padding: 1rem;
-  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  padding-bottom: max(4rem, calc(2rem + env(safe-area-inset-bottom)));
 }
 .we-mobile-workout-name {
   width: 100%;
@@ -255,6 +255,10 @@
 .we-mobile-sheet-handle {
   background: var(--background);
 }
+.we-mobile-sheet-swipe-area {
+  flex: 0 0 auto;
+  touch-action: pan-y;
+}
 .we-dialog .sheet-backdrop {
   position: fixed;
   inset: 0;
@@ -322,29 +326,29 @@
 .we-mobile-form-list .item-input-wrap {
   width: 100%;
 }
+.we-mobile-form-list .item-input-wrap input,
+.we-mobile-form-list .item-input-wrap select,
+.we-mobile-form-list .item-input-wrap textarea,
+.we-mobile-form-list .we-mobile-time-field > input {
+  width: 100%;
+  min-height: 2.75rem;
+  border-radius: 0.55rem;
+}
+.we-mobile-form-list .item-input-wrap input:focus,
+.we-mobile-form-list .item-input-wrap select:focus,
+.we-mobile-form-list .item-input-wrap textarea:focus,
+.we-mobile-form-list .we-mobile-time-field > input:focus {
+  border-radius: 0.55rem;
+  outline: 2px solid color-mix(in srgb, var(--ring) 55%, transparent);
+  outline-offset: 1px;
+}
 .we-mobile-time-field {
   width: 100%;
   padding-block: 0.55rem;
 }
-.we-mobile-time-parts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.5rem;
+.we-mobile-time-field > input {
+  display: block;
   margin-top: 0.4rem;
-}
-.we-mobile-time-parts-pace {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.we-mobile-time-parts label {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.3rem;
-  min-width: 0;
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-}
-.we-mobile-time-parts input {
   width: 100%;
   min-width: 0;
   min-height: 2.75rem;
@@ -355,7 +359,7 @@
   color: var(--foreground);
   font-size: 1rem;
   font-variant-numeric: tabular-nums;
-  text-align: center;
+  text-align: left;
 }
 .we-mobile-more-options {
   margin-top: 0.75rem;
@@ -382,6 +386,12 @@
   width: 100%;
   min-height: 2.75rem;
   margin-top: 1rem;
+}
+.we-dialog .actions-modal {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+.we-dialog .actions-group {
+  margin-inline: 0.75rem;
 }
 @media (min-width: 768px) {
   .we-mobile-editor,

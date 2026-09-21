@@ -934,68 +934,48 @@ function MobileTimeListInput({
   pace?: boolean
   onChange: (value: number) => void
 }) {
-  const splitValue = (seconds: number) =>
-    pace
-      ? [Math.floor(seconds / 60), Math.round(seconds) % 60]
-      : [
-          Math.floor(seconds / 3600),
-          Math.floor(seconds / 60) % 60,
-          Math.round(seconds) % 60,
-        ]
-  const [parts, setParts] = useState(() => splitValue(value))
+  const format = (seconds: number) => {
+    const total = Math.max(0, Math.round(seconds))
+    const hours = Math.floor(total / 3600)
+    const minutes = Math.floor(total / 60) % 60
+    const remainder = total % 60
+    return pace || hours === 0
+      ? `${pace ? String(Math.floor(total / 60)) : String(minutes)}:${String(remainder).padStart(2, "0")}`
+      : `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
+  }
+  const parseDigits = (raw: string) => {
+    const digits = raw.replace(/\D/g, "").slice(-6)
+    if (!digits) return 0
+    const seconds = Number(digits.slice(-2))
+    const minutes = Number(digits.slice(-4, -2) || 0)
+    const hours = Number(digits.slice(0, -4) || 0)
+    return hours * 3600 + minutes * 60 + seconds
+  }
+  const [text, setText] = useState(() => format(value))
   useEffect(() => {
-    setParts(splitValue(value))
+    setText(format(value))
   }, [value, pace])
-  const labels = pace ? ["Minutes", "Seconds"] : ["Hours", "Minutes", "Seconds"]
-  const unitLabels = pace ? ["min", "sec"] : ["hr", "min", "sec"]
-  const updatePart = (index: number, raw: string) => {
-    const limit = index === parts.length - 1 || (!pace && index === 1) ? 59 : 999
-    const next = [...parts]
-    next[index] = Math.max(0, Math.min(limit, raw === "" ? 0 : Number(raw)))
-    setParts(next)
-    onChange(
-      pace
-        ? next[0] * 60 + next[1]
-        : next[0] * 3600 + next[1] * 60 + next[2]
-    )
+  const update = (raw: string) => {
+    const next = parseDigits(raw)
+    const formatted = format(next)
+    setText(formatted)
+    onChange(next)
   }
   return (
     <ListItem className="we-mobile-time-row">
       <div className="we-mobile-time-field">
         <span className="item-title item-label">{label}</span>
-        <div className={`we-mobile-time-parts ${pace ? "we-mobile-time-parts-pace" : ""}`}>
-          {parts.map((part, index) => (
-            <label key={labels[index]}>
-              <input
-                aria-label={`${label} ${labels[index]}`}
-                type="number"
-                inputMode="numeric"
-                min={0}
-                max={index === parts.length - 1 || (!pace && index === 1) ? 59 : 999}
-                step={1}
-                value={part}
-                onFocus={(event) => event.currentTarget.select()}
-                onInput={(event) => updatePart(index, event.currentTarget.value)}
-              />
-              <span>{unitLabels[index]}</span>
-            </label>
-          ))}
-        </div>
+        <input
+          aria-label={label}
+          type="text"
+          inputMode="numeric"
+          value={text}
+          onFocus={(event) => event.currentTarget.select()}
+          onChange={(event) => update(event.currentTarget.value)}
+        />
       </div>
     </ListItem>
   )
-}
-
-function targetDefault(kind: "power" | "pace" | "hr", sport: string): Target {
-  if (kind === "pace") {
-    const target = defaultTarget(sport)
-    return target.kind === "pace"
-      ? target
-      : { kind: "pace", unit: "secs/mi", mode: "single", value: 540 }
-  }
-  return kind === "power"
-    ? { kind, unit: "w", mode: "single", value: 150 }
-    : { kind, unit: "bpm", mode: "single", value: 140 }
 }
 
 function MobileTargetFields({
@@ -1056,23 +1036,7 @@ function MobileTargetFields({
       </List>
     )
   }
-  const fields: ReactNode[] = [
-      <ListInput
-        key="target-kind"
-        label="Target type"
-        type="select"
-        value={target.kind}
-        onChange={(event) => {
-          const kind = event.currentTarget.value as Target["kind"]
-          setTarget(kind === "none" ? { kind: "none" } : targetDefault(kind, model.sport))
-        }}
-      >
-        <option value="none">No target</option>
-        <option value="pace">Pace / speed</option>
-        <option value="power">Power</option>
-        <option value="hr">Heart rate</option>
-      </ListInput>,
-  ]
+  const fields: ReactNode[] = []
   const valueFields: ReactNode[] = []
   let zoneField: ReactNode = null
   if (target.kind !== "none") {
@@ -1165,7 +1129,6 @@ function MobileIntervalSheet({
   onClose: () => void
 }) {
   const [draft, setDraft] = useState<Step | null>(null)
-  const [moreOpen, setMoreOpen] = useState(false)
   const sheetRef = useRef<{
     el: HTMLElement | null
     f7Sheet: () => Framework7Sheet.Sheet
@@ -1177,11 +1140,18 @@ function MobileIntervalSheet({
   const nodeId = node?.kind === "step" ? node.id : null
   useEffect(() => {
     const current = nodeRef.current
-    setDraft(current?.kind === "step" ? clone(current) : null)
-    setMoreOpen(false)
+    if (current?.kind !== "step") {
+      setDraft(null)
+    } else {
+      const next = clone(current)
+      if (next.role !== "rest" && next.target.kind === "none") {
+        next.target = defaultTarget(model.sport)
+      }
+      setDraft(next)
+    }
     acceptedClose.current = false
     confirmingClose.current = false
-  }, [nodeId])
+  }, [nodeId, model.sport])
   const dirty = Boolean(draft && node && JSON.stringify(draft) !== JSON.stringify(node))
   const acceptClose = () => {
     acceptedClose.current = true
@@ -1253,14 +1223,15 @@ function MobileIntervalSheet({
       closeByBackdropClick={false}
       closeOnEscape
       swipeToClose
-      swipeHandler=".we-mobile-sheet-handle"
+      swipeHandler=".we-mobile-sheet-swipe-area"
       onSheetClose={() => void handleNativeClose()}
       {...{ role: "dialog", "aria-modal": true, "aria-label": "Edit interval" }}
     >
-      <div className="we-mobile-sheet-handle" aria-hidden="true">
-        <span />
-      </div>
-      <div className="we-mobile-sheet-nav">
+      <div className="we-mobile-sheet-swipe-area">
+        <div className="we-mobile-sheet-handle" aria-hidden="true">
+          <span />
+        </div>
+        <div className="we-mobile-sheet-nav">
         <Button
           type="button"
           variant="ghost"
@@ -1283,6 +1254,7 @@ function MobileIntervalSheet({
         >
           Done
         </Button>
+        </div>
       </div>
       {draft && (
         <div className="we-mobile-sheet-scroll">
@@ -1364,48 +1336,6 @@ function MobileIntervalSheet({
                 )}
           </List>
           <MobileTargetFields step={draft} model={model} onChange={setDraft} />
-          <section className="we-mobile-more-options">
-            <button
-              type="button"
-              className="we-mobile-more-toggle"
-              aria-expanded={moreOpen}
-              onClick={() => setMoreOpen((open) => !open)}
-            >
-              <span>More options</span>
-              <ChevronRight className={moreOpen ? "rotate-90" : ""} />
-            </button>
-            {moreOpen && (
-              <List strongIos dividersIos className="we-mobile-form-list">
-                <ListInput
-                  label="Notes"
-                  type="textarea"
-                  value={draft.notes || ""}
-                  onInput={(event) =>
-                    setDraft({ ...draft, notes: event.currentTarget.value })
-                  }
-                />
-                {(/swim/i.test(model.sport) ||
-                  draft.end.pressLap ||
-                  draft.end.kind === "lap") && (
-                  <ListItem
-                    title="End on lap button"
-                    checkbox
-                    checked={Boolean(draft.end.pressLap || draft.end.kind === "lap")}
-                    onChange={(event) =>
-                      setDraft({
-                        ...draft,
-                        end: {
-                          ...draft.end,
-                          kind: draft.end.kind === "lap" ? "time" : draft.end.kind,
-                          pressLap: event.currentTarget.checked,
-                        },
-                      })
-                    }
-                  />
-                )}
-              </List>
-            )}
-          </section>
           <Button
             type="button"
             variant="destructive"
