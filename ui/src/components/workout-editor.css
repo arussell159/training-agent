@@ -45,7 +45,12 @@
   overflow-x: hidden;
   overscroll-behavior: contain;
   padding: 1rem;
-  padding-bottom: max(4rem, calc(2rem + env(safe-area-inset-bottom)));
+}
+.we-mobile-editor-scroll {
+  padding-bottom: max(6rem, calc(3rem + env(safe-area-inset-bottom)));
+}
+.we-mobile-sheet-scroll {
+  padding-bottom: max(8rem, calc(4rem + env(safe-area-inset-bottom)));
 }
 .we-mobile-workout-name {
   width: 100%;
@@ -255,9 +260,17 @@
 .we-mobile-sheet-handle {
   background: var(--background);
 }
-.we-mobile-sheet-swipe-area {
+.we-mobile-interval-sheet .sheet-modal-inner {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+.we-mobile-sheet-header {
   flex: 0 0 auto;
   touch-action: pan-y;
+  background: var(--background);
 }
 .we-dialog .sheet-backdrop {
   position: fixed;
@@ -309,7 +322,15 @@
 .we-mobile-form-list .item-content,
 .we-mobile-form-list .item-inner,
 .we-mobile-form-list .item-input-wrap {
+  width: 100%;
   min-width: 0;
+}
+.we-mobile-form-list .item-content {
+  border-radius: 0.75rem;
+}
+.we-mobile-form-list .item-content:focus-within {
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--primary) 5%, var(--background));
 }
 .we-mobile-form-list .item-inner {
   display: block;
@@ -338,7 +359,7 @@
 .we-mobile-form-list .item-input-wrap select:focus,
 .we-mobile-form-list .item-input-wrap textarea:focus,
 .we-mobile-form-list .we-mobile-time-field > input:focus {
-  border-radius: 0.55rem;
+  border-radius: 0.75rem;
   outline: 2px solid color-mix(in srgb, var(--ring) 55%, transparent);
   outline-offset: 1px;
 }
@@ -353,7 +374,7 @@
   min-width: 0;
   min-height: 2.75rem;
   border: 1px solid var(--border);
-  border-radius: 0.55rem;
+  border-radius: 0.75rem;
   background: var(--background);
   padding: 0 0.5rem;
   color: var(--foreground);
@@ -361,34 +382,14 @@
   font-variant-numeric: tabular-nums;
   text-align: left;
 }
-.we-mobile-more-options {
-  margin-top: 0.75rem;
-}
-.we-mobile-more-toggle {
-  display: flex;
-  width: 100%;
-  min-height: 2.75rem;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  border: 0;
-  background: transparent;
-  padding: 0 0.75rem;
-  font-weight: 600;
-  text-align: left;
-}
-.we-mobile-more-toggle svg {
-  width: 1.2rem;
-  height: 1.2rem;
-  transition: transform 160ms ease;
-}
 .we-mobile-delete {
   width: 100%;
   min-height: 2.75rem;
   margin-top: 1rem;
 }
 .we-dialog .actions-modal {
-  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  padding-top: 0.75rem;
+  padding-bottom: max(1.5rem, calc(0.75rem + env(safe-area-inset-bottom)));
 }
 .we-dialog .actions-group {
   margin-inline: 0.75rem;

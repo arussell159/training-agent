@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type FormEvent,
   type ReactNode,
 } from "react"
 import {
@@ -140,6 +141,7 @@ import {
   durationClock,
   editorUnits,
   editorTarget,
+  parseDurationInput,
 } from "../../../app-backend/lib/workout-editor-inputs.mjs"
 import "./workout-editor.css"
 
@@ -925,41 +927,48 @@ function mobileNodeLine(node: WorkoutNode, model: WorkoutModel) {
 function MobileTimeListInput({
   label,
   value,
-  pace = false,
   onChange,
 }: {
   slot?: string
   label: string
   value: number
-  pace?: boolean
   onChange: (value: number) => void
 }) {
-  const format = (seconds: number) => {
-    const total = Math.max(0, Math.round(seconds))
-    const hours = Math.floor(total / 3600)
-    const minutes = Math.floor(total / 60) % 60
-    const remainder = total % 60
-    return pace || hours === 0
-      ? `${pace ? String(Math.floor(total / 60)) : String(minutes)}:${String(remainder).padStart(2, "0")}`
-      : `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
-  }
-  const parseDigits = (raw: string) => {
-    const digits = raw.replace(/\D/g, "").slice(-6)
-    if (!digits) return 0
-    const seconds = Number(digits.slice(-2))
-    const minutes = Number(digits.slice(-4, -2) || 0)
-    const hours = Number(digits.slice(0, -4) || 0)
-    return hours * 3600 + minutes * 60 + seconds
+  const format = (seconds: number) => compactDuration(seconds)
+  const formatDigits = (raw: string) => {
+    const digits = raw.replace(/\D/g, "").slice(-7)
+    if (!digits) return ""
+    if (digits.length <= 2) return `0:${digits.padStart(2, "0")}`
+    if (digits.length <= 4) {
+      return `${Number(digits.slice(0, -2))}:${digits.slice(-2)}`
+    }
+    return `${Number(digits.slice(0, -4))}:${digits.slice(-4, -2)}:${digits.slice(-2)}`
   }
   const [text, setText] = useState(() => format(value))
+  const rawDigits = useRef("")
+  const editing = useRef(false)
   useEffect(() => {
-    setText(format(value))
-  }, [value, pace])
-  const update = (raw: string) => {
-    const next = parseDigits(raw)
-    const formatted = format(next)
-    setText(formatted)
-    onChange(next)
+    if (!editing.current) setText(format(value))
+  }, [value])
+  const update = (event: FormEvent<HTMLInputElement>) => {
+    const native = event.nativeEvent as InputEvent
+    let nextDigits = rawDigits.current
+    if (native.inputType?.startsWith("delete")) {
+      nextDigits = nextDigits.slice(0, -1)
+    } else if (native.data && /^\d+$/.test(native.data)) {
+      const visibleDigits = event.currentTarget.value.replace(/\D/g, "")
+      nextDigits =
+        visibleDigits === native.data ? native.data : `${nextDigits}${native.data}`
+    } else {
+      nextDigits = event.currentTarget.value
+        .replace(/\D/g, "")
+        .replace(/^0+(?=\d)/, "")
+    }
+    nextDigits = nextDigits.slice(-7)
+    rawDigits.current = nextDigits
+    setText(formatDigits(nextDigits))
+    const next = parseDurationInput(nextDigits || "0")
+    if (next !== null) onChange(next)
   }
   return (
     <ListItem className="we-mobile-time-row">
@@ -969,9 +978,19 @@ function MobileTimeListInput({
           aria-label={label}
           type="text"
           inputMode="numeric"
+          pattern="[0-9]*"
           value={text}
-          onFocus={(event) => event.currentTarget.select()}
-          onChange={(event) => update(event.currentTarget.value)}
+          onFocus={(event) => {
+            editing.current = true
+            rawDigits.current = ""
+            event.currentTarget.select()
+          }}
+          onInput={update}
+          onBlur={() => {
+            editing.current = false
+            rawDigits.current = ""
+            setText(format(value))
+          }}
         />
       </div>
     </ListItem>
@@ -1011,7 +1030,6 @@ function MobileTargetFields({
           slot="list"
           label={`${label} (${target.unit.replace("secs", "min")})`}
           value={value}
-          pace
           onChange={(next) => setValue(key, next)}
         />
       </List>
@@ -1144,9 +1162,10 @@ function MobileIntervalSheet({
       setDraft(null)
     } else {
       const next = clone(current)
-      if (next.role !== "rest" && next.target.kind === "none") {
-        next.target = defaultTarget(model.sport)
-      }
+      const targetKind = editorUnits(model.sport).kind
+      next.label = roleNames[next.role]
+      if (next.role === "rest") next.target = { kind: "none" }
+      else if (next.target.kind !== targetKind) next.target = defaultTarget(model.sport)
       setDraft(next)
     }
     acceptedClose.current = false
@@ -1223,11 +1242,11 @@ function MobileIntervalSheet({
       closeByBackdropClick={false}
       closeOnEscape
       swipeToClose
-      swipeHandler=".we-mobile-sheet-swipe-area"
+      swipeHandler=".we-mobile-sheet-header"
       onSheetClose={() => void handleNativeClose()}
       {...{ role: "dialog", "aria-modal": true, "aria-label": "Edit interval" }}
     >
-      <div className="we-mobile-sheet-swipe-area">
+      <div className="we-mobile-sheet-header">
         <div className="we-mobile-sheet-handle" aria-hidden="true">
           <span />
         </div>
@@ -1272,7 +1291,7 @@ function MobileIntervalSheet({
                   target:
                     role === "rest"
                       ? { kind: "none" }
-                      : draft.target.kind === "none"
+                      : draft.target.kind !== editorUnits(model.sport).kind
                         ? defaultTarget(model.sport)
                         : draft.target,
                 })
