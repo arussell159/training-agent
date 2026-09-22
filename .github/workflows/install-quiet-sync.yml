@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/install-quiet-sync.yml'
       - 'tools/idle-sync-part-*.bin'
+      - 'tools/refine-quiet-sync.mjs'
 permissions:
   contents: write
 concurrency:
@@ -38,16 +39,17 @@ jobs:
           for(const [name,content] of Object.entries(files)){fs.mkdirSync(path.dirname(name),{recursive:true});fs.writeFileSync(name,content);}
           JS
           node tools/apply-idle-sync-patch.mjs
+          node tools/refine-quiet-sync.mjs
           node --check app-backend/server.mjs
       - name: Install dependencies
         run: |
           npm ci
           npm ci --prefix ui --include=dev
-      - name: Format new maintained modules
+      - name: Format changed modules and two pre-existing style-only failures
         run: |
-          npx prettier --write app-backend/lib/workout-sync-policy*.mjs app-backend/lib/workout-change-probe*.mjs app-backend/lib/background-workout-sync.test.mjs app-backend/lib/idle-sync-integration.test.mjs docs/WORKOUT_SYNC_POLICY.md
+          npx prettier --write app-backend/lib/workout-sync-policy*.mjs app-backend/lib/workout-change-probe*.mjs app-backend/lib/background-workout-sync.test.mjs app-backend/lib/idle-sync-integration.test.mjs app-backend/lib/ui-idle-network.test.mjs docs/WORKOUT_SYNC_POLICY.md app-backend/lib/coach-reports.mjs app-backend/lib/intervals-report-publisher.mjs
           cd ui
-          npx prettier --write src/lib/background-workout-sync.mjs src/lib/background-workout-sync.d.mts src/components/background-sync.tsx
+          npx prettier --write src/lib/background-workout-sync.mjs src/lib/background-workout-sync.d.mts src/components/background-sync.tsx src/components/app-auth.tsx src/components/section11-report.tsx
       - name: Test complete backend including cold idle and row preservation
         run: |
           if npm test > /tmp/quiet-sync-tests.log 2>&1; then tail -15 /tmp/quiet-sync-tests.log; else grep -A45 -B3 'not ok\|ERR_\|SyntaxError' /tmp/quiet-sync-tests.log; tail -15 /tmp/quiet-sync-tests.log; exit 1; fi
@@ -61,10 +63,11 @@ jobs:
         if: always()
         run: |
           grep -RIn 'setInterval\|/api/sync\|revalidateTrainingContext' ui/src --include='*.tsx' --include='*.ts' --include='*.mjs' || true
+          grep -RIn 'section11-report' ui/src --include='*.tsx' --include='*.ts' || true
       - name: Commit tested source and remove one-time installer
         run: |
-          rm tools/idle-sync-part-0.bin tools/idle-sync-part-1.bin tools/idle-sync-part-2.bin tools/idle-sync-part-3.bin tools/apply-idle-sync-patch.mjs .github/workflows/install-quiet-sync.yml
-          git add app-backend/server.mjs app-backend/lib/workout-sync-policy.mjs app-backend/lib/workout-change-probe.mjs app-backend/lib/workout-sync-policy.test.mjs app-backend/lib/workout-change-probe.test.mjs app-backend/lib/background-workout-sync.test.mjs app-backend/lib/idle-sync-integration.test.mjs ui/src/lib/background-workout-sync.mjs ui/src/lib/background-workout-sync.d.mts ui/src/lib/training-context.ts ui/src/components/background-sync.tsx docs/WORKOUT_SYNC_POLICY.md tools/idle-sync-part-0.bin tools/idle-sync-part-1.bin tools/idle-sync-part-2.bin tools/idle-sync-part-3.bin .github/workflows/install-quiet-sync.yml
+          rm tools/idle-sync-part-0.bin tools/idle-sync-part-1.bin tools/idle-sync-part-2.bin tools/idle-sync-part-3.bin tools/apply-idle-sync-patch.mjs tools/refine-quiet-sync.mjs .github/workflows/install-quiet-sync.yml
+          git add app-backend/server.mjs app-backend/lib/workout-sync-policy.mjs app-backend/lib/workout-change-probe.mjs app-backend/lib/workout-sync-policy.test.mjs app-backend/lib/workout-change-probe.test.mjs app-backend/lib/background-workout-sync.test.mjs app-backend/lib/idle-sync-integration.test.mjs app-backend/lib/ui-idle-network.test.mjs app-backend/lib/coach-reports.mjs app-backend/lib/intervals-report-publisher.mjs ui/src/lib/background-workout-sync.mjs ui/src/lib/background-workout-sync.d.mts ui/src/lib/training-context.ts ui/src/components/background-sync.tsx ui/src/components/app-auth.tsx ui/src/components/section11-report.tsx docs/WORKOUT_SYNC_POLICY.md tools/idle-sync-part-0.bin tools/idle-sync-part-1.bin tools/idle-sync-part-2.bin tools/idle-sync-part-3.bin tools/refine-quiet-sync.mjs .github/workflows/install-quiet-sync.yml
           git diff --cached --stat
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
