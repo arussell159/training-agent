@@ -190,6 +190,7 @@ export async function refreshRecentIntervals() {
     progress=await status.json()
   }
   if(progress && progress.status!=='complete')throw Error(progress.error || (['failed','unavailable'].includes(progress.status)?'Training refreshed; Section 11 sync failed. Try Refresh again.':'Training refreshed; Section 11 sync is still running. Check again shortly.'))
+  window.dispatchEvent(new Event('background-sync-restart'))
   return loadTrainingContext(false,'full',true)
 }
 
@@ -273,6 +274,7 @@ export async function loadTrainingContext(forceRefresh = false, scope: "week" | 
       window.dispatchEvent(new CustomEvent("intervals-auth-expired"))
     }
     rememberTrainingContext(context,scope)
+    if(forceRefresh)window.dispatchEvent(new Event('background-sync-restart'))
     return context
   } catch {
     return cachedTrainingContext()

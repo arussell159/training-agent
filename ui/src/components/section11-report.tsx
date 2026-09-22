@@ -195,16 +195,14 @@ function ReportPanel({
       { rootMargin: "100px" }
     )
     if (root.current) observer.observe(root.current)
-    const timer = window.setInterval(() => {
-      if (!document.hidden) void check()
-    }, 15000)
+    // Read on opening, a real training-context update, or an explicit action;
+    // an unfinished report must not poll the database indefinitely.
     const refresh = () => void check()
     window.addEventListener("training-context-updated", refresh)
     const pending = requests.current
     return () => {
       alive.current = false
       observer.disconnect()
-      clearInterval(timer)
       window.removeEventListener("training-context-updated", refresh)
       pending.forEach((controller) => controller.abort())
     }
