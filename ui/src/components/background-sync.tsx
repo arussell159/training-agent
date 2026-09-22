@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { apiFetch } from "@/lib/api-client"
 import {
   rememberTrainingContext,
@@ -12,6 +12,8 @@ import {
 
 export function BackgroundSync() {
   const [error, setError] = useState("")
+  const [startupError, setStartupError] = useState("")
+  const startupRequested = useRef(false)
   const [retry, setRetry] = useState(0)
   const [pending, setPending] = useState(0)
   useEffect(() => {
@@ -30,14 +32,24 @@ export function BackgroundSync() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload || {}),
       })
-      const result = (await response.json()) as BackgroundSyncResult
+      const result = (await response.json()) as BackgroundSyncResult & {
+        startup_sync?: { status: string; error?: string }
+      }
+      if (active && result.startup_sync)
+        setStartupError(result.startup_sync.error || "")
       if (!response.ok && !result.paused)
         throw Error(result.error || "The update could not be checked.")
       return result
     }
     let revision = trainingMutationState().revision
     const sync = createBackgroundWorkoutSync({
-      issue: () => request("/api/sync/probe-lease"),
+      issue: () => {
+        // Claim before sending: rerenders, focus and ordinary retries must not
+        // dispatch another workflow. A fresh page load gets a fresh claim.
+        const startup = !startupRequested.current
+        startupRequested.current = true
+        return request(`/api/sync/probe-lease${startup ? "?startup=1" : ""}`)
+      },
       probe: (token) => request("/api/workout-changes", { token }),
       importWorkouts: () => request("/api/sync?automatic=1"),
       flushEdits: (again) =>
@@ -147,15 +159,20 @@ export function BackgroundSync() {
       window.removeEventListener("training-context-updated", contextUpdated)
     }
   }, [retry])
-  return error || pending ? (
+  const visibleError = error || startupError
+  return visibleError || pending ? (
     <button
       type="button"
       role="status"
-      onClick={() => setRetry((v) => v + 1)}
+      onClick={() => {
+        if (startupError) startupRequested.current = false
+        setStartupError("")
+        setRetry((v) => v + 1)
+      }}
       className="fixed right-4 bottom-[calc(6.5rem+env(safe-area-inset-bottom))] z-30 max-w-64 rounded-xl border bg-background/95 px-3 py-2 text-left text-xs shadow-sm md:bottom-4"
     >
-      {error
-        ? `${error} Tap to retry.`
+      {visibleError
+        ? `${visibleError} Tap to retry.`
         : `${pending} saved edit${pending === 1 ? "" : "s"} syncing to Intervals.icu…`}
     </button>
   ) : null

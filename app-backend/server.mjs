@@ -9,6 +9,7 @@ import { createCoachCalendar } from './lib/coach-calendar.mjs';
 import { createEncryptedRecordStore } from './lib/app-auth-store.mjs';
 import { createAppAuth, authConfig } from './lib/app-auth.mjs';
 import { createWorkoutChangeProbe } from './lib/workout-change-probe.mjs';
+import { refreshGithubOnStartup } from './lib/startup-workout-refresh.mjs';
 import { incrementalSnapshot, changedComments } from './lib/workout-sync-policy.mjs';
 import { coachConfig, createCoach } from './lib/github-coach.mjs';
 import { createGithubCoachSource } from './lib/github-coach-source.mjs';
@@ -474,8 +475,13 @@ export async function handleRequest(req, res) {
     if (await handleAuth(req, res, pathname)) return;
     if(pathname==='/api/sync/probe-lease' && req.method==='POST') {
       const config=await readConfig(), snapshot=await loadSupabaseTrainingSnapshot(config);
-      if(!snapshot){sendJson(req,res,{needs_import:true});return;}
-      sendJson(req,res,{probe:await workoutChangeProbe.issue(req,snapshot)});return;
+      let startup_sync;
+      if(requestUrl.searchParams.get('startup')==='1') {
+        try {startup_sync=await refreshGithubOnStartup({config:coachConfig(),bootstrap:await readBootstrapConfig()});}
+        catch {startup_sync={status:'unavailable',error:'The GitHub startup refresh could not be confirmed. Use the header Refresh to check again.'};}
+      }
+      if(!snapshot){sendJson(req,res,{needs_import:true,startup_sync});return;}
+      sendJson(req,res,{probe:await workoutChangeProbe.issue(req,snapshot),startup_sync});return;
     }
     if(pathname.startsWith('/api/'))await ensureCompletionConfirmation();
     if (await handleReports(req, res, pathname)) return;
