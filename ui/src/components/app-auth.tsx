@@ -185,7 +185,10 @@ export function AppAuth({ children }: { children: ReactNode }) {
     supportsPasskeys() &&
     !passwordMode
   return (
-    <main className="flex min-h-svh items-center justify-center bg-background px-6 py-12 text-foreground">
+    <main
+      data-mobile-app-loading={!session && !error ? "true" : undefined}
+      className="flex min-h-svh items-center justify-center bg-background px-6 py-12 text-foreground"
+    >
       <div className="w-full max-w-sm">
         <p className="mb-8 text-xs font-semibold tracking-[0.22em] text-muted-foreground uppercase">
           AR Performance
