@@ -43,9 +43,12 @@ jobs:
           npm ci --prefix ui --include=dev
       - name: Format new maintained modules
         run: |
-          npx prettier --write app-backend/lib/workout-sync-policy*.mjs app-backend/lib/workout-change-probe*.mjs app-backend/lib/background-workout-sync.test.mjs app-backend/lib/idle-sync-integration.test.mjs ui/src/lib/background-workout-sync.mjs ui/src/lib/background-workout-sync.d.mts ui/src/components/background-sync.tsx docs/WORKOUT_SYNC_POLICY.md
+          npx prettier --write app-backend/lib/workout-sync-policy*.mjs app-backend/lib/workout-change-probe*.mjs app-backend/lib/background-workout-sync.test.mjs app-backend/lib/idle-sync-integration.test.mjs docs/WORKOUT_SYNC_POLICY.md
+          cd ui
+          npx prettier --write src/lib/background-workout-sync.mjs src/lib/background-workout-sync.d.mts src/components/background-sync.tsx
       - name: Test complete backend including cold idle and row preservation
-        run: npm test
+        run: |
+          if npm test > /tmp/quiet-sync-tests.log 2>&1; then tail -15 /tmp/quiet-sync-tests.log; else grep -A45 -B3 'not ok\|ERR_\|SyntaxError' /tmp/quiet-sync-tests.log; tail -15 /tmp/quiet-sync-tests.log; exit 1; fi
       - name: Check formatting and UI lint
         run: |
           npm run format:check
