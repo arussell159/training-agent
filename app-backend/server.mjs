@@ -7,7 +7,9 @@ import { createHash } from 'node:crypto';
 import { createCoachHttp } from './lib/coach-http.mjs';
 import { createCoachCalendar } from './lib/coach-calendar.mjs';
 import { createEncryptedRecordStore } from './lib/app-auth-store.mjs';
-import { createAppAuth } from './lib/app-auth.mjs';
+import { createAppAuth, authConfig } from './lib/app-auth.mjs';
+import { createWorkoutChangeProbe } from './lib/workout-change-probe.mjs';
+import { incrementalSnapshot, changedComments } from './lib/workout-sync-policy.mjs';
 import { coachConfig, createCoach } from './lib/github-coach.mjs';
 import { createGithubCoachSource } from './lib/github-coach-source.mjs';
 import { createWorkoutSync, freshWorkoutSync } from './lib/coach-workout-sync.mjs';
@@ -51,6 +53,7 @@ const handleCoach = createCoachHttp({ getCalendar: async (req, config) => create
   }),
 }) });
 const handleAuth = createAppAuth({ readBootstrap: readBootstrapConfig });
+const workoutChangeProbe = createWorkoutChangeProbe({readBootstrap:readBootstrapConfig, getConfig:()=>coachConfig(), getAuthConfig:req=>authConfig(process.env,req)});
 let reportServices;
 async function getReportServices(config = coachConfig()) {
   if (!config.githubToken || !config.repo) return null;
@@ -100,7 +103,13 @@ const handleReports = createReportsHttp({
 const uiDistPath = path.resolve(__dirname, '..', 'ui', 'dist');
 const intervalsCachePath = path.join(process.env.VERCEL ? '/tmp' : __dirname, 'intervals.cache');
 let completionConfirmation=null;
-try{completionConfirmation=await readDurableState('COMPLETION_CONFIRMATION',path.join(__dirname,'completion-confirmation.cache'),null);}catch(error){console.error('Completion confirmation unavailable:',error.message);}
+let completionLoad;
+async function ensureCompletionConfirmation() {
+  completionLoad ||= readDurableState('COMPLETION_CONFIRMATION',path.join(__dirname,'completion-confirmation.cache'),null)
+    .then(value=>{completionConfirmation=value;})
+    .catch(()=>{completionLoad=null;});
+  await completionLoad;
+}
 
 const serverState = {
   child: null,
@@ -167,17 +176,20 @@ function withZoneHistory(previous,incoming) {
   return {...incoming,athlete:{...incoming.athlete,zone_history:history.slice(-50)}};
 }
 
-export async function persistTrainingContext(config, context, {archiveActivities=true} = {}) {
+export async function persistTrainingContext(config, context, {archiveActivities=true,notifySource=true} = {}) {
   const store = createContextStore(config, updateLogs);
   if (!store.ready) return;
   const previous=await loadSupabaseTrainingSnapshot(config,context.athlete?.id);
   context=withZoneHistory(previous,context);
   context=mergeTrainingSnapshot(previous,context);
+  const delta=incrementalSnapshot(previous,context);
+  context=delta.context;
+  if(!delta.changed)return context;
   const archive=createCompletedWorkoutStore(config,store);
-  await archive.saveWorkouts(context);
+  await archive.saveWorkouts({history:delta.workouts,planned:[]});
   const archivedVersions={...(previous?.archived_activity_versions || {}),...(context.archived_activity_versions || {})};
   if(archiveActivities){
-    const completed=[...new Map([...(context.history || []),...(context.planned || [])].filter(w=>w.completed && w.activity_id).map(w=>[String(w.activity_id),w])).values()];
+    const completed=[...new Map(delta.workouts.filter(w=>w.completed && w.activity_id).map(w=>[String(w.activity_id),w])).values()];
     const pending=completed.filter(w=>archivedVersions[String(w.activity_id)]!==createHash('sha256').update(JSON.stringify(w.raw_activity || w.completed_data || {})).digest('hex'));
     for(let offset=0;offset<pending.length;offset+=2)await Promise.all(pending.slice(offset,offset+2).map(async workout=>{
       const id=String(workout.activity_id);
@@ -189,7 +201,7 @@ export async function persistTrainingContext(config, context, {archiveActivities
     }));
   }
   const athleteId = String(context.athlete?.id || 'default');
-  const workouts = [...(context.history || context.workouts || []), ...(context.planned || [])];
+  const workouts = delta.workouts;
   const uniqueWorkouts = [...new Map(workouts.filter(item => item?.id && item?.workout_date).map(item => [String(item.id), item])).values()];
   const workoutRows = uniqueWorkouts.map(workout => ({
     id:String(workout.id), athlete_id:athleteId,
@@ -202,7 +214,7 @@ export async function persistTrainingContext(config, context, {archiveActivities
     source_updated_at:workout.updated_at || context.synced_at || new Date().toISOString(),
     synced_at:new Date().toISOString(),
   }));
-  const commentRows = (context.comments || []).filter(item => item?.body && ['pre','post'].includes(item.comment_type || item.type || 'post')).map(item => ({
+  const commentRows = changedComments(previous,context).filter(item => item?.body && ['pre','post'].includes(item.comment_type || item.type || 'post')).map(item => ({
     id:stableUuid(`comment:${item.id || `${item.workout_id}:${item.created_at}:${item.body}`}`),
     athlete_id:athleteId, workout_id:item.workout_id ? String(item.workout_id) : null,
     comment_type:['pre','post'].includes(item.comment_type || item.type) ? (item.comment_type || item.type) : 'post',
@@ -239,9 +251,10 @@ export async function persistTrainingContext(config, context, {archiveActivities
     updated_at:new Date().toISOString(),
   }]);
   await saveFastView(config,store,context);
-  try { await (await getReportServices())?.sync.observe(previous, context); }
+  if(notifySource)try { await (await getReportServices())?.sync.observe(previous, context); }
   catch (error) { updateLogs('Section 11 workout sync is pending; open the workout to check its sync status.'); }
-  await store.prune();
+  // Retained history is not cleanup work for every successful import.
+  return context;
 }
 
 async function loadSupabaseTrainingSnapshot(config, athleteId = null) {
@@ -282,7 +295,7 @@ function applyVerifiedEvent(context,id,result,action) {
 }
 
 const syncRequests=new Map();
-async function syncRecentTraining(config,{force=false}={}) {
+async function syncRecentTraining(config,{force=false,sourceDriven=false}={}) {
   const key=providerConnection(config);
   if(syncRequests.has(key))return syncRequests.get(key);
   const operation=(async()=>{
@@ -294,9 +307,9 @@ async function syncRecentTraining(config,{force=false}={}) {
     const shift=days=>new Date(date.getTime()+days*86400000).toISOString().slice(0,10);
     const range=saved?{start:shift(-14),end:shift(13)}:undefined;
     const incoming=await fetchIntervalsTrainingContext(config,{force:true,timeZone:zone,range});
-    await persistTrainingContext(config,mergeTrainingSnapshot(saved,incoming,range));
-    const full=await createContextStore(config).getSyncRecord(fastViewId(config));
-    return projectTrainingContext(full);
+    const persisted=await persistTrainingContext(config,mergeTrainingSnapshot(saved,incoming,range),{notifySource:!sourceDriven});
+    if(!persisted)throw Error('The database did not confirm the imported workout.');
+    return projectTrainingContext(persisted);
   })();
   syncRequests.set(key,operation);
   try{return await operation;}finally{syncRequests.delete(key);}
@@ -456,7 +469,15 @@ export async function handleRequest(req, res) {
     req.url = resolveApiRoute(req.url || '/');
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     const pathname = requestUrl.pathname;
+    // The signed hint endpoint cannot return data or perform database/model writes.
+    if (await workoutChangeProbe.handle(req,res,pathname)) return;
     if (await handleAuth(req, res, pathname)) return;
+    if(pathname==='/api/sync/probe-lease' && req.method==='POST') {
+      const config=await readConfig(), snapshot=await loadSupabaseTrainingSnapshot(config);
+      if(!snapshot){sendJson(req,res,{needs_import:true});return;}
+      sendJson(req,res,{probe:await workoutChangeProbe.issue(req,snapshot)});return;
+    }
+    if(pathname.startsWith('/api/'))await ensureCompletionConfirmation();
     if (await handleReports(req, res, pathname)) return;
     if (await handleCoach(req, res, pathname)) return;
     if(pathname==='/api/annual-plans' && req.method==='GET') {
@@ -561,15 +582,22 @@ export async function handleRequest(req, res) {
     }
     if(pathname==='/api/sync' && req.method==='POST') {
       const config=await readConfig();
-      const queue=await flushMutations(config,requestUrl.searchParams.get('retry')==='1');
+      const automatic=requestUrl.searchParams.get('automatic')==='1';
+      const mutationsOnly=requestUrl.searchParams.get('mutations_only')==='1';
+      const queue=automatic?{pending:0,failed:0}:await flushMutations(config,requestUrl.searchParams.get('retry')==='1');
       try {
-        const context=await syncRecentTraining(config,{force:requestUrl.searchParams.get('force')==='1'});
+        const context=mutationsOnly
+          ? projectTrainingContext(await loadSupabaseTrainingSnapshot(config))
+          : await syncRecentTraining(config,{force:automatic || requestUrl.searchParams.get('force')==='1',sourceDriven:automatic});
         let section11Sync;
-        if(requestUrl.searchParams.get('force')==='1') {
+        if(!mutationsOnly && requestUrl.searchParams.get('force')==='1') {
           try { const services=await getReportServices();section11Sync=services ? await services.sync.refresh() : {status:'unavailable',error:'Section 11 GitHub sync is not configured.'}; }
           catch(error) {section11Sync={status:'failed',error:error.message};}
         }
-        sendJson(req,res,{context,queue,section11Sync,checked_at:new Date().toISOString()});
+        let probe,probe_error;
+        try {probe=await workoutChangeProbe.issue(req,await loadSupabaseTrainingSnapshot(config));}
+        catch(error){probe_error=error.message;}
+        sendJson(req,res,{context,queue,section11Sync,probe,probe_error,checked_at:new Date().toISOString()});
       }catch(error){
         const view=await createContextStore(config).getSyncRecord(fastViewId(config));
         if(!view)throw error;
@@ -675,7 +703,7 @@ export async function handleRequest(req, res) {
         try {
           const range = saved && contextScope !== 'full' ? typeof contextScope === 'object' ? contextScope : currentWeekRange(timeZone) : undefined;
           const live = await fetchIntervalsTrainingContext(config, { force:forceRefresh, timeZone, range });
-          const liveContext = {
+          let liveContext = {
             ...local,
             ...live,
             athlete:athleteWithRace(live.athlete),
@@ -684,7 +712,7 @@ export async function handleRequest(req, res) {
             library:local.library,
           };
           try {
-            await persistTrainingContext(config, mergeTrainingSnapshot(saved,liveContext,range));
+            liveContext=await persistTrainingContext(config, mergeTrainingSnapshot(saved,liveContext,range)) || liveContext;
           } catch (error) {
             updateLogs(`context write failed: ${error.message}`);
           }

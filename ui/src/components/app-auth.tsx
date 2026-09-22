@@ -55,8 +55,10 @@ export function AppAuth({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const revision = useRef(0)
+  const currentSession = useRef<AppSession | null>(null)
   const update = useCallback((value: AppSession) => {
     revision.current++
+    currentSession.current = value
     setApiAuthenticated(value.authenticated)
     setSession(value)
   }, [])
@@ -74,16 +76,16 @@ export function AppAuth({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true
     const check = () => {
-      if (document.visibilityState !== "hidden")
-        void refresh().catch((problem) => {
-          if (active) {
-            setApiAuthenticated(false)
-            setSession(null)
-            setError(authError(problem))
-          }
-        })
+      void refresh().catch((problem) => {
+        if (active) {
+          setApiAuthenticated(false)
+          setSession(null)
+          setError(authError(problem))
+        }
+      })
     }
     const expired = () => {
+      currentSession.current = null
       revision.current++
       setApiAuthenticated(false)
       setSession((current) =>
@@ -92,24 +94,35 @@ export function AppAuth({ children }: { children: ReactNode }) {
       setOfferPasskey(false)
       void clearPrivateCache()
     }
+    // The local expiry clock performs no network access. Actual requests still
+    // use the unchanged server-side session/revocation gate.
+    const checkExpiry = () => {
+      const value = currentSession.current
+      if (
+        value?.authenticated &&
+        value.expiresAt &&
+        Date.now() >= value.expiresAt
+      )
+        expired()
+    }
     const storage = (event: StorageEvent) => {
       if (event.key === "training-app-signed-out") expired()
     }
     check()
     window.addEventListener("app-auth-required", expired)
-    window.addEventListener("focus", check)
-    window.addEventListener("pageshow", check)
+    window.addEventListener("focus", checkExpiry)
+    window.addEventListener("pageshow", checkExpiry)
     window.addEventListener("storage", storage)
-    document.addEventListener("visibilitychange", check)
-    const timer = window.setInterval(check, 60000)
+    document.addEventListener("visibilitychange", checkExpiry)
+    const timer = window.setInterval(checkExpiry, 60000)
     return () => {
       active = false
       window.clearInterval(timer)
       window.removeEventListener("app-auth-required", expired)
-      window.removeEventListener("focus", check)
-      window.removeEventListener("pageshow", check)
+      window.removeEventListener("focus", checkExpiry)
+      window.removeEventListener("pageshow", checkExpiry)
       window.removeEventListener("storage", storage)
-      document.removeEventListener("visibilitychange", check)
+      document.removeEventListener("visibilitychange", checkExpiry)
     }
   }, [refresh])
   async function logout() {
@@ -119,7 +132,7 @@ export function AppAuth({ children }: { children: ReactNode }) {
     try {
       localStorage.setItem("training-app-signed-out", String(Date.now()))
     } catch {
-      /* Other tabs also check their server session. */
+      /* Other tabs receive the sign-out storage event. */
     }
     await clearPrivateCache()
   }
@@ -344,8 +357,7 @@ export function AccountSecurity() {
     return () => window.clearTimeout(timeout)
   }, [session.verifiedAt])
   const needsPassword =
-    !session.recentlyVerified ||
-    checkedAt - (session.verifiedAt || 0) >= 600000
+    !session.recentlyVerified || checkedAt - (session.verifiedAt || 0) >= 600000
   async function act(
     action: () => Promise<unknown>,
     message: string,

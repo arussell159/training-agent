@@ -424,7 +424,9 @@ export function createCoachReports({
       ...(context?.planned || []),
       ...(context?.workouts || []),
     ];
-    const unique = new Map(workouts.filter((workout) => workout?.id).map((workout) => [workout.id, workout]));
+    const unique = new Map(
+      workouts.filter((workout) => workout?.id).map((workout) => [workout.id, workout])
+    );
     for (const workout of unique.values()) {
       const date = String(workout.workout_date || workout.date || "").slice(0, 10);
       const completed = workout.status === "completed" || workout.completed === true;
@@ -432,11 +434,16 @@ export function createCoachReports({
         const eventId = String(workout.id).match(/^(?:event:)?(\d+)$/)?.[1];
         if (eventId) targets.push({ kind: "pre", workoutId: `event:${eventId}` });
       }
-      const activityId = workout.activity_id || (String(workout.id).startsWith("activity:") ? String(workout.id).slice(9) : null);
+      const activityId =
+        workout.activity_id ||
+        (String(workout.id).startsWith("activity:") ? String(workout.id).slice(9) : null);
       if (completed && activityId && date >= shiftReportDate(today, -2) && date <= today)
         targets.push({ kind: "post", workoutId: `activity:${activityId}` });
     }
-    const previousMonday = shiftReportDate(today, -((new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7) - 7);
+    const previousMonday = shiftReportDate(
+      today,
+      -((new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7) - 7
+    );
     targets.push({ kind: "weekly", startDate: previousMonday });
     for (const plan of await readPlans()) {
       for (const block of planReportBlocks(plan)) {
