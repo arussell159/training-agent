@@ -33,6 +33,8 @@ jobs:
           const files=JSON.parse(gunzipSync(bytes).toString());
           const allowed=['app-backend/lib/workout-sync-policy.mjs','app-backend/lib/workout-change-probe.mjs','ui/src/lib/background-workout-sync.mjs','ui/src/lib/background-workout-sync.d.mts','ui/src/components/background-sync.tsx','app-backend/lib/workout-sync-policy.test.mjs','app-backend/lib/workout-change-probe.test.mjs','app-backend/lib/background-workout-sync.test.mjs','app-backend/lib/idle-sync-integration.test.mjs','docs/WORKOUT_SYNC_POLICY.md','tools/apply-idle-sync-patch.mjs'];
           if(JSON.stringify(Object.keys(files).sort())!==JSON.stringify(allowed.sort()))throw Error('Unexpected package paths');
+          const policy='app-backend/lib/workout-sync-policy.mjs';
+          files[policy]=files[policy].replace('  const changed = changedRows.length > 0','  const snapshotContent = value => ({...value, history:undefined, planned:undefined, workouts:undefined, wellness_history:value.wellness_history || [], performance:value.performance || []});\n  const changed = changedRows.length > 0').replace('contentHash({...previous, history:undefined, planned:undefined, workouts:undefined}) !==\n    contentHash({...context, history:undefined, planned:undefined, workouts:undefined})','contentHash(snapshotContent(previous)) !== contentHash(snapshotContent(context))');
           for(const [name,content] of Object.entries(files)){fs.mkdirSync(path.dirname(name),{recursive:true});fs.writeFileSync(name,content);}
           JS
           node tools/apply-idle-sync-patch.mjs
@@ -56,6 +58,7 @@ jobs:
       - name: Build deployable UI
         run: npm run build
       - name: Audit remaining timers
+        if: always()
         run: |
           grep -RIn 'setInterval\|/api/sync\|revalidateTrainingContext' ui/src --include='*.tsx' --include='*.ts' --include='*.mjs' || true
       - name: Commit tested source and remove one-time installer
