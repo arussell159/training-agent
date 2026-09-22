@@ -1,5 +1,13 @@
 # Database-quiet workout imports
 
+## Startup refresh
+
+On the first eligible startup after sign-in, the app requests one GitHub `auto-sync.yml` refresh while the cached dashboard remains usable. This is bundled into the existing authenticated startup lease request; there is no immediate full Intervals/Supabase rewrite just because the app opened. It reuses the manual-sync durable dispatch claim, including active-run deduplication and uncertain-write handling, without initializing application report generation.
+
+The app checks the mirror immediately after startup and continues the existing two-minute, visible/online-only addition checks. A newly seen activity triggers the existing protected incremental import. No placeholder workout is invented, and no successful workflow dispatch is presented as proof that a workout was imported. GitHub run/commit time and the mirror read cache can delay discovery.
+
+The startup request is once per mounted application load, not on focus, page rerenders, normal hint checks or ordinary sync retries. An explicit retry of a displayed startup error may reconcile/retry the request through the same durable claim. A browser reload starts a new startup request, but an already-active app-dispatched run is reused. This does not deduplicate an independently scheduled GitHub run. The startup dispatch uses the existing Supabase-backed claim once; unchanged idle checks remain database-free. The 24-hour historical-record policy below is unchanged.
+
 ## Scope
 
 The open application's two-minute background timer checks **only the configured private GitHub `latest.json` mirror** for a previously unseen completed activity ID. It no longer calls the Supabase-backed `/api/sync` on every tick. This reuses the source export/report pipeline; it does not install an Intervals webhook or change the data repository's schedule.
