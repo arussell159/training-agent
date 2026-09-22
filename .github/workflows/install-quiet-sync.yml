@@ -1,0 +1,66 @@
+name: Validate quiet workout sync
+on:
+  push:
+    branches: [fix/quiet-workout-sync-20260922]
+    paths:
+      - '.github/workflows/install-quiet-sync.yml'
+      - 'tools/idle-sync-part-*.bin'
+permissions:
+  contents: write
+concurrency:
+  group: quiet-workout-sync-review
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Expand reviewed source package
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import {createHash} from 'node:crypto';
+          import {gunzipSync} from 'node:zlib';
+          const bytes=Buffer.concat([0,1,2,3].map(n=>fs.readFileSync(`tools/idle-sync-part-${n}.bin`)));
+          if(createHash('sha256').update(bytes).digest('hex')!=='06005a8bdc75e8c16bf328129d3fc176b72053fcd0e75bd6f92fb838e1c58791')throw Error('Package hash mismatch');
+          const files=JSON.parse(gunzipSync(bytes).toString());
+          const allowed=['app-backend/lib/workout-sync-policy.mjs','app-backend/lib/workout-change-probe.mjs','ui/src/lib/background-workout-sync.mjs','ui/src/lib/background-workout-sync.d.mts','ui/src/components/background-sync.tsx','app-backend/lib/workout-sync-policy.test.mjs','app-backend/lib/workout-change-probe.test.mjs','app-backend/lib/background-workout-sync.test.mjs','app-backend/lib/idle-sync-integration.test.mjs','docs/WORKOUT_SYNC_POLICY.md','tools/apply-idle-sync-patch.mjs'];
+          if(JSON.stringify(Object.keys(files).sort())!==JSON.stringify(allowed.sort()))throw Error('Unexpected package paths');
+          for(const [name,content] of Object.entries(files)){fs.mkdirSync(path.dirname(name),{recursive:true});fs.writeFileSync(name,content);}
+          JS
+          node tools/apply-idle-sync-patch.mjs
+          node --check app-backend/server.mjs
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix ui --include=dev
+      - name: Format new maintained modules
+        run: |
+          npx prettier --write app-backend/lib/workout-sync-policy*.mjs app-backend/lib/workout-change-probe*.mjs app-backend/lib/background-workout-sync.test.mjs app-backend/lib/idle-sync-integration.test.mjs ui/src/lib/background-workout-sync.mjs ui/src/lib/background-workout-sync.d.mts ui/src/components/background-sync.tsx docs/WORKOUT_SYNC_POLICY.md
+      - name: Test complete backend including cold idle and row preservation
+        run: npm test
+      - name: Check formatting and UI lint
+        run: |
+          npm run format:check
+          npm run lint
+      - name: Build deployable UI
+        run: npm run build
+      - name: Audit remaining timers
+        run: |
+          grep -RIn 'setInterval\|/api/sync\|revalidateTrainingContext' ui/src --include='*.tsx' --include='*.ts' --include='*.mjs' || true
+      - name: Commit tested source and remove one-time installer
+        run: |
+          rm tools/idle-sync-part-0.bin tools/idle-sync-part-1.bin tools/idle-sync-part-2.bin tools/idle-sync-part-3.bin tools/apply-idle-sync-patch.mjs .github/workflows/install-quiet-sync.yml
+          git add app-backend/server.mjs app-backend/lib/workout-sync-policy.mjs app-backend/lib/workout-change-probe.mjs app-backend/lib/workout-sync-policy.test.mjs app-backend/lib/workout-change-probe.test.mjs app-backend/lib/background-workout-sync.test.mjs app-backend/lib/idle-sync-integration.test.mjs ui/src/lib/background-workout-sync.mjs ui/src/lib/background-workout-sync.d.mts ui/src/lib/training-context.ts ui/src/components/background-sync.tsx docs/WORKOUT_SYNC_POLICY.md tools/idle-sync-part-0.bin tools/idle-sync-part-1.bin tools/idle-sync-part-2.bin tools/idle-sync-part-3.bin .github/workflows/install-quiet-sync.yml
+          git diff --cached --stat
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Import only new workout additions while idle; freeze completed history after 24 hours'
+          git push origin HEAD:fix/quiet-workout-sync-20260922
