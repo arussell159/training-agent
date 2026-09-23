@@ -39,6 +39,7 @@ test("cold server and 25 actual idle HTTP requests do not access Supabase", asyn
           JSON.stringify({
             metadata: { last_updated: new Date(now).toISOString() },
             recent_activities: [{ id: "one" }],
+            planned_workouts: [],
           })
         ).toString("base64"),
       }),
