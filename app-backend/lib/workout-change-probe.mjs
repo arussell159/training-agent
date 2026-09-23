@@ -262,9 +262,7 @@ export function createWorkoutChangeProbe({
         const known = new Set(claims.known),
           mirror = await latest(k.config);
         json(200, {
-          changed:
-            mirror.planned !== claims.planned ||
-            mirror.ids.some((id) => !known.has(id)),
+          changed: mirror.planned !== claims.planned || mirror.ids.some((id) => !known.has(id)),
         });
       } catch (error) {
         json(error.status || 503, {

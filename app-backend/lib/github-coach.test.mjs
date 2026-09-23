@@ -535,7 +535,6 @@ test("OpenAI errors and incomplete output never expose provider bodies or partia
   }
 });
 
-
 test("legacy training-data repo is redirected to SECTION_11", () => {
   assert.equal(
     coachConfig({

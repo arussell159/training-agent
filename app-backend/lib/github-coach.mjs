@@ -13,9 +13,7 @@ const DEFAULT_TRAINING_DATA_REPO = "arussell159/SECTION_11";
 const LEGACY_TRAINING_DATA_REPO = "arussell159/my-training-data";
 
 export function coachConfig(env = process.env) {
-  const configuredRepo = String(
-    env.TRAINING_DATA_GITHUB_REPO || DEFAULT_TRAINING_DATA_REPO
-  ).trim();
+  const configuredRepo = String(env.TRAINING_DATA_GITHUB_REPO || DEFAULT_TRAINING_DATA_REPO).trim();
   const repo =
     configuredRepo.toLowerCase() === LEGACY_TRAINING_DATA_REPO.toLowerCase()
       ? DEFAULT_TRAINING_DATA_REPO
