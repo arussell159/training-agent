@@ -293,17 +293,30 @@
       pointer-events: auto;
     }
     .tab-link {
+      position: relative;
       flex: 1;
       min-width: 0;
       flex-direction: column;
       gap: 3px;
-      padding: 4px 10px;
-      border-radius: 999px;
-      transition: background-color 160ms ease, color 160ms ease;
+      isolation: isolate;
+
+      &::before {
+        position: absolute;
+        z-index: -1;
+        top: 4px;
+        left: 50%;
+        width: min(76px, calc(100% - 12px));
+        height: 32px;
+        border-radius: 999px;
+        background: transparent;
+        content: "";
+        transform: translateX(-50%);
+      }
     }
     .tab-link-active {
-      background: var(--muted);
-      color: var(--primary);
+      &::before {
+        background: var(--muted);
+      }
 
       svg {
         fill: currentColor;
