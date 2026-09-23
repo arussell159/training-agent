@@ -278,6 +278,8 @@
 
   .mobile-navbar.toolbar {
     --f7-toolbar-bg-color: var(--background);
+    --f7-toolbar-inner-padding-left: 22px;
+    --f7-toolbar-inner-padding-right: 22px;
     --f7-tabbar-link-inactive-color: var(--foreground);
     --f7-tabbar-link-active-color: var(--primary);
     position: fixed;
@@ -288,6 +290,11 @@
     // through the previous destination after the new page has appeared.
     .tab-link-highlight {
       transition-duration: 0ms;
+
+      &::before,
+      &::after {
+        inset-inline: 0;
+      }
     }
     .toolbar-pane {
       pointer-events: auto;
