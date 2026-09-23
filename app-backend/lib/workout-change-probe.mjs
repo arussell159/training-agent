@@ -1,12 +1,54 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { completedIds } from "./workout-sync-policy.mjs";
 
-const PURPOSE = "workout-addition-hint-v1";
+const PURPOSE = "training-mirror-change-hint-v2";
 const COOKIE = "training_app_session";
 const MAX_BODY = 128000;
 const MAX_SESSION = 90 * 86400000;
 const hash = (value) => createHash("sha256").update(value).digest("base64url");
 const fail = (message, status = 401) => Object.assign(new Error(message), { status });
+
+function normalizedPlanned(rows = [], source = "app") {
+  return rows
+    .filter((row) => row && (source === "mirror" || !row.completed))
+    .map((row) => {
+      if (source === "mirror") {
+        return {
+          id: String(row.id ?? ""),
+          date: String(row.date || "").slice(0, 10),
+          name: String(row.name || ""),
+          sport: String(row.sport_type || ""),
+          category: String(row.type || ""),
+          duration: Number.isFinite(Number(row.duration_hours))
+            ? Math.round(Number(row.duration_hours) * 3600)
+            : null,
+          tss: row.planned_tss ?? null,
+        };
+      }
+      const raw = row.raw || {};
+      const fallbackId = String(row.id || "").replace(/^event:/, "");
+      return {
+        id: String(raw.id ?? fallbackId),
+        date: String(raw.start_date_local || row.workout_date || "").slice(0, 10),
+        name: String(raw.name || row.title || ""),
+        sport: String(raw.type || row.sport || ""),
+        category: String(raw.category || row.category || ""),
+        duration:
+          raw.moving_time != null
+            ? Number(raw.moving_time)
+            : row.planned?.duration_minutes != null
+              ? Math.round(Number(row.planned.duration_minutes) * 60)
+              : null,
+        tss: raw.icu_training_load ?? row.planned?.tss ?? null,
+      };
+    })
+    .filter((row) => row.id && row.date)
+    .sort((a, b) => a.id.localeCompare(b.id) || a.date.localeCompare(b.date));
+}
+
+function plannedFingerprint(rows, source) {
+  return hash(JSON.stringify(normalizedPlanned(rows, source)));
+}
 function sessionId(req, auth) {
   const value = req.headers.cookie
     ?.split(";")
@@ -35,7 +77,7 @@ async function body(req) {
 }
 
 // Deliberately NOT a replacement app session. This capability authorizes only a
-// boolean addition hint from the configured GitHub mirror. It never returns
+// boolean change hint from the configured GitHub mirror. It never returns
 // workout data, calls a model, reads/writes Supabase, or accepts a provider URL.
 // Actual imports/mutations still pass through the unchanged revocable app auth.
 // Binding to the HttpOnly session cookie + current password epoch prevents use
@@ -100,7 +142,9 @@ export function createWorkoutChangeProbe({
       c.expires - c.issued > MAX_SESSION ||
       !Array.isArray(c.known) ||
       c.known.length > 5000 ||
-      c.known.some((id) => typeof id !== "string" || !/^[\w-]{1,100}$/.test(id))
+      c.known.some((id) => typeof id !== "string" || !/^[\w-]{1,100}$/.test(id)) ||
+      typeof c.planned !== "string" ||
+      !/^[\w-]{43}$/.test(c.planned)
     )
       throw fail("The automatic-import check expired. Use Refresh to resume.");
     return c;
@@ -108,7 +152,7 @@ export function createWorkoutChangeProbe({
   async function latest(config) {
     const key = hash(`${config.repo}@${config.branch}:${config.githubToken}`);
     const previous = requests.get(key);
-    if (previous && now() - previous.time < 60000) return previous.promise;
+    if (previous && now() - previous.time < 8000) return previous.promise;
     const promise = (async () => {
       const response = await fetchImpl(
         `https://api.github.com/repos/${config.repo}/contents/latest.json?ref=${encodeURIComponent(config.branch || "main")}`,
@@ -146,13 +190,17 @@ export function createWorkoutChangeProbe({
         now() - updated > 86400000 ||
         updated > now() + 300000 ||
         !Array.isArray(value.recent_activities) ||
-        value.recent_activities.some((a) => !a || !/^[\w-]{1,100}$/.test(String(a.id || "")))
+        value.recent_activities.some((a) => !a || !/^[\w-]{1,100}$/.test(String(a.id || ""))) ||
+        !Array.isArray(value.planned_workouts)
       )
         throw fail(
           "The GitHub workout mirror is stale or incomplete. Use Refresh to check the source.",
           503
         );
-      return value.recent_activities.map((a) => String(a.id));
+      return {
+        ids: value.recent_activities.map((a) => String(a.id)),
+        planned: plannedFingerprint(value.planned_workouts, "mirror"),
+      };
     })();
     requests.set(key, { time: now(), promise });
     if (requests.size > 8) requests.delete(requests.keys().next().value);
@@ -176,6 +224,7 @@ export function createWorkoutChangeProbe({
       const expires = Math.min(session.expires || now() + 86400000, now() + MAX_SESSION);
       const known = completedIds(context);
       if (known.length > 5000) throw fail("Use manual Refresh for this large archive.", 503);
+      const planned = plannedFingerprint(context?.planned || [], "app");
       return {
         token: seal(
           {
@@ -188,11 +237,12 @@ export function createWorkoutChangeProbe({
             issued: now(),
             expires,
             known,
+            planned,
           },
           k.secret
         ),
         expiresAt: expires,
-        baseline: hash(JSON.stringify(known)),
+        baseline: hash(JSON.stringify({ known, planned })),
       };
     },
     async handle(req, res, pathname) {
@@ -210,8 +260,12 @@ export function createWorkoutChangeProbe({
         const k = await keys(req),
           claims = open((await body(req)).token, k);
         const known = new Set(claims.known),
-          ids = await latest(k.config);
-        json(200, { changed: ids.some((id) => !known.has(id)) });
+          mirror = await latest(k.config);
+        json(200, {
+          changed:
+            mirror.planned !== claims.planned ||
+            mirror.ids.some((id) => !known.has(id)),
+        });
       } catch (error) {
         json(error.status || 503, {
           error: error.status
