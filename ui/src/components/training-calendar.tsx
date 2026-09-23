@@ -1,6 +1,5 @@
 import { SavedReportButton } from "@/components/saved-report-button"
 import { planReportBlocks } from "../../../app-backend/lib/report-blocks.mjs"
-import { WorkoutCoachButton } from "@/components/workout-coach-button"
 import { WorkoutDescription } from "@/components/workout-description"
 import { lazy, Suspense } from "react"
 import { formatDuration } from "@/lib/duration"
@@ -79,16 +78,6 @@ import {
   WorkoutEditorMenu,
   useEditedWorkout,
 } from "@/components/workout-editor"
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-  AlertDialogAction,
-} from "@/components/ui/alert-dialog"
 import { Card, CardTitle } from "@/components/ui/card"
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
 import {
@@ -136,6 +125,7 @@ import {
   type AnnualPlanWeek,
 } from "@/lib/annual-plan"
 import { isRaceWorkout, RaceCalendarCard } from "@/components/race-events"
+import { confirmWithFramework7 } from "@/lib/framework7-confirm"
 
 function SportIcon({ sport }: { sport: string }) {
   const value = sport.toLowerCase()
@@ -206,22 +196,22 @@ function MobileWorkoutRow({
     <button
       type="button"
       onClick={onOpen}
-      className={`grid min-h-16 w-full grid-cols-[4px_minmax(0,1fr)_auto] items-stretch gap-3 bg-background px-1 py-2 text-left transition-colors active:bg-muted/60 md:hidden ${showDivider ? "border-b border-border/70" : ""}`}
+      className={`flex min-h-24 w-full items-stretch gap-3 overflow-hidden bg-background px-1 py-3 text-left transition-colors active:bg-muted/60 md:hidden ${showDivider ? "border-b border-border/70" : ""}`}
       aria-label={`Open ${workout.title}`}
     >
       <span
         aria-hidden="true"
         className={`my-0.5 w-1 rounded-full ${sportAccent(workout.sport)}`}
       />
-      <span className="min-w-0 self-start pt-0.5 text-[17px] leading-5 font-semibold text-foreground">
-        {workout.title}
-      </span>
-      <span className="flex min-w-16 flex-col items-end justify-start gap-1 pl-2 text-right tabular-nums">
-        <span className="text-[16px] leading-5 font-medium text-foreground">
-          {minutes > 0 ? formatDuration(minutes) : "—"}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[17px] leading-5 font-semibold text-foreground">
+          {workout.title}
         </span>
-        <span className="text-[15px] leading-5 text-muted-foreground">
-          {distance || "—"}
+        <span className="mt-1 block text-[15px] leading-5 tabular-nums text-muted-foreground">
+          {minutes > 0 ? formatDuration(minutes) : "—"} · {distance || "—"}
+        </span>
+        <span className="mt-2 block w-full overflow-hidden rounded-sm" onClick={(event) => event.stopPropagation()}>
+          <WorkoutProfile workout={workout} compact mobilePlanned />
         </span>
       </span>
     </button>
@@ -277,7 +267,6 @@ export function WorkoutCard({
   onAction?: (action: "copy" | "delete") => void
   disabled?: boolean
 }) {
-  const [deleteOpen, setDeleteOpen] = useState(false)
   // Activity rows are historical records, not planned-event completions. Keep
   // the historical archive consistently green; only a completed planned event
   // is graded against its prescription.
@@ -344,7 +333,7 @@ export function WorkoutCard({
                     value: "delete",
                     label: "Delete",
                     disabled: !onAction || disabled,
-                    onSelect: () => setDeleteOpen(true),
+                    onSelect: () => void confirmWithFramework7("Delete workout?", `Delete “${workout.title}” from your Intervals.icu calendar?`).then((confirmed) => { if (confirmed) onAction?.("delete") }),
                   },
                 ]}
               >
@@ -383,7 +372,7 @@ export function WorkoutCard({
                     <DropdownMenuItem
                       disabled={!onAction || disabled}
                       variant="destructive"
-                      onClick={() => setDeleteOpen(true)}
+                      onClick={() => void confirmWithFramework7("Delete workout?", `Delete “${workout.title}” from your Intervals.icu calendar?`).then((confirmed) => { if (confirmed) onAction?.("delete") })}
                     >
                       <Trash2 />
                       Delete
@@ -391,27 +380,6 @@ export function WorkoutCard({
                   </DropdownMenuContent>
                 </DropdownMenu>
               </MobileActionMenu>
-              <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-                <AlertDialogContent
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete workout?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Delete “{workout.title}” from your Intervals.icu calendar?
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      variant="destructive"
-                      onClick={() => onAction?.("delete")}
-                    >
-                      Delete workout
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
             </div>
           )}
         </div>
@@ -530,7 +498,6 @@ function DayMenu({
   onCreate: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
   const label = day.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -538,7 +505,7 @@ function DayMenu({
   })
   return (
     <div
-      className={`transition-opacity group-hover/day:opacity-100 focus-within:opacity-100 ${open || deleteOpen ? "opacity-100" : "md:opacity-0"}`}
+      className={`transition-opacity group-hover/day:opacity-100 focus-within:opacity-100 ${open ? "opacity-100" : "md:opacity-0"}`}
     >
       <MobileActionMenu
         label={`Workout actions for ${label}`}
@@ -555,7 +522,7 @@ function DayMenu({
             value: "delete",
             label: "Delete",
             disabled: count === 0,
-            onSelect: () => setDeleteOpen(true),
+            onSelect: () => void confirmWithFramework7("Delete this day’s workouts?", `Delete all ${count} workouts on ${label} from your Intervals.icu calendar?`).then((confirmed) => { if (confirmed) onAction("delete") }),
           },
         ]}
       >
@@ -587,7 +554,7 @@ function DayMenu({
             <DropdownMenuItem
               disabled={count === 0}
               variant="destructive"
-              onClick={() => setDeleteOpen(true)}
+              onClick={() => void confirmWithFramework7("Delete this day’s workouts?", `Delete all ${count} workouts on ${label} from your Intervals.icu calendar?`).then((confirmed) => { if (confirmed) onAction("delete") })}
             >
               <Trash2 />
               Delete
@@ -595,26 +562,6 @@ function DayMenu({
           </DropdownMenuContent>
         </DropdownMenu>
       </MobileActionMenu>
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this day’s workouts?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Delete all {count} workouts on {label} from your Intervals.icu
-              calendar?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => onAction("delete")}
-            >
-              Delete workouts
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }
@@ -1666,7 +1613,7 @@ export function TrainingCalendar({
         )}
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="min-w-0 flex-1 bg-muted/20">
-            <div className="divide-y">
+            <div className="md:divide-y">
               {weeks.map((week) => {
                 const end = week.days[6]
                 const title = `${week.start.toLocaleDateString("en-US", { month: "short", day: "2-digit" })} – ${end.toLocaleDateString("en-US", { month: "short", day: "2-digit" })}`
@@ -1685,7 +1632,7 @@ export function TrainingCalendar({
                     className="h-auto min-h-0 scroll-mt-14 bg-background"
                   >
                     <div className="flex h-auto min-h-0 w-full flex-col items-stretch xl:flex-row">
-                      <div className="grid h-auto min-h-48 w-full min-w-0 flex-1 grid-cols-1 items-stretch divide-y md:min-h-60 md:grid-cols-7 md:divide-x md:divide-y-0">
+                      <div className="grid h-auto min-h-48 w-full min-w-0 flex-1 grid-cols-1 items-stretch md:min-h-60 md:grid-cols-7 md:divide-x md:divide-y-0">
                         {week.days.map((day) => {
                           const dayCandidates = week.workouts.filter(
                             (workout) => workout.workout_date === dateKey(day)
@@ -1718,7 +1665,7 @@ export function TrainingCalendar({
                                   : "min-w-0 px-4 py-2 md:px-1.5"
                               }
                             >
-                              <div className="mb-3 flex items-center justify-between gap-2">
+                              <div className="mx-1 mb-0 flex items-center justify-between gap-2 border-b border-border/70 pb-0 md:mx-0 md:mb-3 md:border-0 md:pb-0">
                                 <span
                                   className={`px-0.5 text-lg font-bold md:text-sm ${isToday ? "text-primary" : "text-foreground"}`}
                                 >
@@ -2120,7 +2067,6 @@ export function WorkoutDialog({
           >
             <WorkoutAnalysis workout={workout} />
           </Suspense>
-          <WorkoutCoachButton workout={workout} />
         </div>
       </DialogContent>
     </Dialog>

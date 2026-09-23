@@ -78,7 +78,7 @@ test("GitHub reads are credential-scoped, commit-pinned, fresh each turn and nev
   assert.equal(session.metadata().lastSynced, "2026-09-17T14:50:00.000Z");
   assert.equal(session.metadata().freshness, "recent");
   assert.equal((await session.readTraining("history.json", "/weeks/0/load")).data, 12);
-  await session.readReference("POST_WORKOUT_REPORT_TEMPLATE.md");
+  await session.readReference("WEEKLY_REPORT_TEMPLATE.md");
   for (const file of [
     "../../secret",
     "latest.example.json",
@@ -87,7 +87,7 @@ test("GitHub reads are credential-scoped, commit-pinned, fresh each turn and nev
   ]) {
     await assert.rejects(session.readTraining(file, ""), /not available/);
   }
-  await assert.rejects(session.readReference("POST_WORKOUT_REPORT_EXAMPLES.md"), /not available/);
+  await assert.rejects(session.readReference("POST_WORKOUT_REPORT_TEMPLATE.md"), /not available/);
   fake.changeRevision();
   const refreshed = await session.readTraining("latest.json", "", true);
   assert.equal(refreshed.source.dataRevision, "c".repeat(40));
@@ -199,7 +199,7 @@ test("model receives official documents and fresh data, tools preserve stateless
               type: "function_call",
               name: "read_report_reference",
               call_id: "call2",
-              arguments: JSON.stringify({ file: "POST_WORKOUT_REPORT_TEMPLATE.md" }),
+              arguments: JSON.stringify({ file: "WEEKLY_REPORT_TEMPLATE.md" }),
             },
           ],
         });
@@ -207,7 +207,7 @@ test("model receives official documents and fresh data, tools preserve stateless
         body.input.some(
           (item) =>
             item.type === "function_call_output" &&
-            item.output.includes("# Post-Workout Report Template")
+            item.output.includes("# Weekly Report Template")
         )
       );
       return json({
@@ -305,7 +305,7 @@ test("saved reports send exact templates with a strict completion envelope and r
   const source = createGithubCoachSource({ fetchImpl: fake.fetchImpl, now: () => now });
   const session = await source.open(config);
   const reportContext = {
-    target: { kind: "post", activityId: "fixture" },
+    target: { kind: "weekly", startDate: "2026-09-07" },
     template: { text: "EXACT REPORT TEMPLATE" },
     hierarchy: { text: "EXACT REPORT HIERARCHY" },
     evidence: { activities: [{ id: "fixture" }] },
@@ -338,9 +338,9 @@ test("saved reports send exact templates with a strict completion envelope and r
                 text: JSON.stringify({
                   complete,
                   report_markdown: complete
-                    ? "Data (last_updated UTC: 2026-09-17T14:55:00)\nA steady ride completed as planned.\n\nCompleted workout: Ride\nDuration: 1h00m\n\nWeekly totals (rolling 7d):\nHours: 4h00m\n\nInterpretation:\nExecution matched the planned intensity. Recovery remains within baseline."
+                    ? "Week 2026-09-07 Summary\nCompliance: 100%\nSession Breakdown: Ride completed\nPolarization: Within plan\nFitness: Stable\nWellness Trends: Stable\nSection 11 Flags: None\nInterpretation:\nExecution matched the planned intensity. Recovery remains within baseline.\nNext Week Preview: Continue as planned."
                     : "",
-                  summary: null,
+                  summary: complete ? "Execution matched the planned intensity." : null,
                   missing_reason: complete ? null : "Missing required activity evidence.",
                 }),
               },
@@ -351,7 +351,7 @@ test("saved reports send exact templates with a strict completion envelope and r
     },
   });
   const result = await run({ config, messages: question, sourceSession: session, reportContext });
-  assert.ok(result.text.startsWith("Data (last_updated UTC:"));
+  assert.ok(result.text.startsWith("Week 2026-09-07 Summary"));
   complete = false;
   await assert.rejects(
     run({ config, messages: question, sourceSession: session, reportContext }),
@@ -533,23 +533,6 @@ test("OpenAI errors and incomplete output never expose provider bodies or partia
         !error.message.includes("sensitive diagnostic") && !error.message.includes("partial advice")
     );
   }
-});
-
-test("legacy training-data repo is redirected to SECTION_11", () => {
-  assert.equal(
-    coachConfig({
-      ...env,
-      TRAINING_DATA_GITHUB_REPO: "arussell159/my-training-data",
-    }).repo,
-    "arussell159/SECTION_11"
-  );
-  assert.equal(
-    coachConfig({
-      ...env,
-      TRAINING_DATA_GITHUB_REPO: "",
-    }).repo,
-    "arussell159/SECTION_11"
-  );
 });
 
 test("conversation validation rejects injected roles, tools and excessive history", () => {

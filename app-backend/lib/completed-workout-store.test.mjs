@@ -11,11 +11,13 @@ function memoryStore() {
   return {
     ready: true,
     rows,
+    upsertCalls: [],
     async getSyncRecord(id) {
       return rows.get(id)?.cursor || null;
     },
     async upsert(table, values) {
       assert.equal(table, "sync_state");
+      this.upsertCalls.push(values);
       for (const row of values) rows.set(row.athlete_id, row);
     },
   };
@@ -43,6 +45,20 @@ test("completed workouts retain full provider totals and paired prescriptions in
   assert.deepEqual(row.cursor.workout, workout);
   assert.equal(row.cursor.activity.distance, 365.76);
   assert.ok(!row.athlete_id.includes(config.INTERVALS_API_KEY));
+});
+test("unchanged completed workouts are not rewritten during a later sync", async () => {
+  const store = memoryStore(),
+    archive = createCompletedWorkoutStore(config, store),
+    workout = {
+      id: "event:1",
+      activity_id: "i42",
+      completed: true,
+      raw_activity: { distance: 365.76, moving_time: 412 },
+    };
+  await archive.saveWorkouts({ history: [workout] });
+  const callsAfterFirstSave = store.upsertCalls.length;
+  await archive.saveWorkouts({ history: [workout] }, { previousContext: { history: [workout] } });
+  assert.equal(store.upsertCalls.length, callsAfterFirstSave);
 });
 test("chart, route and summary downloads survive a fresh process without contacting the provider again", async () => {
   const store = memoryStore();

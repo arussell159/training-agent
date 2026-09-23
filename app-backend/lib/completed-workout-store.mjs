@@ -59,7 +59,7 @@ export function createCompletedWorkoutStore(config, store) {
           : saved.data;
       return this.load(id, kind, download);
     },
-    async saveWorkouts(context) {
+    async saveWorkouts(context, { previousContext = null } = {}) {
       if (!store.ready) return;
       const workouts = [
         ...new Map(
@@ -68,6 +68,17 @@ export function createCompletedWorkoutStore(config, store) {
             .map((w) => [String(w.activity_id), w])
         ).values(),
       ];
+      const previousRevisions = new Map(
+        [...(previousContext?.history || []), ...(previousContext?.planned || [])]
+          .filter((w) => w.completed && w.activity_id)
+          .map((workout) => {
+            const actual = workout.raw_activity || workout.completed_data || {};
+            return [
+              String(workout.activity_id),
+              createHash("sha256").update(JSON.stringify(actual)).digest("hex"),
+            ];
+          })
+      );
       const rows = workouts.map((workout) => {
         const actual = workout.raw_activity || workout.completed_data || {};
         const revision = createHash("sha256").update(JSON.stringify(actual)).digest("hex");
@@ -77,7 +88,7 @@ export function createCompletedWorkoutStore(config, store) {
           cursor: { revision, workout, activity: actual },
           updated_at: new Date().toISOString(),
         };
-      });
+      }).filter((row) => previousRevisions.get(row.athlete_id.split(":").at(-2)) !== row.cursor.revision);
       if (rows.length) await store.upsert("sync_state", rows);
     },
     async load(id, kind, download, { force = false } = {}) {

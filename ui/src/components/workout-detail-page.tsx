@@ -8,7 +8,6 @@ import {
   WorkoutEditorMenu,
   useEditedWorkout,
 } from "@/components/workout-editor"
-import { WorkoutCoachButton } from "@/components/workout-coach-button"
 import { lazy, Suspense, useEffect, useState } from "react"
 import { formatDuration } from "@/lib/duration"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
@@ -516,11 +515,11 @@ export function WorkoutDetailPage({
           {workout.status === "completed" && (
             <div className="contents md:hidden">
               <DetailSheetRow
-                title="Workout instructions"
+                title="Workout Details"
                 date={formatWorkoutDate(workout)}
                 dark
               >
-                <WorkoutDescription workout={workout} />
+                <WorkoutDescription workout={workout} title="Workout Details" />
               </DetailSheetRow>
               {(workout.structure || workout.editor_model) && (
                 <DetailSheetRow
@@ -534,9 +533,6 @@ export function WorkoutDetailPage({
             </div>
           )}
 
-          {!library && (
-            <WorkoutCoachButton workout={workout} />
-          )}
           </div>
         </WorkoutDetailSurface>
       </div>

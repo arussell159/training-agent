@@ -1,7 +1,5 @@
 import { CoachError } from "./github-coach-source.mjs";
 export const REPORT_TEMPLATES = {
-  pre: "PRE_WORKOUT_REPORT_TEMPLATE.md",
-  post: "POST_WORKOUT_REPORT_TEMPLATE.md",
   weekly: "WEEKLY_REPORT_TEMPLATE.md",
   block: "BLOCK_REPORT_TEMPLATE.md",
 };
@@ -39,41 +37,20 @@ export function validateReportRequest(input) {
     !Object.hasOwn(REPORT_TEMPLATES, input.kind)
   )
     throw new CoachError("Choose a supported report type.", 400);
-  const keys =
-    input.kind === "weekly"
-      ? ["kind", "startDate"]
-      : input.kind === "block"
-        ? ["kind", "planId", "startDate"]
-        : ["kind", "workoutId"];
+  const keys = input.kind === "weekly" ? ["kind", "startDate"] : ["kind", "planId", "startDate"];
   if (
-    Object.keys(input).some(
-      (k) => !keys.includes(k) && !(k === "force" || (input.kind === "pre" && k === "checkIn"))
-    ) ||
+    Object.keys(input).some((k) => !keys.includes(k) && k !== "force") ||
     (input.force !== undefined && typeof input.force !== "boolean") ||
     keys.some((k) => typeof input[k] !== "string")
   )
     throw new CoachError("Invalid report target.", 400);
-  if (
-    input.checkIn !== undefined &&
-    (typeof input.checkIn !== "string" ||
-      input.checkIn.trim().length < 10 ||
-      input.checkIn.length > 2000)
-  )
-    throw new CoachError(
-      "Describe your current Feel, soreness and any new pain or symptoms (10–2000 characters).",
-      400
-    );
-  if (input.kind === "pre" || input.kind === "post") {
-    if (!/^(event:\d+|activity:[A-Za-z0-9_-]{1,100})$/.test(input.workoutId))
-      throw new CoachError("Choose an Intervals.icu workout.", 400);
-  } else if (!validReportDate(input.startDate)) throw new CoachError("Invalid report date.", 400);
+  if (!validReportDate(input.startDate)) throw new CoachError("Invalid report date.", 400);
   if (input.kind === "weekly" && new Date(input.startDate).getUTCDay() !== 1)
     throw new CoachError("Weekly reports start on Monday.", 400);
   if (input.kind === "block" && !/^[A-Za-z0-9_-]{1,100}$/.test(input.planId))
     throw new CoachError("Invalid annual plan.", 400);
   return {
     ...Object.fromEntries(keys.map((k) => [k, input[k]])),
-    ...(input.checkIn ? { checkIn: input.checkIn.trim() } : {}),
     ...(input.force ? { force: true } : {}),
   };
 }
@@ -98,39 +75,4 @@ export function resolveReportTarget(input, context, plans = []) {
       planName: plan.name,
     };
   }
-  const workout = contextWorkouts(context).find(
-    (w) =>
-      w.id === request.workoutId ||
-      (request.workoutId.startsWith("activity:") && activityId(w) === request.workoutId.slice(9))
-  );
-  if (!workout || !validReportDate(workout.workout_date))
-    throw new CoachError(
-      "Refresh the calendar to load this workout before requesting its report.",
-      404
-    );
-  const completed = workout.status === "completed" || workout.completed === true;
-  const actualId = activityId(workout);
-  const recordedDate = String(workout.recorded_start_local || "").slice(0, 10);
-  const reportDate =
-    request.kind === "post" && validReportDate(recordedDate) ? recordedDate : workout.workout_date;
-  return {
-    ...request,
-    key: request.kind === "post" && actualId ? `post:${actualId}` : `${request.kind}:${workout.id}`,
-    startDate: reportDate,
-    endDate: reportDate,
-    title: request.kind === "pre" ? "Pre-workout report" : "Post-workout report",
-    completed,
-    activityId: actualId,
-    workout: {
-      id: workout.id,
-      activity_id: actualId,
-      title: workout.title,
-      sport: workout.sport,
-      date: reportDate,
-      description: workout.details || workout.goal || null,
-      planned: workout.planned,
-      summary: workout.workout_summary,
-      recorded_start_local: workout.recorded_start_local,
-    },
-  };
 }

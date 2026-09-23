@@ -2,8 +2,6 @@ import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 
 const files = new Set([
-  "PRE_WORKOUT_REPORT_TEMPLATE.md",
-  "POST_WORKOUT_REPORT_TEMPLATE.md",
   "WEEKLY_REPORT_TEMPLATE.md",
   "BLOCK_REPORT_TEMPLATE.md",
 ]);
@@ -49,75 +47,35 @@ export function reportFollowsStructure(kind, markdown, evidence = {}) {
   )
     return false;
   const text = markdown.replace(/[*#`]/g, "").trim();
-  const continuation = kind === "pre" && /^Same-day continuation:/i.test(text);
-  const required = continuation
+  const required = kind === "weekly"
     ? [
-        /^Same-day continuation:/i,
-        /Morning readiness:/i,
-        /Completed session:/i,
-        /Response:/i,
-        /Current state:/i,
-        /Remaining session:/i,
-        /Decision:/i,
-        /ACWR:/i,
+        /^Week .+ Summary/i,
+        /Compliance:/i,
+        /Session Breakdown:/i,
+        /Polarization:/i,
+        /Fitness:/i,
+        /Wellness Trends:/i,
+        /Section 11 Flags:/i,
+        /Interpretation:/i,
+        /Next Week Preview:/i,
       ]
-    : kind === "pre"
-      ? [
-          /^Data last_updated \(UTC\):/i,
-          /Current Status Summary:/i,
-          /Planned Workouts for Today/i,
-          /Recommendation:/i,
-          /Interpretation:/i,
-        ]
-      : kind === "post"
-        ? [
-            /^Data \(last_updated UTC:/i,
-            /Completed workout:/i,
-            /Weekly totals/i,
-            /Interpretation:/i,
-          ]
-        : kind === "weekly"
-          ? [
-              /^Week .+ Summary/i,
-              /Compliance:/i,
-              /Session Breakdown:/i,
-              /Polarization:/i,
-              /Fitness:/i,
-              /Wellness Trends:/i,
-              /Section 11 Flags:/i,
-              /Interpretation:/i,
-              /Next Week Preview:/i,
-            ]
-          : [
-              /^Block .+ Report/i,
-              /Volume Progression:/i,
-              /Compliance:/i,
-              /Fitness Progression:/i,
-              /Polarization/i,
-              /Wellness/i,
-              /Section 11 Flags/i,
-              /Phase Progression Check:/i,
-              /Interpretation:/i,
-              /Next Block Plan:/i,
-            ];
+    : [
+        /^Block .+ Report/i,
+        /Volume Progression:/i,
+        /Compliance:/i,
+        /Fitness Progression:/i,
+        /Polarization/i,
+        /Wellness/i,
+        /Section 11 Flags/i,
+        /Phase Progression Check:/i,
+        /Interpretation:/i,
+        /Next Block Plan:/i,
+      ];
   let cursor = 0;
   for (const pattern of required) {
     const match = text.slice(cursor).match(pattern);
     if (!match) return false;
     cursor += match.index + match[0].length;
   }
-  if (
-    continuation &&
-    /Current Status Summary:|Planned Workouts for Today|\nRecommendation:|\nInterpretation:/i.test(
-      text
-    )
-  )
-    return false;
-  if (
-    kind === "post" &&
-    (text.match(/Completed workout:/gi) || []).length !==
-      new Set((evidence.activities || []).map((a) => String(a.id))).size
-  )
-    return false;
   return true;
 }

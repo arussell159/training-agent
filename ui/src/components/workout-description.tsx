@@ -9,7 +9,6 @@ import type { SportZoneSettings } from "../../../app-backend/lib/workout-editor-
 import type { PlannedWorkout } from "@/lib/training-context"
 import { Button } from "@/components/ui/button"
 import { ChevronRight, Pencil } from "lucide-react"
-import { WorkoutEditor } from "@/components/workout-editor"
 export function WorkoutDescription({
   workout,
   title = "Workout instructions",
@@ -37,8 +36,7 @@ export function WorkoutDescription({
     [draft, setDraft] = useState(original),
     [editing, setEditing] = useState(false),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState(""),
-    [visualEditing, setVisualEditing] = useState(false)
+    [error, setError] = useState("")
   useEffect(() => {
     setSaved(original)
     setDraft(original)
@@ -71,19 +69,15 @@ export function WorkoutDescription({
   }
   return (
     <section
-      className={mobileCompact ? "space-y-2" : "space-y-3"}
+      className={`w-full min-w-0 ${mobileCompact ? "space-y-2" : "space-y-3"}`}
       aria-label="Workout description"
     >
-      {visualEditing && (
-        <WorkoutEditor
-          workout={workout}
-          onClose={() => setVisualEditing(false)}
-        />
-      )}
-      <div className="flex items-center justify-between">
+      <div className="relative flex min-h-8 w-full min-w-0 items-center">
         <h3
           className={
-            mobileCompact ? "text-base font-bold" : "text-sm font-semibold"
+            mobileCompact
+              ? "min-w-0 whitespace-nowrap pr-10 text-base font-bold"
+              : "min-w-0 whitespace-nowrap pr-10 text-sm font-semibold"
           }
         >
           {collapsible ? (
@@ -106,12 +100,8 @@ export function WorkoutDescription({
           <Button
             variant="ghost"
             size="sm"
-            className={mobileCompact ? "size-7 p-0" : ""}
+            className="absolute top-1/2 right-0 size-8 -translate-y-1/2 p-0"
             onClick={() => {
-              if (workout.id.startsWith("event:") && workout.structure) {
-                setVisualEditing(true)
-                return
-              }
               setDraft(saved)
               setEditing(true)
             }}
@@ -130,19 +120,23 @@ export function WorkoutDescription({
               value={draft}
               disabled={busy}
               onChange={(e) => setDraft(e.target.value)}
-              className="min-h-64 w-full resize-y rounded-xl border bg-background p-3 text-[1.0625rem] leading-7 md:text-sm md:leading-6"
+              className="box-border min-h-[22rem] w-full max-w-full resize-y rounded-xl border bg-background p-3 text-[1.0625rem] leading-7 md:min-h-64 md:text-sm md:leading-6"
             />
-            <div className="flex justify-end gap-2">
+            <div className="grid w-full min-w-0 grid-cols-2 gap-2">
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 disabled={busy}
-                onClick={() => setEditing(false)}
+                onClick={() => {
+                  setDraft(saved)
+                  setEditing(false)
+                }}
               >
                 Cancel
               </Button>
               <Button
                 size="sm"
+                className="min-w-0 w-full"
                 disabled={busy || draft === saved}
                 onClick={() => void save()}
               >

@@ -326,7 +326,7 @@ function SleepCard({ context }: { context: TrainingContext }) {
   )
   const date = latest?.date || latest?.id || latest?.timeStamp
   return (
-    <Card className="col-span-2 min-w-0 [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-6">
+    <Card className="min-w-0 [--card-spacing:--spacing(3)]">
       <CardHeader>
         <CardDescription>
           Sleep
@@ -469,11 +469,11 @@ export function SectionCards({
       <EventsCard context={context} />
       <RecoveryTrendCard context={context} metric="hrv" />
       <RecoveryTrendCard context={context} metric="resting_hr" />
-      <SleepCard context={context} />
-
-      <Card className="col-span-2 min-w-0 [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-6">
+      <div className="col-span-2 grid min-w-0 gap-3 sm:gap-4 lg:col-span-6 lg:col-start-7 lg:grid-cols-2">
+        <SleepCard context={context} />
+        <Card className="min-w-0 [--card-spacing:--spacing(3)]">
         <CardHeader>
-          <CardTitle>Intervals.icu fitness</CardTitle>
+          <CardTitle>Intervals.icu Fitness</CardTitle>
           <CardAction>
             <Gauge className="size-4 text-muted-foreground" />
           </CardAction>
@@ -499,7 +499,8 @@ export function SectionCards({
             </p>
           </div>
         </CardContent>
-      </Card>
+        </Card>
+      </div>
     </div>
   )
 }

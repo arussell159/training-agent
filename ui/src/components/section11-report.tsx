@@ -1,12 +1,10 @@
-import { WorkoutReportBody } from "@/components/workout-report-body"
 import {
   WeeklyReportBody,
   BlockReportBody,
 } from "@/components/catalog-report-body"
 import { useEffect, useRef, useState } from "react"
-import { ChevronRight, FileText, LoaderCircle } from "lucide-react"
+import { ChevronRight, FileText } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { reportLines } from "../../../app-backend/lib/report-presentation.mjs"
 import { openReportReader } from "@/lib/report-navigation"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,7 +20,6 @@ import { dateLabel } from "@/lib/annual-plan"
 import { shiftReportDate } from "../../../app-backend/lib/report-blocks.mjs"
 
 export type ReportTarget =
-  | { kind: "pre" | "post"; workoutId: string }
   | { kind: "weekly"; startDate: string }
   | { kind: "block"; planId: string; startDate: string }
 type ReportResult = {
@@ -36,11 +33,8 @@ type ReportResult = {
   target?: { title: string; startDate: string; endDate: string }
   generatedAt?: string
   source?: CoachSource
-  sync?: { status: string; url?: string; error?: string; canRetry?: boolean }
 }
 const labels = {
-  pre: "pre-workout",
-  post: "post-workout",
   weekly: "weekly",
   block: "block",
 }
@@ -137,25 +131,23 @@ function ReportPanel({
   const target = JSON.parse(signature) as ReportTarget
   const [result, setResult] = useState<ReportResult | null>(null)
   const [error, setError] = useState("")
-  const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const last = useRef<ReportResult | null>(null)
   const alive = useRef(true)
   const active = useRef(false)
-  const submitting = useRef(false)
   const requests = useRef(new Set<AbortController>())
   const update = (value: ReportResult) => {
     last.current = value
     setResult(value)
   }
 
-  async function request(action: "status" | "sync") {
+  async function request() {
     const controller = new AbortController()
     requests.current.add(controller)
     try {
       const response = await coachRequest(
-        `reports/${action}`,
+        "reports/status",
         {
           ...JSON.parse(signature),
         },
@@ -184,7 +176,7 @@ function ReportPanel({
       if (!active.current || checking || last.current?.status === "complete")
         return
       checking = true
-      await request("status")
+      await request()
       checking = false
     }
     const observer = new IntersectionObserver(
@@ -195,14 +187,16 @@ function ReportPanel({
       { rootMargin: "100px" }
     )
     if (root.current) observer.observe(root.current)
-    // Read on opening, a real training-context update, or an explicit action;
-    // an unfinished report must not poll the database indefinitely.
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void check()
+    }, 15000)
     const refresh = () => void check()
     window.addEventListener("training-context-updated", refresh)
     const pending = requests.current
     return () => {
       alive.current = false
       observer.disconnect()
+      clearInterval(timer)
       window.removeEventListener("training-context-updated", refresh)
       pending.forEach((controller) => controller.abort())
     }
@@ -210,18 +204,6 @@ function ReportPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature])
 
-  async function act() {
-    if (submitting.current) return
-    submitting.current = true
-    setBusy(true)
-    setError("")
-    await request("sync")
-    if (alive.current) {
-      setBusy(false)
-      await request("status")
-    }
-    submitting.current = false
-  }
   const complete = result?.status === "complete"
   const compact =
     !reader && (target.kind === "weekly" || target.kind === "block")
@@ -234,13 +216,6 @@ function ReportPanel({
           endDate: shiftReportDate(target.startDate, 6),
         }
       : null)
-  const runUrl =
-    result?.sync?.url &&
-    /^https:\/\/github\.com\/[^/]+\/[^/]+\/actions\/runs\/\d+$/.test(
-      result.sync.url
-    )
-      ? result.sync.url
-      : null
   if (savedOnly && !complete)
     return (
       <div
@@ -311,45 +286,6 @@ function ReportPanel({
               : "Waiting for the saved report from Intervals.icu.")}
         </p>
       )}
-      {!complete && result?.sync && (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          {["dispatching", "checking", "queued", "running"].includes(
-            result.sync.status
-          ) && (
-            <>
-              <LoaderCircle className="size-3 animate-spin" />
-              <span>Syncing workout with Section 11…</span>
-            </>
-          )}
-          {result.sync.status === "complete" && (
-            <span>
-              Sync finished; this workout’s report data is not available yet.
-            </span>
-          )}
-          {result.sync.error && <span>{result.sync.error}</span>}
-          {runUrl && (
-            <a
-              href={runUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="underline"
-            >
-              View sync
-            </a>
-          )}
-          {result.sync.canRetry && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={busy}
-              onClick={() => void act()}
-            >
-              Retry sync
-            </Button>
-          )}
-        </div>
-      )}
       {(error || result?.error) && !complete && (
         <p role="alert" className="text-xs text-destructive">
           {error || result?.error}
@@ -387,8 +323,6 @@ function ReportPanel({
                 </DialogContent>
               </Dialog>
             </>
-          ) : target.kind === "pre" || target.kind === "post" ? (
-            <WorkoutReportBody text={result.text} kind={target.kind} />
           ) : (
             <ReportBody text={result.text} kind={target.kind} period={period} />
           )}
@@ -404,7 +338,7 @@ function ReportBody({
   period,
 }: {
   text?: string
-  kind?: ReportTarget["kind"]
+  kind: ReportTarget["kind"]
   period?: { startDate: string; endDate: string } | null
 }) {
   if (kind === "weekly" || kind === "block") {
@@ -423,18 +357,4 @@ function ReportBody({
       <BlockReportBody report={report} />
     )
   }
-  return (
-    <article className="section11-report-body min-w-0 text-sm leading-relaxed font-normal break-words">
-      {reportLines(text).map((line, index) =>
-        line.label || line.text ? (
-          <p key={index} className="min-h-5 whitespace-pre-wrap">
-            <strong className="font-semibold">{line.label}</strong>
-            {line.text}
-          </p>
-        ) : (
-          <div key={index} className="h-3" aria-hidden="true" />
-        )
-      )}
-    </article>
-  )
 }

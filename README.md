@@ -52,12 +52,12 @@ The old chat implementation, generated workout comments, scheduled reviews, conv
 
 ## GitHub and OpenAI coach
 
-The GitHub Actions sync in `arussell159/SECTION_11` is the canonical data pipeline. The application transparently redirects the legacy `arussell159/my-training-data` setting to this repository. No local computer or Supabase sync worker is required. Set these **server-only** environment variables in Vercel Production, then redeploy:
+The GitHub Actions sync is the data pipeline. No local computer or Supabase sync worker is required. Set these **server-only** environment variables in Vercel Production, then redeploy:
 
 | Variable                      | Value                                                                                                 |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `TRAINING_DATA_GITHUB_TOKEN`  | Fine-grained token: Contents read-only and Actions read/write, restricted to your training repository |
-| `TRAINING_DATA_GITHUB_REPO`   | `arussell159/SECTION_11` (or your own `owner/repository`)                                             |
+| `TRAINING_DATA_GITHUB_REPO`   | `arussell159/my-training-data` (or your own `owner/repository`)                                       |
 | `TRAINING_DATA_GITHUB_BRANCH` | `main`                                                                                                |
 | `OPENAI_API_KEY`              | OpenAI project API key                                                                                |
 | `APP_PASSWORD`                | Unique app password of at least 20 characters; existing `COACH_ACCESS_PASSWORD` is a fallback         |
@@ -89,7 +89,7 @@ Reports use the same exact persistent prompt, fresh private dossier and official
 
 Completed report text, subject, timestamps and source revisions persist encrypted in separate Supabase `app_settings` records. Atomic claims prevent duplicate generation across tabs and server instances. A completed report remains readable and cannot be regenerated. Navigating away does not cancel the server's save. This persistence is separate from the session-only Coach conversation and requires no database migration.
 
-When fresh provider data needs a mirror refresh, the app dispatches `.github/workflows/auto-sync.yml` in `arussell159/SECTION_11`. The foreground app also watches the Section 11 mirror for completed-activity and planned-calendar changes and imports them promptly. Install the copy in `app-backend/coach/github/auto-sync.yml`: it retains the scheduled sync and adds an optional `request_id`, a correlated run name and concurrency control. It uses the existing `ATHLETE_ID` and `INTERVALS_KEY` secrets. The application token needs **Actions: Read and write** and **Contents: Read-only**; installing the workflow itself needs workflow-edit access. No local sync daemon is required.
+When fresh provider data introduces a completed activity, the app dispatches `.github/workflows/auto-sync.yml` in the private training-data repository. Install the copy in `app-backend/coach/github/auto-sync.yml`: it retains the scheduled sync and adds an optional `request_id`, a correlated run name and concurrency control. It uses the existing `ATHLETE_ID` and `INTERVALS_KEY` secrets. The application token needs **Actions: Read and write** and **Contents: Read-only**; installing the workflow itself needs workflow-edit access. No local sync daemon is required.
 
 The post-workout button stays disabled until that exact activity ID appears in `latest.json`, with its interval record when the export says it has intervals. A green Actions run alone is insufficient. Optional missing streams do not block reports indefinitely. Sync progress and a run link appear beside the disabled button; failed or incomplete syncs can be retried manually. First imports do not dispatch a run per historical activity. Opening a recent unsynced completed session can catch up a missed completion notification. Workouts outside the export window and weeks/blocks without sufficient history show an explicit limitation.
 

@@ -2,7 +2,10 @@ import { useMemo, useState, type ComponentType } from "react"
 import type { PointerEvent as ReactPointerEvent } from "react"
 import { Activity, Bike, Footprints, Waves } from "lucide-react"
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
-import { Button as F7Button, Card, CardContent } from "framework7-react"
+import { Button as F7Button } from "framework7-react"
+import { Card, CardContent } from "@/components/ui/card"
+// @ts-expect-error Shared browser/server helper is plain JavaScript by design.
+import { completedActivityKey, completedActivityValues } from "../../../app-backend/lib/completed-activity.mjs"
 
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart"
 import { MobileSelect } from "@/components/ui/mobile-native-controls"
@@ -39,65 +42,6 @@ const historyChartConfig = {
   value: { label: "Completed", color: "var(--chart-2)" },
 } satisfies ChartConfig
 
-function numeric(value: unknown) {
-  const parsed =
-    typeof value === "number"
-      ? value
-      : typeof value === "string" && value.trim()
-        ? Number(value)
-        : Number.NaN
-  return Number.isFinite(parsed) ? parsed : undefined
-}
-
-function nested(record: HistoryRecord, key: string) {
-  const value = record[key]
-  return value && typeof value === "object"
-    ? (value as HistoryRecord)
-    : undefined
-}
-
-function firstNumber(...values: unknown[]) {
-  return values.map(numeric).find((value) => value != null)
-}
-
-function completedValues(item: TrainingContext["history"][number]) {
-  const raw = item as unknown as HistoryRecord
-  const completed = nested(raw, "completed")
-  const completedData = nested(raw, "completed_data")
-  const workoutSummary = nested(raw, "workout_summary")
-  const summaryCompleted = workoutSummary && nested(workoutSummary, "completed")
-  const seconds = firstNumber(
-    completedData?.duration_seconds,
-    completed?.duration_seconds,
-    summaryCompleted?.duration_seconds,
-    raw.duration_seconds
-  )
-  const minutes = firstNumber(
-    raw.actualDurationMinutes,
-    completedData?.duration_minutes,
-    completed?.duration_minutes,
-    summaryCompleted?.duration_minutes,
-    raw.duration_minutes
-  )
-  return {
-    hours: seconds != null ? seconds / 3600 : (minutes ?? 0) / 60,
-    distanceMeters:
-      firstNumber(
-        completedData?.distance_meters,
-        completed?.distance_meters,
-        summaryCompleted?.distance_meters,
-        raw.distance_meters
-      ) ?? 0,
-    elevationMeters:
-      firstNumber(
-        completedData?.elevation_gain,
-        completed?.elevation_gain,
-        summaryCompleted?.elevation_gain,
-        raw.elevation_gain
-      ) ?? 0,
-  }
-}
-
 function sportFor(
   item: TrainingContext["history"][number]
 ): Exclude<SportFilter, "all"> | "other" {
@@ -131,11 +75,8 @@ function completedHistory(context: TrainingContext, filter: SportFilter) {
   for (const item of context.history) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(item.workout_date ?? "")) continue
     if (filter !== "all" && sportFor(item) !== filter) continue
-    const raw = item as unknown as HistoryRecord
     const key = String(
-      raw.activity_id ??
-        raw.id ??
-        `${item.workout_date}:${raw.title ?? raw.name ?? sportFor(item)}`
+      completedActivityKey(item)
     )
     const previous = records.get(key)
     records.set(
@@ -143,7 +84,7 @@ function completedHistory(context: TrainingContext, filter: SportFilter) {
       previous ? ({ ...previous, ...item } as typeof item) : item
     )
   }
-  return [...records.values()].filter((item) => completedValues(item).hours > 0)
+  return [...records.values()].filter((item) => completedActivityValues(item).hours > 0)
 }
 
 function twelveWeekHistory(
@@ -165,7 +106,7 @@ function twelveWeekHistory(
   for (const item of records) {
     const row = byWeek.get(weekStart(item.workout_date))
     if (row) {
-      const values = completedValues(item)
+      const values = completedActivityValues(item)
       row.hours += values.hours
       row.distanceMeters += values.distanceMeters
     }
@@ -217,7 +158,7 @@ function weekTotals(records: TrainingContext["history"], now = new Date()) {
   return records.reduce(
     (total, item) => {
       if (weekStart(item.workout_date) !== start) return total
-      const values = completedValues(item)
+      const values = completedActivityValues(item)
       total.hours += values.hours
       total.distanceMeters += values.distanceMeters
       total.elevationMeters += values.elevationMeters
@@ -347,7 +288,9 @@ export function ChartAreaInteractive({
                   aria-label="Training history metric"
                   className="h-8 w-24 rounded-lg px-2 text-sm font-medium shadow-none"
                 >
-                  <SelectValue />
+                  <SelectValue>
+                    {historyMetric === "time" ? "Time" : "Distance"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="end">
                   <SelectItem value="time">Time</SelectItem>

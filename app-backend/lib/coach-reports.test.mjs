@@ -20,8 +20,6 @@ const env = {
   OPENAI_API_KEY: "private-ai",
 };
 const config = coachConfig(env);
-const pre = { kind: "pre", workoutId: "event:1" },
-  post = { kind: "post", workoutId: "event:2" };
 function memory(fresh) {
   let value = fresh();
   return {
@@ -46,7 +44,7 @@ function harness() {
     metadata: { last_updated: "2026-09-17T14:55:00", extended_range_days: 28 },
     athlete_profile: { timezone: "America/Chicago" },
     wellness_data: [
-      { date: "2026-09-17", sleep_hours: 7 },
+      { date: "2026-09-17", sleep_hours: 7, weight_kg: 80 },
       { date: "2026-09-16", sleep_hours: 8 },
     ],
     recent_activities: [
@@ -164,16 +162,16 @@ function harness() {
 
 test("report targets reject client-authored facts and resolve saved workouts and complete phase blocks", () => {
   const h = harness();
-  assert.throws(() => validateReportRequest({ ...post, completed: true }), /Invalid report target/);
+  assert.throws(() => validateReportRequest({ kind: "pre", workoutId: "event:1" }), /supported report type/);
+  assert.throws(() => validateReportRequest({ kind: "post", workoutId: "activity:i2" }), /supported report type/);
   assert.throws(() => validateReportRequest({ kind: "weekly", startDate: "2026-09-13" }), /Monday/);
   assert.throws(
     () => validateReportRequest({ kind: "weekly", startDate: "2026-02-30" }),
     /Invalid report date/
   );
-  assert.equal(resolveReportTarget(post, h.context).key, "post:i2");
   assert.equal(
-    resolveReportTarget({ kind: "post", workoutId: "activity:i2" }, h.context).key,
-    "post:i2"
+    resolveReportTarget({ kind: "weekly", startDate: "2026-09-07" }, h.context).key,
+    "weekly:2026-09-07"
   );
   const blocks = planReportBlocks(h.plans[0]);
   assert.equal(blocks.length, 2);
@@ -189,67 +187,6 @@ test("report targets reject client-authored facts and resolve saved workouts and
       resolveReportTarget({ kind: "block", planId: "plan1", startDate: "2026-09-07" }, {}, h.plans),
     /no longer/
   );
-});
-
-test("pre-workout readiness uses current overnight data throughout the athlete-local day", async () => {
-  const h = harness(),
-    target = resolveReportTarget(pre, h.context);
-  assert.equal((await reportEligibility(target, h.snapshot, config, epoch)).eligible, true);
-  assert.equal(
-    (await reportEligibility({ ...target, completed: true }, h.snapshot, config, epoch)).eligible,
-    false
-  );
-  h.latest.metadata.last_updated = "2026-09-17T04:25:00Z";
-  const midnight = Date.parse("2026-09-17T04:30:00Z"); // Still September 16 in Chicago.
-  assert.match(
-    (await reportEligibility(target, h.snapshot, config, midnight)).reason,
-    /scheduled day/
-  );
-  assert.match(
-    (await reportEligibility(target, h.snapshot, config, epoch)).reason,
-    /overnight sleep/
-  );
-  h.latest.metadata.last_updated = "2026-09-17T11:00:00Z";
-  assert.equal(
-    (await reportEligibility(target, h.snapshot, config, Date.parse("2026-09-18T03:30:00Z")))
-      .eligible,
-    true
-  );
-  h.latest.wellness_data[0].sleep_hours = null;
-  assert.equal((await reportEligibility(target, h.snapshot, config, epoch)).eligible, false);
-  h.latest.wellness_data[0].sleep_hours = 7;
-  h.latest.wellness_data = h.latest.wellness_data.slice(0, 1);
-  assert.equal((await reportEligibility(target, h.snapshot, config, epoch)).eligible, false);
-  h.latest.wellness_data.push({ date: "2026-09-16", sleep_hours: 8 });
-  h.latest.wellness_data[0].date = "2026-09-15";
-  assert.equal((await reportEligibility(target, h.snapshot, config, epoch)).eligible, false);
-});
-
-test("post-workout remains disabled after a green workflow until its actual ID and interval data are exported", async () => {
-  const h = harness(),
-    reports = h.build();
-  h.latest.recent_activities = [];
-  h.progress({ status: "complete" });
-  const missing = await reports.status(post);
-  assert.equal(missing.eligible, false);
-  assert.equal(missing.sync.canRetry, true);
-  assert.equal(h.answers(), 0);
-  await assert.rejects(reports.generate(post), /Waiting for this workout/);
-  h.latest.recent_activities.push({ id: "i2", has_intervals: true });
-  h.intervals.activities = [];
-  assert.match((await reports.status(post)).reason, /interval details/);
-  h.intervals.activities.push({ activity_id: "i2", date: "2026-09-17" });
-  assert.equal((await reports.status(post)).eligible, true); // Optional missing streams don't lock forever.
-  assert.equal(h.answers(), 0); // Eligibility and sync never call the model.
-});
-
-test("activities outside export retention do not endlessly dispatch syncs", async () => {
-  const h = harness();
-  h.context.history[0].workout_date = "2026-07-01";
-  h.latest.recent_activities = [];
-  const result = await h.build().status(post);
-  assert.match(result.reason, /outside/);
-  assert.equal(h.queues.length, 0);
 });
 
 test("weekly and block reports wait for period end, later export and full history coverage", async () => {
@@ -278,6 +215,7 @@ test("weekly and block reports wait for period end, later export and full histor
 
 test("concurrent manual clicks generate exactly once and a new service instance reads the immutable saved report", async () => {
   const h = harness();
+  const block = { kind: "block", planId: "plan1", startDate: "2026-08-31" };
   let release, began;
   const started = new Promise((resolve) => {
     began = resolve;
@@ -289,55 +227,28 @@ test("concurrent manual clicks generate exactly once and a new service instance 
     began();
     await pending;
   });
-  const first = h.build().generate(post);
+  const first = h.build().generate(block);
   await started;
-  assert.equal((await h.build().generate(post)).status, "running");
-  assert.equal((await h.build().status(post)).status, "running");
+  assert.equal((await h.build().generate(block)).status, "running");
+  assert.equal((await h.build().status(block)).status, "running");
   release();
   const completed = await first;
   assert.equal(completed.status, "complete");
   assert.equal(completed.eligible, false);
   h.latest.recent_activities = []; // Saved results do not disappear when source windows move.
-  const reloaded = await h.build().generate(post);
+  const reloaded = await h.build().generate(block);
   assert.equal(reloaded.text, completed.text);
   assert.equal(h.answers(), 1);
   assert.equal((await h.index.read()).reports.length, 1);
   h.context.history = [];
-  assert.equal((await h.build().status(post)).text, completed.text);
-  assert.equal((await h.build().generate(post)).status, "complete");
+  assert.equal((await h.build().status(block)).text, completed.text);
+  assert.equal((await h.build().generate(block)).status, "complete");
   assert.equal(h.answers(), 1);
   const args = h.argumentsSeen[0];
-  assert.match(args.reportContext.template.text, /POST_WORKOUT_REPORT_TEMPLATE/);
+  assert.match(args.reportContext.template.text, /BLOCK_REPORT_TEMPLATE/);
   assert.match(args.reportContext.hierarchy.text, /REPORT_HIERARCHY/);
-  assert.equal(args.reportContext.evidence.activities.length, 2); // Secondary same-day walk retained.
+  assert.equal(args.reportContext.evidence.activities.length, 0);
   assert.equal(args.calendar, undefined);
-});
-
-test("failed generations can be retried manually; completed pre reports survive workout completion", async () => {
-  const h = harness();
-  h.latest.recent_activities = [];
-  h.onAnswer(() => {
-    throw new Error("fixture model failure");
-  });
-  await assert.rejects(h.build().generate(pre), /fixture/);
-  assert.equal((await h.build().status(pre)).status, "error");
-  assert.equal(h.answers(), 1);
-  h.onAnswer(null);
-  await h.build().generate(pre);
-  h.context.planned[0].status = "completed";
-  assert.equal((await h.build().status(pre)).status, "complete");
-  assert.equal(h.answers(), 2);
-});
-
-test("same-day continuation requires a fresh athlete check-in before any model call", async () => {
-  const h = harness();
-  assert.equal((await h.build().status(pre)).needsCheckIn, true);
-  await assert.rejects(h.build().generate(pre), /feel now/);
-  assert.equal(h.answers(), 0);
-  const checkIn = "Feel strong now, no soreness and no new pain or symptoms.";
-  await h.build().generate({ ...pre, checkIn });
-  assert.equal(h.argumentsSeen[0].reportContext.evidence.currentStateCheckIn, checkIn);
-  assert.throws(() => validateReportRequest({ ...post, checkIn }), /Invalid report target/);
 });
 
 test("home report catalog includes only closed periods and retains saved blocks after ATP edits", async () => {
@@ -484,19 +395,10 @@ test("report HTTP requires app login, same-origin POST and a validated target", 
     text: "Saved Intervals report",
     title: "Weekly report",
   };
-  const workoutReport = {
-    id: "intervals-event:42:pre",
-    kind: "pre",
-    workoutId: "event:1",
-    startDate: "2026-09-17",
-    endDate: "2026-09-17",
-    text: "Saved pre-workout report",
-    title: "Pre-workout report",
-  };
   const handler = createReportsHttp({
     env: () => env,
     getCatalog: async () => ({
-      reports: [catalogReport, workoutReport],
+      reports: [catalogReport],
     }),
     getReports: async () => ({
       status: async () => ({ eligible: true }),
@@ -520,7 +422,7 @@ test("report HTTP requires app login, same-origin POST and a validated target", 
     "X-Coach-Request": "1",
     "X-Test-Login": "1",
   };
-  const call = (route, h = headers, data = pre) =>
+  const call = (route, h = headers, data = { kind: "weekly", startDate: "2026-09-07" }) =>
     fetch(origin + "/api/coach/reports/" + route, {
       method: "POST",
       headers: h,
@@ -528,13 +430,10 @@ test("report HTTP requires app login, same-origin POST and a validated target", 
     });
   assert.equal((await call("generate", { ...headers, "X-Test-Login": "" })).status, 401);
   assert.equal((await call("generate", { ...headers, origin: "https://other.test" })).status, 403);
-  assert.equal((await call("generate", headers, { ...pre, eligible: true })).status, 400);
+  assert.equal((await call("generate", headers, { kind: "post", workoutId: "activity:1" })).status, 400);
   const catalog = await call("catalog");
   assert.equal(catalog.status, 200);
-  assert.deepEqual((await catalog.json()).reports, [catalogReport, workoutReport]);
-  const importedPre = await (await call("status")).json();
-  assert.equal(importedPre.status, "complete");
-  assert.equal(importedPre.text, "Saved pre-workout report");
+  assert.deepEqual((await catalog.json()).reports, [catalogReport]);
   const weekly = await (
     await call("status", headers, { kind: "weekly", startDate: "2026-09-07" })
   ).json();

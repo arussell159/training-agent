@@ -276,10 +276,10 @@ function AppWorkspace() {
     }
     setNavigationItem(item)
     preloadPage(item)
+    setSelectedReport(null)
+    setSelectedWorkout(null)
+    setActiveItem(item)
     startTransition(() => {
-      setSelectedReport(null)
-      setSelectedWorkout(null)
-      setActiveItem(item)
       if (item === "Calendar")
         setCalendarNavigationVersion((value) => value + 1)
     })

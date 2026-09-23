@@ -7,16 +7,13 @@ import { createHash } from 'node:crypto';
 import { createCoachHttp } from './lib/coach-http.mjs';
 import { createCoachCalendar } from './lib/coach-calendar.mjs';
 import { createEncryptedRecordStore } from './lib/app-auth-store.mjs';
-import { createAppAuth, authConfig } from './lib/app-auth.mjs';
-import { createWorkoutChangeProbe } from './lib/workout-change-probe.mjs';
-import { refreshGithubOnStartup } from './lib/startup-workout-refresh.mjs';
-import { incrementalSnapshot, changedComments } from './lib/workout-sync-policy.mjs';
+import { createAppAuth } from './lib/app-auth.mjs';
 import { coachConfig, createCoach } from './lib/github-coach.mjs';
 import { createGithubCoachSource } from './lib/github-coach-source.mjs';
 import { createWorkoutSync, freshWorkoutSync } from './lib/coach-workout-sync.mjs';
 import { createCoachReports, createReportSnapshotCache, freshReport } from './lib/coach-reports.mjs';
 import { createReportsHttp } from './lib/coach-reports-http.mjs';
-import { fetchIntervalsReportCatalog, fetchIntervalsWorkoutReports } from './lib/intervals-report-catalog.mjs';
+import { fetchIntervalsReportCatalog } from './lib/intervals-report-catalog.mjs';
 import { createIntervalsReportPublisher } from './lib/intervals-report-publisher.mjs';
 import { fileURLToPath } from 'node:url';
 import { createContextStore } from './lib/supabase-context.mjs';
@@ -54,8 +51,13 @@ const handleCoach = createCoachHttp({ getCalendar: async (req, config) => create
   }),
 }) });
 const handleAuth = createAppAuth({ readBootstrap: readBootstrapConfig });
-const workoutChangeProbe = createWorkoutChangeProbe({readBootstrap:readBootstrapConfig, getConfig:()=>coachConfig(), getAuthConfig:req=>authConfig(process.env,req)});
 let reportServices;
+let reportSweep;
+function triggerDueReports(config) {
+  if (reportSweep) return reportSweep;
+  reportSweep = getReportServices(config).then((services) => services?.reports.generateDue()).catch(() => {}).finally(() => { reportSweep = null; });
+  return reportSweep;
+}
 async function getReportServices(config = coachConfig()) {
   if (!config.githubToken || !config.repo) return null;
   const intervalsConfig = await readConfig();
@@ -99,18 +101,11 @@ async function intervalsReportCatalog() {
 const handleReports = createReportsHttp({
   getReports: async config => (await getReportServices(config)).reports,
   getCatalog: intervalsReportCatalog,
-  getWorkoutReports: async workoutId => fetchIntervalsWorkoutReports(intervalsClient(await readConfig()), workoutId),
 });
 const uiDistPath = path.resolve(__dirname, '..', 'ui', 'dist');
 const intervalsCachePath = path.join(process.env.VERCEL ? '/tmp' : __dirname, 'intervals.cache');
 let completionConfirmation=null;
-let completionLoad;
-async function ensureCompletionConfirmation() {
-  completionLoad ||= readDurableState('COMPLETION_CONFIRMATION',path.join(__dirname,'completion-confirmation.cache'),null)
-    .then(value=>{completionConfirmation=value;})
-    .catch(()=>{completionLoad=null;});
-  await completionLoad;
-}
+try{completionConfirmation=await readDurableState('COMPLETION_CONFIRMATION',path.join(__dirname,'completion-confirmation.cache'),null);}catch(error){console.error('Completion confirmation unavailable:',error.message);}
 
 const serverState = {
   child: null,
@@ -159,6 +154,15 @@ function stableUuid(value) {
   return `${hex.slice(0,8).join('')}-${hex.slice(8,12).join('')}-${hex.slice(12,16).join('')}-${hex.slice(16,20).join('')}-${hex.slice(20).join('')}`;
 }
 
+function valueFingerprint(value) {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function trainingContextFingerprint(context) {
+  const { synced_at, sync_started_at, ...stable } = context || {};
+  return valueFingerprint(stable);
+}
+
 function withZoneHistory(previous,incoming) {
   const keys=['bike_ftp','run_threshold_pace','swim_css','threshold_hr'];
   const clean=zones=>Object.fromEntries(keys.map(key=>[key,zones?.[key] ?? null]));
@@ -177,20 +181,18 @@ function withZoneHistory(previous,incoming) {
   return {...incoming,athlete:{...incoming.athlete,zone_history:history.slice(-50)}};
 }
 
-export async function persistTrainingContext(config, context, {archiveActivities=true,notifySource=true} = {}) {
+export async function persistTrainingContext(config, context, {archiveActivities=true} = {}) {
   const store = createContextStore(config, updateLogs);
   if (!store.ready) return;
   const previous=await loadSupabaseTrainingSnapshot(config,context.athlete?.id);
   context=withZoneHistory(previous,context);
   context=mergeTrainingSnapshot(previous,context);
-  const delta=incrementalSnapshot(previous,context);
-  context=delta.context;
-  if(!delta.changed)return context;
+  const contextChanged = !previous || trainingContextFingerprint(previous) !== trainingContextFingerprint(context);
   const archive=createCompletedWorkoutStore(config,store);
-  await archive.saveWorkouts({history:delta.workouts,planned:[]});
+  await archive.saveWorkouts(context,{previousContext:previous});
   const archivedVersions={...(previous?.archived_activity_versions || {}),...(context.archived_activity_versions || {})};
   if(archiveActivities){
-    const completed=[...new Map(delta.workouts.filter(w=>w.completed && w.activity_id).map(w=>[String(w.activity_id),w])).values()];
+    const completed=[...new Map([...(context.history || []),...(context.planned || [])].filter(w=>w.completed && w.activity_id).map(w=>[String(w.activity_id),w])).values()];
     const pending=completed.filter(w=>archivedVersions[String(w.activity_id)]!==createHash('sha256').update(JSON.stringify(w.raw_activity || w.completed_data || {})).digest('hex'));
     for(let offset=0;offset<pending.length;offset+=2)await Promise.all(pending.slice(offset,offset+2).map(async workout=>{
       const id=String(workout.activity_id);
@@ -201,8 +203,9 @@ export async function persistTrainingContext(config, context, {archiveActivities
       }catch(error){updateLogs(`Completed workout archive pending ${id}: ${error.message}`);}
     }));
   }
+  const archiveStateChanged = valueFingerprint(archivedVersions) !== valueFingerprint(previous?.archived_activity_versions || {});
   const athleteId = String(context.athlete?.id || 'default');
-  const workouts = delta.workouts;
+  const workouts = [...(context.history || context.workouts || []), ...(context.planned || [])];
   const uniqueWorkouts = [...new Map(workouts.filter(item => item?.id && item?.workout_date).map(item => [String(item.id), item])).values()];
   const workoutRows = uniqueWorkouts.map(workout => ({
     id:String(workout.id), athlete_id:athleteId,
@@ -215,47 +218,76 @@ export async function persistTrainingContext(config, context, {archiveActivities
     source_updated_at:workout.updated_at || context.synced_at || new Date().toISOString(),
     synced_at:new Date().toISOString(),
   }));
-  const commentRows = changedComments(previous,context).filter(item => item?.body && ['pre','post'].includes(item.comment_type || item.type || 'post')).map(item => ({
+  const commentRows = (context.comments || []).filter(item => item?.body && ['pre','post'].includes(item.comment_type || item.type || 'post')).map(item => ({
     id:stableUuid(`comment:${item.id || `${item.workout_id}:${item.created_at}:${item.body}`}`),
     athlete_id:athleteId, workout_id:item.workout_id ? String(item.workout_id) : null,
     comment_type:['pre','post'].includes(item.comment_type || item.type) ? (item.comment_type || item.type) : 'post',
     body:String(item.body), created_at:item.created_at || new Date().toISOString(),
   }));
-  if (workoutRows.length) await store.upsert('workout_context', workoutRows);
-  if (commentRows.length) await store.upsert('athlete_comments', commentRows);
+  const previousWorkouts = new Map(
+    [...(previous?.history || []), ...(previous?.planned || [])]
+      .filter(item => item?.id)
+      .map(item => [String(item.id), valueFingerprint(item)])
+  );
+  const changedWorkoutRows = workoutRows.filter(row => {
+    const workout = uniqueWorkouts.find(item => String(item.id) === row.id);
+    return previousWorkouts.get(row.id) !== valueFingerprint(workout);
+  });
+  const previousComments = new Map(
+    (previous?.comments || []).map(item => {
+      const id = stableUuid(`comment:${item.id || `${item.workout_id}:${item.created_at}:${item.body}`}`);
+      return [id, valueFingerprint({
+        id,
+        workout_id: item.workout_id ? String(item.workout_id) : null,
+        comment_type: ['pre','post'].includes(item.comment_type || item.type) ? (item.comment_type || item.type) : 'post',
+        body: String(item.body),
+        created_at: item.created_at || null,
+      })];
+    })
+  );
+  const changedCommentRows = commentRows.filter(row => previousComments.get(row.id) !== valueFingerprint({
+    id: row.id,
+    workout_id: row.workout_id,
+    comment_type: row.comment_type,
+    body: row.body,
+    created_at: row.created_at,
+  }));
+  if (changedWorkoutRows.length) await store.upsert('workout_context', changedWorkoutRows);
+  if (changedCommentRows.length) await store.upsert('athlete_comments', changedCommentRows);
   const syncedAt = context.synced_at || new Date().toISOString();
-  await store.upsert('sync_state', [{
-    athlete_id:athleteId,
-    last_backfill_at:new Date().toISOString(),
-    cursor:{
-      context:{
-        provider:'intervals',
-        provider_connection:providerConnection(config),
-        cached_ranges:context.cached_ranges || [],
-        archived_activity_versions:archivedVersions,
-        app_deleted_workouts:context.app_deleted_workouts || {},
-        athlete:context.athlete,
-        metrics:context.metrics,
-        wellness:context.wellness,
-        wellness_history:context.wellness_history || [],
-        performance:context.performance || [],
-        history:context.history || context.workouts || [],
-        planned:context.planned || [],
-        comments:context.comments || [],
-        library:context.library || [],
-        synced_at:syncedAt,
-        retention_days:90,
+  if (contextChanged || archiveStateChanged) {
+    await store.upsert('sync_state', [{
+      athlete_id:athleteId,
+      last_backfill_at:new Date().toISOString(),
+      cursor:{
+        context:{
+          provider:'intervals',
+          provider_connection:providerConnection(config),
+          cached_ranges:context.cached_ranges || [],
+          archived_activity_versions:archivedVersions,
+          app_deleted_workouts:context.app_deleted_workouts || {},
+          athlete:context.athlete,
+          metrics:context.metrics,
+          wellness:context.wellness,
+          wellness_history:context.wellness_history || [],
+          performance:context.performance || [],
+          history:context.history || context.workouts || [],
+          planned:context.planned || [],
+          comments:context.comments || [],
+          library:context.library || [],
+          synced_at:syncedAt,
+          retention_days:90,
+        },
       },
-    },
-    status:'ready',
-    error:null,
-    updated_at:new Date().toISOString(),
-  }]);
-  await saveFastView(config,store,context);
-  if(notifySource)try { await (await getReportServices())?.sync.observe(previous, context); }
+      status:'ready',
+      error:null,
+      updated_at:new Date().toISOString(),
+    }]);
+    await saveFastView(config,store,context);
+  }
+  try { await (await getReportServices())?.sync.observe(previous, context); }
   catch (error) { updateLogs('Section 11 workout sync is pending; open the workout to check its sync status.'); }
-  // Retained history is not cleanup work for every successful import.
-  return context;
+  await store.prune();
 }
 
 async function loadSupabaseTrainingSnapshot(config, athleteId = null) {
@@ -296,7 +328,7 @@ function applyVerifiedEvent(context,id,result,action) {
 }
 
 const syncRequests=new Map();
-async function syncRecentTraining(config,{force=false,sourceDriven=false}={}) {
+async function syncRecentTraining(config,{force=false}={}) {
   const key=providerConnection(config);
   if(syncRequests.has(key))return syncRequests.get(key);
   const operation=(async()=>{
@@ -308,9 +340,9 @@ async function syncRecentTraining(config,{force=false,sourceDriven=false}={}) {
     const shift=days=>new Date(date.getTime()+days*86400000).toISOString().slice(0,10);
     const range=saved?{start:shift(-14),end:shift(13)}:undefined;
     const incoming=await fetchIntervalsTrainingContext(config,{force:true,timeZone:zone,range});
-    const persisted=await persistTrainingContext(config,mergeTrainingSnapshot(saved,incoming,range),{notifySource:!sourceDriven});
-    if(!persisted)throw Error('The database did not confirm the imported workout.');
-    return projectTrainingContext(persisted);
+    await persistTrainingContext(config,mergeTrainingSnapshot(saved,incoming,range));
+    const full=await createContextStore(config).getSyncRecord(fastViewId(config));
+    return projectTrainingContext(full);
   })();
   syncRequests.set(key,operation);
   try{return await operation;}finally{syncRequests.delete(key);}
@@ -470,20 +502,7 @@ export async function handleRequest(req, res) {
     req.url = resolveApiRoute(req.url || '/');
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     const pathname = requestUrl.pathname;
-    // The signed hint endpoint cannot return data or perform database/model writes.
-    if (await workoutChangeProbe.handle(req,res,pathname)) return;
     if (await handleAuth(req, res, pathname)) return;
-    if(pathname==='/api/sync/probe-lease' && req.method==='POST') {
-      const config=await readConfig(), snapshot=await loadSupabaseTrainingSnapshot(config);
-      let startup_sync;
-      if(requestUrl.searchParams.get('startup')==='1') {
-        try {startup_sync=await refreshGithubOnStartup({config:coachConfig(),bootstrap:await readBootstrapConfig()});}
-        catch {startup_sync={status:'unavailable',error:'The GitHub startup refresh could not be confirmed. Use the header Refresh to check again.'};}
-      }
-      if(!snapshot){sendJson(req,res,{needs_import:true,startup_sync});return;}
-      sendJson(req,res,{probe:await workoutChangeProbe.issue(req,snapshot),startup_sync});return;
-    }
-    if(pathname.startsWith('/api/'))await ensureCompletionConfirmation();
     if (await handleReports(req, res, pathname)) return;
     if (await handleCoach(req, res, pathname)) return;
     if(pathname==='/api/annual-plans' && req.method==='GET') {
@@ -588,22 +607,16 @@ export async function handleRequest(req, res) {
     }
     if(pathname==='/api/sync' && req.method==='POST') {
       const config=await readConfig();
-      const automatic=requestUrl.searchParams.get('automatic')==='1';
-      const mutationsOnly=requestUrl.searchParams.get('mutations_only')==='1';
-      const queue=automatic?{pending:0,failed:0}:await flushMutations(config,requestUrl.searchParams.get('retry')==='1');
+      const queue=await flushMutations(config,requestUrl.searchParams.get('retry')==='1');
       try {
-        const context=mutationsOnly
-          ? projectTrainingContext(await loadSupabaseTrainingSnapshot(config))
-          : await syncRecentTraining(config,{force:automatic || requestUrl.searchParams.get('force')==='1',sourceDriven:automatic});
+        const context=await syncRecentTraining(config,{force:requestUrl.searchParams.get('force')==='1'});
+        void triggerDueReports(config);
         let section11Sync;
-        if(!mutationsOnly && requestUrl.searchParams.get('force')==='1') {
+        if(requestUrl.searchParams.get('force')==='1') {
           try { const services=await getReportServices();section11Sync=services ? await services.sync.refresh() : {status:'unavailable',error:'Section 11 GitHub sync is not configured.'}; }
           catch(error) {section11Sync={status:'failed',error:error.message};}
         }
-        let probe,probe_error;
-        try {probe=await workoutChangeProbe.issue(req,await loadSupabaseTrainingSnapshot(config));}
-        catch(error){probe_error=error.message;}
-        sendJson(req,res,{context,queue,section11Sync,probe,probe_error,checked_at:new Date().toISOString()});
+        sendJson(req,res,{context,queue,section11Sync,checked_at:new Date().toISOString()});
       }catch(error){
         const view=await createContextStore(config).getSyncRecord(fastViewId(config));
         if(!view)throw error;
@@ -709,7 +722,7 @@ export async function handleRequest(req, res) {
         try {
           const range = saved && contextScope !== 'full' ? typeof contextScope === 'object' ? contextScope : currentWeekRange(timeZone) : undefined;
           const live = await fetchIntervalsTrainingContext(config, { force:forceRefresh, timeZone, range });
-          let liveContext = {
+          const liveContext = {
             ...local,
             ...live,
             athlete:athleteWithRace(live.athlete),
@@ -718,7 +731,8 @@ export async function handleRequest(req, res) {
             library:local.library,
           };
           try {
-            liveContext=await persistTrainingContext(config, mergeTrainingSnapshot(saved,liveContext,range)) || liveContext;
+            await persistTrainingContext(config, mergeTrainingSnapshot(saved,liveContext,range));
+            void triggerDueReports(config);
           } catch (error) {
             updateLogs(`context write failed: ${error.message}`);
           }

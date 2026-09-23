@@ -6,7 +6,6 @@ import { validateReportRequest } from "./report-targets.mjs";
 export function createReportsHttp({
   getReports,
   getCatalog,
-  getWorkoutReports,
   env = () => process.env,
 }) {
   return async function handleReports(req, res, pathname) {
@@ -36,22 +35,12 @@ export function createReportsHttp({
       const body = await bodyJson(req);
       const target = validateReportRequest(body);
       if (pathname === "/api/coach/reports/status" && getCatalog) {
-        let catalog =
-          ["pre", "post"].includes(target.kind) && getWorkoutReports
-            ? await getWorkoutReports(target.workoutId)
-            : await getCatalog();
-        if (
-          getWorkoutReports &&
-          ["pre", "post"].includes(target.kind) &&
-          !catalog.reports.some((report) => report.kind === target.kind)
-        )
-          catalog = await getCatalog();
+        const catalog = await getCatalog();
         const report = catalog.reports.find(
           (report) =>
             report.kind === target.kind &&
-            (["pre", "post"].includes(target.kind)
-              ? report.workoutId === target.workoutId
-              : report.startDate === target.startDate)
+            report.startDate === target.startDate &&
+            (target.kind !== "block" || report.planId === target.planId)
         );
         if (report || ["weekly", "block"].includes(target.kind)) {
           json(
@@ -83,8 +72,6 @@ export function createReportsHttp({
       if (pathname === "/api/coach/reports/status") json(200, await reports.status(target));
       else if (pathname === "/api/coach/reports/generate")
         json(200, await reports.generate(target));
-      else if (pathname === "/api/coach/reports/sync" && target.kind === "post")
-        json(200, await reports.status(target, true));
       else json(404, { error: "Report endpoint not found." });
     } catch (error) {
       json(error instanceof CoachError ? error.status : 502, {
