@@ -77,7 +77,7 @@ export function BackgroundSync() {
         !eligible() ||
         sync.status().busy ||
         Date.now() < nextCheck ||
-        Date.now() - lastCheck < 60000
+        Date.now() - lastCheck < 10000
       )
         return
       lastCheck = Date.now()
@@ -139,7 +139,7 @@ export function BackgroundSync() {
         if (retry > 0) await edit()
       })()
     }, 1500)
-    const timer = window.setInterval(() => void check(), 120000)
+    const timer = window.setInterval(() => void check(), 10000)
     window.addEventListener("background-sync-restart", restart)
     window.addEventListener("focus", resume)
     window.addEventListener("online", resume)
