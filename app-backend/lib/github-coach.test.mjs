@@ -535,6 +535,24 @@ test("OpenAI errors and incomplete output never expose provider bodies or partia
   }
 });
 
+
+test("legacy training-data repo is redirected to SECTION_11", () => {
+  assert.equal(
+    coachConfig({
+      ...env,
+      TRAINING_DATA_GITHUB_REPO: "arussell159/my-training-data",
+    }).repo,
+    "arussell159/SECTION_11"
+  );
+  assert.equal(
+    coachConfig({
+      ...env,
+      TRAINING_DATA_GITHUB_REPO: "",
+    }).repo,
+    "arussell159/SECTION_11"
+  );
+});
+
 test("conversation validation rejects injected roles, tools and excessive history", () => {
   for (const messages of [
     [],
