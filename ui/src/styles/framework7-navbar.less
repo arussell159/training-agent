@@ -293,10 +293,36 @@
       pointer-events: auto;
     }
     .tab-link {
+      position: relative;
       flex: 1;
       min-width: 0;
       flex-direction: column;
       gap: 3px;
+      isolation: isolate;
+
+      &::before {
+        position: absolute;
+        z-index: -1;
+        top: 4px;
+        left: 50%;
+        width: min(76px, calc(100% - 12px));
+        height: 32px;
+        border-radius: 999px;
+        background: transparent;
+        content: "";
+        transform: translateX(-50%);
+      }
+    }
+    .tab-link-active {
+      &::before {
+        background: var(--muted);
+      }
+
+      svg {
+        fill: currentColor;
+        stroke: currentColor;
+        stroke-width: 1.8;
+      }
     }
     .tab-link svg {
       width: 28px;
