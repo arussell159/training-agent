@@ -200,6 +200,7 @@ export function createWorkoutChangeProbe({
       return {
         ids: value.recent_activities.map((a) => String(a.id)),
         planned: plannedFingerprint(value.planned_workouts, "mirror"),
+        updated,
       };
     })();
     requests.set(key, { time: now(), promise });
@@ -262,7 +263,10 @@ export function createWorkoutChangeProbe({
         const known = new Set(claims.known),
           mirror = await latest(k.config);
         json(200, {
-          changed: mirror.planned !== claims.planned || mirror.ids.some((id) => !known.has(id)),
+          changed:
+            mirror.updated > claims.issued ||
+            mirror.planned !== claims.planned ||
+            mirror.ids.some((id) => !known.has(id)),
         });
       } catch (error) {
         json(error.status || 503, {
