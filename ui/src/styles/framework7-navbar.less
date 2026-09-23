@@ -296,6 +296,18 @@
         inset-inline: 0;
       }
     }
+    #mobile-tab-home.tab-link-active ~ .tab-link-highlight {
+      &::before,
+      &::after {
+        inset-inline-start: 4px;
+      }
+    }
+    #mobile-tab-settings.tab-link-active ~ .tab-link-highlight {
+      &::before,
+      &::after {
+        inset-inline-end: 4px;
+      }
+    }
     .toolbar-pane {
       pointer-events: auto;
     }
