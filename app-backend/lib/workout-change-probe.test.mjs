@@ -103,6 +103,13 @@ test("a new ID creates only a boolean hint; no data or credentials returned", as
   assert.ok(!decoded.includes(bootstrap.SETTINGS_ENCRYPTION_KEY));
 });
 
+test("a newer mirror refresh creates an import hint even without an ID change", async () => {
+  const { make } = setup({ updated: NOW + 1000 });
+  const probe = make(),
+    lease = await probe.issue(req(), context);
+  assert.deepEqual((await send(probe, req({ token: lease.token }))).result, { changed: true });
+});
+
 test("a planned calendar change creates a boolean import hint", async () => {
   const plannedContext = {
     ...context,
