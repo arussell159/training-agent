@@ -46,7 +46,14 @@ async function send(probe, request, path = "/api/workout-changes") {
   );
   return { handled, status, result };
 }
-function setup({ ids = ["one"], updated = NOW, time = NOW, responseStatus = 200, ...deps } = {}) {
+function setup({
+  ids = ["one"],
+  planned = [],
+  updated = NOW,
+  time = NOW,
+  responseStatus = 200,
+  ...deps
+} = {}) {
   const calls = [];
   const make = () =>
     createWorkoutChangeProbe({
@@ -68,6 +75,7 @@ function setup({ ids = ["one"], updated = NOW, time = NOW, responseStatus = 200,
               JSON.stringify({
                 metadata: { last_updated: new Date(updated).toISOString() },
                 recent_activities: ids.map((id) => ({ id })),
+                planned_workouts: planned,
               })
             ).toString("base64"),
           }),
@@ -94,6 +102,48 @@ test("a new ID creates only a boolean hint; no data or credentials returned", as
   assert.ok(!decoded.includes(config.githubToken));
   assert.ok(!decoded.includes(bootstrap.SETTINGS_ENCRYPTION_KEY));
 });
+
+test("a planned calendar change creates a boolean import hint", async () => {
+  const plannedContext = {
+    ...context,
+    planned: [
+      {
+        id: "event:10",
+        workout_date: "2026-09-24",
+        title: "Existing",
+        sport: "Run",
+        category: "WORKOUT",
+        planned: { duration_minutes: 30, tss: 20 },
+        raw: {
+          id: 10,
+          start_date_local: "2026-09-24T00:00:00",
+          name: "Existing",
+          type: "Run",
+          category: "WORKOUT",
+          moving_time: 1800,
+          icu_training_load: 20,
+        },
+      },
+    ],
+  };
+  const { make } = setup({
+    planned: [
+      {
+        id: 10,
+        date: "2026-09-25",
+        name: "Existing",
+        sport_type: "Run",
+        type: "WORKOUT",
+        duration_hours: 0.5,
+        planned_tss: 20,
+      },
+    ],
+  });
+  const probe = make(),
+    lease = await probe.issue(req(), plannedContext);
+  assert.deepEqual((await send(probe, req({ token: lease.token }))).result, { changed: true });
+});
+
 test("deleted or changed historical IDs do not trigger an import", async () => {
   const { make } = setup({ ids: [] });
   const probe = make(),
