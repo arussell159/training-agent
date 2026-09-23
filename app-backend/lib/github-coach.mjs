@@ -9,10 +9,20 @@ import { coachOpenAIRequest } from "./coach-openai-request.mjs";
 import { calendarProposalTool } from "./coach-calendar.mjs";
 import { reportFollowsStructure, validReportSummary } from "./report-format.mjs";
 
+const DEFAULT_TRAINING_DATA_REPO = "arussell159/SECTION_11";
+const LEGACY_TRAINING_DATA_REPO = "arussell159/my-training-data";
+
 export function coachConfig(env = process.env) {
+  const configuredRepo = String(
+    env.TRAINING_DATA_GITHUB_REPO || DEFAULT_TRAINING_DATA_REPO
+  ).trim();
+  const repo =
+    configuredRepo.toLowerCase() === LEGACY_TRAINING_DATA_REPO.toLowerCase()
+      ? DEFAULT_TRAINING_DATA_REPO
+      : configuredRepo;
   const config = {
     githubToken: env.TRAINING_DATA_GITHUB_TOKEN || "",
-    repo: env.TRAINING_DATA_GITHUB_REPO || "",
+    repo,
     branch: env.TRAINING_DATA_GITHUB_BRANCH || "main",
     openaiKey: env.OPENAI_API_KEY || "",
     model: env.OPENAI_MODEL || "gpt-5.4-mini",
