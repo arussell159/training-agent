@@ -409,24 +409,24 @@ export function WorkoutDetailPage({
           {workout.status !== "completed" && (
             <section className="md:hidden" aria-label="Planned workout">
               <div className="border-b pb-4">
-                <h1 className="truncate text-base leading-tight font-bold">
+                <h1 className="truncate text-lg leading-tight font-bold">
                   {workout.title}
                 </h1>
                 <div className="mt-3 flex items-center justify-between gap-4 text-center">
                   <SportIcon sport={workout.sport} />
-                  <p className="flex-1 text-sm font-semibold tabular-nums">
+                  <p className="flex-1 text-base font-semibold tabular-nums">
                     {workout.planned_time_label ||
                       formatDuration(durationMinutes(workout))}
                   </p>
                   {distanceLabel !== "—" && (
-                    <p className="flex-1 text-sm font-semibold tabular-nums">
+                    <p className="flex-1 text-base font-semibold tabular-nums">
                       {distanceLabel}
                     </p>
                   )}
                   {load != null && (
-                    <p className="flex-1 text-sm font-semibold tabular-nums">
+                    <p className="flex-1 text-base font-semibold tabular-nums">
                       {numeric(load)}{" "}
-                      <span className="text-[9px] font-medium text-muted-foreground">
+                      <span className="text-[11px] font-medium text-muted-foreground">
                         TSS
                       </span>
                     </p>
@@ -443,7 +443,7 @@ export function WorkoutDetailPage({
               <div
                 role="tablist"
                 aria-label="Workout view"
-                className="my-3 grid h-8 grid-cols-2 rounded-md bg-muted/70 p-0.5 text-xs font-semibold"
+                className="my-3 grid h-9 grid-cols-2 rounded-md bg-muted/70 p-0.5 text-sm font-semibold"
               >
                 <button
                   type="button"

@@ -146,7 +146,7 @@ export function WorkoutDescription({
           </>
         ) : (
           <p
-            className={`whitespace-pre-wrap text-foreground ${mobileCompact ? "text-sm leading-5" : "text-[1.0625rem] leading-7 md:text-sm md:leading-6"}`}
+            className={`whitespace-pre-wrap text-foreground ${mobileCompact ? "text-base leading-6" : "text-[1.0625rem] leading-7 md:text-sm md:leading-6"}`}
           >
             {saved}
           </p>
