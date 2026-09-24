@@ -6,7 +6,6 @@ import { DesktopWorkoutRouteMap } from "@/components/desktop-workout-route-map"
 import { MobileWorkoutSignals } from "@/components/mobile-workout-signals"
 import { WorkoutMapSplits } from "@/components/workout-map-splits"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { apiFetch } from "@/lib/api-client"
 import { distanceSplits } from "@/lib/distance-splits"
 import { segmentStatistics, type RecordedPoint } from "@/lib/segment-statistics"
@@ -18,7 +17,7 @@ export type DfaStatistics = { average:number|null; minimum:number|null; maximum:
 type Analysis = { dfa?:DfaStatistics|null; version?:number; points:Point[]; laps:Lap[]; intervals:Lap[]; duration:number }
 type Segment = { id:string; label:string; start:number; end:number; kind:"lap"|"split"|"climb"|"descent"|"effort"; distance?:number|null; color?:string }
 type RangeStats = ReturnType<typeof rangeStatistics>
-type PeakEffort = Segment & { seconds:number; watts:number; stats:RangeStats }
+type PeakEffort = Segment & { seconds:number; value:number; metric:"pace"|"power"; stats:RangeStats }
 
 const cache = new Map<string,Analysis>()
 const effortDurations = [5,10,30,60,120,300,600,1200,1800,3600,10800]
@@ -61,23 +60,82 @@ function rangeStatistics(points:Point[],start:number,end:number){
   return {...averages,start,end,distance,maxPower:maximum("power"),minHeartRate:minimum("heartRate"),maxHeartRate:maximum("heartRate"),maxSpeed:maximum("speed"),maxCadence:maximum("cadence"),elevationAverage:elevations.length?elevations.reduce((sum,value)=>sum+value,0)/elevations.length:null,elevationGain:gain,elevationLoss:loss,elevationChange,grade:distance&&elevationChange!=null?elevationChange/distance*100:null,workKj:work/1000}
 }
 
-function powerIntegral(points:Point[]){
-  const energy=new Array(points.length).fill(0),coverage=new Array(points.length).fill(0)
-  for(let index=1;index<points.length;index+=1){const elapsed=Math.max(0,points[index].time-points[index-1].time),usable=elapsed<=10&&finite(points[index-1].power);energy[index]=energy[index-1]+(usable?points[index-1].power!*elapsed:0);coverage[index]=coverage[index-1]+(usable?elapsed:0)}
-  const at=(time:number,values:number[],metric:"power"|"coverage")=>{let low=0,high=points.length-1;while(low<high){const middle=Math.ceil((low+high)/2);if(points[middle].time<=time)low=middle;else high=middle-1}const point=points[low],elapsed=Math.max(0,Math.min(10,time-point.time));if(!finite(point.power))return values[low];return values[low]+(metric==="power"?point.power*elapsed:elapsed)}
-  return {energy,coverage,at}
+function signalIntegral(points: Point[], key: "power" | "speed") {
+  const totals = new Array(points.length).fill(0),
+    coverage = new Array(points.length).fill(0)
+  const usable = (point: Point) =>
+    finite(point[key]) && (key !== "speed" || point.speed! > 0.15)
+  for (let index = 1; index < points.length; index += 1) {
+    const elapsed = Math.max(0, points[index].time - points[index - 1].time),
+      valid = elapsed <= 10 && usable(points[index - 1])
+    totals[index] =
+      totals[index - 1] + (valid ? points[index - 1][key]! * elapsed : 0)
+    coverage[index] = coverage[index - 1] + (valid ? elapsed : 0)
+  }
+  const at = (time: number, values: number[], kind: "value" | "coverage") => {
+    let low = 0,
+      high = points.length - 1
+    while (low < high) {
+      const middle = Math.ceil((low + high) / 2)
+      if (points[middle].time <= time) low = middle
+      else high = middle - 1
+    }
+    const point = points[low],
+      elapsed = Math.max(0, Math.min(10, time - point.time))
+    if (!usable(point)) return values[low]
+    return values[low] + (kind === "value" ? point[key]! * elapsed : elapsed)
+  }
+  return { totals, coverage, at }
 }
 
-function peakPowerEfforts(points:Point[],duration:number):PeakEffort[]{
-  if(points.length<2||!points.some(point=>finite(point.power)))return []
-  const integral=powerIntegral(points)
-  return effortDurations.flatMap(seconds=>{
-    if(seconds>duration)return []
-    let best:{start:number;watts:number}|null=null
-    for(const point of points){const start=point.time,end=start+seconds;if(end>duration)break;const energy=integral.at(end,integral.energy,"power")-integral.at(start,integral.energy,"power"),coverage=integral.at(end,integral.coverage,"coverage")-integral.at(start,integral.coverage,"coverage");if(coverage<seconds*.9)continue;const watts=energy/coverage;if(!best||watts>best.watts)best={start,watts}}
-    if(!best)return []
-    const end=best.start+seconds
-    return [{id:`effort-${seconds}`,label:effortLabel(seconds),start:best.start,end,seconds,watts:best.watts,kind:"effort" as const,color:"#a21caf",stats:rangeStatistics(points,best.start,end)}]
+function peakEfforts(
+  points: Point[],
+  duration: number,
+  metric: "pace" | "power",
+  paceDistance: number
+): PeakEffort[] {
+  const key = metric === "pace" ? "speed" : "power"
+  if (
+    points.length < 2 ||
+    !points.some(
+      (point) => finite(point[key]) && (key !== "speed" || point.speed! > 0.15)
+    )
+  )
+    return []
+  const integral = signalIntegral(points, key)
+  return effortDurations.flatMap((seconds) => {
+    if (seconds > duration) return [] as PeakEffort[]
+    let best: { start: number; average: number } | null = null
+    for (const point of points) {
+      const start = point.time,
+        end = start + seconds
+      if (end > duration) break
+      const total =
+          integral.at(end, integral.totals, "value") -
+          integral.at(start, integral.totals, "value"),
+        coverage =
+          integral.at(end, integral.coverage, "coverage") -
+          integral.at(start, integral.coverage, "coverage")
+      if (coverage < seconds * 0.9) continue
+      const average = total / coverage
+      if (!best || average > best.average) best = { start, average }
+    }
+    if (!best) return []
+    const end = best.start + seconds
+    return [
+      {
+        id: `effort-${seconds}`,
+        label: effortLabel(seconds),
+        start: best.start,
+        end,
+        seconds,
+        value: metric === "pace" ? paceDistance / best.average : best.average,
+        metric,
+        kind: "effort" as const,
+        color: "#a21caf",
+        stats: rangeStatistics(points, best.start, end),
+      },
+    ]
   })
 }
 
@@ -122,8 +180,8 @@ export function WorkoutAnalysis({workout,onLapSelection}:{workout:PlannedWorkout
 function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;revision:string;workout:PlannedWorkout;summary?:WorkoutSummaryValues|null;onLapSelection?:(range:[number,number]|null)=>void}){
   const sport=workout.sport,cacheKey=id+revision
   const [data,setData]=useState<Analysis|null>(cache.get(cacheKey)||null),[error,setError]=useState(""),[retry,setRetry]=useState(0),[totals,setTotals]=useState<WorkoutSummaryValues|null>(summary||null)
-  const [range,setRange]=useState<[number,number]|null>(null),[cursor,setCursor]=useState<number|null>(null),[selection,setSelection]=useState<[number,number]|null>(null),[selected,setSelected]=useState(""),[hovered,setHovered]=useState<Segment|null>(null),[openEffort,setOpenEffort]=useState("")
-  const gesture=useRef<{x:number;time:number;range:[number,number];overview:boolean;pan:boolean}|null>(null),effortCloseTimer=useRef<ReturnType<typeof setTimeout>|null>(null),suppressedEffort=useRef("")
+  const [range,setRange]=useState<[number,number]|null>(null),[cursor,setCursor]=useState<number|null>(null),[selection,setSelection]=useState<[number,number]|null>(null),[selected,setSelected]=useState(""),[hovered,setHovered]=useState<Segment|null>(null)
+  const gesture=useRef<{x:number;time:number;range:[number,number];overview:boolean;pan:boolean}|null>(null)
   useEffect(()=>{const controller=new AbortController();void apiFetch(`/api/activities/${encodeURIComponent(id)}/summary?v=${encodeURIComponent(revision)}&schema=2`,{signal:controller.signal}).then(async response=>{if(!response.ok)throw Error();return await response.json() as WorkoutSummaryValues}).then(values=>{if(!controller.signal.aborted)setTotals({...summary,...values})}).catch(()=>{});return()=>controller.abort()},[id,revision,summary])
   useEffect(()=>{if(cache.has(cacheKey)){setData(cache.get(cacheKey)!);return}const controller=new AbortController();setError("");void apiFetch(`/api/activities/${encodeURIComponent(id)}/analysis?schema=7&v=${encodeURIComponent(revision)}`,{signal:controller.signal}).then(async response=>{if(!response.ok)throw Error("The recording could not be loaded.");return await response.json() as Analysis}).then(value=>{cache.set(cacheKey,value);if(cache.size>20)cache.delete(cache.keys().next().value!);if(!controller.signal.aborted)setData(value)}).catch(reason=>{if(reason.name!=="AbortError")setError(reason.message)});return()=>controller.abort()},[id,retry,revision,cacheKey])
   const duration=data?.duration||1,view:[number,number]=range||[0,duration],swim=sport.toLowerCase().includes("swim"),run=sport.toLowerCase().includes("run"),bike=/bike|ride|cycl/i.test(sport)
@@ -139,7 +197,13 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
   const visible=useMemo(()=>data?.points.filter(point=>point.time>=viewStart&&point.time<=viewEnd)||[],[data,viewStart,viewEnd])
   const nearest=cursor==null?null:visible.reduce<Point|null>((best,point)=>!best||Math.abs(point.time-cursor)<Math.abs(best.time-cursor)?point:best,null)
   const activeStats=useMemo(()=>rangeStatistics(data?.points||[],viewStart,viewEnd),[data,viewStart,viewEnd]),wholeStats=useMemo(()=>rangeStatistics(data?.points||[],0,duration),[data,duration])
-  const peaks=useMemo(()=>peakPowerEfforts(data?.points||[],duration),[data,duration]),terrain=useMemo(()=>elevationSegments(data?.points||[]),[data])
+  const effortMetric = run || swim ? "pace" : "power"
+  const peaks = useMemo(
+      () =>
+        peakEfforts(data?.points || [], duration, effortMetric, paceDistance),
+      [data, duration, effortMetric, paceDistance]
+    ),
+    terrain = useMemo(() => elevationSegments(data?.points || []), [data])
   const splitDistance=bike?8046.72:1609.344
   const splits=useMemo<Segment[]>(()=>swim?[]:distanceSplits(data?.points||[],splitDistance).map(split=>({id:`split-${split.number}`,label:bike?`${split.number*5} mi`:`${split.number} mi`,start:split.start,end:split.end,distance:split.distance,kind:"split",color:"#cbd5e1"})),[bike,data,splitDistance,swim])
   const laps:Segment[]=(data?.laps||[]).map(lap=>({...lap,kind:"lap",color:"#94a3b8"}))
@@ -148,9 +212,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
   const highlight=hovered||selectedSegment||(range?{start:range[0],end:range[1]}:null)
   useEffect(()=>onLapSelection?.(range),[range,onLapSelection])
   const selectSegment=(segment:Segment)=>{const start=Math.max(0,segment.start),end=Math.min(duration,segment.end);if(end<=start)return;setRange([start,end]);setSelected(segment.id);setSelection(null);setCursor(null)}
-  const reset=()=>{setRange(null);setSelected("");setHovered(null);setSelection(null);setCursor(null);setOpenEffort("")}
-  const showEffort=(id:string)=>{if(suppressedEffort.current===id)return;if(effortCloseTimer.current)clearTimeout(effortCloseTimer.current);effortCloseTimer.current=null;setOpenEffort(id)}
-  const scheduleEffortClose=()=>{if(effortCloseTimer.current)clearTimeout(effortCloseTimer.current);effortCloseTimer.current=setTimeout(()=>{suppressedEffort.current="";setOpenEffort("")},140)}
+  const reset=()=>{setRange(null);setSelected("");setHovered(null);setSelection(null);setCursor(null)}
   const plotLeft=136,plotWidth=812,plotRight=plotLeft+plotWidth
   const x=(time:number,overview=false)=>plotLeft+(time-(overview?0:view[0]))/(overview?duration:Math.max(1,view[1]-view[0]))*plotWidth
   const timeAt=(event:PointerEvent<SVGSVGElement>,overview=false)=>{const bounds=event.currentTarget.getBoundingClientRect(),fraction=Math.max(0,Math.min(1,((event.clientX-bounds.left)/bounds.width*1080-plotLeft)/plotWidth));return (overview?0:view[0])+fraction*(overview?duration:view[1]-view[0])}
@@ -216,7 +278,10 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
         </div>
       </section>
       <div className={`grid min-w-0 gap-4 ${peaks.length?"grid-cols-[210px_minmax(0,1fr)]":"grid-cols-1"}`}>
-        {peaks.length>0&&<aside className="sticky top-20 min-w-0 self-start rounded-xl border bg-card" aria-label="Peak power efforts"><div className="border-b px-4 py-3"><h2 className="text-sm font-medium">Peak power</h2><p className="mt-0.5 text-[10px] text-muted-foreground">Hover for details</p></div><div className="py-1">{peaks.map(effort=><Popover key={effort.id} open={openEffort===effort.id} onOpenChange={open=>open?showEffort(effort.id):setOpenEffort("")}><PopoverTrigger render={<button type="button" onMouseEnter={()=>showEffort(effort.id)} onMouseLeave={scheduleEffortClose} onFocus={()=>showEffort(effort.id)} onBlur={scheduleEffortClose} className={`flex min-h-9 w-full items-center justify-between gap-3 px-4 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${selected===effort.id?"bg-muted":""}`}/>}><span>{effort.label}</span><span className="tabular-nums">{Math.round(effort.watts)} W</span></PopoverTrigger><PopoverContent side="right" align="start" role="button" tabIndex={0} aria-label={`Show ${effort.label} peak power on charts`} onMouseEnter={()=>showEffort(effort.id)} onMouseLeave={scheduleEffortClose} onPointerDown={event=>{event.preventDefault();event.stopPropagation();suppressedEffort.current=effort.id;selectSegment(effort);setOpenEffort("")}} onKeyDown={event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();suppressedEffort.current=effort.id;selectSegment(effort);setOpenEffort("")}}} className="w-80 cursor-pointer gap-0 overflow-hidden p-0"><div className="bg-[#9f2b10] px-4 py-3 text-white"><p className="text-sm font-medium">Peak power: {effort.label}</p><p className="mt-0.5 text-xs text-white/75">Starts at {clock(effort.start)}</p></div><div className="h-14 bg-gradient-to-t from-fuchsia-200 to-transparent px-4 pt-3 text-center text-2xl text-fuchsia-900 tabular-nums">{Math.round(effort.watts)} <span className="text-xs">W</span></div><div className="grid grid-cols-2 gap-x-2 p-2"><SummaryGroup title="Power" values={[["Max",effort.stats.maxPower!=null?`${Math.round(effort.stats.maxPower)} W`:null],["Average",`${Math.round(effort.watts)} W`],["Work",`${Math.round(effort.stats.workKj)} kJ`]]}/><SummaryGroup title="Heart rate" values={[["Lowest",effort.stats.minHeartRate!=null?`${Math.round(effort.stats.minHeartRate)} bpm`:null],["Highest",effort.stats.maxHeartRate!=null?`${Math.round(effort.stats.maxHeartRate)} bpm`:null],["Average",effort.stats.heartRate!=null?`${Math.round(effort.stats.heartRate)} bpm`:null]]}/><SummaryGroup title="Speed" values={[["Maximum",effort.stats.maxSpeed!=null?`${(effort.stats.maxSpeed*2.236936).toFixed(1)} mph`:null],["Average",effort.stats.speed!=null?`${(effort.stats.speed*2.236936).toFixed(1)} mph`:null],["Distance",effort.stats.distance!=null?`${(effort.stats.distance/1609.344).toFixed(2)} mi`:null]]}/><SummaryGroup title="Elevation" values={[["Average",effort.stats.elevationAverage!=null?`${Math.round(effort.stats.elevationAverage/.3048)} ft`:null],["Net",effort.stats.elevationChange!=null?`${effort.stats.elevationChange>=0?"+":""}${Math.round(effort.stats.elevationChange/.3048)} ft`:null],["Grade",effort.stats.grade!=null?`${effort.stats.grade.toFixed(1)}%`:null]]}/></div><div className="border-t bg-muted/30 px-4 py-2 text-center text-[11px] text-muted-foreground">Click to show this effort on the charts</div></PopoverContent></Popover>)}</div></aside>}
+        {peaks.length>0&&<aside className="sticky top-20 min-w-0 self-start rounded-xl border bg-card" aria-label={`Peak ${effortMetric} efforts`}>
+          <div className="border-b px-4 py-3"><h2 className="text-sm font-medium">Peak {effortMetric}</h2><p className="mt-0.5 text-[10px] text-muted-foreground">Hover to preview · click to zoom</p></div>
+          <div className="py-1">{peaks.map(effort=><button key={effort.id} type="button" onPointerEnter={()=>setHovered(effort)} onPointerLeave={()=>setHovered(current=>current?.id===effort.id?null:current)} onFocus={()=>setHovered(effort)} onBlur={()=>setHovered(current=>current?.id===effort.id?null:current)} onClick={()=>selectSegment(effort)} className={`flex min-h-9 w-full items-center justify-between gap-3 px-4 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${selected===effort.id?"bg-muted":""}`}><span>{effort.label}</span><span className="tabular-nums">{effort.metric==="pace"?`${pace(effort.value)} ${unit("pace")}`:`${Math.round(effort.value)} W`}</span></button>)}</div>
+        </aside>}
         <div className="min-w-0">
           <section className="overflow-hidden rounded-xl border bg-card" aria-label="Workout charts and selected-range summary">
           <div className="flex h-9 items-center justify-between gap-3 border-b bg-muted/15 px-3 text-[10px]"><span className="min-w-0 truncate">{range?<><span className="font-medium">{selectedSegment?.label||"Selected range"}</span><span className="text-muted-foreground"> · {clock(viewStart)}–{clock(viewEnd)}</span></>:<span className="text-muted-foreground">Full workout</span>}</span><Button size="sm" variant="ghost" className="h-7 shrink-0 text-[10px]" onClick={reset} disabled={!range}><RotateCcw className="size-3"/>Reset</Button></div>
