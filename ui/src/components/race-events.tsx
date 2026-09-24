@@ -204,7 +204,7 @@ export function EventsCard({ context }: { context: TrainingContext }) {
               </div>
               <p className="mt-1 text-lg font-black uppercase tracking-tight">{countdown.unit}{countdown.value===1?'':'S'} LEFT</p>
             </div>}
-            <div className="mx-3 mb-3 space-y-1.5 border-t border-foreground/70 pt-2.5 text-xs sm:mx-4 sm:mb-4">
+            <div className="mx-3 mb-3 space-y-1.5 border-t border-border pt-2.5 text-xs sm:mx-4 sm:mb-4">
               {events.slice(0, 3).map((event) => (
                 <div key={`${event.id}-${event.date}`} className="grid grid-cols-[3.5rem_1.25rem_minmax(0,1fr)] items-center gap-2 font-normal normal-case">
                   <span>{dateLabel(event.date, { month: "short", day: "2-digit" })}</span>
@@ -217,7 +217,7 @@ export function EventsCard({ context }: { context: TrainingContext }) {
         ) : (
           <>
             <p className="px-3 pt-3 text-sm text-muted-foreground sm:px-4 sm:pt-4">No upcoming A race.</p>
-            {events.length > 0 && <div className="mx-3 mb-3 space-y-1.5 border-t border-foreground/70 pt-2.5 text-xs sm:mx-4 sm:mb-4">{events.slice(0, 3).map((event) => (
+            {events.length > 0 && <div className="mx-3 mb-3 space-y-1.5 border-t border-border pt-2.5 text-xs sm:mx-4 sm:mb-4">{events.slice(0, 3).map((event) => (
               <div key={`${event.id}-${event.date}`} className="grid grid-cols-[3.5rem_1.25rem_minmax(0,1fr)] items-center gap-2 font-normal normal-case">
                 <span>{dateLabel(event.date, { month: "short", day: "2-digit" })}</span>
                 <span className="text-center">{event.priority || "—"}</span>

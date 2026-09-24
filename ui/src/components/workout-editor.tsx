@@ -902,7 +902,9 @@ function StepFields({
 }
 
 function compactDuration(value: number) {
-  return durationClock(value).replace(/^00:/, "").replace(/^0(?=\d:)/, "")
+  return durationClock(value)
+    .replace(/^00:/, "")
+    .replace(/^0(?=\d:)/, "")
 }
 
 function mobileStepTitle(step: Step) {
@@ -915,7 +917,9 @@ function mobileNodeLine(node: WorkoutNode, model: WorkoutModel) {
     const distance = total.distance
       ? `${round(total.distance / (/swim/i.test(model.sport) ? 0.9144 : 1609.344), /swim/i.test(model.sport) ? 0 : 2)} ${/swim/i.test(model.sport) ? "yd" : "mi"}`
       : ""
-    return [compactDuration(total.seconds), distance].filter(Boolean).join(" · ")
+    return [compactDuration(total.seconds), distance]
+      .filter(Boolean)
+      .join(" · ")
   }
   const amount =
     node.end.kind === "distance"
@@ -958,7 +962,9 @@ function MobileTimeListInput({
     } else if (native.data && /^\d+$/.test(native.data)) {
       const visibleDigits = event.currentTarget.value.replace(/\D/g, "")
       nextDigits =
-        visibleDigits === native.data ? native.data : `${nextDigits}${native.data}`
+        visibleDigits === native.data
+          ? native.data
+          : `${nextDigits}${native.data}`
     } else {
       nextDigits = event.currentTarget.value
         .replace(/\D/g, "")
@@ -1008,12 +1014,17 @@ function MobileTargetFields({
 }) {
   const settings = useContext(ZoneSettingsContext)
   const target = step.target
-  const zones = workoutZoneOptions(settings, model.sport, editorUnits(model.sport).target)
+  const zones = workoutZoneOptions(
+    settings,
+    model.sport,
+    editorUnits(model.sport).target
+  )
   const selectedZone =
     target.kind === "none"
       ? "custom"
-      : zones.find((zone) => JSON.stringify(zone.target) === JSON.stringify(target))
-          ?.id ||
+      : zones.find(
+          (zone) => JSON.stringify(zone.target) === JSON.stringify(target)
+        )?.id ||
         (target.unit.endsWith("_zone") && target.mode === "single"
           ? String(target.value)
           : "custom")
@@ -1139,12 +1150,14 @@ function MobileIntervalSheet({
   onChange,
   onDelete,
   onClose,
+  desktop = false,
 }: {
   node: WorkoutNode | null
   model: WorkoutModel
   onChange: (node: WorkoutNode) => void
   onDelete: (id: string) => Promise<boolean>
   onClose: () => void
+  desktop?: boolean
 }) {
   const [draft, setDraft] = useState<Step | null>(null)
   const sheetRef = useRef<{
@@ -1165,13 +1178,16 @@ function MobileIntervalSheet({
       const targetKind = editorUnits(model.sport).kind
       next.label = roleNames[next.role]
       if (next.role === "rest") next.target = { kind: "none" }
-      else if (next.target.kind !== targetKind) next.target = defaultTarget(model.sport)
+      else if (next.target.kind !== targetKind)
+        next.target = defaultTarget(model.sport)
       setDraft(next)
     }
     acceptedClose.current = false
     confirmingClose.current = false
   }, [nodeId, model.sport])
-  const dirty = Boolean(draft && node && JSON.stringify(draft) !== JSON.stringify(node))
+  const dirty = Boolean(
+    draft && node && JSON.stringify(draft) !== JSON.stringify(node)
+  )
   const acceptClose = () => {
     acceptedClose.current = true
     onClose()
@@ -1222,57 +1238,43 @@ function MobileIntervalSheet({
                 : 1
               : 60,
         unit: kind === "distance" ? editorUnits(model.sport).distance : "s",
-        ...(draft.end.pressLap || draft.end.kind === "lap" ? { pressLap: true } : {}),
+        ...(draft.end.pressLap || draft.end.kind === "lap"
+          ? { pressLap: true }
+          : {}),
       },
     })
   }
-  return (
+  const saveDraft = () => {
+    if (!draft) return
+    onChange(draft)
+    acceptClose()
+  }
+  const editorContents = (
     <>
-      <div
-        className="sheet-backdrop we-mobile-interval-backdrop"
-        onClick={() => void requestClose()}
-      />
-      <Sheet
-      ref={sheetRef}
-      className="we-mobile-interval-sheet"
-      containerEl=".we-dialog"
-      opened={Boolean(nodeId)}
-      backdrop
-      backdropEl=".we-mobile-interval-backdrop"
-      closeByBackdropClick={false}
-      closeOnEscape
-      swipeToClose
-      swipeHandler=".we-mobile-sheet-header"
-      onSheetClose={() => void handleNativeClose()}
-      {...{ role: "dialog", "aria-modal": true, "aria-label": "Edit interval" }}
-    >
       <div className="we-mobile-sheet-header">
-        <div className="we-mobile-sheet-handle" aria-hidden="true">
-          <span />
-        </div>
+        {!desktop && (
+          <div className="we-mobile-sheet-handle" aria-hidden="true">
+            <span />
+          </div>
+        )}
         <div className="we-mobile-sheet-nav">
-        <Button
-          type="button"
+          <Button
+            type="button"
           variant="ghost"
           size="icon-sm"
           aria-label="Close interval editor"
           onClick={() => void requestClose()}
-        >
-          <X size={18} />
-        </Button>
-        <strong>Edit Interval</strong>
-        <Button
-          type="button"
-          size="sm"
-          disabled={!draft}
-          onClick={() => {
-            if (!draft) return
-            onChange(draft)
-            acceptClose()
-          }}
-        >
-          Done
-        </Button>
+          >
+            <X size={18} />
+          </Button>
+          {desktop ? (
+            <DialogTitle>Edit Interval</DialogTitle>
+          ) : (
+            <strong>Edit Interval</strong>
+          )}
+          <Button type="button" size="sm" disabled={!draft} onClick={saveDraft}>
+            Done
+          </Button>
         </div>
       </div>
       {draft && (
@@ -1308,7 +1310,9 @@ function MobileIntervalSheet({
               type="select"
               value={draft.end.kind === "distance" ? "distance" : "time"}
               onChange={(event) =>
-                changeLengthMode(event.currentTarget.value as "time" | "distance")
+                changeLengthMode(
+                  event.currentTarget.value as "time" | "distance"
+                )
               }
             >
               <option value="distance">Distance</option>
@@ -1316,13 +1320,11 @@ function MobileIntervalSheet({
             </ListInput>
           </List>
           <List strongIos dividersIos className="we-mobile-form-list">
-            {draft.end.kind === "distance"
-              ? [
-                <ListInput
-                  key="distance"
-                  label={`Distance (${draft.end.unit})`}
-                  type="number"
-                  inputmode="decimal"
+            {draft.end.kind === "distance" ? (
+              <ListInput
+                label={`Distance (${draft.end.unit})`}
+                type="number"
+                inputmode="decimal"
                   min={0.001}
                   step={/swim/i.test(model.sport) ? 1 : 0.01}
                   value={draft.end.value}
@@ -1336,14 +1338,13 @@ function MobileIntervalSheet({
                             ? 0
                             : Number(event.currentTarget.value),
                       },
-                    })
-                  }
-                />
-              ]
-              : (
-                  <MobileTimeListInput
-                    slot="list"
-                    label="Duration"
+                  })
+                }
+              />
+            ) : (
+              <MobileTimeListInput
+                slot="list"
+                label="Duration"
                     value={draft.end.value}
                     onChange={(value) =>
                       setDraft({
@@ -1369,6 +1370,55 @@ function MobileIntervalSheet({
           </Button>
         </div>
       )}
+    </>
+  )
+  if (desktop) {
+    return (
+      <Dialog
+        open={Boolean(nodeId)}
+        onOpenChange={(open) => {
+          if (!open) void requestClose()
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="we-desktop-interval-dialog"
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <DialogDescription className="sr-only">
+            Edit the selected workout interval. Changes are applied to the
+            workout draft when you choose Done.
+          </DialogDescription>
+          {editorContents}
+        </DialogContent>
+      </Dialog>
+    )
+  }
+  return (
+    <>
+      <div
+        className="sheet-backdrop we-mobile-interval-backdrop"
+        onClick={() => void requestClose()}
+      />
+      <Sheet
+        ref={sheetRef}
+        className="we-mobile-interval-sheet"
+        containerEl=".we-dialog"
+        opened={Boolean(nodeId)}
+        backdrop
+        backdropEl=".we-mobile-interval-backdrop"
+        closeByBackdropClick={false}
+        closeOnEscape
+        swipeToClose
+        swipeHandler=".we-mobile-sheet-header"
+        onSheetClose={() => void handleNativeClose()}
+        {...{
+          role: "dialog",
+          "aria-modal": true,
+          "aria-label": "Edit interval",
+        }}
+      >
+        {editorContents}
       </Sheet>
     </>
   )
@@ -1404,13 +1454,17 @@ function mobileIntervalRows(props: MobileRowsProps): ReactNode[] {
         className={`we-mobile-interval-row ${node.kind === "repeat" ? "we-mobile-repeat-row" : ""}`}
         style={{ "--we-depth": props.depth } as React.CSSProperties}
         onClick={() =>
-          node.kind === "repeat" ? props.setExpanded(node.id) : props.open(node.id)
+          node.kind === "repeat"
+            ? props.setExpanded(node.id)
+            : props.open(node.id)
         }
       >
         <div className="we-mobile-row-content">
           <span
             className="we-mobile-role-mark"
-            style={{ background: node.kind === "step" ? tones[node.role] : tones.other }}
+            style={{
+              background: node.kind === "step" ? tones[node.role] : tones.other,
+            }}
             aria-hidden="true"
           />
           <div className="we-mobile-row-label min-w-0 flex-1">
@@ -1502,7 +1556,10 @@ function mobileIntervalRows(props: MobileRowsProps): ReactNode[] {
               >
                 <Ellipsis aria-hidden="true" />
               </button>
-              <ChevronRight className="we-mobile-row-chevron" aria-hidden="true" />
+              <ChevronRight
+                className="we-mobile-row-chevron"
+                aria-hidden="true"
+              />
             </>
           )}
         </div>
@@ -1547,12 +1604,17 @@ function mobileIntervalRows(props: MobileRowsProps): ReactNode[] {
                   aria-hidden="true"
                 />
                 <div className="we-mobile-row-label min-w-0 flex-1">
-                  <div className="truncate font-semibold">{mobileStepTitle(step)}</div>
+                  <div className="truncate font-semibold">
+                    {mobileStepTitle(step)}
+                  </div>
                   <div className="truncate text-xs text-muted-foreground">
                     {mobileNodeLine(step, props.model)}
                   </div>
                 </div>
-                <ChevronRight className="we-mobile-row-chevron" aria-hidden="true" />
+                <ChevronRight
+                  className="we-mobile-row-chevron"
+                  aria-hidden="true"
+                />
               </div>
             </ListItem>
           ))}
@@ -1582,6 +1644,9 @@ function MobileEditorBody({
   status,
   error,
   validation,
+  initialFocusId,
+  desktop = false,
+  blockingIssues = [],
 }: {
   model: WorkoutModel
   commit: (model: WorkoutModel) => void
@@ -1590,8 +1655,17 @@ function MobileEditorBody({
   status: string
   error: string
   validation: string[]
+  initialFocusId?: string
+  desktop?: boolean
+  blockingIssues?: string[]
 }) {
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const zoneSettings = useContext(ZoneSettingsContext)
+  const initialNode = initialFocusId
+    ? findNode(model.steps, initialFocusId)
+    : null
+  const [editingId, setEditingId] = useState<string | null>(
+    initialNode?.kind === "step" ? initialNode.id : null
+  )
   const [actionId, setActionId] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const ids = new Set<string>()
@@ -1609,7 +1683,17 @@ function MobileEditorBody({
   const [addParent, setAddParent] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const savedScrollTop = useRef(0)
+  const appliedInitialFocus = useRef(false)
   const find = (id: string) => findNode(model.steps, id) || null
+  useEffect(() => {
+    if (!initialFocusId || appliedInitialFocus.current) return
+    const focused = findNode(model.steps, initialFocusId)
+    if (!focused) return
+    appliedInitialFocus.current = true
+    if (focused.kind === "step") setEditingId(focused.id)
+    else if (focused.kind === "repeat")
+      setExpanded((current) => new Set(current).add(focused.id))
+  }, [initialFocusId, model.steps])
   const open = (id: string) => {
     savedScrollTop.current = scrollRef.current?.scrollTop || 0
     setEditingId(id)
@@ -1617,7 +1701,8 @@ function MobileEditorBody({
   const closeEditor = () => {
     setEditingId(null)
     requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollTop = savedScrollTop.current
+      if (scrollRef.current)
+        scrollRef.current.scrollTop = savedScrollTop.current
     })
   }
   const addAt = (kind: "interval" | "rest" | "repeat") => {
@@ -1648,8 +1733,7 @@ function MobileEditorBody({
     })
   const changeRepeatCount = (id: string, count: number) => {
     const repeat = find(id)
-    if (repeat?.kind === "repeat")
-      changeNode({ ...repeat, repetitions: count })
+    if (repeat?.kind === "repeat") changeNode({ ...repeat, repetitions: count })
   }
   const toggleExpanded = (id: string) =>
     setExpanded((current) => {
@@ -1689,6 +1773,57 @@ function MobileEditorBody({
           value={model.name}
           onChange={(event) => commit({ ...model, name: event.target.value })}
         />
+        {desktop && (
+          <div className="we-desktop-compact-meta">
+            <Choice
+              label="Sport"
+              value={model.sport}
+              options={[
+                "Ride",
+                "VirtualRide",
+                "Run",
+                "VirtualRun",
+                "TrailRun",
+                "Swim",
+                "Other",
+              ].map((value) => ({
+                value,
+                label:
+                  value === "Swim"
+                    ? "Pool Swim"
+                    : value === "Ride"
+                      ? "Bike"
+                      : value,
+              }))}
+              onChange={(sport) => {
+                const setting = sportZoneSettings(zoneSettings, sport)
+                commit({
+                  ...model,
+                  sport,
+                  thresholds: {
+                    ftp: setting?.ftp || null,
+                    pace: setting?.threshold_pace || null,
+                  },
+                  poolLength:
+                    sport === "Swim"
+                      ? model.poolLength || "25y"
+                      : model.poolLength,
+                })
+              }}
+            />
+            <label className="we-field">
+              <span>Scheduled date</span>
+              <Input
+                type="date"
+                aria-label="Scheduled date"
+                value={model.date}
+                onChange={(event) =>
+                  commit({ ...model, date: event.target.value })
+                }
+              />
+            </label>
+          </div>
+        )}
         <div className="we-mobile-summary">
           <strong>{durationClock(totals.seconds)}</strong>
           <strong>
@@ -1736,21 +1871,80 @@ function MobileEditorBody({
         >
           <Plus size={16} /> Add interval
         </Button>
+        {blockingIssues.length > 0 && (
+          <div role="alert" className="we-notice text-destructive">
+            <strong>This workout cannot be safely overwritten.</strong>
+            <ul className="list-disc pl-5">
+              {blockingIssues.map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         {status === "failed" && (
           <p role="alert" className="text-xs text-destructive">
             Save failed; your draft is retained.
           </p>
         )}
-        {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+        {error && (
+          <p role="alert" className="text-xs text-destructive">
+            {error}
+          </p>
+        )}
         {validation.length > 0 && (
           <p role="alert" className="text-xs text-destructive">
             {validation.join(". ")}
           </p>
         )}
       </div>
-      <div
-        className="sheet-backdrop we-mobile-add-backdrop"
-        onClick={() => {
+      {desktop ? (
+        <Dialog
+          open={addOpen}
+          onOpenChange={(open) => {
+            if (!open) {
+              setAddOpen(false)
+              setAddParent(null)
+            }
+          }}
+        >
+          <DialogContent
+            showCloseButton={false}
+            className="we-desktop-action-dialog"
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <DialogTitle>
+              {addParent ? "Add to repeat" : "Add interval"}
+            </DialogTitle>
+            <DialogDescription>
+              Choose the kind of workout step to add.
+            </DialogDescription>
+            <div className="we-desktop-action-list">
+              <Button variant="outline" onClick={() => addAt("interval")}>
+                Interval
+              </Button>
+              <Button variant="outline" onClick={() => addAt("rest")}>
+                Rest
+              </Button>
+              <Button variant="outline" onClick={() => addAt("repeat")}>
+                Repeat
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setAddOpen(false)
+                  setAddParent(null)
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : (
+        <>
+          <div
+            className="sheet-backdrop we-mobile-add-backdrop"
+            onClick={() => {
           setAddOpen(false)
           setAddParent(null)
         }}
@@ -1781,17 +1975,71 @@ function MobileEditorBody({
             Cancel
           </Button>
           <strong>{addParent ? "Add to repeat" : "Add interval"}</strong>
-          <span />
-        </div>
-        <List inset strongIos>
-          <ListItem title="Interval" link onClick={() => addAt("interval")} />
-          <ListItem title="Rest" link onClick={() => addAt("rest")} />
-          <ListItem title="Repeat" link onClick={() => addAt("repeat")} />
-        </List>
-      </Sheet>
-      <div
-        className="sheet-backdrop we-mobile-actions-backdrop"
-        onClick={() => setActionId(null)}
+              <span />
+            </div>
+            <List inset strongIos>
+              <ListItem
+                title="Interval"
+                link
+                onClick={() => addAt("interval")}
+              />
+              <ListItem title="Rest" link onClick={() => addAt("rest")} />
+              <ListItem title="Repeat" link onClick={() => addAt("repeat")} />
+            </List>
+          </Sheet>
+        </>
+      )}
+      {desktop ? (
+        <Dialog
+          open={Boolean(actionNode)}
+          onOpenChange={(open) => !open && setActionId(null)}
+        >
+          <DialogContent
+            showCloseButton={false}
+            className="we-desktop-action-dialog"
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <DialogTitle>
+              {actionNode?.kind === "repeat"
+                ? `Repeat ${actionNode.repetitions}×`
+                : actionNode?.kind === "step"
+                  ? mobileStepTitle(actionNode)
+                  : "Interval actions"}
+            </DialogTitle>
+            <DialogDescription>
+              Choose an action for this workout step.
+            </DialogDescription>
+            <div className="we-desktop-action-list">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (actionId) duplicate(actionId)
+                  setActionId(null)
+                }}
+              >
+                Duplicate
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  const id = actionId
+                  setActionId(null)
+                  if (id) void remove(id)
+                }}
+              >
+                Delete
+              </Button>
+              <Button variant="ghost" onClick={() => setActionId(null)}>
+                Cancel
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : (
+        <>
+          <div
+            className="sheet-backdrop we-mobile-actions-backdrop"
+            onClick={() => setActionId(null)}
       />
       <Actions
         containerEl=".we-dialog"
@@ -1809,37 +2057,36 @@ function MobileEditorBody({
               : actionNode?.kind === "step"
                 ? mobileStepTitle(actionNode)
                 : "Interval actions"}
-          </ActionsLabel>
-          <ActionsButton
-            close
-            onClick={() => {
-              if (actionId) duplicate(actionId)
-            }}
-          >
-            Duplicate
-          </ActionsButton>
-          <ActionsButton
-            close
-            color="red"
-            onClick={() => {
-              if (actionId) void remove(actionId)
-            }}
-          >
-            Delete
-          </ActionsButton>
+              </ActionsLabel>
+              <ActionsButton
+                close
+                onClick={() => actionId && duplicate(actionId)}
+              >
+                Duplicate
+              </ActionsButton>
+              <ActionsButton
+                close
+                color="red"
+                onClick={() => actionId && void remove(actionId)}
+              >
+                Delete
+              </ActionsButton>
         </ActionsGroup>
         <ActionsGroup>
           <ActionsButton close strong>
             Cancel
-          </ActionsButton>
-        </ActionsGroup>
-      </Actions>
+              </ActionsButton>
+            </ActionsGroup>
+          </Actions>
+        </>
+      )}
       <MobileIntervalSheet
         node={editingId ? find(editingId) : null}
         model={model}
         onChange={changeNode}
         onDelete={remove}
         onClose={closeEditor}
+        desktop={desktop}
       />
     </div>
   )
@@ -2400,6 +2647,7 @@ function EditorWorkspace({
   })
   const saving = status === "saving",
     dirty = JSON.stringify(model) !== baseline
+  const useSharedEditor = model.version === 1
   const commit = (next: WorkoutModel) => {
     if (saving) return
     setHistory((h) =>
@@ -2829,7 +3077,7 @@ function EditorWorkspace({
         <DialogContent
           showCloseButton={false}
           fullscreen={mobile}
-          className="we-dialog"
+          className={`we-dialog ${!mobile && useSharedEditor ? "we-shared-desktop" : ""}`}
           onKeyDown={(e) => {
             const a = keyActions.current,
               typing =
@@ -2862,31 +3110,154 @@ function EditorWorkspace({
           <MobileSiteNavbar
             title="Edit Workout"
             showMenu={false}
-            left={mobile ? <button type="button" className="mobile-navbar-action" aria-label="Cancel workout editing" onClick={requestClose}><X aria-hidden="true" /></button> : undefined}
-            right={mobile ? <button type="button" className="mobile-navbar-action" aria-label="Save workout" disabled={!canSave || saving} onClick={() => void save()}><Check aria-hidden="true" /></button> : undefined}
+            left={
+              mobile ? (
+                <button
+                  type="button"
+                  className="mobile-navbar-action"
+                  aria-label="Cancel workout editing"
+                  onClick={requestClose}
+                >
+                  <X aria-hidden="true" />
+                </button>
+              ) : undefined
+            }
+            right={
+              mobile ? (
+                <button
+                  type="button"
+                  className="mobile-navbar-action"
+                  aria-label="Save workout"
+                  disabled={!canSave || saving}
+                  onClick={() => void save()}
+                >
+                  <Check aria-hidden="true" />
+                </button>
+              ) : undefined
+            }
           />
-          {mobile ? (
-            <MobileEditorBody
-              model={model}
-              commit={commit}
+          {useSharedEditor ? (
+            <>
+              {!mobile && (
+                <header className="we-header">
+                  <div>
+                    <DialogTitle className="text-lg font-semibold">
+                      {isNew ? "Create Workout" : "Edit Workout"}
+                    </DialogTitle>
+                    <DialogDescription className="sr-only">
+                      Edit intervals in the same compact workflow used on
+                      mobile.
+                    </DialogDescription>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Action
+                      label="Undo (Ctrl/⌘ Z)"
+                      onClick={undo}
+                      disabled={!history.past.length || saving}
+                    >
+                      <Undo2 size={17} />
+                    </Action>
+                    <Action
+                      label="Redo (Ctrl/⌘ Shift Z)"
+                      onClick={redo}
+                      disabled={!history.future.length || saving}
+                    >
+                      <Redo2 size={17} />
+                    </Action>
+                    <Action
+                      label="Close editor"
+                      onClick={requestClose}
+                      disabled={saving}
+                    >
+                      <X size={18} />
+                    </Action>
+                  </div>
+                </header>
+              )}
+              <MobileEditorBody
+                model={model}
+                commit={commit}
               remove={remove}
               duplicate={duplicate}
-              status={status}
-              error={error}
-              validation={validation}
-            />
-          ) : <>
-          <header className="we-header">
-            <div>
-              <DialogTitle className="text-lg font-semibold">
-                {isNew ? "Create Workout" : "Edit Workout"}
-              </DialogTitle>
-              <DialogDescription className="sr-only">
-                Shape the session. Every change stays in your draft until you
-                save.
-              </DialogDescription>
-            </div>
-            <div className="flex items-center gap-1">
+                status={status}
+                error={error}
+                validation={validation}
+                initialFocusId={initialFocusId}
+                desktop={!mobile}
+                blockingIssues={loaded.issues}
+              />
+              {!mobile && (
+                <footer className="we-footer">
+                  <div className="min-w-0 flex-1" aria-live="polite">
+                    <p
+                      className={`flex items-center gap-2 text-xs ${status === "failed" ? "text-destructive" : status === "synced" ? "text-emerald-600" : "text-muted-foreground"}`}
+                    >
+                      {saving ? (
+                        <>
+                          <LoaderCircle size={14} className="animate-spin" />
+                          Saving and verifying with Intervals.icu…
+                        </>
+                      ) : status === "synced" ? (
+                        <>
+                          <Check size={14} />
+                          Synced · parsed workout verified
+                        </>
+                      ) : status === "failed" ? (
+                        "Save failed · draft retained"
+                      ) : dirty ? (
+                        "Unsaved changes"
+                      ) : (
+                        "No unsaved changes"
+                      )}
+                    </p>
+                    {error && (
+                      <p role="alert" className="mt-1 text-xs text-destructive">
+                        {error}
+                      </p>
+                    )}
+                    {notice && (
+                      <p role="status" className="mt-1 text-xs">
+                        {notice}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <Button
+                      variant="outline"
+                      disabled={saving}
+                      onClick={requestClose}
+                    >
+                      {status === "synced" ? "Done" : "Cancel"}
+                    </Button>
+                    <Button disabled={!canSave} onClick={() => void save()}>
+                      <Save size={15} />
+                      {saving
+                        ? "Saving…"
+                        : status === "failed"
+                          ? "Retry Save"
+                          : isNew
+                            ? creationAttempted
+                              ? "Recheck creation"
+                              : "Create Workout"
+                            : "Save Changes"}
+                    </Button>
+                  </div>
+                </footer>
+              )}
+            </>
+          ) : (
+            <>
+              <header className="we-header">
+                <div>
+                  <DialogTitle className="text-lg font-semibold">
+                    {isNew ? "Create Workout" : "Edit Workout"}
+                  </DialogTitle>
+                  <DialogDescription className="sr-only">
+                    Shape the session. Every change stays in your draft until
+                    you save.
+                  </DialogDescription>
+                </div>
+                <div className="flex items-center gap-1">
               <Action
                 label="Undo (Ctrl/⌘ Z)"
                 onClick={undo}
@@ -2942,13 +3313,15 @@ function EditorWorkspace({
                         return
                       }
                       commit(recovered.model)
-                      if (recovered.savedId) setSavedId(recovered.savedId)
-                      if (recovered.creationId)
-                        setCreationId(recovered.creationId)
-                      setCreationAttempted(Boolean(recovered.creationAttempted))
-                      setRevision(recovered.revision)
-                      setRecovered(null)
-                    }}
+                          if (recovered.savedId) setSavedId(recovered.savedId)
+                          if (recovered.creationId)
+                            setCreationId(recovered.creationId)
+                          setCreationAttempted(
+                            Boolean(recovered.creationAttempted)
+                          )
+                          setRevision(recovered.revision)
+                          setRecovered(null)
+                        }}
                   >
                     Restore draft
                   </Button>
@@ -2999,39 +3372,48 @@ function EditorWorkspace({
                   )
                 }
                 onDragEnd={dragEnd}
-                onDragCancel={() => setDragLabel("")}
-              >
-                <div className="we-topbar">
-                  <section className="we-summary" aria-label="Workout summary">
-                    <Input
-                      aria-label="Workout name"
-                      className="we-workout-name"
+                    onDragCancel={() => setDragLabel("")}
+                  >
+                    <div className="we-topbar">
+                      <section
+                        className="we-summary"
+                        aria-label="Workout summary"
+                      >
+                        <Input
+                          aria-label="Workout name"
+                          className="we-workout-name"
                       value={model.name}
                       onChange={(e) =>
                         commit({ ...model, name: e.target.value })
-                      }
-                    />
-                    <div className="we-summary-stats">
-                      <strong title="Planned duration">{durationText}</strong>
-                      <strong
-                        title={
-                          totals.unknownDistance
+                          }
+                        />
+                        <div className="we-summary-stats">
+                          <strong title="Planned duration">
+                            {durationText}
+                          </strong>
+                          <strong
+                            title={
+                              totals.unknownDistance
                             ? "Known distance"
                             : "Planned distance"
                         }
                       >
                         {totals.distance
-                          ? (totals.unknownDistance ? "≥ " : "") +
-                            round(
-                              totals.distance /
-                                (model.sport === "Swim" ? 0.9144 : 1609.344),
-                              model.sport === "Swim" ? 0 : 2
-                            ).toLocaleString()
-                          : "—"}
-                        <small>{model.sport === "Swim" ? "yds" : "mi"}</small>
-                      </strong>
-                      {totals.load != null && (
-                        <strong title="Planning load estimate based on relative power">
+                              ? (totals.unknownDistance ? "≥ " : "") +
+                                round(
+                                  totals.distance /
+                                    (model.sport === "Swim"
+                                      ? 0.9144
+                                      : 1609.344),
+                                  model.sport === "Swim" ? 0 : 2
+                                ).toLocaleString()
+                              : "—"}
+                            <small>
+                              {model.sport === "Swim" ? "yds" : "mi"}
+                            </small>
+                          </strong>
+                          {totals.load != null && (
+                            <strong title="Planning load estimate based on relative power">
                           ≈ {Math.round(totals.load)}
                           <small>load</small>
                         </strong>
@@ -3122,21 +3504,25 @@ function EditorWorkspace({
                                 onAdd={() => add(b.id)}
                               />
                             </div>
-                            <Action
-                              label={"Remove saved block " + (index + 1)}
-                              onClick={() => {
-                                const next = blocks.filter((v) => v.id !== b.id)
-                                try {
-                                  localStorage.setItem(
-                                    blocksKey,
+                                <Action
+                                  label={"Remove saved block " + (index + 1)}
+                                  onClick={() => {
+                                    const next = blocks.filter(
+                                      (v) => v.id !== b.id
+                                    )
+                                    try {
+                                      localStorage.setItem(
+                                        blocksKey,
                                     JSON.stringify(next)
-                                  )
-                                  setBlocks(next)
-                                } catch {
-                                  setNotice("Could not remove the saved block.")
-                                }
-                              }}
-                            >
+                                      )
+                                      setBlocks(next)
+                                    } catch {
+                                      setNotice(
+                                        "Could not remove the saved block."
+                                      )
+                                    }
+                                  }}
+                                >
                               <X size={12} />
                             </Action>
                           </div>
@@ -3229,13 +3615,15 @@ function EditorWorkspace({
                           <Trash2 size={15} />
                         </Action>
                       </div>
-                    </div>
-                    {selected.length > 1 && (
-                      <section className="we-bulk" aria-label="Bulk edit">
-                        <h3>Bulk edit · {selectedLeaves.length} intervals</h3>
-                        <div className="we-bulk-fields">
-                          <DurationField
-                            label="Bulk duration"
+                        </div>
+                        {selected.length > 1 && (
+                          <section className="we-bulk" aria-label="Bulk edit">
+                            <h3>
+                              Bulk edit · {selectedLeaves.length} intervals
+                            </h3>
+                            <div className="we-bulk-fields">
+                              <DurationField
+                                label="Bulk duration"
                             value={bulkSeconds}
                             onChange={setBulkSeconds}
                           />
@@ -3398,10 +3786,11 @@ function EditorWorkspace({
                         ? "Recheck creation"
                         : "Create Workout"
                       : "Save Changes"}
-              </Button>
-            </div>
-          </footer>
-          </>}
+                  </Button>
+                </div>
+              </footer>
+            </>
+          )}
         </DialogContent>
       </Dialog>
       <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
@@ -3415,10 +3804,7 @@ function EditorWorkspace({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep editing</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={discardAndClose}
-            >
+            <AlertDialogAction variant="destructive" onClick={discardAndClose}>
               Discard changes
             </AlertDialogAction>
           </AlertDialogFooter>

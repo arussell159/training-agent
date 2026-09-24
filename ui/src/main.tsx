@@ -17,6 +17,7 @@ import App from "./App.tsx"
 import { AppAuth } from "@/components/app-auth"
 import { ThemeProvider } from "@/components/theme-provider.tsx"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { AppToastProvider } from "@/components/ui/toast"
 
 // Framework7's plugin registration method is not a React Hook.
 // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -71,7 +72,9 @@ createRoot(document.getElementById("root")!).render(
       <AppAuth>
         <ThemeProvider>
           <TooltipProvider>
-            <App />
+            <AppToastProvider>
+              <App />
+            </AppToastProvider>
           </TooltipProvider>
         </ThemeProvider>
       </AppAuth>

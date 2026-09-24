@@ -472,33 +472,32 @@ export function SectionCards({
       <div className="col-span-2 grid min-w-0 gap-3 sm:gap-4 lg:col-span-6 lg:col-start-7 lg:grid-cols-2">
         <SleepCard context={context} />
         <Card className="min-w-0 [--card-spacing:--spacing(3)]">
-        <CardHeader>
-          <CardTitle>Intervals.icu Fitness</CardTitle>
-          <CardAction>
-            <Gauge className="size-4 text-muted-foreground" />
-          </CardAction>
-        </CardHeader>
-        <CardContent className="grid grid-cols-3 divide-x border-t pt-3 sm:pt-4">
-          <div className="min-w-0 pr-2 sm:pr-4">
-            <p className="text-xs text-muted-foreground">Fitness</p>
-            <p className="mt-1 text-lg font-semibold tabular-nums">
-              {fitness} <span className="text-xs font-normal">CTL</span>
-            </p>
-          </div>
-          <div className="min-w-0 px-2 sm:px-5">
-            <p className="text-xs text-muted-foreground">Fatigue</p>
-            <p className="mt-1 text-lg font-semibold tabular-nums">
-              {fatigue} <span className="text-xs font-normal">ATL</span>
-            </p>
-          </div>
-          <div className="min-w-0 pl-2 sm:pl-5">
-            <p className="text-xs text-muted-foreground">Form</p>
-            <p className="mt-1 text-lg font-semibold tabular-nums">
-              {typeof form === "number" && form > 0 ? "+" : ""}
-              {form} <span className="text-xs font-normal">TSB</span>
-            </p>
-          </div>
-        </CardContent>
+          <CardHeader>
+            <CardDescription>Fitness</CardDescription>
+            <CardTitle className="text-2xl tabular-nums sm:text-3xl">
+              {fitness} <span className="text-sm font-normal text-muted-foreground">CTL</span>
+            </CardTitle>
+            <CardAction>
+              <Gauge className="size-4 text-muted-foreground" />
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t pt-3 sm:grid-cols-3 sm:pt-4">
+              <div className="min-w-0">
+                <p className="truncate text-xs text-muted-foreground">Fatigue</p>
+                <p className="mt-1 font-medium tabular-nums">
+                  {fatigue} <span className="text-xs text-muted-foreground">ATL</span>
+                </p>
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-xs text-muted-foreground">Form</p>
+                <p className="mt-1 font-medium tabular-nums">
+                  {typeof form === "number" && form > 0 ? "+" : ""}
+                  {form} <span className="text-xs text-muted-foreground">TSB</span>
+                </p>
+              </div>
+            </div>
+          </CardContent>
         </Card>
       </div>
     </div>

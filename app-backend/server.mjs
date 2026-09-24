@@ -328,9 +328,21 @@ function applyVerifiedEvent(context,id,result,action) {
 }
 
 const syncRequests=new Map();
-async function syncRecentTraining(config,{force=false}={}) {
+const manualSyncProgress=new Map();
+function setManualSyncProgress(id,progress) {
+  if(!id)return;
+  const now=Date.now();
+  for(const [key,value] of manualSyncProgress)if(now-value.updatedAt>15*60_000)manualSyncProgress.delete(key);
+  manualSyncProgress.set(id,{...progress,updatedAt:now});
+}
+async function syncRecentTraining(config,{force=false,onProgress}={}) {
   const key=providerConnection(config);
-  if(syncRequests.has(key))return syncRequests.get(key);
+  while(syncRequests.has(key)) {
+    const current=syncRequests.get(key);
+    if(!force)return current;
+    onProgress?.({phase:'intervals',label:'Waiting for the current refresh to finish',completed:0,total:0});
+    try{await current;}catch{}
+  }
   const operation=(async()=>{
     const saved=await loadSupabaseTrainingSnapshot(config);
     if(!force && saved && Date.now()-Date.parse(saved.synced_at)<60000)return projectTrainingContext({...saved,provider_connection:key});
@@ -339,8 +351,10 @@ async function syncRecentTraining(config,{force=false}={}) {
     date.setUTCDate(date.getUTCDate()-((date.getUTCDay()+6)%7));
     const shift=days=>new Date(date.getTime()+days*86400000).toISOString().slice(0,10);
     const range=saved?{start:shift(-14),end:shift(13)}:undefined;
-    const incoming=await fetchIntervalsTrainingContext(config,{force:true,timeZone:zone,range});
+    const incoming=await fetchIntervalsTrainingContext(config,{force:true,timeZone:zone,range,includeFutureRaces:true,onProgress});
+    onProgress?.({phase:'saving',label:'Saving refreshed training data',completed:0,total:1});
     await persistTrainingContext(config,mergeTrainingSnapshot(saved,incoming,range));
+    onProgress?.({phase:'saving',label:'Training data saved',completed:1,total:1});
     const full=await createContextStore(config).getSyncRecord(fastViewId(config));
     return projectTrainingContext(full);
   })();
@@ -384,11 +398,11 @@ function currentWeekRange(timeZone){
  date.setUTCDate(date.getUTCDate()+6);return {start,end:date.toISOString().slice(0,10)};
 }
 
-async function fetchIntervalsTrainingContext(config, {force = false, timeZone = 'America/Chicago', range} = {}) {
+async function fetchIntervalsTrainingContext(config, {force = false, timeZone = 'America/Chicago', range, includeFutureRaces = false, onProgress} = {}) {
   if (!config.INTERVALS_API_KEY) throw new Error('Connect Intervals.icu in Settings first');
   if(force)providerReads.clear();
   if (!range && !force && intervalsMemoryCache?.key === config.INTERVALS_API_KEY && Date.now() - intervalsMemoryCache.savedAt < 60_000) return intervalsMemoryCache.data;
-  const context = await fetchIntervalsContext(intervalsClient(config), {timeZone,range});
+  const context = await fetchIntervalsContext(intervalsClient(config), {timeZone,range,includeFutureRaces,onProgress});
   if(range)return context;
   intervalsMemoryCache = {savedAt:Date.now(),key:config.INTERVALS_API_KEY,data:context};
   try {await fs.writeFile(intervalsCachePath,JSON.stringify(context));}
@@ -459,9 +473,37 @@ function buildConfigResponse(config) {
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', chunk => { body += chunk; if (body.length > 1_000_000) reject(new Error('Request too large')); });
-    req.on('end', () => { try { resolve(JSON.parse(body || '{}')); } catch (error) { reject(error); } });
+    const maxBytes = 1_000_000;
+    const chunks = [];
+    let size = 0;
+    let settled = false;
+    const fail = error => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    req.on('data', chunk => {
+      if (settled) return;
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += buffer.length;
+      if (size > maxBytes) {
+        chunks.length = 0;
+        fail(Object.assign(new Error('Request too large'), { statusCode: 413 }));
+        return;
+      }
+      chunks.push(buffer);
+    });
+    req.on('error', fail);
+    req.on('aborted', () => fail(new Error('Request was interrupted')));
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks, size).toString('utf8') || '{}'));
+      } catch (error) {
+        reject(error);
+      }
+    });
   });
 }
 
@@ -600,6 +642,21 @@ export async function handleRequest(req, res) {
       const context=job.state==='synced'?projectTrainingContext(snapshot,'full'):await saveVerifiedSnapshot(config,pending);
       sendJson(req,res,{queued:job.state!=='synced',verified:job.state==='synced',context,operationId:mutation.operationId});return;
     }
+    if(pathname==='/api/sync/progress' && req.method==='GET') {
+      const id=requestUrl.searchParams.get('id') || '';
+      if(!/^[a-zA-Z0-9-]{16,80}$/.test(id))throw Error('Invalid sync progress ID.');
+      let progress=manualSyncProgress.get(id);
+      if(progress?.phase==='github' && ['dispatching','queued','running','checking'].includes(progress.status)) {
+        const services=await getReportServices();
+        if(services) {
+          const sync=await services.sync.poll();
+          const total=sync.progress?.total ?? progress.total ?? (sync.status==='complete'?1:null);
+          progress={...progress,phase:'github',status:sync.status,label:sync.progress?.currentStep ? `GitHub Actions · ${sync.progress.currentStep}` : `GitHub Actions · ${sync.status}`,completed:sync.progress?.completed ?? (sync.status==='complete'?total:progress.completed ?? null),total,currentStep:sync.progress?.currentStep || null};
+          setManualSyncProgress(id,progress);
+        }
+      }
+      sendJson(req,res,progress || {phase:'starting',label:'Starting manual refresh',completed:0,total:1});return;
+    }
     if(pathname==='/api/section11-sync' && req.method==='GET') {
       const services=await getReportServices();
       if(!services) { sendJson(req,res,{status:'unavailable',error:'Section 11 GitHub sync is not configured.'});return; }
@@ -607,17 +664,23 @@ export async function handleRequest(req, res) {
     }
     if(pathname==='/api/sync' && req.method==='POST') {
       const config=await readConfig();
+      const syncId=requestUrl.searchParams.get('syncId') || '';
+      if(syncId && !/^[a-zA-Z0-9-]{16,80}$/.test(syncId))throw Error('Invalid sync progress ID.');
+      const reportProgress=progress=>setManualSyncProgress(syncId,progress);
+      reportProgress({phase:'intervals',label:'Preparing manual refresh',completed:0,total:6});
       const queue=await flushMutations(config,requestUrl.searchParams.get('retry')==='1');
       try {
-        const context=await syncRecentTraining(config,{force:requestUrl.searchParams.get('force')==='1'});
+        const context=await syncRecentTraining(config,{force:requestUrl.searchParams.get('force')==='1',onProgress:reportProgress});
         void triggerDueReports(config);
         let section11Sync;
         if(requestUrl.searchParams.get('force')==='1') {
           try { const services=await getReportServices();section11Sync=services ? await services.sync.refresh() : {status:'unavailable',error:'Section 11 GitHub sync is not configured.'}; }
           catch(error) {section11Sync={status:'failed',error:error.message};}
+          reportProgress({phase:'github',status:section11Sync.status,label:section11Sync.progress?.currentStep ? `GitHub Actions · ${section11Sync.progress.currentStep}` : `GitHub Actions · ${section11Sync.status}`,completed:section11Sync.progress?.completed ?? null,total:section11Sync.progress?.total ?? null,currentStep:section11Sync.progress?.currentStep || null});
         }
         sendJson(req,res,{context,queue,section11Sync,checked_at:new Date().toISOString()});
       }catch(error){
+        reportProgress({phase:'error',label:'Intervals.icu refresh failed',error:error.message,completed:0,total:0});
         const view=await createContextStore(config).getSyncRecord(fastViewId(config));
         if(!view)throw error;
         sendJson(req,res,{context:projectTrainingContext(view),queue,sync_error:error.message});
@@ -1007,7 +1070,7 @@ export async function handleRequest(req, res) {
       res.end();
       return;
     }
-    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.writeHead(error.statusCode || 500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: error.message }));
   }
 }

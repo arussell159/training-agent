@@ -101,6 +101,7 @@ export function createWorkoutSync({
   async function poll() {
     let state = await store.read();
     const active = state.active;
+    let workflowProgress = null;
     if (active) {
       try {
         let run;
@@ -120,6 +121,21 @@ export function createWorkoutSync({
             run.path?.split("@")[0] !== `.github/workflows/${workflow}`)
         )
           throw new CoachError("The sync run does not match the configured workflow.");
+        if (run?.id) {
+          try {
+            const jobs = await github(`/actions/runs/${run.id}/jobs?per_page=100`);
+            const steps = (jobs.jobs || []).flatMap((job) =>
+              (job.steps || []).map((step) => ({ name: step.name, status: step.status }))
+            );
+            workflowProgress = {
+              completed: steps.filter((step) => step.status === "completed").length,
+              total: steps.length,
+              currentStep: steps.find((step) => step.status === "in_progress")?.name || null,
+            };
+          } catch {
+            // The run status is still useful when GitHub temporarily withholds job details.
+          }
+        }
         const missing = !run && now() - active.startedAt > 120000;
         const finished = run?.status === "completed";
         await store.update((current) => {
@@ -160,7 +176,13 @@ export function createWorkoutSync({
     }
     await dispatch();
     state = await store.read();
-    return state.active || state.last || { status: "idle" };
+    const result = state.active || state.last || { status: "idle" };
+    return {
+      ...result,
+      ...(workflowProgress && result.requestId === active?.requestId
+        ? { progress: workflowProgress }
+        : {}),
+    };
   }
   return {
     queue,
@@ -168,7 +190,7 @@ export function createWorkoutSync({
     async refresh() {
       await poll();
       await store.update((state) => {
-        if (!state.active) state.pendingRefresh = true;
+        if (!state.active || !state.active.manual) state.pendingRefresh = true;
       });
       await dispatch();
       const state = await store.read();

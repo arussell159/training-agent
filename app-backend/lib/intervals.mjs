@@ -226,28 +226,46 @@ export function mapIntervalsWorkout(
 
 export async function fetchIntervalsContext(
   request,
-  { now = new Date(), timeZone = "America/Chicago", range } = {}
+  { now = new Date(), timeZone = "America/Chicago", range, includeFutureRaces = false, onProgress } = {}
 ) {
   const syncStartedAt = new Date().toISOString();
-  const athlete = await request("/athlete/0");
+  const totalRequests = 4 + (range ? 1 : 0) + (includeFutureRaces ? 1 : 0);
+  let completedRequests = 0;
+  const track = (promise, label) => Promise.resolve(promise).then((value) => {
+    completedRequests += 1;
+    onProgress?.({ phase: "intervals", label, completed: completedRequests, total: totalRequests });
+    return value;
+  });
+  onProgress?.({ phase: "intervals", label: "Connecting to Intervals.icu", completed: 0, total: totalRequests });
+  const athlete = await track(request("/athlete/0"), "Loaded athlete profile");
   timeZone = athlete.timezone || athlete.time_zone || timeZone;
   const today = athleteLocalDate(now, timeZone);
   const shift = (days) =>
     new Date(Date.parse(`${today}T12:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
   const query = `oldest=${range?.start || shift(-89)}&newest=${range?.end || shift(60)}`;
-  const [activities, events, wellness, currentWellness] = await Promise.all([
-    request(`/athlete/0/activities?${query}`),
-    request(`/athlete/0/events?${query}`),
-    request(
+  const [activities, events, futureRaceEvents, wellness, currentWellness] = await Promise.all([
+    track(request(`/athlete/0/activities?${query}`), "Loaded activities"),
+    track(request(`/athlete/0/events?${query}`), "Loaded planned workouts and races"),
+    includeFutureRaces
+      ? track(request(`/athlete/0/events?oldest=${today}&newest=${shift(365)}`).then((items) =>
+          (items || []).filter((event) => /^RACE(?:_[ABC])?$/i.test(String(event.category || "")))
+        ), "Loaded upcoming races")
+      : Promise.resolve([]),
+    track(request(
       `/athlete/0/wellness?oldest=${range ? new Date(Date.parse(`${range.start}T12:00:00Z`) - 29 * 86400000).toISOString().slice(0, 10) : shift(-89)}&newest=${range?.end || today}`
-    ),
-    range ? request(`/athlete/0/wellness?oldest=${today}&newest=${today}`) : Promise.resolve(null),
+    ), "Loaded wellness history"),
+    range ? track(request(`/athlete/0/wellness?oldest=${today}&newest=${today}`), "Loaded today's wellness") : Promise.resolve(null),
   ]);
-  const matches = pairIntervalsWorkouts(events || [], activities || []);
+  const allEvents = [
+    ...new Map(
+      [...(events || []), ...(futureRaceEvents || [])].map((event) => [String(event.id), event])
+    ).values(),
+  ];
+  const matches = pairIntervalsWorkouts(allEvents, activities || []);
   const settings = athlete.sportSettings || athlete.sport_settings || [];
   const paired = new Set([...matches.values()].map((a) => String(a.id)));
   const sessions = [
-    ...(events || []).map((e) =>
+    ...allEvents.map((e) =>
       mapIntervalsWorkout(e, today, matches.get(String(e.id)), false, settings)
     ),
     ...(activities || [])

@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode, type MouseEvent, type KeyboardEvent } from "react"
+import { type ReactNode, type MouseEvent, type KeyboardEvent } from "react"
 import { Tab, Tabs, Toolbar, ToolbarPane } from "framework7-react"
 import {
   CalendarDays,
@@ -56,19 +56,6 @@ export function MobileNavbar({
   onPrefetch?: (destination: string) => void
 }) {
   const mobile = useIsMobile()
-  useEffect(() => {
-    if (!mobile || activeItem !== "Calendar") return
-    const returnToToday = (event: PointerEvent) => {
-      const target = event.target
-      if (
-        target instanceof Element &&
-        target.closest("#mobile-tab-calendar")
-      )
-        window.dispatchEvent(new Event("calendar-go-today"))
-    }
-    document.addEventListener("pointerdown", returnToToday, true)
-    return () => document.removeEventListener("pointerdown", returnToToday, true)
-  }, [activeItem, mobile])
   if (!mobile) return null
   return (
     <Toolbar
@@ -103,6 +90,10 @@ export function MobileNavbar({
             }
             onClick={(event: MouseEvent) => {
               event.preventDefault()
+              if (label === "Calendar" && activeItem === "Calendar") {
+                window.dispatchEvent(new Event("calendar-go-today"))
+                return
+              }
               onNavigate(label)
             }}
             onPointerEnter={() => onPrefetch?.(label)}

@@ -3,13 +3,17 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react"
 import { RotateCcw, Sun } from "lucide-react"
 
 import { DesktopWorkoutRouteMap } from "@/components/desktop-workout-route-map"
+import { MapboxRouteMap } from "@/components/mapbox-route-map"
 import { MobileWorkoutSignals } from "@/components/mobile-workout-signals"
 import { WorkoutMapSplits } from "@/components/workout-map-splits"
 import { Button } from "@/components/ui/button"
 import { apiFetch } from "@/lib/api-client"
 import { distanceSplits } from "@/lib/distance-splits"
 import { segmentStatistics, type RecordedPoint } from "@/lib/segment-statistics"
+import { intervalSignals } from "@/lib/interval-signals"
 import type { PlannedWorkout, WorkoutSummaryValues } from "@/lib/training-context"
+import { structuredWorkoutProfile } from "@/lib/workout-structure"
+import { chartSegments } from "../../../app-backend/lib/workout-editor-model.mjs"
 
 type Point = RecordedPoint
 type Lap = { id:string; label:string; start:number; end:number; power:number|null; heartRate:number|null; distance:number|null; kind:string; speed?:number|null }
@@ -20,6 +24,28 @@ type RangeStats = ReturnType<typeof rangeStatistics>
 type PeakEffort = Segment & { seconds:number; value:number; metric:"pace"|"power"; stats:RangeStats }
 
 const cache = new Map<string,Analysis>()
+const cypressCenter: [number, number] = [-95.69, 29.97]
+const noRoutePoints: {time:number;latitude:number;longitude:number}[] = []
+
+function plannedProfileOverlay(workout: PlannedWorkout) {
+  if (workout.editor_model) {
+    const segments = chartSegments(workout.editor_model).segments
+    const total = segments.reduce((sum, segment) => sum + segment.width, 0)
+    const peak = Math.max(0.001, ...segments.flatMap((segment) => [segment.start, segment.end]))
+    if (!total) return []
+    let position = 0
+    return segments.flatMap((segment) => {
+      const start = { position: position / total, intensity: Math.max(0, segment.start) / peak }
+      position += segment.width
+      return [start, { position: position / total, intensity: Math.max(0, segment.end) / peak }]
+    })
+  }
+  const profile = structuredWorkoutProfile(workout.structure)
+  const total = profile.at(-1)?.position || 0
+  return total
+    ? profile.map((point) => ({ position: point.position / total, intensity: point.intensity / 100 }))
+    : []
+}
 const effortDurations = [5,10,30,60,120,300,600,1200,1800,3600,10800]
 const finite = (value:unknown): value is number => typeof value === "number" && Number.isFinite(value)
 const clock = (seconds:number) => {
@@ -204,12 +230,15 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
       [data, duration, effortMetric, paceDistance]
     ),
     terrain = useMemo(() => elevationSegments(data?.points || []), [data])
+  const plannedOverlay=useMemo(()=>plannedProfileOverlay(workout),[workout])
   const splitDistance=bike?8046.72:1609.344
   const splits=useMemo<Segment[]>(()=>swim?[]:distanceSplits(data?.points||[],splitDistance).map(split=>({id:`split-${split.number}`,label:bike?`${split.number*5} mi`:`${split.number} mi`,start:split.start,end:split.end,distance:split.distance,kind:"split",color:"#cbd5e1"})),[bike,data,splitDistance,swim])
   const laps:Segment[]=(data?.laps||[]).map(lap=>({...lap,kind:"lap",color:"#94a3b8"}))
+  const swimIntervals=useMemo(()=>swim?intervalSignals(data?.points||[],data?.laps||[]):[],[data,swim])
   const routePoints=useMemo(()=>(data?.points||[]).flatMap(point=>point.latitude!=null&&point.longitude!=null?[{time:point.time,latitude:point.latitude,longitude:point.longitude}]:[]),[data])
   const selectedSegment=[...laps,...splits,...terrain,...peaks].find(segment=>segment.id===selected)
   const highlight=hovered||selectedSegment||(range?{start:range[0],end:range[1]}:null)
+  const graphHover=hovered&&hovered.end>viewStart&&hovered.start<viewEnd?{start:Math.max(viewStart,hovered.start),end:Math.min(viewEnd,hovered.end)}:null
   useEffect(()=>onLapSelection?.(range),[range,onLapSelection])
   const selectSegment=(segment:Segment)=>{const start=Math.max(0,segment.start),end=Math.min(duration,segment.end);if(end<=start)return;setRange([start,end]);setSelected(segment.id);setSelection(null);setCursor(null)}
   const reset=()=>{setRange(null);setSelected("");setHovered(null);setSelection(null);setCursor(null)}
@@ -234,6 +263,8 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
   const elevationValues=elevationProfile.map(point=>point.smoothedElevation).filter(finite),elevationMin=Math.min(...elevationValues),elevationMax=Math.max(...elevationValues),elevationSpan=Math.max(1,elevationMax-elevationMin),elevationY=(entry:number)=>92-(entry-elevationMin)/elevationSpan*66
   let fullElevationPath="",previousElevation=false
   for(const point of elevationProfile){if(point.smoothedElevation==null){previousElevation=false;continue}fullElevationPath+=`${previousElevation?"L":"M"}${x(point.time,true).toFixed(1)},${elevationY(point.smoothedElevation).toFixed(1)} `;previousElevation=true}
+  const plannedProfilePath=plannedOverlay.map(point=>`${point.position===0?"M":"L"}${(plotLeft+point.position*plotWidth).toFixed(1)},${(92-(.12+point.intensity*.76)*66).toFixed(1)}`).join(" ")
+  const plannedProfileFill=plannedProfilePath?`${plannedProfilePath} L${plotRight},92 L${plotLeft},92 Z`:""
   const distancePoints=data.points.filter(point=>finite(point.distance)),firstRecordedDistance=distancePoints[0]?.distance??0
   const axisLabels=(start:number,end:number)=>Array.from({length:6},(_,index)=>{
     const time=start+(end-start)*index/5,point=distancePoints.reduce<Point|null>((best,entry)=>!best||Math.abs(entry.time-time)<Math.abs(best.time-time)?entry:best,null)
@@ -253,18 +284,34 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
     {label:"Elevation",value:`${Math.round((totals?.elevation_gain??wholeStats.elevationGain)/.3048).toLocaleString()} ft`},
     {label:"Calories",value:totals?.calories!=null?Math.round(totals.calories).toLocaleString():null},
     {label:"Elapsed time",value:totals?.elapsed_time_seconds!=null?clock(totals.elapsed_time_seconds):null},
+    ...((run||swim)?[{label:"Elapsed pace",value:totals?.elapsed_speed!=null&&totals.elapsed_speed>0?`${pace(paceDistance/totals.elapsed_speed)} ${unit("pace")}`:null}]:[]),
   ]
   const overviewConditions=[
     {label:"Temperature",value:totals?.temperature_c!=null?`${Math.round(totals.temperature_c*9/5+32)}°F`:null},
     {label:"Humidity",value:totals?.humidity_percent!=null?`${Math.round(totals.humidity_percent)}%`:null},
   ].filter((metric):metric is {label:string;value:string}=>metric.value!=null)
-  const trackMetrics=signalTracks.map((key,lane)=>{const values=visible.map(point=>value(point,key)).filter((entry):entry is number=>entry!=null),rawMin=Math.min(...values),rawMax=Math.max(...values),padding=Math.max((rawMax-rawMin)*.08,key==="pace"?1:.5),min=rawMin-padding,max=rawMax+padding,span=Math.max(1,max-min),top=lane*laneHeight+4,graphBottom=top+58,average=key==="pace"?(activeStats.speed?paceDistance/activeStats.speed:null):key==="speed"?(activeStats.speed!=null?activeStats.speed*2.2369362920544:null):key==="power"?activeStats.power:key==="heartRate"?activeStats.heartRate:activeStats.cadence,peak=key==="pace"?rawMin:rawMax,live=nearest?value(nearest,key):null;return {key,rawMin,rawMax,min,max,span,top,graphBottom,average,peak,live}})
+  const trackMetrics=signalTracks.map((key,lane)=>{
+    const intervalValues=swim&&(key==="pace"||key==="cadence")
+      ? swimIntervals.filter(interval=>interval.lap.end>viewStart&&interval.lap.start<viewEnd).map(interval=>value(interval.point,key)).filter((entry):entry is number=>entry!=null)
+      : []
+    const lapAveraged=intervalValues.length>0
+    const values=lapAveraged?intervalValues:visible.map(point=>value(point,key)).filter((entry):entry is number=>entry!=null)
+    const rawMin=Math.min(...values),rawMax=Math.max(...values),padding=Math.max((rawMax-rawMin)*.08,key==="pace"?1:.5),min=rawMin-padding,max=rawMax+padding,span=Math.max(1,max-min),top=lane*laneHeight+4,graphBottom=top+58
+    const average=key==="pace"?(activeStats.speed?paceDistance/activeStats.speed:null):key==="speed"?(activeStats.speed!=null?activeStats.speed*2.2369362920544:null):key==="power"?activeStats.power:key==="heartRate"?activeStats.heartRate:activeStats.cadence
+    const livePoint=lapAveraged?swimIntervals.find(interval=>cursor!=null&&cursor>=interval.lap.start&&cursor<=interval.lap.end)?.point:nearest
+    return {key,rawMin,rawMax,min,max,span,top,graphBottom,average,peak:key==="pace"?rawMin:rawMax,live:livePoint?value(livePoint,key):null,lapAveraged}
+  })
   return <>
     <div className="space-y-5 md:hidden"><MobileWorkoutSignals points={data.points} laps={data.laps} duration={duration} sport={sport} summary={totals} dfa={data.dfa} onLapSelect={lap=>setSelected(lap?.id||"")} afterLaps={<WorkoutMapSplits workout={workout} analysis={data}/>}/></div>
     <section aria-label="Recorded workout analysis" className="workout-analysis-desktop hidden min-w-0 space-y-3 md:block">
-      <section className={`grid overflow-hidden rounded-xl border bg-card ${routePoints.length>1?"lg:grid-cols-2":"grid-cols-1"}`} aria-label="Workout overview">
-        {routePoints.length>1&&<div className="min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} timedPoints={routePoints} compact/></div>}
-        <div className="flex min-h-[300px] min-w-0 flex-col p-4">
+      <section className={`grid overflow-hidden rounded-xl border bg-card ${routePoints.length>1||swim?"lg:grid-cols-2":"grid-cols-1"}`} aria-label="Workout overview">
+        {routePoints.length>1
+          ? <div className="min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} timedPoints={routePoints} compact/></div>
+          : swim
+            ? <div className="relative min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Approximate pool workout area"><MapboxRouteMap points={noRoutePoints} center={cypressCenter} interactive={false} className="relative min-h-[300px] w-full bg-muted/25 lg:h-full"/><span className="pointer-events-none absolute top-3 left-3 rounded-md border bg-background/90 px-2.5 py-1.5 text-xs font-medium shadow-sm">Cypress, Texas · approximate area</span></div>
+            : null}
+        <div className="flex min-h-[300px] min-w-0 flex-col justify-center p-4">
+          <div className="mx-auto w-full max-w-2xl">
           <div className="border-b pb-3">
             <h2 className="truncate text-base font-semibold">{workout.title}</h2>
             <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
@@ -274,7 +321,8 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
           <div className="grid grid-cols-4 border-b py-3">{overviewPrimary.map(metric=><div key={metric.label} className="min-w-0 pr-3 last:pr-0"><p className="truncate text-2xl font-normal leading-none tabular-nums">{metric.value}</p><p className="mt-1 truncate text-[10px] font-normal text-muted-foreground">{metric.label}</p></div>)}</div>
           <dl className="grid grid-cols-2 gap-x-8 border-b py-2.5 text-xs">{overviewDetails.map(metric=><div key={metric.label} className="flex min-w-0 items-center justify-between gap-3 py-0.5"><dt>{metric.label}</dt><dd className="truncate font-medium tabular-nums">{metric.value??"—"}</dd></div>)}</dl>
           {overviewConditions.length>0&&<div className="grid grid-cols-[36px_minmax(0,1fr)] items-center gap-2 border-b py-2.5"><Sun className="size-7 stroke-[1.5]" aria-hidden="true"/><div><p className="text-xs">Recorded conditions</p><dl className="mt-0.5 grid grid-cols-2 gap-x-8 text-xs">{overviewConditions.map(metric=><div key={metric.label} className="flex justify-between gap-3"><dt>{metric.label}</dt><dd className="tabular-nums">{metric.value}</dd></div>)}</dl></div></div>}
-          {workout.device_name&&<div className="mt-auto pt-3 text-xs">{workout.device_name}</div>}
+          {workout.device_name&&<div className="mt-3 text-xs">{workout.device_name}</div>}
+          </div>
         </div>
       </section>
       <div className={`grid min-w-0 gap-4 ${peaks.length?"grid-cols-[210px_minmax(0,1fr)]":"grid-cols-1"}`}>
@@ -287,6 +335,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
           <div className="flex h-9 items-center justify-between gap-3 border-b bg-muted/15 px-3 text-[10px]"><span className="min-w-0 truncate">{range?<><span className="font-medium">{selectedSegment?.label||"Selected range"}</span><span className="text-muted-foreground"> · {clock(viewStart)}–{clock(viewEnd)}</span></>:<span className="text-muted-foreground">Full workout</span>}</span><Button size="sm" variant="ghost" className="h-7 shrink-0 text-[10px]" onClick={reset} disabled={!range}><RotateCcw className="size-3"/>Reset</Button></div>
           {available.elevation&&<><div className="relative border-b" aria-label="Elevation, laps and splits">
             <div className="relative"><div className="pointer-events-none absolute inset-y-0 left-0 z-10 flex w-[12.6%] flex-col justify-center px-3 text-[11px] font-normal"><span>Elevation</span><span className="mt-2 text-[9px] font-normal text-muted-foreground">Max <span className="ml-1 text-[11px] font-normal text-foreground">{Math.round(elevationMax)} ft</span></span><span className="mt-1 text-[9px] font-normal text-muted-foreground">Min <span className="ml-1 text-[11px] font-normal text-foreground">{Math.round(elevationMin)} ft</span></span></div><svg viewBox="0 0 1080 100" preserveAspectRatio="none" className="block h-24 w-full cursor-crosshair touch-none select-none" role="img" aria-label="Smoothed full workout elevation profile with active range highlighted" onPointerDown={event=>down(event,true)} onPointerMove={event=>move(event,true)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}} onPointerLeave={()=>{if(!gesture.current)setCursor(null)}}><rect x={plotLeft} y="14" width={plotWidth} height="78" fill="#cbd5e1" fillOpacity=".08"/>{[0,.5,1].map(fraction=><line key={fraction} x1={plotLeft} x2={plotRight} y1={92-fraction*66} y2={92-fraction*66} stroke="currentColor" opacity=".07"/>)}{fullElevationPath&&<path d={`${fullElevationPath}L${plotRight},92 L${plotLeft},92 Z`} fill="#cbd5e1" fillOpacity="1"/>}{highlight&&<rect x={x(highlight.start,true)} y="14" width={Math.max(2,x(highlight.end,true)-x(highlight.start,true))} height="78" fill="#64748b" fillOpacity=".2"/>}{selection&&<rect x={Math.min(x(selection[0],true),x(selection[1],true))} y="14" width={Math.abs(x(selection[1],true)-x(selection[0],true))} height="78" fill="#64748b" fillOpacity=".14"/>}</svg></div>
+            {plannedProfilePath&&<svg viewBox="0 0 1080 100" preserveAspectRatio="none" className="pointer-events-none absolute inset-x-0 top-0 z-10 block h-24 w-full" aria-hidden="true"><path d={plannedProfileFill} fill="#38bdf8" fillOpacity=".035"/><path d={plannedProfilePath} fill="none" stroke="#0284c7" strokeWidth="2.5" strokeOpacity=".3" strokeLinejoin="round"/></svg>}
             <DistanceAxis labels={overviewDistanceLabels}/>
             <div className="mt-2 space-y-1.5 pb-2 pt-3"><TimelineRow label="Laps" segments={laps} duration={duration} selected={selected} onSelect={selectSegment} onHover={setHovered}/><TimelineRow label="Splits" segments={splits} duration={duration} selected={selected} onSelect={selectSegment} onHover={setHovered}/><TimelineRow label="Terrain" segments={terrain} duration={duration} selected={selected} onSelect={selectSegment} onHover={setHovered}/></div></div></>}
           <div className="grid divide-x border-b md:grid-cols-3 xl:grid-cols-5" aria-label="Selected-range summary">{summaryGroups.map(group=><SummaryGroup key={group.title} title={group.title} values={group.values}/>)}</div>
@@ -294,8 +343,29 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
             <DistanceAxis labels={viewDistanceLabels}/>
             <div className="relative">
               <svg viewBox={`0 0 1080 ${height}`} preserveAspectRatio="none" className="block w-full cursor-crosshair touch-none select-none" style={{height}} role="img" aria-label="Recorded signals. Hover for live values, drag to zoom, or use arrow keys to pan." tabIndex={0} onKeyDown={event=>{if(!range||!["ArrowLeft","ArrowRight"].includes(event.key))return;event.preventDefault();const width=range[1]-range[0],start=Math.max(0,Math.min(duration-width,range[0]+width*.1*(event.key==="ArrowRight"?1:-1)));setRange([start,start+width])}} onPointerDown={event=>down(event)} onPointerMove={event=>move(event)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}} onPointerLeave={()=>{if(!gesture.current)setCursor(null)}}>
-                {trackMetrics.map(metric=>{const {key,top,graphBottom,min,max,span}=metric,y=(entry:number)=>graphBottom-(key==="pace"?max-entry:entry-min)/span*48;let path="",previous=false;const stride=Math.max(1,Math.floor(visible.length/1800));for(let index=0;index<visible.length;index+=stride){const point=visible[index],entry=value(point,key);if(entry==null){previous=false;continue}path+=`${previous?"L":"M"}${x(point.time).toFixed(1)},${y(entry).toFixed(1)} `;previous=true}return <g key={key}><rect x={plotLeft} y={top} width={plotWidth} height="62" fill={colors[key]} fillOpacity=".022"/>{[0,.5,1].map(fraction=><line key={fraction} x1={plotLeft} x2={plotRight} y1={graphBottom-fraction*48} y2={graphBottom-fraction*48} stroke="currentColor" opacity=".07"/>)}{laps.filter(lap=>lap.start>=view[0]&&lap.start<=view[1]).map(lap=><line key={lap.id} x1={x(lap.start)} x2={x(lap.start)} y1={top} y2={top+62} stroke="currentColor" opacity=".1" strokeDasharray="3 3"/>)}<path d={path} fill="none" stroke={colors[key]} strokeWidth="1.5" strokeLinejoin="round"/></g>})}
-                {selection&&<rect x={Math.min(x(selection[0]),x(selection[1]))} y="0" width={Math.abs(x(selection[1])-x(selection[0]))} height={height} fill="currentColor" fillOpacity=".055"/>}{nearest&&<line x1={x(nearest.time)} x2={x(nearest.time)} y1="0" y2={height} stroke="currentColor" opacity=".4" strokeDasharray="3 3"/>}
+                {trackMetrics.map(metric=>{
+                  const {key,top,graphBottom,min,max,span}=metric
+                  const y=(entry:number)=>graphBottom-(key==="pace"?max-entry:entry-min)/span*48
+                  let path=""
+                  if(metric.lapAveraged){
+                    for(const interval of swimIntervals){
+                      const start=Math.max(viewStart,interval.lap.start),end=Math.min(viewEnd,interval.lap.end),entry=value(interval.point,key)
+                      if(end<=start||entry==null)continue
+                      path+=`M${x(start).toFixed(1)},${y(entry).toFixed(1)} L${x(end).toFixed(1)},${y(entry).toFixed(1)} `
+                    }
+                  }else{
+                    let previous=false
+                    const stride=Math.max(1,Math.floor(visible.length/1800))
+                    for(let index=0;index<visible.length;index+=stride){
+                      const point=visible[index],entry=value(point,key)
+                      if(entry==null){previous=false;continue}
+                      path+=`${previous?"L":"M"}${x(point.time).toFixed(1)},${y(entry).toFixed(1)} `
+                      previous=true
+                    }
+                  }
+                  return <g key={key}><rect x={plotLeft} y={top} width={plotWidth} height="62" fill={colors[key]} fillOpacity=".022"/>{[0,.5,1].map(fraction=><line key={fraction} x1={plotLeft} x2={plotRight} y1={graphBottom-fraction*48} y2={graphBottom-fraction*48} stroke="currentColor" opacity=".07"/>)}{laps.filter(lap=>lap.start>=view[0]&&lap.start<=view[1]).map(lap=><line key={lap.id} x1={x(lap.start)} x2={x(lap.start)} y1={top} y2={top+62} stroke="currentColor" opacity=".1" strokeDasharray="3 3"/>)}<path d={path} fill="none" stroke={colors[key]} strokeWidth="1.5" strokeLinejoin="round"/></g>
+                })}
+                {graphHover&&<rect x={x(graphHover.start)} y="0" width={Math.max(2,x(graphHover.end)-x(graphHover.start))} height={height} fill="#64748b" fillOpacity=".14"/>}{selection&&<rect x={Math.min(x(selection[0]),x(selection[1]))} y="0" width={Math.abs(x(selection[1])-x(selection[0]))} height={height} fill="currentColor" fillOpacity=".055"/>}{nearest&&<line x1={x(nearest.time)} x2={x(nearest.time)} y1="0" y2={height} stroke="currentColor" opacity=".4" strokeDasharray="3 3"/>}
               </svg>
               <div className="pointer-events-none absolute inset-0" aria-hidden="true">{trackMetrics.map(metric=><div key={metric.key} className="absolute inset-x-0 grid grid-cols-[12.6%_75.2%_12.2%] font-normal" style={{top:metric.top,height:62}}><div className="flex flex-col justify-center px-3 text-[11px]"><span className="text-xs font-normal">{label(metric.key)}</span><span className="mt-1 text-muted-foreground">Avg <span className="ml-1 text-foreground tabular-nums">{format(metric.average,metric.key)}</span></span><span className="text-muted-foreground">Max <span className="ml-1 text-foreground tabular-nums">{format(metric.peak,metric.key)}</span></span></div><span/><div className="flex flex-col items-center justify-center font-normal"><span className="text-base font-normal tabular-nums">{format(metric.live,metric.key)}</span><span className="text-[9px] font-normal text-muted-foreground">{unit(metric.key)}</span></div></div>)}</div>
             </div>

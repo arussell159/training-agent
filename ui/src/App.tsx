@@ -23,6 +23,8 @@ import {
   Settings,
   CalendarRange,
 } from "lucide-react"
+import { useToastManager } from "@/components/ui/toast"
+import { RefreshProgressToast } from "@/components/refresh-progress-toast"
 
 import {
   DropdownMenu,
@@ -56,6 +58,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
   refreshRecentIntervals,
   cachedTrainingContext,
+  type ManualRefreshProgress,
   type PlannedWorkout,
 } from "@/lib/training-context"
 import {
@@ -194,13 +197,71 @@ function AppWorkspace() {
         ...cachedTrainingContext().history,
       ])
   )
-  const [refreshRequest, setRefreshRequest] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const toastManager = useToastManager()
   const [intervalsDisconnected, setIntervalsDisconnected] = useState(false)
   const [termsOpen, setTermsOpen] = useState(false)
   const workoutReturnScroll = useRef(0)
   const isCoachPage = activeItem === "Coach"
-  const handleRefreshComplete = useCallback(() => setIsRefreshing(false), [])
+  const refreshIntervals = useCallback(async () => {
+    if (isRefreshing) return
+    setIsRefreshing(true)
+    const startedAt = Date.now()
+    const toastId = "intervals-icu-refresh"
+    const updateProgress = (progress: ManualRefreshProgress) => {
+      toastManager.update(toastId, {
+        type: "loading",
+        title:
+          progress.phase === "github"
+            ? "Syncing training data to GitHub"
+            : "Refreshing Intervals.icu",
+        description: <RefreshProgressToast startedAt={startedAt} progress={progress} />,
+        timeout: 0,
+      })
+    }
+    toastManager.add({
+      id: toastId,
+      type: "loading",
+      title: "Refreshing Intervals.icu",
+      description: (
+        <RefreshProgressToast
+          startedAt={startedAt}
+          progress={{ phase: "starting", label: "Starting manual refresh", completed: 0, total: 1 }}
+        />
+      ),
+      timeout: 0,
+    })
+    try {
+      const context = await refreshRecentIntervals(updateProgress)
+      setSelectedWorkout((current) =>
+        current
+          ? [...context.planned, ...context.history].find(
+              (workout): workout is PlannedWorkout =>
+                "id" in workout && workout.id === current.id
+            ) || current
+          : null
+      )
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000)
+      const duration = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`
+      toastManager.update(toastId, {
+        type: "success",
+        title: "Intervals.icu refresh complete",
+        description: `Training data updated in ${duration}.`,
+        timeout: 6000,
+      })
+    } catch (error) {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000)
+      const duration = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`
+      toastManager.update(toastId, {
+        type: "error",
+        title: "Intervals.icu refresh failed",
+        description: `${error instanceof Error ? error.message : "Training data could not be refreshed."} (${duration})`,
+        timeout: 8000,
+      })
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [isRefreshing, toastManager])
   useEffect(() => {
     const showReconnect = () => setIntervalsDisconnected(true)
     window.addEventListener("intervals-auth-expired", showReconnect)
@@ -306,14 +367,7 @@ function AppWorkspace() {
     <MobileDefinitionsOpen.Provider value={mobileTerms && termsOpen}>
       <MobileHeaderNavigation.Provider
         value={async () => {
-          const context = await refreshRecentIntervals()
-          setSelectedWorkout((current) =>
-            current
-              ? ([...context.planned, ...context.history].find(
-                  (workout) => "id" in workout && workout.id === current.id
-                ) as PlannedWorkout) || null
-              : null
-          )
+          await refreshIntervals()
         }}
       >
         <BackgroundSync />
@@ -383,71 +437,59 @@ function AppWorkspace() {
             activeItem !== "Settings" &&
             !isCoachPage &&
             activeItem !== "Library" && (
-              <>
-                <MobileSiteNavbar
-                  title={
-                    activeItem === "Home" ? (
-                      <span className="home-brand-title">AR Performance</span>
-                    ) : (
-                      activeItem
-                    )
-                  }
-                />
-                <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:flex">
-                  <h1 className="min-w-0 truncate text-sm font-semibold">
-                    {activeItem}
-                  </h1>
-                  {activeItem === "Home" && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="ml-auto cursor-pointer"
-                            aria-label="Site menu"
-                            title="Site menu"
-                          />
-                        }
-                      >
-                        <Ellipsis className="size-5" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="end"
-                        className="w-max min-w-52"
-                      >
-                        <DropdownMenuItem
-                          disabled={isRefreshing}
-                          className="whitespace-nowrap"
-                          onClick={() => {
-                            setIsRefreshing(true)
-                            setRefreshRequest((request) => request + 1)
-                          }}
-                        >
-                          <RefreshCw
-                            className={
-                              isRefreshing ? "animate-spin" : undefined
-                            }
-                          />
-                          Refresh Intervals.icu
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className="whitespace-nowrap"
-                          onClick={() =>
-                            window.dispatchEvent(new Event("terms-open"))
-                          }
-                        >
-                          <BookOpen />
-                          Terms &amp; definitions
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                </header>
-              </>
+              <MobileSiteNavbar
+                title={
+                  activeItem === "Home" ? (
+                    <span className="home-brand-title">AR Performance</span>
+                  ) : (
+                    activeItem
+                  )
+                }
+              />
             )}
+          <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:flex">
+            <h1 className="min-w-0 truncate text-sm font-semibold">
+              {selectedReport
+                ? selectedReport.kind === "weekly"
+                  ? "Weekly Report"
+                  : "Training Block"
+                : selectedWorkout?.title || activeItem}
+            </h1>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="ml-auto cursor-pointer"
+                    aria-label="Site menu"
+                    title="Site menu"
+                  />
+                }
+              >
+                <Ellipsis className="size-5" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-max min-w-52">
+                <DropdownMenuItem
+                  disabled={isRefreshing}
+                  className="whitespace-nowrap"
+                  onClick={() => void refreshIntervals()}
+                >
+                  <RefreshCw className={isRefreshing ? "animate-spin" : undefined} />
+                  Refresh Intervals.icu
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="whitespace-nowrap"
+                  onClick={() => window.dispatchEvent(new Event("terms-open"))}
+                >
+                  <BookOpen />
+                  Terms &amp; definitions
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </header>
           <main
             className={`flex min-h-0 flex-1 ${
               selectedWorkout
@@ -474,8 +516,6 @@ function AppWorkspace() {
                 ) : activeItem === "Home" ? (
                   <TrainingDashboard
                     onWorkoutOpen={openWorkout}
-                    refreshRequest={refreshRequest}
-                    onRefreshComplete={handleRefreshComplete}
                   />
                 ) : activeItem === "Calendar" ? (
                   <TrainingCalendar

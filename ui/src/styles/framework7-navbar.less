@@ -290,6 +290,7 @@
     // scales the pill while pressed, which makes quick tab changes feel jumpy.
     .tab-link-highlight {
       width: 20% !important;
+      pointer-events: none;
       transition: transform 120ms cubic-bezier(0.2, 0, 0, 1);
       will-change: transform;
 
@@ -754,11 +755,11 @@
   --f7-card-text-color: var(--foreground);
   --f7-card-border-radius: 14px;
   margin: 0;
-  border: 0;
+  border: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
   overflow: hidden;
   font-size: 14px;
   line-height: 20px;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 5%);
   > .card-content {
     padding: 0;
   }
@@ -766,7 +767,7 @@
 
 .training-history-filter-scroll {
   overflow-x: auto;
-  padding: 8px 14px 0;
+  padding: 12px 12px 0;
   scrollbar-width: none;
   overscroll-behavior-x: contain;
   &::-webkit-scrollbar {
@@ -775,30 +776,35 @@
 }
 
 .training-history-filters {
-  display: flex;
-  width: max-content;
+  display: grid;
+  width: 100%;
   min-width: 100%;
-  gap: 10px;
+  grid-template-columns: 1.18fr repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--muted);
   --f7-button-height: 34px;
   --f7-button-border-radius: 999px;
-  --f7-button-font-size: 14px;
+  --f7-button-font-size: 13px;
   --f7-button-font-weight: 500;
   .button {
     display: inline-flex;
-    flex: 0 0 auto;
-    width: auto;
-    min-width: max-content;
-    gap: 8px;
-    padding-inline: 18px;
-    border: 1px solid var(--border) !important;
+    width: 100%;
+    min-width: 0;
+    gap: 5px;
+    padding-inline: 4px;
+    border: 1px solid transparent !important;
     border-radius: 999px !important;
     border-width: 1px !important;
-    color: var(--foreground);
+    color: var(--muted-foreground);
+    background: transparent !important;
   }
   .button-active {
-    border-color: var(--color-hours, var(--chart-2)) !important;
-    color: var(--color-hours, var(--chart-2));
-    background: color-mix(in srgb, var(--chart-2) 9%, transparent);
+    border-color: transparent !important;
+    color: var(--primary) !important;
+    background: var(--card) !important;
+    box-shadow: 0 1px 3px rgb(15 23 42 / 12%);
   }
 }
 
@@ -810,20 +816,24 @@
 .training-history-summary {
   padding-top: 12px;
   h2 {
-    margin: 0 0 12px;
-    font-size: 16px;
-    line-height: 22px;
-    font-weight: 500;
-    letter-spacing: normal;
+    margin: 0 0 11px;
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
   }
 }
 
 .training-history-totals {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 0;
   div {
     min-width: 0;
+  }
+  div + div {
+    padding-left: 10px;
+    border-left: 1px solid var(--border);
   }
   span,
   strong {
@@ -831,23 +841,24 @@
   }
   span {
     color: var(--muted-foreground);
-    font-size: 12px;
-    line-height: 16px;
+    font-size: 11px;
+    line-height: 15px;
+    letter-spacing: 0.015em;
   }
   strong {
-    margin-top: 4px;
+    margin-top: 3px;
     overflow: hidden;
-    font-size: 18px;
-    line-height: 28px;
+    font-size: 19px;
+    line-height: 26px;
     font-weight: 600;
-    letter-spacing: normal;
+    letter-spacing: -0.02em;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 }
 
 .training-history-chart {
-  padding-top: 16px;
+  padding-top: 18px;
   padding-bottom: 12px;
   .training-history-chart-heading {
     display: flex;
@@ -875,15 +886,43 @@
 
 @media (width >= 48rem) {
   .training-history-filter-scroll {
-    padding: 18px 18px 0;
+    padding: 0 18px;
+  }
+  .training-history-filters {
+    width: min(480px, 100%);
+    min-width: 0;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    --f7-button-height: 36px;
+    .button {
+      display: inline-flex;
+      height: 36px;
+      min-height: 36px;
+      align-items: center;
+      justify-content: center !important;
+      gap: 5px;
+      padding: 4px 10px;
+      > svg {
+        position: static;
+        flex: 0 0 auto;
+      }
+      > span {
+        flex: 0 1 auto;
+        text-align: left;
+      }
+    }
   }
   .training-history-summary,
   .training-history-chart {
     padding-inline: 16px;
   }
+  .training-history-summary {
+    padding-top: 18px;
+  }
   .training-history-totals {
     max-width: 680px;
-    gap: 36px;
+  }
+  .training-history-totals div + div {
+    padding-left: 18px;
   }
   .training-history-chart {
     padding-top: 24px;

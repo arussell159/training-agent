@@ -220,7 +220,7 @@ function MobileWorkoutRow({
     <button
       type="button"
       onClick={onOpen}
-      className={`flex min-h-24 w-full items-stretch gap-3 overflow-hidden px-1 py-3 text-left transition-colors md:hidden ${mobileGradeStyles[grade]} ${showDivider ? "border-b border-border/70" : ""}`}
+      className={`flex min-h-24 w-full items-stretch gap-3 overflow-hidden px-1 py-3 text-left transition-colors md:hidden ${mobileGradeStyles[grade]} ${workout.status === "completed" ? "mb-1 rounded-md" : ""} ${showDivider && workout.status !== "completed" ? "border-b border-border/70" : ""}`}
       aria-label={`Open ${workout.title}`}
     >
       <span
@@ -1337,22 +1337,25 @@ export function TrainingCalendar({
     calendarWasDragged.current = true
     setDatePickerOpen(false)
     const scrollToToday = () => {
+      setActiveWeekKey(target)
       if (!isMobile) {
         scrollToWeek(target, "instant")
         return
       }
       const element = calendarRef.current?.querySelector(
         `[data-calendar-date="${dateKey(new Date())}"]`
-      )
+      ) || weekRefs.current.get(target)
       if (!element) return
       window.scrollTo({
-        top: Math.max(0, window.scrollY + element.getBoundingClientRect().top),
+        top: Math.max(
+          0,
+          window.scrollY + element.getBoundingClientRect().top - 56
+        ),
         behavior: "instant",
       })
-      setActiveWeekKey(target)
     }
     scrollToToday()
-    requestAnimationFrame(scrollToToday)
+    requestAnimationFrame(() => requestAnimationFrame(scrollToToday))
   }, [isMobile, scrollToWeek])
 
   useEffect(() => {

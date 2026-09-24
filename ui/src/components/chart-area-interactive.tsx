@@ -1,7 +1,14 @@
 import { useMemo, useState, type ComponentType } from "react"
 import type { PointerEvent as ReactPointerEvent } from "react"
 import { Activity, Bike, Footprints, Waves } from "lucide-react"
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 import { Button as F7Button } from "framework7-react"
 import { Card, CardContent } from "@/components/ui/card"
 // @ts-expect-error Shared browser/server helper is plain JavaScript by design.
@@ -9,6 +16,7 @@ import { completedActivityKey, completedActivityValues } from "../../../app-back
 
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart"
 import { MobileSelect } from "@/components/ui/mobile-native-controls"
+import { useIsMobile } from "@/hooks/use-mobile"
 import {
   Select,
   SelectContent,
@@ -173,6 +181,7 @@ export function ChartAreaInteractive({
 }: {
   context: TrainingContext
 }) {
+  const isMobile = useIsMobile()
   const [sport, setSport] = useState<SportFilter>("all")
   const [historyMetric, setHistoryMetric] = useState<HistoryMetric>("time")
   const [inspectIndex, setInspectIndex] = useState<number | null>(null)
@@ -240,7 +249,7 @@ export function ChartAreaInteractive({
           <h2>This week</h2>
           <div className="training-history-totals">
             <div>
-              <span>Time</span>
+              <span>Duration</span>
               <strong>{formatHours(totals.hours)}</strong>
             </div>
             <div>
@@ -302,18 +311,22 @@ export function ChartAreaInteractive({
           <div
             className="relative touch-pan-y select-none"
             onPointerDown={(event) => {
+              if (!isMobile) return
               event.currentTarget.setPointerCapture(event.pointerId)
               inspectHistory(event)
             }}
             onPointerMove={(event) => {
-              if (event.buttons) inspectHistory(event)
+              if (isMobile && event.buttons) inspectHistory(event)
             }}
             onPointerUp={(event) => {
+              if (!isMobile) return
               if (event.currentTarget.hasPointerCapture(event.pointerId))
                 event.currentTarget.releasePointerCapture(event.pointerId)
               setInspectIndex(null)
             }}
-            onPointerCancel={() => setInspectIndex(null)}
+            onPointerCancel={() => {
+              if (isMobile) setInspectIndex(null)
+            }}
           >
             {inspectIndex != null && chartHistory[inspectIndex] && (
               <div className="pointer-events-none absolute top-4 right-[52px] bottom-8 left-1 z-10">
@@ -405,6 +418,39 @@ export function ChartAreaInteractive({
                       : `${amount.toFixed(amount < 10 ? 1 : 0)}h`
                   }}
                 />
+                {!isMobile && (
+                  <RechartsTooltip
+                    cursor={{
+                      stroke: "var(--border)",
+                      strokeDasharray: "3 3",
+                    }}
+                    isAnimationActive={false}
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null
+                      const value = Number(payload[0]?.value ?? 0)
+                      const weekDate = new Date(`${String(label)}T12:00:00Z`)
+                      const weekLabel = Number.isNaN(weekDate.getTime())
+                        ? String(label)
+                        : `Week of ${weekDate.toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            timeZone: "UTC",
+                          })}`
+                      return (
+                        <div className="pointer-events-none min-w-28 rounded-lg border border-border/60 bg-background px-3 py-2 shadow-lg">
+                          <div className="text-xs text-muted-foreground">
+                            {weekLabel}
+                          </div>
+                          <div className="mt-1 text-sm font-semibold text-foreground tabular-nums">
+                            {historyMetric === "time"
+                              ? formatHours(value)
+                              : formatChartDistance(value, sport)}
+                          </div>
+                        </div>
+                      )
+                    }}
+                  />
+                )}
                 <Area
                   dataKey="value"
                   type="linear"
