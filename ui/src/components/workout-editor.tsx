@@ -135,6 +135,7 @@ import {
 } from "../../../app-backend/lib/workout-editor-zones.mjs"
 import { DurationField, PaceField } from "@/components/workout-duration-field"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { MobilePullToRefresh } from "@/components/ui/mobile-pull-to-refresh"
 import { confirmWithFramework7 } from "@/lib/framework7-confirm"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
@@ -2895,7 +2896,7 @@ function EditorWorkspace({
               </Action>
             </div>
           </header>
-          <div className="we-scroll">
+          <MobilePullToRefresh className="we-scroll">
             {recovered && (
               <div className="we-notice">
                 <p>
@@ -3323,7 +3324,7 @@ function EditorWorkspace({
                 {validation.join(". ")}
               </p>
             )}
-          </div>
+          </MobilePullToRefresh>
           <footer className="we-footer">
             <div className="min-w-0 flex-1" aria-live="polite">
               <p
