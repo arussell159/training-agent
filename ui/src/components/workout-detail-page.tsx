@@ -595,7 +595,7 @@ export function WorkoutDetailPage({
 
       {workout.status === "completed" && (
       <div className="hidden min-h-svh min-w-0 flex-col md:flex">
-        <header className="sticky top-0 z-[1000] flex min-h-16 shrink-0 items-center gap-3 border-b bg-background/95 px-5 py-2 shadow-sm backdrop-blur">
+        <header className="sticky top-0 z-[1000] flex min-h-12 shrink-0 items-center gap-3 border-b bg-background/95 px-5 py-1.5 backdrop-blur">
           <Button
             type="button"
             variant="ghost"
@@ -607,25 +607,7 @@ export function WorkoutDetailPage({
             <ArrowLeft className="size-4" />
             Calendar
           </Button>
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
-            <SportIcon sport={workout.sport} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-base font-semibold">{workout.title}</h1>
-              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
-                {statusLabel}
-              </span>
-            </div>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {formatWorkoutDate(workout)}
-              {formatWorkoutTime(workout) && (
-                <span className="ml-2 tabular-nums">
-                  · {formatWorkoutTime(workout)}
-                </span>
-              )}
-            </p>
-          </div>
+          <div className="min-w-0 flex-1" />
           {editable && (
             <Button type="button" size="sm" onClick={() => openEditor()}>
               <Pencil className="size-4" />

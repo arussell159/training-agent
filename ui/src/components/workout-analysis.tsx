@@ -29,6 +29,17 @@ const clock = (seconds:number) => {
 }
 const effortLabel=(seconds:number)=>seconds<60?`${seconds} secs`:seconds<3600?`${seconds/60} min${seconds===60?"":"s"}`:`${seconds/3600} hour${seconds===3600?"":"s"}`
 const pace=(seconds:number)=>seconds>0&&Number.isFinite(seconds)?clock(seconds):"—"
+const workoutDate=(workout:PlannedWorkout)=>{
+  const value=workout.workout_date||workout.date
+  const date=new Date(`${value}T12:00:00`)
+  return Number.isNaN(date.getTime())?value:date.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})
+}
+const workoutTime=(workout:PlannedWorkout)=>{
+  const value=workout.recorded_start_local||workout.scheduled_start_at
+  if(!value)return null
+  const date=new Date(value)
+  return Number.isNaN(date.getTime())?null:date.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})
+}
 
 function rangeStatistics(points:Point[],start:number,end:number){
   const averages=segmentStatistics(points,start,end)
@@ -191,8 +202,14 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
     <section aria-label="Recorded workout analysis" className="workout-analysis-desktop hidden min-w-0 space-y-3 md:block">
       <section className={`grid overflow-hidden rounded-xl border bg-card ${routePoints.length>1?"lg:grid-cols-2":"grid-cols-1"}`} aria-label="Workout overview">
         {routePoints.length>1&&<div className="min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} timedPoints={routePoints} compact/></div>}
-        <div className="flex min-h-[240px] min-w-0 flex-col p-4">
-          <div className="grid grid-cols-4 border-b pb-3">{overviewPrimary.map(metric=><div key={metric.label} className="min-w-0 pr-3 last:pr-0"><p className="truncate text-2xl font-normal leading-none tabular-nums">{metric.value}</p><p className="mt-1 truncate text-[10px] font-normal text-muted-foreground">{metric.label}</p></div>)}</div>
+        <div className="flex min-h-[300px] min-w-0 flex-col p-4">
+          <div className="border-b pb-3">
+            <h2 className="truncate text-base font-semibold">{workout.title}</h2>
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+              <span>{workout.sport}</span><span aria-hidden="true">·</span><span>Completed</span><span aria-hidden="true">·</span><span>{workoutDate(workout)}</span>{workoutTime(workout)&&<><span aria-hidden="true">·</span><span className="tabular-nums">{workoutTime(workout)}</span></>}
+            </div>
+          </div>
+          <div className="grid grid-cols-4 border-b py-3">{overviewPrimary.map(metric=><div key={metric.label} className="min-w-0 pr-3 last:pr-0"><p className="truncate text-2xl font-normal leading-none tabular-nums">{metric.value}</p><p className="mt-1 truncate text-[10px] font-normal text-muted-foreground">{metric.label}</p></div>)}</div>
           <dl className="grid grid-cols-2 gap-x-8 border-b py-2.5 text-xs">{overviewDetails.map(metric=><div key={metric.label} className="flex min-w-0 items-center justify-between gap-3 py-0.5"><dt>{metric.label}</dt><dd className="truncate font-medium tabular-nums">{metric.value??"—"}</dd></div>)}</dl>
           {overviewConditions.length>0&&<div className="grid grid-cols-[36px_minmax(0,1fr)] items-center gap-2 border-b py-2.5"><Sun className="size-7 stroke-[1.5]" aria-hidden="true"/><div><p className="text-xs">Recorded conditions</p><dl className="mt-0.5 grid grid-cols-2 gap-x-8 text-xs">{overviewConditions.map(metric=><div key={metric.label} className="flex justify-between gap-3"><dt>{metric.label}</dt><dd className="tabular-nums">{metric.value}</dd></div>)}</dl></div></div>}
           {workout.device_name&&<div className="mt-auto pt-3 text-xs">{workout.device_name}</div>}

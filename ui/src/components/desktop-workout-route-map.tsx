@@ -22,6 +22,6 @@ export function DesktopWorkoutRouteMap({workout,timedPoints,compact=false}:{work
   return()=>controller.abort()
  },[id,revision,validTimed.length])
  const route=useMemo(()=>validTimed.length>1?validTimed:fallback.map(([latitude,longitude],time)=>({time,latitude,longitude})),[validTimed,fallback])
- if(route.length<2)return <div className={`flex items-center justify-center bg-muted/25 text-xs text-muted-foreground ${compact?'h-[240px]':'h-[320px]'}`}>Loading route…</div>
- return <MapboxRouteMap points={route} className={`relative isolate z-0 min-w-0 overflow-hidden bg-[#eef2ed] ${compact?'h-[240px]':'h-[320px]'}`}/>
+ if(route.length<2)return <div className={`flex items-center justify-center bg-muted/25 text-xs text-muted-foreground ${compact?'h-[300px] lg:h-full lg:min-h-[300px]':'h-[320px]'}`}>Loading route…</div>
+ return <MapboxRouteMap points={route} className={`relative isolate z-0 min-w-0 overflow-hidden bg-[#eef2ed] ${compact?'h-[300px] lg:h-full lg:min-h-[300px]':'h-[320px]'}`}/>
 }
