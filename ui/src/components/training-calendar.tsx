@@ -8,7 +8,6 @@ import {
   type CompletionGrade,
 } from "@/lib/workout-completion"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
-import { MobilePullToRefresh } from "@/components/ui/mobile-pull-to-refresh"
 import { MobileActionMenu } from "@/components/ui/mobile-native-controls"
 import { WorkoutProfile } from "@/components/workout-profile"
 import { WorkoutSummary } from "@/components/workout-summary"
@@ -1536,11 +1535,6 @@ export function TrainingCalendar({
           }
           showMenu={!datePickerOpen}
         />
-        <MobilePullToRefresh
-          enabled={isMobile && !datePickerOpen}
-          disableWhenWindowScrolled
-          className="mobile-calendar-pull-area"
-        >
         {isMobile && datePickerOpen && (
           <div className="mobile-calendar-picker-layer">
             <div
@@ -1771,7 +1765,6 @@ export function TrainingCalendar({
             </div>
           </div>
         </div>
-        </MobilePullToRefresh>
         {newWorkoutDate && (
           <WorkoutEditor
             date={newWorkoutDate}

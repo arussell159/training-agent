@@ -1,7 +1,6 @@
 import { apiFetch } from "@/lib/api-client"
 import { AccountSecurity } from "@/components/app-auth"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
-import { MobilePullToRefresh } from "@/components/ui/mobile-pull-to-refresh"
 import { useEffect, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import {
@@ -307,7 +306,7 @@ export function SettingsWorkspace() {
           backLabel="Back to settings menu"
           onBack={mobileSection ? () => { setMobileSection(null); setFeedback("") } : undefined}
         />
-        <MobilePullToRefresh className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
           {mobileSection ? renderPanel(mobileSection) : (
             <div className="space-y-5">
               {groups.map((group) => (
@@ -322,7 +321,7 @@ export function SettingsWorkspace() {
               ))}
             </div>
           )}
-        </MobilePullToRefresh>
+        </div>
       </div>
 
       <div className="hidden min-h-0 flex-1 overflow-y-auto md:block">

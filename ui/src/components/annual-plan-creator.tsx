@@ -13,7 +13,6 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
-import { MobilePullToRefresh } from "@/components/ui/mobile-pull-to-refresh"
 import { MobileSelect, MobileDatePicker } from "@/components/ui/mobile-native-controls"
 import { Calendar } from "@/components/ui/calendar"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -587,7 +586,7 @@ export function AnnualPlanCreator() {
           <div className="flex items-center justify-end gap-4 border-b px-4 py-1.5 text-[11px] text-muted-foreground"><span className="flex items-center gap-1.5"><span className="size-2.5 bg-slate-300 dark:bg-slate-600" /> Planned</span><span>Completed · period color</span></div>
           <SeasonChart plan={plan} actuals={actuals} selectedWeek={activeWeekId} onSelect={selectWeek} />
         </section>
-        <MobilePullToRefresh ref={tableScrollerRef} className="flex min-h-0 flex-1 flex-col overflow-auto">
+        <section ref={tableScrollerRef} className="min-h-0 flex-1 overflow-auto">
           <table className="w-full min-w-[980px] border-collapse text-xs">
             <thead className="sticky top-0 z-20 bg-slate-100 text-left text-slate-600 shadow-[0_1px_0_rgba(15,23,42,.35)] dark:bg-muted dark:text-muted-foreground"><tr><th className="w-[15%] px-2 py-1.5 font-medium">Week</th><th className="w-[22%] px-2 py-1.5 font-medium">Event</th><th className="w-[15%] px-2 py-1.5 font-medium">Period</th><th className="w-[10%] px-2 py-1.5 font-medium">Hours</th><th className="w-[10%] px-2 py-1.5 font-medium">Completed</th><th className="w-[28%] min-w-96 px-2 py-1.5 font-medium">Details</th></tr></thead>
             <tbody>
@@ -612,7 +611,7 @@ export function AnnualPlanCreator() {
               })}
             </tbody>
           </table>
-        </MobilePullToRefresh>
+        </section>
       </> : <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center"><div className="max-w-sm space-y-3"><CalendarDays className="mx-auto size-8 text-muted-foreground" /><h2 className="text-lg font-semibold">Create your rolling training plan</h2><p className="text-sm text-muted-foreground">Start with the six months around today, then edit hours, periods, races and notes directly in the weekly grid.</p><Button onClick={() => { setPlanSubmitError(null); setPlanDialogInitial(defaultSettings(context)); setPlanDialogOpen(true) }}><Plus />Create plan</Button></div></div>}
 
       <PlanDialog open={planDialogOpen} onOpenChange={(open) => { setPlanDialogOpen(open); if (!open) setPlanSubmitError(null) }} initial={planDialogInitial} busy={busy} submitError={planSubmitError} onSubmit={(settings) => void submitPlanSettings(settings)} />

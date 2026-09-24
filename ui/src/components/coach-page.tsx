@@ -27,7 +27,6 @@ import { ChevronDown, ChevronRight, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
-import { MobilePullToRefresh } from "@/components/ui/mobile-pull-to-refresh"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { coachRequest } from "@/lib/coach-client"
 
@@ -151,7 +150,7 @@ export function CoachPage() {
           {filters}
         </Subnavbar>
       </MobileSiteNavbar>
-      <MobilePullToRefresh className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <div className="coach-report-content mx-auto w-full px-4 py-5 md:px-6 md:py-6">
           <div
             role="group"
@@ -306,7 +305,7 @@ export function CoachPage() {
             </div>
           )}
         </div>
-      </MobilePullToRefresh>
+      </div>
       {!mobile && (
         <Dialog
           open={Boolean(openReportId)}

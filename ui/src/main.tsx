@@ -9,7 +9,6 @@ import Actions from "framework7/components/actions"
 import Calendar from "framework7/components/calendar"
 import Dialog from "framework7/components/dialog"
 import Sortable from "framework7/components/sortable"
-import PullToRefresh from "framework7/components/pull-to-refresh"
 import Framework7React, { App as Framework7App } from "framework7-react"
 
 import "./index.css"
@@ -31,7 +30,6 @@ Framework7.use([
   Calendar,
   Dialog,
   Sortable,
-  PullToRefresh,
 ])
 
 // Keep gestures as scrolling/inspection rather than changing the app scale.
