@@ -60,13 +60,17 @@ function allSessions(context: TrainingContext) {
     const current = sessions.get(key)
     if (!current || workout.id.startsWith("event:")) sessions.set(key, workout)
   }
-  return [...sessions.values()].sort((a, b) =>
-    String(
+  const primarySport = (sport: string) =>
+    /swim|bike|ride|brick|run/i.test(sport) ? 0 : 1
+  return [...sessions.values()].sort((a, b) => {
+    const priority = primarySport(a.sport) - primarySport(b.sport)
+    if (priority) return priority
+    return String(
       a.scheduled_start_at || a.recorded_start_local || a.title
     ).localeCompare(
       String(b.scheduled_start_at || b.recorded_start_local || b.title)
     )
-  )
+  })
 }
 
 function selectedDayLabel(day: string, today: string) {

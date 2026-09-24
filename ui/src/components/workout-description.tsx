@@ -120,7 +120,7 @@ export function WorkoutDescription({
               value={draft}
               disabled={busy}
               onChange={(e) => setDraft(e.target.value)}
-              className="box-border min-h-[22rem] w-full max-w-full resize-y rounded-xl border bg-background p-3 text-[1.0625rem] leading-7 md:min-h-64 md:text-sm md:leading-6"
+              className="mobile-workout-description-chatgpt-type box-border min-h-[22rem] w-full max-w-full resize-y rounded-xl border bg-background p-3 text-base leading-6 tracking-normal md:min-h-64 md:text-sm md:leading-6"
             />
             <div className="grid w-full min-w-0 grid-cols-2 gap-2">
               <Button
@@ -146,7 +146,7 @@ export function WorkoutDescription({
           </>
         ) : (
           <p
-            className={`whitespace-pre-wrap text-foreground ${mobileCompact ? "text-base leading-6" : "text-[1.0625rem] leading-7 md:text-sm md:leading-6"}`}
+            className={`mobile-workout-description-chatgpt-type whitespace-pre-wrap text-foreground ${mobileCompact ? "text-base leading-6" : "text-[1.0625rem] leading-7 md:text-sm md:leading-6"}`}
           >
             {saved}
           </p>
