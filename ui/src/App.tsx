@@ -189,12 +189,10 @@ function AppWorkspace() {
   const [calendarNavigationVersion, setCalendarNavigationVersion] = useState(0)
   const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(
     () =>
-      window.matchMedia("(max-width: 767px)").matches
-        ? restoreOpenWorkout([
-            ...cachedTrainingContext().planned,
-            ...cachedTrainingContext().history,
-          ])
-        : null
+      restoreOpenWorkout([
+        ...cachedTrainingContext().planned,
+        ...cachedTrainingContext().history,
+      ])
   )
   const [refreshRequest, setRefreshRequest] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -214,12 +212,10 @@ function AppWorkspace() {
     const handlePopState = () => {
       setSelectedReport(restoreReportReader())
       setSelectedWorkout(
-        window.matchMedia("(max-width: 767px)").matches
-          ? restoreOpenWorkout([
-              ...cachedTrainingContext().planned,
-              ...cachedTrainingContext().history,
-            ])
-          : null
+        restoreOpenWorkout([
+          ...cachedTrainingContext().planned,
+          ...cachedTrainingContext().history,
+        ])
       )
       setActiveItem(routeItem())
       setNavigationItem(routeItem())

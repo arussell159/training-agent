@@ -181,7 +181,7 @@ test("version 5 archives rebuild swim splits from their original FIT without a p
     "i1",
     "analysis"
   );
-  assert.equal(analysis.version, 6);
+  assert.equal(analysis.version, 7);
   assert.deepEqual(
     swimSplits(analysis).map((s) => s.pace),
     [91, 100]

@@ -2219,11 +2219,13 @@ export function WorkoutEditorMenu({
 export function WorkoutEditor({
   workout,
   date,
+  initialFocusId,
   onClose,
   onSaved,
 }: {
   workout?: PlannedWorkout
   date?: string
+  initialFocusId?: string
   onClose: () => void
   onSaved?: (w: PlannedWorkout) => void
 }) {
@@ -2257,6 +2259,7 @@ export function WorkoutEditor({
         key={editorId + ":" + reloadKey}
         loaded={loaded}
         workoutId={editorId}
+        initialFocusId={initialFocusId}
         onClose={onClose}
         onSaved={onSaved}
         onReload={() => {
@@ -2319,12 +2322,14 @@ export function useEditedWorkout<T extends PlannedWorkout | null>(
 function EditorWorkspace({
   loaded,
   workoutId,
+  initialFocusId,
   onClose,
   onSaved,
   onReload,
 }: {
   loaded: Loaded
   workoutId: string
+  initialFocusId?: string
   onClose: () => void
   onSaved?: (w: PlannedWorkout) => void
   onReload: () => void
@@ -2343,6 +2348,16 @@ function EditorWorkspace({
   const [baseline, setBaseline] = useState(JSON.stringify(loaded.model)),
     [revision, setRevision] = useState(loaded.revision)
   const [selected, setSelected] = useState<string[]>([])
+  useEffect(() => {
+    if (!initialFocusId || !findNode(loaded.model.steps, initialFocusId)) return
+    setSelected([initialFocusId])
+    const frame = window.requestAnimationFrame(() => {
+      document
+        .getElementById(`editor-step-${initialFocusId}`)
+        ?.scrollIntoView({ block: "center" })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [initialFocusId, loaded.model.steps])
   const [discardOpen, setDiscardOpen] = useState(false),
     [reloadOpen, setReloadOpen] = useState(false)
   const [status, setStatus] = useState<

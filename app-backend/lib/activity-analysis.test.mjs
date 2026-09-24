@@ -52,10 +52,32 @@ test("analysis keeps zero watts, gaps, elevation, GPS and real sample times; lap
   assert.equal(result.points[2].elevation, null);
   assert.deepEqual([result.points[0].latitude, result.points[0].longitude], [30, -97]);
   assert.equal(result.points[2].latitude, null);
-  assert.equal(result.version, 6);
+  assert.equal(result.version, 7);
   assert.equal(result.laps[0].start, 2);
   assert.equal(result.laps[0].end, 5);
   assert.equal(result.intervals[0].kind, "interval");
+});
+test("analysis compresses pauses and uses moving time for every chart boundary", () => {
+  const result = normalizeAnalysis(
+    {
+      id: "i2",
+      moving_time: 5,
+      start_date: "2026-09-14T12:00:00Z",
+      icu_intervals: [{ start_time: 1, end_time: 12, type: "WORK" }],
+    },
+    [
+      { type: "time", data: [0, 1, 2, 12, 13, 14] },
+      { type: "watts", data: [100, 110, 120, 130, 140, 150] },
+    ]
+  );
+  assert.equal(result.duration, 5);
+  assert.equal(result.points.at(-1).time, 5);
+  assert.deepEqual(
+    result.points.map((point) => point.time),
+    [0, 1, 2, 3, 4, 5]
+  );
+  assert.equal(result.intervals[0].start, 1);
+  assert.equal(result.intervals[0].end, 3);
 });
 test("reads recorded FIT lap fields from gzipped binary", () => {
   const payload = Buffer.from([

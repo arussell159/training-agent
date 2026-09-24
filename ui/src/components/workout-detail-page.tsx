@@ -19,11 +19,24 @@ const WorkoutAnalysis = lazy(() =>
 )
 import { WorkoutProfile } from "@/components/workout-profile"
 import { WorkoutSummary } from "@/components/workout-summary"
-import { WorkoutMapSplits } from "@/components/workout-map-splits"
 import { WorkoutRouteMap } from "@/components/workout-route-map"
 import { TrainingZonesDisplay } from "@/components/training-zones-display"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
-import { ArrowLeft, Bike, Dumbbell, Footprints, Trash2, Waves } from "lucide-react"
+import {
+  workoutStepLabel,
+  type WorkoutStep,
+} from "@/lib/workout-structure"
+import {
+  ArrowLeft,
+  Bike,
+  ChevronRight,
+  Dumbbell,
+  Footprints,
+  Pencil,
+  Repeat2,
+  Trash2,
+  Waves,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -44,6 +57,13 @@ import {
   loadTrainingContext,
   type PlannedWorkout,
 } from "@/lib/training-context"
+import {
+  roleNames,
+  stepLabel,
+  workoutTotals,
+  type WorkoutModel,
+  type WorkoutNode,
+} from "../../../app-backend/lib/workout-editor-model.mjs"
 
 
 function SportIcon({ sport }: { sport: string }) {
@@ -77,6 +97,263 @@ function formatWorkoutTime(workout: PlannedWorkout) {
     : date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
 }
 
+function structureDuration(seconds: number) {
+  const rounded = Math.max(0, Math.round(seconds))
+  const hours = Math.floor(rounded / 3600)
+  const minutes = Math.floor((rounded % 3600) / 60)
+  const remainder = rounded % 60
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
+    : `${minutes}:${String(remainder).padStart(2, "0")}`
+}
+
+function repeatSummary(node: Extract<WorkoutNode, { kind: "repeat" }>, model: WorkoutModel) {
+  const totals = workoutTotals({ ...model, steps: [node] })
+  const distance = totals.distance
+    ? `${(
+        totals.distance / (/swim/i.test(model.sport) ? 0.9144 : 1609.344)
+      ).toLocaleString("en-US", {
+        maximumFractionDigits: /swim/i.test(model.sport) ? 0 : 2,
+      })} ${/swim/i.test(model.sport) ? "yd" : "mi"}`
+    : null
+  return [structureDuration(totals.seconds), distance].filter(Boolean).join(" · ")
+}
+
+function WorkoutStructureNode({
+  node,
+  model,
+  depth,
+  onEdit,
+}: {
+  node: WorkoutNode
+  model: WorkoutModel
+  depth: number
+  onEdit: (id: string) => void
+}) {
+  if (node.kind === "repeat") {
+    const recovery = [node.recovery, node.setRecovery].filter(
+      (item): item is Extract<WorkoutNode, { kind: "step" }> => Boolean(item)
+    )
+    return (
+      <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        <button
+          type="button"
+          className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          onClick={() => onEdit(node.id)}
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Repeat2 className="size-4" aria-hidden="true" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-semibold">
+              Repeat {node.repetitions}×
+              {node.sets > 1 ? ` · ${node.sets} sets` : ""}
+            </span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              {repeatSummary(node, model)}
+            </span>
+          </span>
+          <span className="hidden text-xs font-medium text-muted-foreground sm:inline">
+            Edit repeat
+          </span>
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        </button>
+        <div className="space-y-2 border-t bg-muted/15 p-3">
+          {node.steps.map((child) => (
+            <WorkoutStructureNode
+              key={child.id}
+              node={child}
+              model={model}
+              depth={depth + 1}
+              onEdit={onEdit}
+            />
+          ))}
+          {recovery.map((child) => (
+            <WorkoutStructureNode
+              key={child.id}
+              node={child}
+              model={model}
+              depth={depth + 1}
+              onEdit={onEdit}
+            />
+          ))}
+        </div>
+      </section>
+    )
+  }
+  return (
+    <button
+      type="button"
+      className="flex min-h-14 w-full items-center gap-3 rounded-xl border bg-card px-4 py-3 text-left shadow-sm transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      style={{ marginLeft: depth ? Math.min(depth, 2) * 4 : 0 }}
+      onClick={() => onEdit(node.id)}
+    >
+      <span className="h-9 w-1 shrink-0 rounded-full bg-primary/60" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="block font-semibold">{roleNames[node.role]}</span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+          {stepLabel(node)}
+        </span>
+      </span>
+      <span className="hidden text-xs font-medium text-muted-foreground sm:inline">
+        Edit interval
+      </span>
+      <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+    </button>
+  )
+}
+
+function WorkoutStructureOverview({
+  model,
+  onEdit,
+}: {
+  model: WorkoutModel
+  onEdit: (id: string) => void
+}) {
+  return (
+    <section id="workout-structure" className="rounded-xl border bg-background p-4 shadow-sm">
+      <div className="mb-4">
+        <h2 className="text-base font-semibold">Workout structure</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Open a repeat or interval to edit its prescription.
+        </p>
+      </div>
+      <div className="space-y-2">
+        {model.steps.map((node) => (
+          <WorkoutStructureNode
+            key={node.id}
+            node={node}
+            model={model}
+            depth={0}
+            onEdit={onEdit}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function legacyWorkoutSteps(value?: string | null): WorkoutStep[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    const steps = Array.isArray(parsed) ? parsed : parsed?.steps ?? parsed?.structure
+    return Array.isArray(steps) ? steps : []
+  } catch {
+    return []
+  }
+}
+
+function LegacyStructureNode({
+  step,
+  sport,
+  path,
+  onEdit,
+}: {
+  step: WorkoutStep
+  sport: string
+  path: string
+  onEdit: () => void
+}) {
+  if (step.steps?.length) {
+    const repetitions = Math.max(1, Number(step.reps || 1))
+    return (
+      <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        <button
+          type="button"
+          className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          onClick={onEdit}
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Repeat2 className="size-4" aria-hidden="true" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-semibold">Repeat {repetitions}×</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              {step.steps.length} interval{step.steps.length === 1 ? "" : "s"} per repeat
+            </span>
+          </span>
+          <span className="hidden text-xs font-medium text-muted-foreground sm:inline">
+            Edit repeat
+          </span>
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        </button>
+        <div className="space-y-2 border-t bg-muted/15 p-3">
+          {step.steps.map((child, index) => (
+            <LegacyStructureNode
+              key={`${path}.${index}`}
+              step={child}
+              sport={sport}
+              path={`${path}.${index}`}
+              onEdit={onEdit}
+            />
+          ))}
+        </div>
+      </section>
+    )
+  }
+  const role =
+    step.intensity === "rest"
+      ? "Rest"
+      : step.text?.trim() ||
+        (step.intensity
+          ? `${step.intensity.charAt(0).toUpperCase()}${step.intensity.slice(1)}`
+          : "Interval")
+  return (
+    <button
+      type="button"
+      className="flex min-h-14 w-full items-center gap-3 rounded-xl border bg-card px-4 py-3 text-left shadow-sm transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onEdit}
+    >
+      <span className="h-9 w-1 shrink-0 rounded-full bg-primary/60" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="block font-semibold">{role}</span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+          {workoutStepLabel(step, sport)}
+        </span>
+      </span>
+      <span className="hidden text-xs font-medium text-muted-foreground sm:inline">
+        Edit interval
+      </span>
+      <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+    </button>
+  )
+}
+
+function LegacyWorkoutStructureOverview({
+  structure,
+  sport,
+  onEdit,
+}: {
+  structure?: string | null
+  sport: string
+  onEdit: () => void
+}) {
+  const steps = legacyWorkoutSteps(structure)
+  if (!steps.length) return null
+  return (
+    <section id="workout-structure" className="rounded-xl border bg-background p-4 shadow-sm">
+      <div className="mb-4">
+        <h2 className="text-base font-semibold">Workout structure</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Open any repeat or interval to edit the full prescription.
+        </p>
+      </div>
+      <div className="space-y-2">
+        {steps.map((step, index) => (
+          <LegacyStructureNode
+            key={index}
+            step={step}
+            sport={sport}
+            path={String(index)}
+            onEdit={onEdit}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export function WorkoutDetailPage({
   workout: initialWorkout,
   onBack,
@@ -89,6 +366,7 @@ export function WorkoutDetailPage({
   const editable = canEditWorkout(workout)
   const library = workout.id.startsWith("library:")
   const [editorOpen, setEditorOpen] = useState(false)
+  const [editorFocusId, setEditorFocusId] = useState<string | undefined>()
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState("")
@@ -219,7 +497,10 @@ export function WorkoutDetailPage({
           value: "edit",
           label: "Edit workout",
           disabled: deleting,
-          onSelect: () => setEditorOpen(true),
+          onSelect: () => {
+            setEditorFocusId(undefined)
+            setEditorOpen(true)
+          },
         },
         {
           value: "delete",
@@ -248,10 +529,17 @@ export function WorkoutDetailPage({
     }
   }
 
+  const openEditor = (focusId?: string) => {
+    if (!editable) return
+    setEditorFocusId(focusId)
+    setEditorOpen(true)
+  }
+
   return (
     <div className="min-h-svh w-full min-w-0 max-w-full overflow-x-clip bg-background">
       <MobileSiteNavbar
         fixed
+        className={workout.status === "completed" && !swim ? "workout-map-navbar" : undefined}
         onBack={onBack}
         title={
           swim
@@ -265,7 +553,14 @@ export function WorkoutDetailPage({
         actions={workoutActions}
       />
       {editorOpen && editable && (
-        <WorkoutEditor workout={workout} onClose={() => setEditorOpen(false)} />
+        <WorkoutEditor
+          workout={workout}
+          initialFocusId={editorFocusId}
+          onClose={() => {
+            setEditorOpen(false)
+            setEditorFocusId(undefined)
+          }}
+        />
       )}
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
@@ -298,81 +593,312 @@ export function WorkoutDetailPage({
         </AlertDialogContent>
       </AlertDialog>
 
-      {workout.status === "completed" && !swim && (
-        <div className="workout-mobile-map sticky top-0 z-0 transform-gpu will-change-transform md:hidden">
-          <WorkoutRouteMap
-            workout={workout}
-            onAvailable={setMobileMapAvailable}
-            topPadding={56}
-          />
-        </div>
-      )}
-
-      <div className="mx-auto hidden w-full max-w-5xl px-6 pt-5 md:block">
-        <div className="mb-4 flex min-h-10 flex-wrap items-center gap-2 text-sm">
+      {workout.status === "completed" && (
+      <div className="hidden min-h-svh min-w-0 flex-col md:flex">
+        <header className="sticky top-0 z-[1000] flex min-h-16 shrink-0 items-center gap-3 border-b bg-background/95 px-5 py-2 shadow-sm backdrop-blur">
           <Button
             type="button"
             variant="ghost"
             size="sm"
             onClick={onBack}
-            className="mr-1 rounded-lg"
-            aria-label="Back to workouts"
+            className="shrink-0 rounded-lg"
+            aria-label="Back to calendar"
           >
             <ArrowLeft className="size-4" />
-            Back
+            Calendar
           </Button>
-          <h1 className="font-semibold text-blue-600 dark:text-blue-400">
-            {formatWorkoutDate(workout)}
-            {formatWorkoutTime(workout) && (
-              <span className="ml-2 tabular-nums">
-                {formatWorkoutTime(workout)}
-              </span>
-            )}
-          </h1>
-          {!library && <WorkoutEditorMenu workout={workout} />}
-        </div>
-        <section
-          className={`rounded-xl border px-4 py-3 shadow-sm ${heroTone}`}
-          aria-label="Workout overview"
-        >
-          <h1 className="min-w-0 truncate text-base font-bold">
-            {workout.title}
-          </h1>
-          <div className="mt-3 flex flex-wrap items-center gap-x-7 gap-y-2">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
             <SportIcon sport={workout.sport} />
-            <span className="text-[1.4rem] leading-none font-semibold tabular-nums">
-              {(workout.status !== "completed" && workout.planned_time_label) ||
-                movingTime ||
-                formatDuration(durationMinutes(workout))}
-            </span>
-            <span className="text-[1.4rem] leading-none font-semibold tabular-nums">
-              {plannedDistanceLabel(workout)}
-            </span>
-            {load != null && (
-              <span className="text-[1.4rem] leading-none font-semibold tabular-nums">
-                {numeric(load)} <span className="text-xs">TSS</span>
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="truncate text-base font-semibold">{workout.title}</h1>
+              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+                {statusLabel}
               </span>
+            </div>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {formatWorkoutDate(workout)}
+              {formatWorkoutTime(workout) && (
+                <span className="ml-2 tabular-nums">
+                  · {formatWorkoutTime(workout)}
+                </span>
+              )}
+            </p>
+          </div>
+          {editable && (
+            <Button type="button" size="sm" onClick={() => openEditor()}>
+              <Pencil className="size-4" />
+              Edit workout
+            </Button>
+          )}
+        </header>
+
+        <div className="min-h-0 flex-1 bg-muted/20">
+          <div
+            className={
+              workout.status === "completed"
+                ? "mx-auto w-full max-w-[1800px] p-4 xl:p-5"
+                : "mx-auto grid w-full max-w-[1800px] grid-cols-[280px_minmax(0,1fr)] items-start gap-4 p-4 xl:grid-cols-[300px_minmax(0,1fr)] xl:p-5"
+            }
+          >
+            {workout.status !== "completed" && (
+            <aside className="sticky top-20 min-w-0 space-y-4 self-start">
+              <nav className="rounded-xl border bg-card p-2 shadow-sm" aria-label="Workout sections">
+                {[
+                  ["workout-overview", "Overview"],
+                  ["workout-structure", "Workout structure"],
+                  ["workout-details", "Details and zones"],
+                ].map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className="flex min-h-10 w-full items-center justify-between rounded-lg px-3 text-left text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() =>
+                      document.getElementById(id)?.scrollIntoView({
+                        behavior: "smooth",
+                        block: "start",
+                      })
+                    }
+                  >
+                    {label}
+                    <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
+                  </button>
+                ))}
+              </nav>
+
+              <section id="workout-overview" className="scroll-mt-24 space-y-4">
+                <div className={`rounded-xl border p-4 shadow-sm ${heroTone}`}>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                    <div>
+                      <p className="text-[10px] font-medium tracking-wide uppercase opacity-65">
+                        Duration
+                      </p>
+                      <p className="mt-1 text-xl font-bold tabular-nums">
+                        {workout.planned_time_label ||
+                          movingTime ||
+                          formatDuration(durationMinutes(workout))}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-medium tracking-wide uppercase opacity-65">
+                        Distance
+                      </p>
+                      <p className="mt-1 text-xl font-bold tabular-nums">
+                        {distanceLabel}
+                      </p>
+                    </div>
+                    {load != null && (
+                      <div>
+                        <p className="text-[10px] font-medium tracking-wide uppercase opacity-65">
+                          Training load
+                        </p>
+                        <p className="mt-1 text-base font-semibold tabular-nums">
+                          {numeric(load)} TSS
+                        </p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-[10px] font-medium tracking-wide uppercase opacity-65">
+                        Sport
+                      </p>
+                      <p className="mt-1 text-base font-semibold">{workout.sport}</p>
+                    </div>
+                  </div>
+                </div>
+                <WorkoutSummary
+                  workout={workout}
+                  showElapsed={false}
+                  embedded
+                  section="overview"
+                />
+              </section>
+
+              <section className="rounded-xl border bg-card p-4 shadow-sm">
+                <WorkoutDescription workout={workout} title="Description" />
+              </section>
+            </aside>
+            )}
+
+            <main className="min-w-0 space-y-4" aria-label="Workout details workspace">
+              {workout.status === "completed" ? (
+                <section id="workout-analysis" className="scroll-mt-24">
+                  <Suspense
+                    fallback={<div className="h-44 animate-pulse rounded-xl border bg-muted/30" />}
+                  >
+                    <WorkoutAnalysis workout={workout} />
+                  </Suspense>
+                </section>
+              ) : (
+                <>
+                  {(workout.structure || workout.editor_model) && (
+                    <section className="rounded-xl border bg-card p-4 shadow-sm">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                          <h2 className="text-base font-semibold">Workout profile</h2>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            Select an interval to open its editor.
+                          </p>
+                        </div>
+                        {editable && (
+                          <Button variant="outline" size="sm" onClick={() => openEditor()}>
+                            <Pencil className="size-4" />
+                            Edit all
+                          </Button>
+                        )}
+                      </div>
+                      <WorkoutProfile
+                        workout={workout}
+                        desktopDetail
+                        tall
+                        enableEditOnClick={editable}
+                        onEditNode={openEditor}
+                      />
+                    </section>
+                  )}
+                  {workout.editor_model ? (
+                    <WorkoutStructureOverview model={workout.editor_model} onEdit={openEditor} />
+                  ) : workout.structure ? (
+                    <LegacyWorkoutStructureOverview
+                      structure={workout.structure}
+                      sport={workout.sport}
+                      onEdit={() => openEditor()}
+                    />
+                  ) : (
+                    <section id="workout-structure" className="rounded-xl border bg-card p-5 shadow-sm">
+                      <h2 className="text-base font-semibold">Workout structure</h2>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        Open the workout editor to view and edit each interval and repeat.
+                      </p>
+                      {editable && (
+                        <Button className="mt-4" onClick={() => openEditor()}>
+                          <Pencil className="size-4" />
+                          Open workout editor
+                        </Button>
+                      )}
+                    </section>
+                  )}
+                  <section id="workout-details" className="scroll-mt-24">
+                    <TrainingZonesDisplay sport={workout.sport} zones={athleteZones} />
+                  </section>
+                </>
+              )}
+            </main>
+          </div>
+        </div>
+      </div>
+      )}
+
+      {workout.status !== "completed" && (
+        <div className="hidden md:block">
+          <div className="mx-auto w-full max-w-5xl px-6 pt-5">
+            <div className="mb-4 flex min-h-10 flex-wrap items-center gap-2 text-sm">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={onBack}
+                className="mr-1 rounded-lg"
+                aria-label="Back to workouts"
+              >
+                <ArrowLeft className="size-4" />
+                Back
+              </Button>
+              <h1 className="font-semibold text-blue-600 dark:text-blue-400">
+                {formatWorkoutDate(workout)}
+                {formatWorkoutTime(workout) && (
+                  <span className="ml-2 tabular-nums">
+                    {formatWorkoutTime(workout)}
+                  </span>
+                )}
+              </h1>
+              {!library && <WorkoutEditorMenu workout={workout} />}
+            </div>
+            <section
+              className={`rounded-xl border px-4 py-3 shadow-sm ${heroTone}`}
+              aria-label="Workout overview"
+            >
+              <h1 className="min-w-0 truncate text-base font-bold">
+                {workout.title}
+              </h1>
+              <div className="mt-3 flex flex-wrap items-center gap-x-7 gap-y-2">
+                <SportIcon sport={workout.sport} />
+                <span className="text-[1.4rem] leading-none font-semibold tabular-nums">
+                  {workout.planned_time_label ||
+                    movingTime ||
+                    formatDuration(durationMinutes(workout))}
+                </span>
+                <span className="text-[1.4rem] leading-none font-semibold tabular-nums">
+                  {plannedDistanceLabel(workout)}
+                </span>
+                {load != null && (
+                  <span className="text-[1.4rem] leading-none font-semibold tabular-nums">
+                    {numeric(load)} <span className="text-xs">TSS</span>
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-4 text-xs font-medium opacity-80">
+                <span>{workout.sport}</span>
+                <span>{statusLabel}</span>
+              </div>
+            </section>
+            {workout.structure && (
+              <div className="mt-4 overflow-hidden border bg-muted/20 px-2 pt-2">
+                <WorkoutProfile
+                  workout={workout}
+                  compact
+                  desktopDetail
+                  tall
+                  enableEditOnClick={!library}
+                />
+              </div>
             )}
           </div>
-          <div className="mt-2 flex items-center justify-between gap-4 text-xs font-medium opacity-80">
-            <span>{workout.sport}</span>
-            <span>{statusLabel}</span>
-          </div>
-        </section>
-        {workout.structure && (
-          <div className="mt-4 overflow-hidden border bg-muted/20 px-2 pt-2">
-            <WorkoutProfile
-              workout={workout}
-              compact
-              desktopDetail
-              tall={workout.status !== "completed"}
-              enableEditOnClick={!library}
-            />
-          </div>
-        )}
-      </div>
 
-      <div className="mx-auto w-full max-w-5xl px-0 md:px-6">
+          <div className="mx-auto w-full max-w-5xl px-6">
+            <WorkoutDetailSurface
+              completed={false}
+              onClose={onBack}
+              className="relative z-10 flex w-full min-w-0 flex-col gap-6 bg-background pt-5 pb-10"
+            >
+              <div className="grid items-start gap-5 lg:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)]">
+                <div className="min-w-0">
+                  <WorkoutSummary
+                    workout={workout}
+                    showElapsed={false}
+                    embedded
+                    section="overview"
+                  />
+                </div>
+                <div className="min-w-0 space-y-3">
+                  <div className="rounded-xl border bg-card p-4 shadow-sm">
+                    <WorkoutDescription workout={workout} title="Description" />
+                  </div>
+                  <WorkoutSummary
+                    workout={workout}
+                    showElapsed={false}
+                    embedded
+                    section="recorded"
+                  />
+                </div>
+              </div>
+            </WorkoutDetailSurface>
+          </div>
+        </div>
+      )}
+
+      {mobile && workout.status === "completed" && !swim && (
+        <div className="workout-mobile-map sticky top-0 z-0 transform-gpu will-change-transform md:hidden">
+          <WorkoutRouteMap
+            workout={workout}
+            onAvailable={setMobileMapAvailable}
+            topPadding={56}
+            bottomPadding={28}
+          />
+        </div>
+      )}
+
+      {mobile && <div className="mx-auto w-full max-w-5xl px-0 md:hidden">
         <WorkoutDetailSurface
           completed={workout.status === "completed"}
           onClose={onBack}
@@ -501,11 +1027,6 @@ export function WorkoutDetailPage({
               />
             </div>
           </div>
-          {workout.status === "completed" && !mobile && (
-            <div className="hidden md:block">
-              <WorkoutMapSplits workout={workout} />
-            </div>
-          )}
           <Suspense
             fallback={<div className="h-44 animate-pulse border bg-muted/30" />}
           >
@@ -521,21 +1042,12 @@ export function WorkoutDetailPage({
               >
                 <WorkoutDescription workout={workout} title="Workout Details" />
               </DetailSheetRow>
-              {(workout.structure || workout.editor_model) && (
-                <DetailSheetRow
-                  title="Workout profile"
-                  date={formatWorkoutDate(workout)}
-                  dark
-                >
-                  <WorkoutProfile workout={workout} />
-                </DetailSheetRow>
-              )}
             </div>
           )}
 
           </div>
         </WorkoutDetailSurface>
-      </div>
+      </div>}
     </div>
   )
 }

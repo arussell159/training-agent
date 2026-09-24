@@ -12,7 +12,6 @@ import { MobileActionMenu } from "@/components/ui/mobile-native-controls"
 import { WorkoutProfile } from "@/components/workout-profile"
 import { WorkoutSummary } from "@/components/workout-summary"
 import { canEditWorkout } from "@/lib/workout-permissions"
-import { WorkoutMapSplits } from "@/components/workout-map-splits"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
 import {
   forgetOpenWorkout,
@@ -55,6 +54,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  X,
 } from "lucide-react"
 import { f7ready } from "framework7-react"
 import type { Calendar as Framework7Calendar } from "framework7/types"
@@ -150,6 +150,29 @@ const gradeStyles: Record<CompletionGrade, string> = {
   failed:
     "border-red-700/65 bg-red-200 text-red-950 hover:bg-red-300 dark:border-red-700/70 dark:bg-red-950/50 dark:text-red-100",
 }
+
+const mobileGradeStyles: Record<CompletionGrade, string> = {
+  planned: "bg-background",
+  unknown: "bg-background",
+  good: "bg-green-200 text-green-950 active:bg-green-300 dark:bg-green-950/50 dark:text-green-100",
+  medium:
+    "bg-orange-200 text-orange-950 active:bg-orange-300 dark:bg-orange-950/50 dark:text-orange-100",
+  failed:
+    "bg-red-200 text-red-950 active:bg-red-300 dark:bg-red-950/50 dark:text-red-100",
+}
+
+function completionGrade(workout: PlannedWorkout): CompletionGrade {
+  if (workout.id.startsWith("activity:") && workout.status === "completed")
+    return "good"
+  return gradeWorkoutCompletion(
+    workout.status,
+    {
+      duration_minutes:
+        workout.planned?.duration_minutes ?? workout.plannedDurationMinutes,
+    },
+    { duration_minutes: completedMinutes(workout) }
+  )
+}
 function WorkoutPreview({
   workout,
   large = false,
@@ -187,6 +210,7 @@ function MobileWorkoutRow({
   onOpen: () => void
   showDivider: boolean
 }) {
+  const grade = completionGrade(workout)
   const minutes =
     workout.status === "completed" && completedMinutes(workout) > 0
       ? completedMinutes(workout)
@@ -196,7 +220,7 @@ function MobileWorkoutRow({
     <button
       type="button"
       onClick={onOpen}
-      className={`flex min-h-24 w-full items-stretch gap-3 overflow-hidden bg-background px-1 py-3 text-left transition-colors active:bg-muted/60 md:hidden ${showDivider ? "border-b border-border/70" : ""}`}
+      className={`flex min-h-24 w-full items-stretch gap-3 overflow-hidden px-1 py-3 text-left transition-colors md:hidden ${mobileGradeStyles[grade]} ${showDivider ? "border-b border-border/70" : ""}`}
       aria-label={`Open ${workout.title}`}
     >
       <span
@@ -267,28 +291,7 @@ export function WorkoutCard({
   onAction?: (action: "copy" | "delete") => void
   disabled?: boolean
 }) {
-  // Activity rows are historical records, not planned-event completions. Keep
-  // the historical archive consistently green; only a completed planned event
-  // is graded against its prescription.
-  const historical = workout.id.startsWith("activity:")
-  const grade =
-    historical && workout.status === "completed"
-      ? "good"
-      : workout.status === "completed" && workout.completion_grade
-        ? workout.completion_grade
-        : gradeWorkoutCompletion(
-            workout.status,
-            {
-              ...workout.planned,
-              duration_minutes:
-                workout.planned?.duration_minutes ??
-                workout.plannedDurationMinutes,
-            },
-            {
-              ...workout.completed_data,
-              duration_minutes: completedMinutes(workout),
-            }
-          )
+  const grade = completionGrade(workout)
   const displayedMinutes =
     workout.status === "completed" && completedMinutes(workout) > 0
       ? completedMinutes(workout)
@@ -1468,7 +1471,7 @@ export function TrainingCalendar({
     datePickerOpen && pickerMonthLabel ? pickerMonthLabel : activeMonth
 
   const openWorkout = (workout: PlannedWorkout) => {
-    if (isMobile && onWorkoutOpen) {
+    if (onWorkoutOpen) {
       onWorkoutOpen(workout)
       return
     }
@@ -1959,8 +1962,10 @@ export function WorkoutDialog({
   workout: PlannedWorkout | null
   onOpenChange: (open: boolean) => void
 }) {
+  const isMobile = useIsMobile()
   const workout = useEditedWorkout(initialWorkout)
   if (!workout) return null
+  const desktopCompleted = workout.status === "completed" && !isMobile
   const completed = completedMinutes(workout)
   const completedValues = workout.workout_summary?.completed
   const plannedValues = workout.workout_summary?.planned
@@ -1992,6 +1997,111 @@ export function WorkoutDialog({
         year: "numeric",
       })
     : workout.date
+
+  if (desktopCompleted) {
+    return (
+      <Dialog open onOpenChange={onOpenChange}>
+        <DialogContent
+          fullscreen
+          showCloseButton={false}
+          className="flex h-dvh min-h-0 flex-col gap-0 overflow-hidden bg-background p-0 ring-0"
+        >
+          <header className="relative z-20 flex h-16 shrink-0 items-center gap-3 border-b bg-background px-5 pr-24 shadow-sm">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+              <SportIcon sport={workout.sport} />
+            </span>
+            <div className="min-w-0">
+              <DialogTitle className="truncate text-base font-semibold">
+                {workout.title}
+              </DialogTitle>
+              <DialogDescription className="mt-1 truncate text-xs">
+                {date}
+                {time && <span className="ml-2 tabular-nums">{time}</span>}
+              </DialogDescription>
+            </div>
+            <div className="absolute top-3 right-3 flex items-center gap-1">
+              <WorkoutEditorMenu workout={workout} />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Close workout details"
+                onClick={() => onOpenChange(false)}
+              >
+                <X aria-hidden="true" />
+              </Button>
+            </div>
+          </header>
+
+          <div className="min-h-0 flex-1 overflow-y-auto bg-muted/20">
+            <div className="mx-auto grid w-full max-w-[1800px] gap-4 p-4 md:grid-cols-[300px_minmax(0,1fr)] xl:p-5">
+              <aside className="min-w-0 space-y-4 md:sticky md:top-4 md:self-start">
+                <section
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100"
+                  aria-label="Workout overview"
+                >
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                    <div>
+                      <p className="text-[10px] font-medium tracking-wide uppercase opacity-70">
+                        Duration
+                      </p>
+                      <p className="mt-1 text-xl font-bold tabular-nums">
+                        {duration}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-medium tracking-wide uppercase opacity-70">
+                        Distance
+                      </p>
+                      <p className="mt-1 text-xl font-bold tabular-nums">
+                        {plannedDistanceLabel(workout)}
+                      </p>
+                    </div>
+                    {load != null && (
+                      <div>
+                        <p className="text-[10px] font-medium tracking-wide uppercase opacity-70">
+                          Training load
+                        </p>
+                        <p className="mt-1 text-lg font-semibold tabular-nums">
+                          {Math.round(load).toLocaleString()} TSS
+                        </p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-[10px] font-medium tracking-wide uppercase opacity-70">
+                        Status
+                      </p>
+                      <p className="mt-1 text-lg font-semibold">Completed</p>
+                    </div>
+                  </div>
+                </section>
+
+                <WorkoutSummary
+                  workout={workout}
+                  showElapsed={false}
+                  embedded
+                />
+
+                <section className="rounded-xl border bg-card p-4 shadow-sm">
+                  <WorkoutDescription workout={workout} title="Description" />
+                </section>
+              </aside>
+
+              <main className="min-w-0 space-y-4" aria-label="Workout analysis workspace">
+                <Suspense
+                  fallback={
+                    <div className="h-44 animate-pulse rounded-xl border bg-muted/30" />
+                  }
+                >
+                  <WorkoutAnalysis workout={workout} />
+                </Suspense>
+              </main>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    )
+  }
 
   return (
     <Dialog open={Boolean(workout)} onOpenChange={onOpenChange}>
@@ -2041,7 +2151,7 @@ export function WorkoutDialog({
             </div>
           </section>
 
-          {workout.structure && (
+          {workout.status !== "completed" && workout.structure && (
             <div className="overflow-hidden rounded-lg border bg-muted/20 px-2 pt-2">
               <WorkoutProfile
                 workout={workout}
@@ -2057,9 +2167,6 @@ export function WorkoutDialog({
               <WorkoutDescription workout={workout} title="Description" />
             </div>
           </div>
-          {workout.status === "completed" && (
-            <WorkoutMapSplits workout={workout} />
-          )}
           <Suspense
             fallback={
               <div className="h-44 animate-pulse rounded-xl bg-muted/30" />

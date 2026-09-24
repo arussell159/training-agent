@@ -81,7 +81,7 @@ export async function loadActivityView(archive, config, request, id, kind) {
     kind,
     async () => (await loadActivityBundle(archive, config, request, id))[kind]
   );
-  if (kind === "analysis" && view.version !== 6) {
+  if (kind === "analysis" && view.version !== 7) {
     const bundle = await archive.load(id, "bundle", () =>
       downloadActivityBundle(request, id, (fileId) => downloadOriginalActivityFile(config, fileId))
     );
@@ -105,7 +105,6 @@ export async function loadActivityView(archive, config, request, id, kind) {
     });
     if (archive.ready)
       await archive.saveViews(id, {
-        analysis: bundle.analysis,
         summary: view,
         route: bundle.route,
       });

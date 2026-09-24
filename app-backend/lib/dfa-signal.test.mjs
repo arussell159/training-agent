@@ -59,7 +59,7 @@ test("DFA streams survive analysis and cached analysis migration for cycling and
       "i1",
       "analysis"
     );
-    assert.equal(upgraded.version, 6);
+    assert.equal(upgraded.version, 7);
     assert.deepEqual(upgraded.dfa, fresh.dfa);
     assert.deepEqual(saved, upgraded);
     assert.equal(normalizeAnalysis({ ...activity, type: "Swim" }, streams, []).dfa, null);

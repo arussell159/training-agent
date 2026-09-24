@@ -9,7 +9,7 @@ Requires Node.js 20+ and an Intervals.icu account.
 1. Install dependencies: `npm install` and `npm --prefix ui install`.
 2. Build: `npm run build`.
 3. Configure Supabase as described below, then set `APP_PASSWORD` (at least 20 characters) in the server environment. Existing installations can keep `COACH_ACCESS_PASSWORD`; it is used as the app password when `APP_PASSWORD` is unset.
-4. Start: `npm start`; open http://localhost:4173 and sign in. If using `.env.local`, start with `node --env-file=.env.local app-backend/server.mjs`.
+4. Start: `npm start`; open http://localhost:4173 and sign in. The local server automatically loads the git-ignored `.env.local` file when it exists.
 5. Open Settings → Intervals.icu. Enter your personal API key and save. The backend validates it with a read-only profile request before storing it.
 
 Your athlete ID resolves automatically through `/athlete/0`. No browser cookies or TrainingPeaks account are needed. Generate/revoke keys in [Intervals.icu Settings](https://intervals.icu/settings).
@@ -63,7 +63,7 @@ The GitHub Actions sync is the data pipeline. No local computer or Supabase sync
 | `APP_PASSWORD`                | Unique app password of at least 20 characters; existing `COACH_ACCESS_PASSWORD` is a fallback         |
 | `OPENAI_MODEL`                | Optional; defaults to `gpt-5.4-mini`, which supports Responses function calling                       |
 
-Keep secrets out of frontend variables and the Settings API. For a local integration test, put the same variables in a git-ignored `.env.local` and run `node --env-file=.env.local app-backend/server.mjs` after building the UI. Do not commit that file. Open `/coach` on the backend's port (4173 by default). Vercel variables are not automatically available locally.
+Keep secrets out of frontend variables and the Settings API. For a local integration test, put the same variables in a git-ignored `.env.local` and run `npm start` after building the UI. Do not commit that file. Open `/coach` on the backend's port (4173 by default). Vercel variables are not automatically available locally.
 
 The `/api/coach/session` and `/api/coach/message` endpoints use the app session. The old coach login/logout endpoints are removed. Concurrent model requests have a per-instance limit; configure spending limits in the OpenAI project separately.
 

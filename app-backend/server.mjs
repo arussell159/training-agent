@@ -740,18 +740,18 @@ export async function handleRequest(req, res) {
           return;
         } catch (error) {
           updateLogs(`Intervals.icu sync failed: ${error.message}`);
+          const remote = await loadSupabaseTrainingSnapshot(config, local.athlete?.id);
+          if (remote) {
+            res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
+            res.end(JSON.stringify(scopedTrainingContext({ ...local, ...remote, athlete:athleteWithRace(remote.athlete), sync_error:error.message }, contextScope)));
+            return;
+          }
           try {
             const cached = JSON.parse(await fs.readFile(intervalsCachePath, 'utf8'));
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
             res.end(JSON.stringify(scopedTrainingContext({ ...local, ...cached, athlete:athleteWithRace(cached.athlete), comments:local.comments, library:local.library, source:'intervals-cache', sync_error:error.message }, contextScope)));
             return;
           } catch {
-            const remote = await loadSupabaseTrainingSnapshot(config, local.athlete?.id);
-            if (remote) {
-              res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
-              res.end(JSON.stringify(scopedTrainingContext({ ...local, ...remote, athlete:athleteWithRace(remote.athlete), sync_error:error.message }, contextScope)));
-              return;
-            }
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
             res.end(JSON.stringify(scopedTrainingContext({ ...local, athlete:athleteWithRace(local.athlete), source:'local-fallback', sync_error:error.message, retention_days:90 }, contextScope)));
             return;
@@ -761,16 +761,16 @@ export async function handleRequest(req, res) {
       // A local development session may temporarily be unable to reach the
       // settings store. Keep the last verified Intervals snapshot visible so
       // the app is usable offline instead of appearing completely empty.
-      const cachedIntervals = await readIntervalsCache();
-      if (cachedIntervals) {
-        res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
-        res.end(JSON.stringify(scopedTrainingContext({ ...local, ...cachedIntervals, athlete:athleteWithRace(cachedIntervals.athlete), comments:local.comments, library:local.library, source:'intervals-cache', sync_error:null }, contextScope)));
-        return;
-      }
       const remote = await loadSupabaseTrainingSnapshot(config, local.athlete?.id);
       if (remote) {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
         res.end(JSON.stringify(scopedTrainingContext({ ...local, ...remote, athlete:athleteWithRace(remote.athlete) }, contextScope)));
+        return;
+      }
+      const cachedIntervals = await readIntervalsCache();
+      if (cachedIntervals) {
+        res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
+        res.end(JSON.stringify(scopedTrainingContext({ ...local, ...cachedIntervals, athlete:athleteWithRace(cachedIntervals.athlete), comments:local.comments, library:local.library, source:'intervals-cache', sync_error:null }, contextScope)));
         return;
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });

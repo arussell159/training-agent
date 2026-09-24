@@ -96,7 +96,7 @@ test("existing version 4 swim views rebuild from archived SI data with corrected
     "i1",
     "analysis"
   );
-  assert.equal(view.version, 6);
+  assert.equal(view.version, 7);
   assert.equal(view.laps[0].label, "100 yd · Lap 1");
   assert.equal(formatSignalClock(METERS_PER_100_YARDS / view.laps[0].speed), "1:31");
   assert.deepEqual(saved, view);

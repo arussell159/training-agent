@@ -7,14 +7,14 @@
   "scripts": {
     "build": "npm --prefix ui run build",
     "build:ui": "npm run ui:build",
-    "start": "node app-backend/server.mjs",
+    "start": "node --env-file-if-exists=.env.local app-backend/server.mjs",
     "dev": "npm --prefix ui run dev",
     "typecheck": "npm --prefix ui run build",
     "lint": "npm --prefix ui run lint",
     "format": "prettier --write app-backend/lib/*.mjs *.md",
     "format:check": "prettier --check app-backend/lib/*.mjs *.md",
     "test": "node --test app-backend/lib/*.test.mjs",
-    "app:server": "node app-backend/server.mjs",
+    "app:server": "node --env-file-if-exists=.env.local app-backend/server.mjs",
     "ui:dev": "npm --prefix ui run dev",
     "ui:build": "npm ci --prefix ui --include=dev && npm --prefix ui run build"
   },

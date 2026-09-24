@@ -103,6 +103,50 @@ export function readFitSwimLengths(buffer) {
     });
 }
 
+function activeTimeline(points, movingTime) {
+  if (points.length < 2 || !(movingTime > 0))
+    return { points, duration: points.at(-1)?.time || 0, at: (time) => time };
+  const deltas = points
+    .slice(1)
+    .map((point, index) => point.time - points[index].time)
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b);
+  if (!deltas.length)
+    return { points, duration: points.at(-1)?.time || 0, at: (time) => time };
+  const cadence = deltas[Math.floor(deltas.length / 2)];
+  const maximumActiveGap = Math.max(1, cadence);
+  const rawTimes = points.map((point) => point.time);
+  const cumulative = [0];
+  for (let index = 1; index < rawTimes.length; index += 1) {
+    const elapsed = Math.max(0, rawTimes[index] - rawTimes[index - 1]);
+    cumulative.push(cumulative.at(-1) + Math.min(elapsed, maximumActiveGap));
+  }
+  const accumulated = cumulative.at(-1);
+  if (!(accumulated > 0))
+    return { points, duration: points.at(-1)?.time || 0, at: (time) => time };
+  const scale = movingTime / accumulated;
+  const activeTimes = cumulative.map((time) => time * scale);
+  const at = (time) => {
+    if (!Number.isFinite(time) || time <= rawTimes[0]) return 0;
+    if (time >= rawTimes.at(-1)) return movingTime;
+    let low = 0,
+      high = rawTimes.length - 1;
+    while (low + 1 < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (rawTimes[middle] <= time) low = middle;
+      else high = middle;
+    }
+    const span = rawTimes[high] - rawTimes[low];
+    const fraction = span > 0 ? (time - rawTimes[low]) / span : 0;
+    return activeTimes[low] + (activeTimes[high] - activeTimes[low]) * fraction;
+  };
+  return {
+    points: points.map((point, index) => ({ ...point, time: activeTimes[index] })),
+    duration: movingTime,
+    at,
+  };
+}
+
 export function normalizeAnalysis(activity, streams, fitLaps = [], fitSwimLengths = []) {
   const byType = new Map(streams.map((s) => [s.type, s.data || []])),
     times = byType.get("time") || [];
@@ -112,7 +156,7 @@ export function normalizeAnalysis(activity, streams, fitLaps = [], fitSwimLength
     Array.isArray(location?.data?.[i])
       ? location.data[i]
       : [location?.data?.[i], location?.data2?.[i]];
-  const points = times
+  const recordedPoints = times
     .map((time, i) => {
       const position = coordinate(i),
         latitude = numeric(position?.[0]),
@@ -133,6 +177,8 @@ export function normalizeAnalysis(activity, streams, fitLaps = [], fitSwimLength
       };
     })
     .filter((p) => p.time !== null);
+  const timeline = activeTimeline(recordedPoints, numeric(activity.moving_time));
+  const points = timeline.points;
   const epoch = Date.UTC(1989, 11, 31) / 1000,
     start = Date.parse(activity.start_date) / 1000 - epoch;
   const laps = fitLaps
@@ -140,8 +186,8 @@ export function normalizeAnalysis(activity, streams, fitLaps = [], fitSwimLength
     .map((l, i) => ({
       id: `lap-${i}`,
       label: `Lap ${i + 1}`,
-      start: Math.max(0, l.timestamp - start),
-      end: l.timestamp - start + l.duration,
+      start: timeline.at(Math.max(0, l.timestamp - start)),
+      end: timeline.at(l.timestamp - start + l.duration),
       power: l.power,
       heartRate: l.heartRate,
       distance: l.distance,
@@ -152,8 +198,8 @@ export function normalizeAnalysis(activity, streams, fitLaps = [], fitSwimLength
     .map((l, i) => ({
       id: `interval-${i}`,
       label: l.label || `${l.type === "WORK" ? "Work" : "Recovery"} ${i + 1}`,
-      start: l.start_time,
-      end: l.end_time,
+      start: timeline.at(l.start_time),
+      end: timeline.at(l.end_time),
       power: l.average_watts ?? null,
       heartRate: l.average_heartrate ?? null,
       distance: l.distance ?? null,
@@ -181,7 +227,7 @@ export function normalizeAnalysis(activity, streams, fitLaps = [], fitSwimLength
       }))
     : laps;
   return {
-    version: 6,
+    version: 7,
     dfa: /ride|bike|cycl|run/i.test(activity.type || "") ? dfaSignal(points) : null,
     activityId: activity.id,
     points,
@@ -189,13 +235,13 @@ export function normalizeAnalysis(activity, streams, fitLaps = [], fitSwimLength
     swimLengths:
       swim && Number.isFinite(start)
         ? fitSwimLengths.map((length) => ({
-            start: length.timestamp - start,
-            end: length.timestamp - start + length.elapsedDuration,
+            start: timeline.at(length.timestamp - start),
+            end: timeline.at(length.timestamp - start + length.elapsedDuration),
             seconds: length.duration,
             distance: length.distance,
           }))
         : [],
     intervals,
-    duration: points.at(-1)?.time || 0,
+    duration: timeline.duration,
   };
 }

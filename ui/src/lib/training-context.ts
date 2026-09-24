@@ -117,10 +117,11 @@ export const fallbackTrainingContext: TrainingContext = {
 
 const contextCache = new Map<"week" | "full", TrainingContext>()
 const contextRequests = new Map<"week" | "full", Promise<TrainingContext>>()
+const networkLoadedScopes = new Set<"week" | "full">()
 let contextRevision = 0
 let mutationsInFlight=0
 export function trainingMutationState() {return {revision:contextRevision,busy:mutationsInFlight>0}}
-if(typeof window!=='undefined')window.addEventListener('training-cache-reset',()=>{contextRevision++;contextCache.clear();contextRequests.clear()})
+if(typeof window!=='undefined')window.addEventListener('training-cache-reset',()=>{contextRevision++;contextCache.clear();contextRequests.clear();networkLoadedScopes.clear()})
 const STARTUP_KEY='training-agent-startup-v2'
 type CachedContext = TrainingContext & {cache_scope?:string;version?:string;display_range?:{start:string;end:string}}
 export function cachedTrainingContext(): TrainingContext {
@@ -246,13 +247,17 @@ export async function changeWorkoutDay(date: string, action: "copy" | "delete") 
 }
 
 export async function loadTrainingContext(forceRefresh = false, scope: "week" | "full" = "week", networkOnly=false): Promise<TrainingContext> {
+  const needsLocalhostNetworkLoad = typeof window !== "undefined" &&
+    ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
+    !networkLoadedScopes.has(scope)
+  const requireNetwork = networkOnly || needsLocalhostNetworkLoad
   if (forceRefresh) {
     contextRevision += 1
     contextRequests.clear()
   }
   if (!forceRefresh) {
     const cached = contextCache.get(scope)
-    if (cached && !networkOnly) return cached
+    if (cached && !requireNetwork) return cached
     const pending = contextRequests.get(scope)
     if (pending) return pending
   }
@@ -266,6 +271,7 @@ export async function loadTrainingContext(forceRefresh = false, scope: "week" | 
     })
     if (!response.ok) throw new Error(`Training context ${response.status}`)
     const context = (await response.json()) as TrainingContext
+    networkLoadedScopes.add(scope)
     if (revision !== contextRevision) {
       return contextCache.get("full") || contextCache.get("week") || loadTrainingContext(false, scope)
     }
