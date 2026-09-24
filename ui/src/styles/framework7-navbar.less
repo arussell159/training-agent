@@ -18,6 +18,7 @@
   @import "../../node_modules/framework7/components/accordion/accordion.less";
   @import "../../node_modules/framework7/components/actions/actions.less";
   @import "../../node_modules/framework7/components/dialog/dialog.less";
+  @import "../../node_modules/framework7/components/pull-to-refresh/pull-to-refresh.less";
   @import "../../node_modules/framework7/components/sheet/sheet.less";
   @import "../../node_modules/framework7/components/sortable/sortable.less";
   @import "../../node_modules/framework7/components/toolbar/toolbar.less";
@@ -360,6 +361,27 @@
     min-height: 0;
     min-width: 0;
     width: 100%;
+  }
+
+  .mobile-ptr-content.ptr-content {
+    min-height: 0;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .mobile-calendar-pull-area.ptr-content {
+    display: flex;
+    min-height: 0;
+    flex: 1 0 auto;
+    flex-direction: column;
+    overflow: visible;
+  }
+  .mobile-ptr-error {
+    margin: 12px 16px;
+    border-radius: 10px;
+    background: var(--destructive);
+    padding: 10px 12px;
+    color: var(--destructive-foreground);
+    font-size: 13px;
   }
 
   .terms-mobile-page.page {
@@ -874,6 +896,9 @@
 }
 
 @media (width >= 48rem) {
+  .mobile-calendar-pull-area.ptr-content {
+    display: contents;
+  }
   .training-history-filter-scroll {
     padding: 18px 18px 0;
   }

@@ -1,6 +1,7 @@
 import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { MobilePullToRefresh } from "@/components/ui/mobile-pull-to-refresh"
 import {
   Section11Report,
   type ReportTarget,
@@ -28,9 +29,11 @@ export function ReportReaderPage({ target }: { target: ReportTarget }) {
           {"startDate" in target ? target.startDate : "Workout report"}
         </h1>
       </header>
+      <MobilePullToRefresh className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-3xl px-4 pt-5 pb-[45vh]">
         <Section11Report target={target} reader />
       </div>
+      </MobilePullToRefresh>
     </div>
   )
 }

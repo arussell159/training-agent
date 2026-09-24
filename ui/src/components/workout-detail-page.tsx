@@ -11,6 +11,7 @@ import {
 import { lazy, Suspense, useEffect, useState } from "react"
 import { formatDuration } from "@/lib/duration"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { MobilePullToRefresh } from "@/components/ui/mobile-pull-to-refresh"
 import { WorkoutDetailSurface } from "@/components/workout-detail-surface"
 const WorkoutAnalysis = lazy(() =>
   import("@/components/workout-analysis").then((m) => ({
@@ -249,7 +250,7 @@ export function WorkoutDetailPage({
   }
 
   return (
-    <div className="min-h-svh w-full min-w-0 max-w-full overflow-x-clip bg-background">
+    <div className="flex min-h-svh w-full min-w-0 max-w-full flex-col overflow-hidden bg-background">
       <MobileSiteNavbar
         fixed
         onBack={onBack}
@@ -264,6 +265,7 @@ export function WorkoutDetailPage({
         }
         actions={workoutActions}
       />
+      <MobilePullToRefresh className="flex min-h-0 flex-1 flex-col overflow-y-auto md:overflow-visible">
       {editorOpen && editable && (
         <WorkoutEditor workout={workout} onClose={() => setEditorOpen(false)} />
       )}
@@ -536,6 +538,7 @@ export function WorkoutDetailPage({
           </div>
         </WorkoutDetailSurface>
       </div>
+      </MobilePullToRefresh>
     </div>
   )
 }

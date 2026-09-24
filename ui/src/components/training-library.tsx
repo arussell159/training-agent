@@ -6,6 +6,7 @@ import {
   Button as F7Button,
 } from "framework7-react"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { MobilePullToRefresh } from "@/components/ui/mobile-pull-to-refresh"
 import { apiFetch } from "@/lib/api-client"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useEffect, useMemo, useState } from "react"
@@ -98,7 +99,7 @@ export function TrainingLibrary({
             </Segmented>
           </Subnavbar>
         </MobileSiteNavbar>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <MobilePullToRefresh className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           <div className="coach-report-content">
             {error ? (
               <p role="alert">{error}</p>
@@ -136,7 +137,7 @@ export function TrainingLibrary({
               <p>No saved workouts match this search.</p>
             )}
           </div>
-        </div>
+        </MobilePullToRefresh>
       </div>
     )
 

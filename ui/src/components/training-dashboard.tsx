@@ -23,12 +23,8 @@ const WorkoutDialog = lazy(() =>
 
 export function TrainingDashboard({
   onWorkoutOpen,
-  refreshRequest = 0,
-  onRefreshComplete,
 }: {
   onWorkoutOpen?: (workout: PlannedWorkout) => void
-  refreshRequest?: number
-  onRefreshComplete?: () => void
 }) {
   const [context, setContext] = useState(cachedTrainingContext)
   const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(
@@ -86,21 +82,6 @@ export function TrainingDashboard({
       window.removeEventListener("training-context-updated", update)
     }
   }, [])
-
-  useEffect(() => {
-    if (!refreshRequest) return
-    let active = true
-    loadFullTrainingContext(true)
-      .then((nextContext) => {
-        if (active) setContext(nextContext)
-      })
-      .finally(() => {
-        if (active) onRefreshComplete?.()
-      })
-    return () => {
-      active = false
-    }
-  }, [refreshRequest, onRefreshComplete])
 
   return (
     <div className="flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:gap-4 md:gap-6 md:p-6">

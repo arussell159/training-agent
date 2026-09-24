@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react"
 import { createPortal } from "react-dom"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { MobilePullToRefresh } from "@/components/ui/mobile-pull-to-refresh"
 import { WorkoutLapChart } from "@/components/workout-lap-chart"
 import { WorkoutLapsTable } from "@/components/workout-laps-table"
 import { intervalSignals, type RecordedLap } from "@/lib/interval-signals"
@@ -103,10 +104,10 @@ export function WorkoutLapsPage({
             Laps
           </h2>
         </div>
-        <div
+        <MobilePullToRefresh
           ref={rows}
           aria-label="Lap rows"
-          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain pb-[calc(2rem+env(safe-area-inset-bottom))]"
+          className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-y-contain pb-[calc(2rem+env(safe-area-inset-bottom))]"
         >
           <WorkoutLapsTable
             intervals={intervalSignals(points, laps)}
@@ -114,7 +115,7 @@ export function WorkoutLapsPage({
             selected={selected}
             onSelect={onSelect}
           />
-        </div>
+        </MobilePullToRefresh>
       </main>
     </div>,
     document.body

@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -7,6 +8,7 @@ import {
   useState,
 } from "react"
 import {
+  f7,
   f7ready,
   List,
   ListItem,
@@ -22,6 +24,7 @@ import type {
 import { ChevronRight, Search, X } from "lucide-react"
 import { MetricDetail } from "@/components/terms-reference/metric-detail"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { MobileHeaderNavigation } from "@/components/ui/mobile-header-navigation"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useSheetDismiss } from "@/hooks/use-sheet-dismiss"
 import {
@@ -44,7 +47,10 @@ export function MobileTermsPage({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const refreshTraining = useContext(MobileHeaderNavigation)
   const mobile = useIsMobile()
+  const [refreshError, setRefreshError] = useState("")
+  const termsContent = useRef<{ el: HTMLElement | null }>({ el: null })
   const [query, setQuery] = useState("")
   const [view, setView] = useState<TermsView>({ open: false, metricId: null })
   const [displayedMetricId, setDisplayedMetricId] = useState<string | null>(
@@ -78,6 +84,20 @@ export function MobileTermsPage({
   const metric = SORTED_METRIC_DEFINITIONS.find(
     (item) => item.id === displayedMetricId
   )
+
+  useEffect(() => {
+    const element = termsContent.current.el
+    if (!mobile || !element) return
+    let destroyed = false
+    let ptr: { destroy: () => void } | undefined
+    f7ready(() => {
+      if (!destroyed && f7.ptr) ptr = f7.ptr.create(element)
+    })
+    return () => {
+      destroyed = true
+      ptr?.destroy()
+    }
+  }, [mobile, open])
 
   useEffect(() => {
     const pop = (event: PopStateEvent) => {
@@ -276,7 +296,24 @@ export function MobileTermsPage({
             </button>
           </Searchbar>
         </MobileSiteNavbar>
-        <PageContent className="terms-mobile-content">
+        <PageContent
+          ref={termsContent}
+          ptr
+          className="terms-mobile-content"
+          onPtrRefresh={async (done) => {
+            setRefreshError("")
+            try {
+              await refreshTraining()
+            } catch (error) {
+              setRefreshError(
+                error instanceof Error ? error.message : "Training refresh failed."
+              )
+            } finally {
+              done?.()
+            }
+          }}
+        >
+          {refreshError && <p role="alert" className="terms-mobile-empty">{refreshError}</p>}
           {filteredMetrics.length ? (
             <List
               className="terms-mobile-metric-list"

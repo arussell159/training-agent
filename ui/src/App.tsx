@@ -6,7 +6,6 @@ import {
   lazy,
   Suspense,
   startTransition,
-  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -19,7 +18,6 @@ import {
   Home,
   Library,
   MessageCircle,
-  RefreshCw,
   Settings,
   CalendarRange,
 } from "lucide-react"
@@ -28,7 +26,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
@@ -45,6 +42,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { MobileNavbar, MobilePageTabs } from "@/components/ui/navbars"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { MobilePullToRefresh } from "@/components/ui/mobile-pull-to-refresh"
 import {
   MobileHeaderNavigation,
   MobileDefinitionsOpen,
@@ -196,13 +194,10 @@ function AppWorkspace() {
           ])
         : null
   )
-  const [refreshRequest, setRefreshRequest] = useState(0)
-  const [isRefreshing, setIsRefreshing] = useState(false)
   const [intervalsDisconnected, setIntervalsDisconnected] = useState(false)
   const [termsOpen, setTermsOpen] = useState(false)
   const workoutReturnScroll = useRef(0)
   const isCoachPage = activeItem === "Coach"
-  const handleRefreshComplete = useCallback(() => setIsRefreshing(false), [])
   useEffect(() => {
     const showReconnect = () => setIntervalsDisconnected(true)
     window.addEventListener("intervals-auth-expired", showReconnect)
@@ -422,22 +417,6 @@ function AppWorkspace() {
                         className="w-max min-w-52"
                       >
                         <DropdownMenuItem
-                          disabled={isRefreshing}
-                          className="whitespace-nowrap"
-                          onClick={() => {
-                            setIsRefreshing(true)
-                            setRefreshRequest((request) => request + 1)
-                          }}
-                        >
-                          <RefreshCw
-                            className={
-                              isRefreshing ? "animate-spin" : undefined
-                            }
-                          />
-                          Refresh Intervals.icu
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
                           className="whitespace-nowrap"
                           onClick={() =>
                             window.dispatchEvent(new Event("terms-open"))
@@ -465,6 +444,18 @@ function AppWorkspace() {
                       : "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
             }`}
           >
+            <MobilePullToRefresh
+              enabled={
+                !selectedReport &&
+                !selectedWorkout &&
+                activeItem !== "Calendar" &&
+                activeItem !== "Annual Plan" &&
+                activeItem !== "Settings" &&
+                !isCoachPage &&
+                activeItem !== "Library"
+              }
+              className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+            >
             <MobilePageTabs activeItem={activeItem}>
               <Suspense fallback={<RouteFallback />}>
                 <RouteScrollReset route={activeItem} />
@@ -476,11 +467,7 @@ function AppWorkspace() {
                     onBack={closeWorkout}
                   />
                 ) : activeItem === "Home" ? (
-                  <TrainingDashboard
-                    onWorkoutOpen={openWorkout}
-                    refreshRequest={refreshRequest}
-                    onRefreshComplete={handleRefreshComplete}
-                  />
+                  <TrainingDashboard onWorkoutOpen={openWorkout} />
                 ) : activeItem === "Calendar" ? (
                   <TrainingCalendar
                     key={calendarNavigationVersion}
@@ -497,6 +484,7 @@ function AppWorkspace() {
                 ) : null}
               </Suspense>
             </MobilePageTabs>
+            </MobilePullToRefresh>
           </main>
 
           <MobileNavbar
