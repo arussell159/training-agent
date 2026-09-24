@@ -111,8 +111,7 @@ function activeTimeline(points, movingTime) {
     .map((point, index) => point.time - points[index].time)
     .filter((value) => Number.isFinite(value) && value > 0)
     .sort((a, b) => a - b);
-  if (!deltas.length)
-    return { points, duration: points.at(-1)?.time || 0, at: (time) => time };
+  if (!deltas.length) return { points, duration: points.at(-1)?.time || 0, at: (time) => time };
   const cadence = deltas[Math.floor(deltas.length / 2)];
   const maximumActiveGap = Math.max(1, cadence);
   const rawTimes = points.map((point) => point.time);
@@ -122,8 +121,7 @@ function activeTimeline(points, movingTime) {
     cumulative.push(cumulative.at(-1) + Math.min(elapsed, maximumActiveGap));
   }
   const accumulated = cumulative.at(-1);
-  if (!(accumulated > 0))
-    return { points, duration: points.at(-1)?.time || 0, at: (time) => time };
+  if (!(accumulated > 0)) return { points, duration: points.at(-1)?.time || 0, at: (time) => time };
   const scale = movingTime / accumulated;
   const activeTimes = cumulative.map((time) => time * scale);
   const at = (time) => {
