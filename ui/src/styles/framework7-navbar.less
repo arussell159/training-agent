@@ -286,33 +286,51 @@
     z-index: 40;
     bottom: 4px;
     pointer-events: none;
-    // React commits the selected tab immediately; don't animate its indicator
-    // through the previous destination after the new page has appeared.
+    // Keep one fixed-size indicator. Framework7 normally follows the finger and
+    // scales the pill while pressed, which makes quick tab changes feel jumpy.
     .tab-link-highlight {
-      transition-duration: 0ms;
+      width: 20% !important;
+      transition: transform 120ms cubic-bezier(0.2, 0, 0, 1);
+      will-change: transform;
 
       &::before,
       &::after {
-        inset-inline: 0;
+        inset: 4px;
+        scale: 1;
+        transition:
+          opacity 80ms linear,
+          background-color 80ms linear,
+          box-shadow 80ms linear;
       }
     }
-    #mobile-tab-home.tab-link-active ~ .tab-link-highlight {
+
+    .tab-link-highlight-pressed {
       &::before,
       &::after {
-        inset-inline-start: 4px;
+        scale: 1;
       }
+      &::before {
+        opacity: 1;
+      }
+      &::after {
+        opacity: 0;
+      }
+    }
+
+    #mobile-tab-home.tab-link-active ~ .tab-link-highlight {
+      transform: translate3d(0%, 0, 0) !important;
+    }
+    #mobile-tab-calendar.tab-link-active ~ .tab-link-highlight {
+      transform: translate3d(100%, 0, 0) !important;
+    }
+    #mobile-tab-coach.tab-link-active ~ .tab-link-highlight {
+      transform: translate3d(200%, 0, 0) !important;
+    }
+    #mobile-tab-library.tab-link-active ~ .tab-link-highlight {
+      transform: translate3d(300%, 0, 0) !important;
     }
     #mobile-tab-settings.tab-link-active ~ .tab-link-highlight {
-      &::before,
-      &::after {
-        inset-inline-end: 4px;
-      }
-    }
-    #mobile-tab-home {
-      padding-inline-start: 4px;
-    }
-    #mobile-tab-settings {
-      padding-inline-end: 4px;
+      transform: translate3d(400%, 0, 0) !important;
     }
     .toolbar-pane {
       pointer-events: auto;
@@ -322,10 +340,13 @@
       min-width: 0;
       flex-direction: column;
       gap: 3px;
+      transition: color 100ms ease-out;
     }
     .tab-link svg {
+      display: block;
       width: 28px;
       height: 28px;
+      flex: 0 0 28px;
     }
     .tabbar-label {
       font-size: 10px;
