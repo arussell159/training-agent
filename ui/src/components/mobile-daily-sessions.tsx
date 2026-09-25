@@ -56,7 +56,10 @@ function selectedDayLabel(day: string, today: string) {
     month: "short",
     day: "numeric",
   })
-  return day === today ? `Today · ${label}` : label
+  if (day === today) return `Today · ${label}`
+  if (day === dateAt(today, -1)) return `Yesterday · ${label}`
+  if (day === dateAt(today, 1)) return `Tomorrow · ${label}`
+  return label
 }
 
 function trainingLoad(workout: PlannedWorkout) {
@@ -76,26 +79,37 @@ function SessionCard({
   activeSession,
   sessionCount,
   onOpen,
+  onSelectSession,
+  onMoveDay,
 }: {
-  workout: PlannedWorkout
+  workout?: PlannedWorkout
   dayLabel: string
   activeSession: number
   sessionCount: number
   onOpen: () => void
+  onSelectSession: (index: number) => void
+  onMoveDay: (offset: number) => void
 }) {
-  const completed = workout.status === "completed"
+  const completed = workout?.status === "completed"
   return (
     <Card
-      role="button"
+      role={workout ? "button" : "group"}
       tabIndex={0}
-      aria-label={`Open ${workout.title}`}
-      onClick={onOpen}
+      aria-label={workout ? `Open ${workout.title}` : `${dayLabel}: no workout scheduled`}
+      onClick={workout ? onOpen : undefined}
       onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault()
+          onMoveDay(event.key === "ArrowRight" ? 1 : -1)
+          return
+        }
+        if (!workout || (event.key !== "Enter" && event.key !== " "))
+          return
+        if (event.target !== event.currentTarget) return
         event.preventDefault()
         onOpen()
       }}
-      className="mobile-dashboard-workout relative w-full shrink-0 snap-center overflow-hidden border-transparent shadow-sm ring-1 ring-inset ring-border"
+      className="mobile-dashboard-workout relative h-[288px] w-full overflow-hidden border-transparent shadow-sm ring-1 ring-inset ring-border"
     >
       <CardHeader className="gap-3">
         <CardDescription>
@@ -110,36 +124,50 @@ function SessionCard({
             <span className="text-xs font-semibold tabular-nums">
               {activeSession + 1}/{sessionCount}
             </span>
-            <span className="flex gap-1">
+            <span className="flex gap-0.5">
               {Array.from({ length: sessionCount }, (_, index) => (
-                <span
+                <button
                   key={index}
-                  className={`h-1.5 rounded-full transition-all ${index === activeSession ? "w-5 bg-primary" : "w-1.5 bg-muted-foreground/35"}`}
-                />
+                  type="button"
+                  aria-label={`Show workout ${index + 1} of ${sessionCount}`}
+                  aria-current={index === activeSession ? "true" : undefined}
+                  className="flex h-7 min-w-5 items-center justify-center"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onSelectSession(index)
+                  }}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`h-1.5 rounded-full transition-all ${index === activeSession ? "w-5 bg-primary" : "w-1.5 bg-muted-foreground/35"}`}
+                  />
+                </button>
               ))}
             </span>
           </div>
         )}
         <CardTitle>
-          <h1 className="text-2xl leading-tight font-semibold tracking-tight">
-            {workout.title}
+          <h1 className="line-clamp-2 text-2xl leading-tight font-semibold tracking-tight">
+            {workout?.title ?? "No workout scheduled"}
           </h1>
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col justify-end gap-0">
-        <WorkoutProfile workout={workout} compact tall />
+        <div className="h-20 shrink-0 overflow-hidden">
+          {workout && <WorkoutProfile workout={workout} compact tall />}
+        </div>
         <div className="grid grid-cols-2 gap-4 border-t pt-4">
           <div>
             <p className="text-xs text-muted-foreground">Duration</p>
             <p className="mt-1 flex items-center gap-2 font-medium">
               <Clock3 className="size-4" />
-              {formatDuration(durationMinutes(workout))}
+              {workout ? formatDuration(durationMinutes(workout)) : "—"}
             </p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Training load</p>
             <p className="mt-1 font-medium tabular-nums">
-              {trainingLoad(workout)} TSS
+              {workout ? trainingLoad(workout) : 0} TSS
             </p>
           </div>
         </div>
@@ -158,18 +186,24 @@ export function MobileDailySessions({
   const today = dashboardToday(context)
   const [selectedDate, setSelectedDate] = useState(today)
   const [activeSession, setActiveSession] = useState(0)
-  const sessionScroller = useRef<HTMLDivElement>(null)
   const swipeStart = useRef<{ x: number; y: number } | null>(null)
-  const ignoreNextClick = useRef(false)
+  const ignoreClickUntil = useRef(0)
   const sessions = useMemo(() => allSessions(context), [context])
   const selectedSessions = sessions.filter(
     (workout) => workout.workout_date === selectedDate
   )
+  const visibleSession = Math.min(activeSession, Math.max(0, selectedSessions.length - 1))
 
   useEffect(() => {
+    setSelectedDate(today)
     setActiveSession(0)
-    sessionScroller.current?.scrollTo({ left: 0, behavior: "smooth" })
-  }, [selectedDate])
+  }, [today])
+
+  const moveDay = (offset: number) => {
+    ignoreClickUntil.current = Date.now() + 500
+    setActiveSession(0)
+    setSelectedDate((day) => dateAt(day, offset))
+  }
 
   const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
     const touch = event.touches[0]
@@ -180,84 +214,40 @@ export function MobileDailySessions({
     const start = swipeStart.current
     const touch = event.changedTouches[0]
     swipeStart.current = null
-    if (!start || !touch || selectedSessions.length > 1) return
+    if (!start || !touch) return
 
     const deltaX = touch.clientX - start.x
     const deltaY = touch.clientY - start.y
     if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.25) return
 
-    ignoreNextClick.current = true
-    window.setTimeout(() => {
-      ignoreNextClick.current = false
-    }, 350)
-    setSelectedDate((day) => dateAt(day, deltaX < 0 ? 1 : -1))
+    moveDay(deltaX < 0 ? 1 : -1)
   }
 
   return (
     <div
-      className={`col-span-2 min-w-0 md:hidden ${selectedSessions.length <= 1 ? "touch-pan-y" : ""}`}
+      className="col-span-2 min-w-0 touch-pan-y md:hidden"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
+      onTouchCancel={() => {
+        swipeStart.current = null
+      }}
     >
-      {selectedSessions.length ? (
-        <div
-          ref={sessionScroller}
-          className="flex snap-x snap-mandatory [scrollbar-width:none] gap-3 overflow-x-auto overscroll-x-contain rounded-[22px] [&::-webkit-scrollbar]:hidden"
-          onScroll={(event) => {
-            const first = event.currentTarget
-              .firstElementChild as HTMLElement | null
-            const step = first ? first.offsetWidth + 12 : 0
-            if (!step) return
-            setActiveSession(
-              Math.min(
-                selectedSessions.length - 1,
-                Math.max(0, Math.round(event.currentTarget.scrollLeft / step))
-              )
-            )
-          }}
-        >
-          {selectedSessions.map((workout) => (
-            <SessionCard
-              key={workout.id}
-              workout={workout}
-              dayLabel={selectedDayLabel(selectedDate, today)}
-              activeSession={activeSession}
-              sessionCount={selectedSessions.length}
-              onOpen={() => {
-                if (!ignoreNextClick.current) onWorkoutOpen?.(workout)
-              }}
-            />
-          ))}
-        </div>
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardDescription>
-              {selectedDayLabel(selectedDate, today)}
-            </CardDescription>
-            <CardTitle>
-              <h1 className="text-2xl leading-tight font-semibold tracking-tight">
-                No workout scheduled
-              </h1>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4 border-t pt-4">
-              <div>
-                <p className="text-xs text-muted-foreground">Duration</p>
-                <p className="mt-1 flex items-center gap-2 font-medium">
-                  <Clock3 className="size-4" />—
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Training load</p>
-                <p className="mt-1 font-medium">0 TSS</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
+      <SessionCard
+        workout={selectedSessions[visibleSession]}
+        dayLabel={selectedDayLabel(selectedDate, today)}
+        activeSession={visibleSession}
+        sessionCount={selectedSessions.length}
+        onSelectSession={(index) => {
+          if (Date.now() >= ignoreClickUntil.current) setActiveSession(index)
+        }}
+        onMoveDay={moveDay}
+        onOpen={() => {
+          if (Date.now() >= ignoreClickUntil.current) {
+            const workout = selectedSessions[visibleSession]
+            if (workout) onWorkoutOpen?.(workout)
+          }
+        }}
+      />
     </div>
   )
 }
