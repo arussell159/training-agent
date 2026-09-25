@@ -1,0 +1,80 @@
+@media (width < 48rem) {
+  .framework7-root .mobile-navbar.toolbar {
+    --f7-tabbar-link-inactive-color: var(--foreground);
+    --f7-tabbar-link-active-color: var(--foreground);
+  }
+
+  .framework7-root .mobile-navbar.toolbar .toolbar-pane {
+    height: 60px;
+    margin-top: 4px;
+    border: 1px solid rgb(255 255 255 / 72%);
+    border-radius: 999px;
+    background: rgb(255 255 255 / 4%);
+    box-shadow:
+      0 0 0 1px rgb(48 65 76 / 18%),
+      0 5px 18px rgb(21 32 39 / 15%);
+    -webkit-backdrop-filter: blur(12px) saturate(130%);
+    backdrop-filter: blur(12px) saturate(130%);
+  }
+
+  .framework7-root .mobile-navbar.toolbar .tab-link {
+    height: 58px;
+    color: var(--foreground);
+  }
+
+  .framework7-root .mobile-navbar.toolbar .tab-link svg {
+    width: 22px;
+    height: 22px;
+    flex-basis: 22px;
+  }
+
+  .framework7-root .mobile-navbar.toolbar .tab-link.tab-link-active {
+    color: var(--foreground);
+  }
+
+  .framework7-root .mobile-navbar.toolbar .tab-link-highlight::before,
+  .framework7-root .mobile-navbar.toolbar .tab-link-highlight::after {
+    inset: 5px;
+    border-radius: 999px;
+  }
+
+  .framework7-root .mobile-navbar.toolbar .tab-link-highlight::before {
+    border: 1px solid rgb(255 255 255 / 78%);
+    background: rgb(255 255 255 / 9%);
+    box-shadow:
+      0 0 0 1px rgb(48 65 76 / 15%),
+      0 2px 7px rgb(21 32 39 / 12%);
+  }
+
+  .framework7-root .mobile-navbar.toolbar .tab-link-highlight::after {
+    border-top: 1px solid rgb(255 255 255 / 72%);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .framework7-root .mobile-navbar.toolbar .tab-link:focus-visible {
+    outline: 2px solid #425b6a;
+    outline-offset: -4px;
+    border-radius: 24px;
+  }
+
+  .dark .framework7-root .mobile-navbar.toolbar .toolbar-pane {
+    border-color: rgb(255 255 255 / 32%);
+    background: rgb(255 255 255 / 4%);
+    box-shadow:
+      0 0 0 1px rgb(0 0 0 / 24%),
+      0 5px 18px rgb(0 0 0 / 28%);
+  }
+
+  .dark .framework7-root .mobile-navbar.toolbar .tab-link-highlight::before {
+    border-color: rgb(255 255 255 / 38%);
+    background: rgb(255 255 255 / 7%);
+    box-shadow:
+      0 0 0 1px rgb(0 0 0 / 22%),
+      0 2px 7px rgb(0 0 0 / 20%);
+  }
+
+  .dark .framework7-root .mobile-navbar.toolbar .tab-link-highlight::after {
+    border-top-color: rgb(255 255 255 / 42%);
+  }
+}

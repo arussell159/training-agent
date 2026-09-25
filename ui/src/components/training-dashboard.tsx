@@ -27,13 +27,8 @@ export function TrainingDashboard({
   onWorkoutOpen?: (workout: PlannedWorkout) => void
 }) {
   const [context, setContext] = useState(cachedTrainingContext)
-  const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(
-    () =>
-      restoreOpenWorkout([
-        ...cachedTrainingContext().planned,
-        ...cachedTrainingContext().history,
-      ])
-  )
+  const [selectedWorkout, setSelectedWorkout] =
+    useState<PlannedWorkout | null>(null)
   const isMobile = useIsMobile()
 
   const openWorkout = (workout: PlannedWorkout) => {

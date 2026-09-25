@@ -57,22 +57,23 @@ export function structuredWorkoutProfile(value?: string | null): {position:numbe
 
 export function workoutProfileSegments(value?:string|null){
   const points=structuredWorkoutProfile(value)
-  const metadata:{step:Step;repeatCount:number;group:Step[];setId:string}[]=[]
+  const metadata:{step:Step;repeatCount:number;repeatIndex:number;group:Step[];setId:string}[]=[]
   try {
     const parsed=JSON.parse(value || 'null'),steps:Step[]=Array.isArray(parsed)?parsed:parsed?.steps ?? parsed?.structure
     if(!Array.isArray(steps))return []
     let nextSetId=0
-    const walk=(items:Step[],repeatCount=1,group:Step[]=[],setId='',depth=0)=>{
+    const walk=(items:Step[],repeatCount=1,group:Step[]=[],setId='',repeatIndex=1,depth=0)=>{
       if(depth>8 || metadata.length>20000)return
       for(const step of items){
         if(step.steps){
           const repeatSetId=setId||`repeat-${nextSetId++}`
-          for(let i=0;i<Math.min(1000,Math.max(1,Number(step.reps || 1)));i++)walk(step.steps,Number(step.reps || 1),group.length?group:step.steps,repeatSetId,depth+1)
+          for(let i=0;i<Math.min(1000,Math.max(1,Number(step.reps || 1)));i++)walk(step.steps,Number(step.reps || 1),group.length?group:step.steps,repeatSetId,i+1,depth+1)
           continue
         }
         if(!(Number(step.duration)>0))continue
         const leafSetId=setId||`step-${nextSetId++}`
-        for(let i=0;i<(step.ramp?8:1);i++)metadata.push({step,repeatCount,group:group.length?group:[step],setId:leafSetId})
+        const rampCount=step.ramp?8:1
+        for(let i=0;i<rampCount;i++)metadata.push({step,repeatCount,repeatIndex,group:group.length?group:[step],setId:leafSetId})
       }
     }
     walk(steps)

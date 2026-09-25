@@ -595,27 +595,6 @@ export function WorkoutDetailPage({
 
       {workout.status === "completed" && (
       <div className="hidden min-h-svh min-w-0 flex-col md:flex">
-        <header className="sticky top-0 z-[1000] flex min-h-12 shrink-0 items-center gap-3 border-b bg-background/95 px-5 py-1.5 backdrop-blur">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onBack}
-            className="shrink-0 rounded-lg"
-            aria-label="Back to calendar"
-          >
-            <ArrowLeft className="size-4" />
-            Calendar
-          </Button>
-          <div className="min-w-0 flex-1" />
-          {editable && (
-            <Button type="button" size="sm" onClick={() => openEditor()}>
-              <Pencil className="size-4" />
-              Edit workout
-            </Button>
-          )}
-        </header>
-
         <div className="min-h-0 flex-1 bg-muted/20">
           <div
             className={
@@ -823,18 +802,18 @@ export function WorkoutDetailPage({
                 <span>{workout.sport}</span>
                 <span>{statusLabel}</span>
               </div>
+              {(workout.structure || workout.editor_model) && (
+                <div className="mt-3 overflow-hidden">
+                  <WorkoutProfile
+                    workout={workout}
+                    compact
+                    desktopDetail
+                    tall
+                    enableEditOnClick={!library}
+                  />
+                </div>
+              )}
             </section>
-            {workout.structure && (
-              <div className="mt-4 overflow-hidden border bg-muted/20 px-2 pt-2">
-                <WorkoutProfile
-                  workout={workout}
-                  compact
-                  desktopDetail
-                  tall
-                  enableEditOnClick={!library}
-                />
-              </div>
-            )}
           </div>
 
           <div className="mx-auto w-full max-w-5xl px-6">

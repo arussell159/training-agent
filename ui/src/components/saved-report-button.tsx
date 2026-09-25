@@ -10,12 +10,12 @@ let expires = 0
 function loadReports() {
   if (!request || Date.now() >= expires) {
     expires = Date.now() + 60_000
-    request = coachRequest("reports/catalog", {}).then(response => response.json()).then(value => value.reports || []).catch(error => { request = null; throw error })
+    request = coachRequest("reports/catalog").then(response => response.json()).then(value => value.reports || []).catch(error => { request = null; throw error })
   }
   return request
 }
 
-// Read-only: a button exists only for a report already stored in Intervals.icu.
+// Read-only: a button exists only for a report already stored in the app.
 export function SavedReportButton({kind, startDate}: {kind: "weekly" | "block"; startDate: string}) {
   const [report, setReport] = useState<CatalogReport | null>(null)
   const [open, setOpen] = useState(false)

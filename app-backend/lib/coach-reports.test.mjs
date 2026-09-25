@@ -106,6 +106,7 @@ function harness() {
   let answers = 0,
     onAnswer;
   const argumentsSeen = [];
+  const savedInputs = [];
   const snapshotCache = createReportSnapshotCache(source, config, () => clock);
   const queues = [];
   let progress = { status: "queued" };
@@ -131,6 +132,7 @@ function harness() {
           model: "fixture",
         };
       },
+      saveReport: async input => { savedInputs.push(input); return { id: "app-report-id" }; },
     });
   return {
     build,
@@ -143,6 +145,7 @@ function harness() {
     index,
     queues,
     argumentsSeen,
+    savedInputs,
     snapshotCache,
     source,
     snapshot: { latest, read },
@@ -187,6 +190,23 @@ test("report targets reject client-authored facts and resolve saved workouts and
       resolveReportTarget({ kind: "block", planId: "plan1", startDate: "2026-09-07" }, {}, h.plans),
     /no longer/
   );
+});
+
+test("legacy post-workout records migrate with their workout ID and sport", async () => {
+  const h = harness();
+  await h.index.update(state => {
+    state.reports = [{ key: "old-post", kind: "post", workoutId: "activity:i2", startDate: "2026-09-17", endDate: "2026-09-17" }];
+  });
+  await h.record("old-post").update(state => {
+    Object.assign(state, { status: "complete", text: "Original report\n", generatedAt: "2026-09-17T18:00:00Z", target: {
+      kind: "post", workoutId: "activity:i2", activityId: "i2", startDate: "2026-09-17", endDate: "2026-09-17", workout: { sport: "Swim" },
+    } });
+  });
+  assert.deepEqual(await h.build().savedReports(), [{
+    kind: "post_workout", sport: "Swim", workoutId: "activity:i2", eventId: undefined,
+    activityId: "i2", planId: undefined, startDate: "2026-09-17", endDate: "2026-09-17",
+    title: undefined, body: "Original report\n", generatedAt: "2026-09-17T18:00:00Z",
+  }]);
 });
 
 test("weekly and block reports wait for period end, later export and full history coverage", async () => {
@@ -239,6 +259,9 @@ test("concurrent manual clicks generate exactly once and a new service instance 
   const reloaded = await h.build().generate(block);
   assert.equal(reloaded.text, completed.text);
   assert.equal(h.answers(), 1);
+  assert.equal(h.savedInputs.length, 1);
+  assert.equal(h.savedInputs[0].kind, "block");
+  assert.equal(h.savedInputs[0].body, completed.text);
   assert.equal((await h.index.read()).reports.length, 1);
   h.context.history = [];
   assert.equal((await h.build().status(block)).text, completed.text);
@@ -288,7 +311,7 @@ function syncHarness() {
     fetchImpl: async (url, options) => {
       assert.equal(new URL(url).origin, "https://api.github.com");
       assert.equal(options.redirect, "error");
-      if (url.endsWith("/dispatches")) {
+      if (url.includes("/dispatches?return_run_details=true")) {
         dispatches++;
         const input = JSON.parse(options.body);
         runs.push({
@@ -304,7 +327,8 @@ function syncHarness() {
       }
       if (url.includes("/workflows/auto-sync.yml/runs?"))
         return Response.json({ workflow_runs: runs });
-      return Response.json(runs.find((r) => r.id === Number(url.split("/").at(-1))));
+      if (url.includes("/jobs?")) return Response.json({ jobs: [] });
+      return Response.json(runs.find((r) => r.id === Number(url.split("/").at(-1).split("?")[0])));
     },
   });
   return {
@@ -382,6 +406,24 @@ test("manual Refresh recovers an uncertain dispatch and permits retry after a fa
   h.runs[0].conclusion = "failure";
   assert.equal((await h.sync.poll()).status, "failed");
   await h.sync.refresh();
+  assert.equal(h.dispatches(), 2);
+});
+
+test("manual refresh IDs survive queued syncs and stay correlated across the GitHub run", async () => {
+  const h = syncHarness();
+  await h.sync.queue(["activity:already-running"]);
+  const requestId = "manual-refresh-request-123456";
+  const queued = await h.sync.refresh(requestId);
+  assert.equal(queued.requestId, requestId);
+  assert.equal(queued.status, "queued");
+  assert.equal((await h.sync.poll(requestId)).requestId, requestId);
+
+  h.runs[0].status = "completed";
+  h.runs[0].conclusion = "success";
+  const started = await h.sync.poll(requestId);
+  assert.equal(started.requestId, requestId);
+  assert.equal(started.manual, true);
+  assert.equal(h.runs[1].display_title, `section11-sync-${requestId}`);
   assert.equal(h.dispatches(), 2);
 });
 

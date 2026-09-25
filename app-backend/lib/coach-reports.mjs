@@ -85,13 +85,12 @@ export function createCoachReports({
   config,
   source,
   snapshotCache,
-  sync,
   record,
   index,
   readContext,
   readPlans,
   answer,
-  publish = async () => ({ skipped: true }),
+  saveReport = async () => null,
   now = () => Date.now(),
   timeoutMs = 240000,
 }) {
@@ -159,25 +158,12 @@ export function createCoachReports({
       ...(state.status === "error" ? { error: state.error } : {}),
     };
   }
-  async function status(request, retrySync = false) {
+  async function status(request) {
     const target = await resolve(request);
     const state = await saved(target);
     if (["complete", "running"].includes(state.status)) return view(state.target || target, state);
     const snapshot = await snapshotCache.read();
-    let eligibility = await reportEligibility(target, snapshot, config, now());
-    if (eligibility.needsSync) {
-      await sync.queue([target.activityId], retrySync);
-      const progress = await sync.poll();
-      // A completed run invalidates the cache; recheck the actual exported ID.
-      eligibility = await reportEligibility(target, await snapshotCache.read(), config, now());
-      if (eligibility.needsSync)
-        eligibility.sync = {
-          status: progress.status,
-          url: progress.url,
-          error: progress.error,
-          canRetry: ["complete", "failed"].includes(progress.status),
-        };
-    }
+    const eligibility = await reportEligibility(target, snapshot, config, now());
     return view(target, state, eligibility);
   }
   async function priorReports(target) {
@@ -260,7 +246,16 @@ export function createCoachReports({
           },
         ],
       });
-      const publication = await publish(target, result.text);
+      const generatedAt = new Date(now()).toISOString();
+      const stored = await saveReport({
+        kind: target.kind,
+        planId: target.planId,
+        startDate: target.startDate,
+        endDate: target.endDate,
+        title: target.title,
+        body: result.text,
+        generatedAt,
+      });
       const completed = await record(target.key).update((state) => {
         if (state.token !== claim || state.status !== "running") return state;
         Object.assign(state, {
@@ -269,10 +264,10 @@ export function createCoachReports({
           summary: result.summary || reportSummary(result.text),
           source: result.source,
           model: result.model,
-          generatedAt: new Date(now()).toISOString(),
+          generatedAt,
           template: { file: template.file, revision: template.revision },
           error: null,
-          publication,
+          publication: { location: "app", reportId: stored?.id || null },
         });
         return state;
       });
@@ -354,6 +349,34 @@ export function createCoachReports({
     const recentFirst = (a, b) => b.endDate.localeCompare(a.endDate);
     return { weeks: weeks.sort(recentFirst), blocks: blocks.sort(recentFirst) };
   }
+  async function savedReports() {
+    const entries = (await index.read()).reports || [];
+    const states = await Promise.all(entries.map(entry => record(entry.key).read()));
+    return states.flatMap((state, position) => {
+      if (state.status !== "complete" || !state.text) return [];
+      const entry = entries[position], target = state.target || entry;
+      const kind = { pre: "pre_workout", post: "post_workout" }[entry.kind] || entry.kind;
+      if (!["pre_workout", "post_workout", "weekly", "block"].includes(kind)) return [];
+      const workout = kind.endsWith("_workout");
+      const recordedSport = target.workout?.sport || target.workout?.planned?.sport || target.sport;
+      const sport = recordedSport && String(recordedSport).toLowerCase() !== "workout" ? recordedSport : "Other";
+      return [{
+        kind,
+        ...(workout ? {
+          sport,
+          workoutId: entry.workoutId || target.workoutId,
+          eventId: target.eventId,
+          activityId: target.activityId,
+        } : {}),
+        planId: entry.planId,
+        startDate: entry.startDate,
+        endDate: entry.endDate || target.endDate,
+        title: target.title,
+        body: state.text,
+        generatedAt: state.generatedAt,
+      }];
+    });
+  }
   async function generateDue() {
     const context = await readContext();
     const today = athleteLocalDate(
@@ -391,5 +414,5 @@ export function createCoachReports({
     }
     return results;
   }
-  return { status, generate, generateDue, catalog };
+  return { status, generate, generateDue, catalog, savedReports };
 }

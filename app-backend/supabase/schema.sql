@@ -53,6 +53,34 @@ create table if not exists sync_state (
   athlete_id text primary key, last_backfill_at timestamptz,
   cursor jsonb default '{}', status text default 'idle', error text, updated_at timestamptz default now()
 );
+-- App-owned Section 11 reports. Legacy encrypted report records and Intervals.icu
+-- notes are copied here during the one-time catalog migration; neither is deleted.
+create table if not exists public.coach_reports (
+  id text primary key,
+  scope text not null default 'default',
+  athlete_id text not null default 'default',
+  kind text not null check (kind in ('pre_workout', 'post_workout', 'weekly', 'block')),
+  sport text,
+  workout_id text,
+  event_id text,
+  activity_id text,
+  plan_id text,
+  start_date date not null,
+  end_date date not null,
+  title text not null,
+  body text not null,
+  generated_at timestamptz not null,
+  source_key text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint coach_reports_date_order check (end_date >= start_date),
+  constraint coach_reports_source_key_unique unique (scope, source_key)
+);
+create index if not exists coach_reports_scope_generated_at
+  on public.coach_reports (scope, generated_at desc);
+alter table public.coach_reports enable row level security;
+revoke all on table public.coach_reports from public, anon, authenticated;
+grant select, insert, update on table public.coach_reports to service_role;
 -- status='ready' rows contain normal training snapshots. Backend-only
 -- status='archived', athlete_id='completed:v1:<connection-hash>:<activity>:<kind>'
 -- rows retain completed-workout source data and downloaded charts/routes.

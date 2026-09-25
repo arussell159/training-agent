@@ -48,6 +48,7 @@ export function MobileActionMenu({
   children,
   className,
   disabled,
+  plain = false,
 }: {
   label: string
   actions: {
@@ -59,13 +60,16 @@ export function MobileActionMenu({
   children?: ReactNode
   className?: string
   disabled?: boolean
+  plain?: boolean
 }) {
   const mobile = useIsMobile()
   if (!mobile) return children
   return (
     <span
       className={cn(
-        "relative inline-flex size-9 shrink-0 items-center justify-center rounded-full focus-within:ring-2 focus-within:ring-ring",
+        plain
+          ? "relative inline-flex size-9 shrink-0 items-center justify-center"
+          : "mobile-glass-action relative inline-flex size-9 shrink-0 items-center justify-center rounded-full",
         disabled && "opacity-50",
         className
       )}

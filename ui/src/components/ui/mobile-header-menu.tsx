@@ -31,7 +31,7 @@ export function MobileHeaderMenu({
     <div className="ml-auto shrink-0 md:hidden">
       <MobileActionMenu
         label="Options"
-        className="size-11 p-0"
+        className="mobile-navbar-action size-11 p-0"
         actions={[
           {
             value: "terms",

@@ -6,9 +6,14 @@
     "api/handler.mjs": {
       "includeFiles": "app-backend/**",
       "maxDuration": 300
+    },
+    "api/section11_worker.py": {
+      "maxDuration": 300,
+      "excludeFiles": "{ui/**,app-backend/**,node_modules/**}"
     }
   },
   "rewrites": [
+    { "source": "/internal/section11-worker", "destination": "/api/section11_worker" },
     { "source": "/api/:path*", "destination": "/api/handler?__api_route=:path*" },
     { "source": "/coach", "destination": "/index.html" },
     { "source": "/calendar", "destination": "/index.html" },

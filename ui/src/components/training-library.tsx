@@ -1,22 +1,24 @@
-import {
-  List,
-  ListItem,
-  Subnavbar,
-  Segmented,
-  Button as F7Button,
-} from "framework7-react"
+import { Button as F7Button, Segmented, Subnavbar } from "framework7-react"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { apiFetch } from "@/lib/api-client"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useEffect, useMemo, useState } from "react"
-import { Search, ChevronRight } from "lucide-react"
+import { Activity, Bike, Footprints, Search, Waves } from "lucide-react"
 
 import { WorkoutCard } from "@/components/training-calendar"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { SettingsList, SettingsListItem } from "@/components/ui/settings-list"
 import { Input } from "@/components/ui/input"
 import { type PlannedWorkout } from "@/lib/training-context"
 
 const disciplines = ["All", "Swim", "Bike", "Run"] as const
+function workoutIcon(sport: string) {
+  if (/swim/i.test(sport)) return Waves
+  if (/bike|ride/i.test(sport)) return Bike
+  if (/run/i.test(sport)) return Footprints
+  return Activity
+}
 
 export function TrainingLibrary({
   onWorkoutOpen,
@@ -79,7 +81,7 @@ export function TrainingLibrary({
 
   if (mobile)
     return (
-      <div className="coach-report-page flex min-h-0 flex-1 flex-col">
+      <div className="coach-report-page flex min-h-0 flex-1 flex-col bg-background">
         <MobileSiteNavbar title="Library" className="coach-report-navbar">
           <Subnavbar className="coach-report-subnavbar">
             <Segmented strong round className="w-full">
@@ -91,6 +93,7 @@ export function TrainingLibrary({
                     event.preventDefault()
                     setDiscipline(item)
                   }}
+                  aria-pressed={discipline === item}
                 >
                   {item}
                 </F7Button>
@@ -99,38 +102,15 @@ export function TrainingLibrary({
           </Subnavbar>
         </MobileSiteNavbar>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="coach-report-content">
+          <div className="coach-report-content mx-auto w-full max-w-4xl px-4 py-5">
             {error ? (
               <p role="alert">{error}</p>
             ) : loading ? (
               <p>Loading saved workouts…</p>
             ) : (
-              <List
-                mediaList
-                inset
-                strong
-                dividers
-                className="coach-report-list"
-              >
-                {filtered.map((workout) => (
-                  <ListItem
-                    key={workout.id}
-                    link="#"
-                    noChevron
-                    title={workout.title}
-                    subtitle={workout.sport + " · " + workout.duration}
-                    onClick={(event) => {
-                      event.preventDefault()
-                      onWorkoutOpen?.(workout)
-                    }}
-                  >
-                    <ChevronRight
-                      slot="after"
-                      className="coach-report-chevron"
-                    />
-                  </ListItem>
-                ))}
-              </List>
+              <SettingsList>
+                {filtered.map(workout => <SettingsListItem key={workout.id} icon={workoutIcon(workout.sport)} label={workout.title} description={`${workout.sport} · ${workout.duration}`} onClick={() => onWorkoutOpen?.(workout)} />)}
+              </SettingsList>
             )}
             {!loading && !error && !filtered.length && (
               <p>No saved workouts match this search.</p>
@@ -141,7 +121,13 @@ export function TrainingLibrary({
     )
 
   return (
-    <div className="flex w-full min-w-0 flex-1 flex-col gap-4 p-3 sm:p-4 md:p-6">
+    <div className="flex w-full min-w-0 flex-1 flex-col overflow-y-auto bg-background">
+      <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-1 flex-col gap-6 px-4 py-5 md:px-8 md:py-14">
+      <header className="hidden md:block">
+        <h1 className="text-2xl font-medium tracking-tight">Library</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Browse and search your saved workouts.</p>
+      </header>
+      <Card className="gap-3 rounded-xl border p-4 shadow-none ring-1 ring-foreground/10">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:max-w-sm">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -172,10 +158,11 @@ export function TrainingLibrary({
           ))}
         </div>
       </div>
+      </Card>
 
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert" className="rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive">{error}</p>}
       {filtered.length ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((workout) => (
             <WorkoutCard
               key={workout.id}
@@ -185,10 +172,11 @@ export function TrainingLibrary({
           ))}
         </div>
       ) : (
-        <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+        <div className="rounded-xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">
           No workouts match this search.
         </div>
       )}
+      </div>
     </div>
   )
 }

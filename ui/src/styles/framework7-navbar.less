@@ -204,47 +204,15 @@
   }
 
   .coach-report-page {
-    background: var(--muted);
+    background: var(--background);
     color: var(--foreground);
     .coach-report-content {
-      padding: 0 0 calc(6rem + env(safe-area-inset-bottom));
-    }
-    .coach-report-list.list {
-      margin: 32px 16px;
-      --f7-list-bg-color: var(--background);
-      --f7-list-border-color: var(--border);
-      --f7-list-item-border-color: var(--border);
-      --f7-list-item-title-text-color: var(--foreground);
-      --f7-list-item-subtitle-text-color: var(--muted-foreground);
-      .item-title {
-        font-size: 15px;
-        font-weight: 600;
-        white-space: normal;
-      }
-      .item-subtitle {
-        font-size: 12px;
-      }
-      .item-link .item-title-row::before {
-        display: none;
-      }
-      .item-link .item-title-row {
-        padding-right: 0;
-      }
-      .item-link:focus-visible {
-        outline: 2px solid var(--ring);
-        outline-offset: -3px;
-      }
-    }
-    .coach-report-chevron {
-      width: 18px;
-      height: 18px;
-      color: var(--muted-foreground);
-      transition: transform 180ms;
+      padding: 20px 16px calc(6rem + env(safe-area-inset-bottom));
     }
     .coach-report-content > [role="alert"],
     .coach-report-content > p,
     .coach-report-content > .rounded-xl {
-      margin: 32px 16px;
+      margin: 0 0 20px;
     }
   }
 

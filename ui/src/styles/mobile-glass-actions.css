@@ -1,0 +1,191 @@
+@media (width < 48rem) {
+  .mobile-site-navbar .mobile-navbar-action,
+  .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action,
+  .mobile-glass-action,
+  .terms-metric-sheet-close {
+    --glass-ink: var(--foreground);
+    --glass-edge: rgb(255 255 255 / 72%);
+    --glass-ring: rgb(48 65 76 / 16%);
+    --glass-fill: rgb(255 255 255 / 4%);
+    --glass-shadow:
+      0 0 0 1px var(--glass-ring),
+      0 3px 10px rgb(21 32 39 / 10%);
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    border: 1px solid var(--glass-edge);
+    border-radius: 50%;
+    background: var(--glass-fill);
+    color: var(--glass-ink);
+    box-shadow: var(--glass-shadow);
+    -webkit-backdrop-filter: blur(12px) saturate(130%);
+    backdrop-filter: blur(12px) saturate(130%);
+    text-shadow: none;
+    transition:
+      background 200ms ease,
+      border-color 200ms ease,
+      box-shadow 200ms ease,
+      filter 200ms ease;
+  }
+
+  .mobile-site-navbar .mobile-navbar-action::before,
+  .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action::before,
+  .mobile-glass-action::before,
+  .terms-metric-sheet-close::before,
+  .mobile-site-navbar .mobile-navbar-action::after,
+  .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action::after,
+  .mobile-glass-action::after,
+  .terms-metric-sheet-close::after {
+    content: "";
+    position: absolute;
+    inset: 1px;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  .mobile-site-navbar .mobile-navbar-action::before,
+  .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action::before,
+  .mobile-glass-action::before,
+  .terms-metric-sheet-close::before {
+    border-top: 1px solid rgb(255 255 255 / 85%);
+  }
+
+  .mobile-site-navbar .mobile-navbar-action::after,
+  .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action::after,
+  .mobile-glass-action::after,
+  .terms-metric-sheet-close::after {
+    border-bottom: 1px solid rgb(255 255 255 / 48%);
+  }
+
+  .mobile-site-navbar .mobile-navbar-action svg,
+  .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action svg,
+  .mobile-glass-action svg,
+  .terms-metric-sheet-close svg {
+    position: relative;
+    z-index: 1;
+  }
+
+  .mobile-glass-action select {
+    z-index: 2;
+  }
+
+  .mobile-site-navbar .mobile-navbar-action:hover:not(:disabled),
+  .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action:hover:not(:disabled),
+  .mobile-glass-action:hover:not(:has(select:disabled)),
+  .terms-metric-sheet-close:hover:not(:disabled) {
+    box-shadow:
+      0 0 0 1px var(--glass-ring),
+      0 4px 12px rgb(21 32 39 / 13%);
+  }
+
+  .mobile-site-navbar .mobile-navbar-action:active:not(:disabled),
+  .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action:active:not(:disabled),
+  .mobile-glass-action:active:not(:has(select:disabled)),
+  .terms-metric-sheet-close:active:not(:disabled) {
+    box-shadow:
+      0 0 0 1px var(--glass-ring),
+      0 2px 6px rgb(21 32 39 / 10%);
+  }
+
+  .mobile-site-navbar .mobile-navbar-action:focus-visible,
+  .mobile-site-navbar .mobile-navbar-action:focus-within,
+  .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action:focus-visible,
+  .mobile-glass-action:focus-within,
+  .terms-metric-sheet-close:focus-visible {
+    outline: 2px solid #425b6a;
+    outline-offset: 2px;
+  }
+
+  .dark .mobile-site-navbar .mobile-navbar-action,
+  .dark .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action,
+  .dark .mobile-glass-action,
+  .dark .terms-metric-sheet-close {
+    --glass-ink: var(--foreground);
+    --glass-edge: rgb(255 255 255 / 32%);
+    --glass-ring: rgb(0 0 0 / 24%);
+    --glass-fill: rgb(255 255 255 / 4%);
+    --glass-shadow:
+      0 0 0 1px var(--glass-ring),
+      0 3px 10px rgb(0 0 0 / 20%);
+  }
+
+  .workout-map-navbar .mobile-navbar-action,
+  .dark .workout-map-navbar .mobile-navbar-action {
+    --glass-ink: #111827;
+  }
+
+  .calendar-month-title-button:focus-visible {
+    outline-color: #425b6a;
+  }
+
+  .calendar-picker-navbar-open .navbar {
+    background: transparent;
+  }
+
+  .calendar-picker-navbar-open .navbar-bg {
+    background: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .mobile-calendar-picker-layer {
+    --calendar-picker-panel-height: 286px;
+    display: flex;
+    flex-direction: column;
+    background: transparent;
+    animation: none;
+  }
+
+  .mobile-calendar-picker-layer::before {
+    content: "";
+    position: absolute;
+    top: -56px;
+    right: 0;
+    left: 0;
+    height: calc(56px + var(--calendar-picker-panel-height));
+    border-radius: 0 0 20px 20px;
+    background: rgb(255 255 255 / 32%);
+    box-shadow: 0 5px 18px rgb(21 32 39 / 15%);
+    -webkit-backdrop-filter: blur(28px) saturate(110%);
+    backdrop-filter: blur(28px) saturate(110%);
+    pointer-events: none;
+  }
+
+  .mobile-calendar-picker-layer::after {
+    content: "";
+    flex: 1;
+    min-height: 0;
+    background: rgb(0 0 0 / 12%);
+    pointer-events: none;
+    animation: calendar-picker-backdrop-in 180ms ease-out both;
+  }
+
+  .mobile-calendar-picker-panel {
+    position: relative;
+    z-index: 1;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .mobile-calendar-picker-panel .calendar-jump-inline {
+    --f7-calendar-height: var(--calendar-picker-panel-height);
+    background: transparent;
+  }
+
+  .dark .mobile-calendar-picker-layer::before {
+    background: rgb(255 255 255 / 16%);
+    box-shadow: 0 5px 18px rgb(0 0 0 / 28%);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mobile-site-navbar .mobile-navbar-action,
+    .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action,
+    .mobile-glass-action,
+    .terms-metric-sheet-close {
+      transition: none;
+    }
+  }
+}

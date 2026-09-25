@@ -8,11 +8,14 @@ import Accordion from "framework7/components/accordion"
 import Actions from "framework7/components/actions"
 import Calendar from "framework7/components/calendar"
 import Dialog from "framework7/components/dialog"
+import Progressbar from "framework7/components/progressbar"
 import Sortable from "framework7/components/sortable"
 import Framework7React, { App as Framework7App } from "framework7-react"
 
 import "./index.css"
 import "./styles/framework7-navbar.less"
+import "./styles/mobile-glass-actions.css"
+import "./styles/mobile-bottom-nav.css"
 import App from "./App.tsx"
 import { AppAuth } from "@/components/app-auth"
 import { ThemeProvider } from "@/components/theme-provider.tsx"
@@ -30,6 +33,7 @@ Framework7.use([
   Actions,
   Calendar,
   Dialog,
+  Progressbar,
   Sortable,
 ])
 

@@ -1,13 +1,13 @@
 import { CoachError, createGithubCoachSource } from "./github-coach-source.mjs";
 import { coachConfig, createCoach, validateMessages } from "./github-coach.mjs";
 
-export async function bodyJson(req) {
+export async function bodyJson(req, maxBytes = 160000) {
   let size = 0;
   const chunks = [];
   for await (const chunk of req) {
     size += Buffer.byteLength(chunk);
-    if (size > 160000)
-      throw new CoachError("This chat request is too large. Start a new chat.", 413);
+    if (size > maxBytes)
+      throw new CoachError("This request is too large.", 413);
     chunks.push(Buffer.from(chunk));
   }
   try {

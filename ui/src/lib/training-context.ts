@@ -176,6 +176,7 @@ export async function hydrateDeviceHistory() {
 export type ManualRefreshProgress = {
   phase: "starting" | "intervals" | "saving" | "github" | "finalizing" | "complete" | "error"
   label: string
+  requestId?: string | null
   completed?: number | null
   total?: number | null
   status?: string
@@ -185,6 +186,7 @@ export type ManualRefreshProgress = {
 
 export async function refreshRecentIntervals(onProgress?: (progress: ManualRefreshProgress) => void) {
   const syncId=crypto.randomUUID()
+  let progressId:string=syncId
   const report=(progress:ManualRefreshProgress)=>onProgress?.(progress)
   report({phase:"starting",label:"Starting manual refresh",completed:0,total:1})
   let requestDone=false
@@ -197,8 +199,12 @@ export async function refreshRecentIntervals(onProgress?: (progress: ManualRefre
       await new Promise(resolve=>setTimeout(resolve,1500))
       if(requestDone)break
       try{
-        const response=await apiFetch(`/api/sync/progress?id=${encodeURIComponent(syncId)}`)
-        if(response.ok)report(await response.json() as ManualRefreshProgress)
+        const response=await apiFetch(`/api/sync/progress?id=${encodeURIComponent(progressId)}`)
+        if(response.ok){
+          const progress=await response.json() as ManualRefreshProgress
+          if(progress.requestId)progressId=progress.requestId
+          report(progress)
+        }
       }catch{/* The main sync request reports errors; progress polling is best effort. */}
     }
   })()
@@ -211,8 +217,9 @@ export async function refreshRecentIntervals(onProgress?: (progress: ManualRefre
   }
   if(!response.ok)throw new Error(`Intervals.icu refresh failed (${response.status})`)
   const result=await response.json() as {context:TrainingContext;sync_error?:string;section11Sync?:{
-    status:string;error?:string|null;progress?:{completed:number;total:number;currentStep:string|null}
+    requestId?:string;status:string;error?:string|null;label?:string;progress?:{completed:number;total:number;currentStep:string|null}
   }}
+  if(result.section11Sync?.requestId)progressId=result.section11Sync.requestId
   if(result.context)rememberTrainingContext(result.context)
   if(result.sync_error)throw Error(result.sync_error)
   let progress=result.section11Sync
@@ -221,7 +228,8 @@ export async function refreshRecentIntervals(onProgress?: (progress: ManualRefre
     const steps=value.progress
     report({
       phase:"github",
-      label:steps?.currentStep ? `GitHub Actions · ${steps.currentStep}` : `GitHub Actions · ${value.status}`,
+      requestId:value.requestId || undefined,
+      label:value.label || (steps?.currentStep ? `Section 11 · ${steps.currentStep}` : `Section 11 · ${value.status}`),
       status:value.status,
       completed:steps?.completed ?? null,
       total:steps?.total ?? null,
@@ -230,15 +238,15 @@ export async function refreshRecentIntervals(onProgress?: (progress: ManualRefre
     })
   }
   reportGithub(progress)
-  const deadline=Date.now()+15*60_000
-  while(progress && ["dispatching","queued","running","checking"].includes(progress.status) && Date.now()<deadline){
-    await new Promise(resolve=>setTimeout(resolve,3000))
-    const status=await apiFetch(`/api/sync/progress?id=${encodeURIComponent(syncId)}`)
-    if(!status.ok)throw Error("Training refreshed; GitHub sync status could not be checked.")
+  const deadline=Date.now()+30*60_000
+  while(progress && ["dispatching","queued","running","checking","waiting"].includes(progress.status) && Date.now()<deadline){
+    await new Promise(resolve=>setTimeout(resolve,5000))
+    const status=await apiFetch(`/api/sync/progress?id=${encodeURIComponent(progressId)}`)
+    if(!status.ok)throw Error("Training refreshed; Section 11 sync status could not be checked.")
     progress=await status.json()
     reportGithub(progress as typeof progress)
   }
-  if(progress && progress.status!=="complete")throw Error(progress.error || (["failed","unavailable"].includes(progress.status)?"Training refreshed; GitHub sync failed. Try Refresh again.":"Training refreshed; GitHub sync is still running. Check again shortly."))
+  if(progress && progress.status!=="complete")throw Error(progress.error || (["failed","unavailable"].includes(progress.status)?"Training refreshed; Section 11 sync failed. Try Refresh again.":"Training refreshed; Section 11 sync is still running. Check again shortly."))
   report({phase:"finalizing",label:"Loading refreshed data into the app",completed:0,total:1})
   const context=await loadTrainingContext(false,"full",true)
   report({phase:"complete",label:"Refresh complete",completed:1,total:1})

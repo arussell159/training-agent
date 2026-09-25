@@ -84,6 +84,85 @@ function pace(speed, distance, unit) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} ${unit}`;
 }
 
+function paceSeconds(value, label) {
+  if (value == null || value === "") return null;
+  const match = String(value).trim().match(/^(\d{1,3}):(\d{2})(?:\s|$)/);
+  if (!match || Number(match[2]) > 59) throw new Error(`Enter ${label} as minutes:seconds.`);
+  const seconds = Number(match[1]) * 60 + Number(match[2]);
+  if (seconds < 30 || seconds > 3600) throw new Error(`Enter a valid ${label}.`);
+  return seconds;
+}
+
+function sportSetting(settings, pattern, fallback) {
+  return settings.find((setting) =>
+    (setting.types || [setting.type]).some((type) => pattern.test(type || ""))
+  ) || { type: fallback };
+}
+
+export async function updateIntervalsTrainingZones(request, input = {}) {
+  const bikeFtp = input.bike_ftp === "" || input.bike_ftp == null ? null : Number(input.bike_ftp);
+  const runSeconds = paceSeconds(input.run_threshold_pace, "run threshold pace");
+  const swimSeconds = paceSeconds(input.swim_css, "swim CSS");
+  const thresholdHr = input.threshold_hr === "" || input.threshold_hr == null ? null : Number(input.threshold_hr);
+  if (bikeFtp != null && (!Number.isFinite(bikeFtp) || bikeFtp < 50 || bikeFtp > 1000))
+    throw new Error("Enter a valid bike FTP in watts.");
+  if (thresholdHr != null && (!Number.isInteger(thresholdHr) || thresholdHr < 60 || thresholdHr > 230))
+    throw new Error("Enter a valid threshold heart rate.");
+
+  const athlete = await request("/athlete/0");
+  const settings = athlete.sportSettings || athlete.sport_settings || [];
+  const bike = sportSetting(settings, /ride|bike/i, "Ride");
+  const run = sportSetting(settings, /run/i, "Run");
+  const swim = sportSetting(settings, /swim/i, "Swim");
+  const hasRunSetting = settings.some((setting) =>
+    (setting.types || [setting.type]).some((type) => /run/i.test(type || ""))
+  );
+  const updates = [];
+  if (bikeFtp != null || (thresholdHr != null && !hasRunSetting)) {
+    updates.push({ setting: bike, type: "Ride", fields: {
+      ...(bikeFtp != null ? { ftp: bikeFtp } : {}),
+      ...(thresholdHr != null && !hasRunSetting ? { lthr: thresholdHr } : {}),
+    } });
+  }
+  if (runSeconds != null || (thresholdHr != null && hasRunSetting)) {
+    updates.push({ setting: run, type: "Run", fields: {
+      ...(runSeconds != null ? { threshold_pace: 1609.344 / runSeconds } : {}),
+      ...(thresholdHr != null ? { lthr: thresholdHr } : {}),
+    } });
+  }
+  if (swimSeconds != null) {
+    updates.push({ setting: swim, type: "Swim", fields: { threshold_pace: 91.44 / swimSeconds } });
+  }
+  for (const update of updates) {
+    const key = update.setting.id ?? update.setting.type ?? update.type;
+    await request(`/athlete/0/sport-settings/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: JSON.stringify(update.fields),
+    });
+  }
+
+  const verifiedAthlete = await request("/athlete/0");
+  const verifiedSettings = verifiedAthlete.sportSettings || verifiedAthlete.sport_settings || [];
+  const verifiedBike = sportSetting(verifiedSettings, /ride|bike/i, "Ride");
+  const verifiedRun = sportSetting(verifiedSettings, /run/i, "Run");
+  const verifiedSwim = sportSetting(verifiedSettings, /swim/i, "Swim");
+  const close = (actual, expected, tolerance = 0.01) => Number.isFinite(Number(actual)) && Math.abs(Number(actual) - expected) <= tolerance;
+  if (bikeFtp != null && !close(verifiedBike.ftp, bikeFtp, 0.5)) throw new Error("Intervals.icu did not confirm the bike FTP update.");
+  if (runSeconds != null && !close(verifiedRun.threshold_pace, 1609.344 / runSeconds, 0.01)) throw new Error("Intervals.icu did not confirm the run threshold update.");
+  if (swimSeconds != null && !close(verifiedSwim.threshold_pace, 91.44 / swimSeconds, 0.01)) throw new Error("Intervals.icu did not confirm the swim CSS update.");
+  const verifiedHr = verifiedRun.lthr ?? verifiedBike.lthr ?? null;
+  if (thresholdHr != null && Number(verifiedHr) !== thresholdHr) throw new Error("Intervals.icu did not confirm the threshold heart-rate update.");
+  return {
+    sport_settings: verifiedSettings,
+    zones: {
+      bike_ftp: verifiedBike.ftp ?? null,
+      run_threshold_pace: pace(verifiedRun.threshold_pace, 1609.344, "min/mi"),
+      swim_css: pace(verifiedSwim.threshold_pace, 91.44, "min/100 yd"),
+      threshold_hr: verifiedHr,
+    },
+  };
+}
+
 function appWorkoutDoc(doc, type) {
   if (!doc || !/Swim/i.test(type || "") || !/y$/i.test(String(doc.options?.pool_length || "")))
     return doc;
@@ -226,7 +305,7 @@ export function mapIntervalsWorkout(
 
 export async function fetchIntervalsContext(
   request,
-  { now = new Date(), timeZone = "America/Chicago", range, includeFutureRaces = false, onProgress } = {}
+  { now = new Date(), timeZone = "America/Chicago", range, includeFutureRaces = false, repairWorkoutLinks = false, onProgress } = {}
 ) {
   const syncStartedAt = new Date().toISOString();
   const totalRequests = 4 + (range ? 1 : 0) + (includeFutureRaces ? 1 : 0);
@@ -262,6 +341,25 @@ export async function fetchIntervalsContext(
     ).values(),
   ];
   const matches = pairIntervalsWorkouts(allEvents, activities || []);
+  if (repairWorkoutLinks) {
+    const result = await persistInferredWorkoutLinks(request, allEvents, activities || [], matches, onProgress);
+    if (result.failed) {
+      onProgress?.({
+        phase: "pairing",
+        label: `${result.linked} Intervals.icu link${result.linked === 1 ? "" : "s"} saved; ${result.failed} could not be saved`,
+        completed: result.linked + result.failed + result.skipped,
+        total: result.total,
+        error: "Some uniquely matched workouts could not be linked in Intervals.icu. The app still shows its match.",
+      });
+    } else if (result.total) {
+      onProgress?.({
+        phase: "pairing",
+        label: `${result.linked} workout link${result.linked === 1 ? "" : "s"} saved in Intervals.icu`,
+        completed: result.total,
+        total: result.total,
+      });
+    }
+  }
   const settings = athlete.sportSettings || athlete.sport_settings || [];
   const paired = new Set([...matches.values()].map((a) => String(a.id)));
   const sessions = [
@@ -365,6 +463,73 @@ export function pairIntervalsWorkouts(events, activities) {
     if (candidates.length === 1) matches.set(String(event.id), candidates[0]);
   }
   return matches;
+}
+
+async function persistInferredWorkoutLinks(request, events, activities, matches, onProgress) {
+  const eventById = new Map(events.map((event) => [String(event.id), event]));
+  const candidates = [...matches].filter(([eventId, activity]) => {
+    const event = eventById.get(String(eventId));
+    return event && event.paired_activity_id == null && activity.paired_event_id == null;
+  });
+  const result = { total: candidates.length, linked: 0, skipped: 0, failed: 0 };
+  let completed = 0;
+  const worker = async () => {
+    while (true) {
+      const candidate = candidates.shift();
+      if (!candidate) return;
+      const [eventId, activity] = candidate;
+      const activityPath = `/activity/${encodeURIComponent(activity.id)}`;
+      const eventPath = `/athlete/0/events/${encodeURIComponent(eventId)}`;
+      try {
+        const [currentActivity, currentEvent] = await Promise.all([
+          request(activityPath),
+          request(eventPath),
+        ]);
+        const activityPair = currentActivity?.paired_event_id;
+        const eventPair = currentEvent?.paired_activity_id;
+        if (
+          !currentActivity ||
+          !currentEvent ||
+          String(currentActivity.id) !== String(activity.id) ||
+          (activityPair != null && String(activityPair) !== String(eventId)) ||
+          (eventPair != null && String(eventPair) !== String(activity.id))
+        ) {
+          result.skipped += 1;
+        } else if (String(activityPair) === String(eventId)) {
+          result.skipped += 1;
+        } else {
+          const saved = await request(activityPath, {
+            method: "PUT",
+            body: JSON.stringify({ ...currentActivity, paired_event_id: Number(eventId) }),
+          });
+          const verified =
+            String(saved?.id) === String(activity.id) &&
+            String(saved?.paired_event_id) === String(eventId)
+              ? saved
+              : await request(activityPath);
+          if (
+            String(verified?.id) !== String(activity.id) ||
+            String(verified?.paired_event_id) !== String(eventId)
+          ) {
+            result.failed += 1;
+          } else {
+            result.linked += 1;
+          }
+        }
+      } catch {
+        result.failed += 1;
+      }
+      completed += 1;
+      onProgress?.({
+        phase: "pairing",
+        label: `Checking matched Intervals.icu workouts (${completed}/${result.total})`,
+        completed,
+        total: result.total,
+      });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(2, candidates.length) }, worker));
+  return result;
 }
 
 export async function moveIntervalsEvent(request, id, date) {

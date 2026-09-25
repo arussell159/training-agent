@@ -13,6 +13,7 @@ import {
   useState,
 } from "react"
 import {
+  ArrowLeft,
   CalendarDays,
   BookOpen,
   Ellipsis,
@@ -47,6 +48,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { MobileNavbar, MobilePageTabs } from "@/components/ui/navbars"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { f7ready } from "framework7-react"
+import type { Dialog as Framework7Dialog } from "framework7/types"
 import {
   MobileHeaderNavigation,
   MobileDefinitionsOpen,
@@ -174,6 +177,44 @@ function RouteScrollReset({ route }: { route: string }) {
   return null
 }
 
+type MobileRefreshDialog = {
+  dialog: Framework7Dialog.Dialog
+  dismissed: boolean
+}
+
+function openMobileRefreshDialog(): Promise<MobileRefreshDialog | null> {
+  return new Promise((resolve) => {
+    f7ready((app) => {
+      if (!app.dialog) {
+        resolve(null)
+        return
+      }
+      const dialog = app.dialog.progress("Refreshing Intervals.icu", 0)
+      const inner = dialog.el.querySelector<HTMLElement>(".dialog-inner")
+      if (inner) {
+        inner.style.position = "relative"
+        inner.style.paddingRight = "42px"
+        const closeButton = document.createElement("button")
+        closeButton.type = "button"
+        closeButton.className = "refresh-progress-dialog-close"
+        closeButton.setAttribute("aria-label", "Dismiss sync progress")
+        closeButton.textContent = "×"
+        closeButton.style.cssText =
+          "position:absolute;top:8px;right:8px;display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:999px;background:var(--f7-dialog-button-bg-color, transparent);color:var(--foreground);font-size:24px;line-height:1;cursor:pointer"
+        inner.append(closeButton)
+        const refreshDialog = { dialog, dismissed: false }
+        closeButton.addEventListener("click", () => {
+          refreshDialog.dismissed = true
+          dialog.close()
+        })
+        resolve(refreshDialog)
+        return
+      }
+      resolve({ dialog, dismissed: false })
+    })
+  })
+}
+
 function AppWorkspace() {
   useMobileViewport()
   const mobileTerms = useIsMobile()
@@ -190,13 +231,8 @@ function AppWorkspace() {
   const [activeItem, setActiveItem] = useState(routeItem)
   const [navigationItem, setNavigationItem] = useState(routeItem)
   const [calendarNavigationVersion, setCalendarNavigationVersion] = useState(0)
-  const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(
-    () =>
-      restoreOpenWorkout([
-        ...cachedTrainingContext().planned,
-        ...cachedTrainingContext().history,
-      ])
-  )
+  const [selectedWorkout, setSelectedWorkout] =
+    useState<PlannedWorkout | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const toastManager = useToastManager()
   const [intervalsDisconnected, setIntervalsDisconnected] = useState(false)
@@ -207,8 +243,44 @@ function AppWorkspace() {
     if (isRefreshing) return
     setIsRefreshing(true)
     const startedAt = Date.now()
+    const mobileProgressDialog = mobileTerms
+      ? await openMobileRefreshDialog()
+      : null
     const toastId = "intervals-icu-refresh"
     const updateProgress = (progress: ManualRefreshProgress) => {
+      if (mobileProgressDialog && !mobileProgressDialog.dismissed) {
+        const { dialog } = mobileProgressDialog
+        const title =
+          progress.phase === "github"
+            ? "Syncing training data to GitHub"
+            : "Refreshing Intervals.icu"
+        const hasProgress =
+          typeof progress.completed === "number" &&
+          typeof progress.total === "number" &&
+          progress.total > 0
+        const value = progress.phase === "complete"
+          ? 100
+          : hasProgress
+            ? Math.max(0, Math.min(100, (progress.completed! / progress.total!) * 100))
+            : 0
+        const detail = hasProgress
+          ? progress.phase === "github"
+            ? `${progress.completed} of ${progress.total} GitHub Actions steps complete`
+            : progress.phase === "intervals"
+              ? `${progress.completed} of ${progress.total} Intervals.icu requests complete`
+              : ""
+          : ""
+        dialog.setTitle(title)
+        dialog.setProgress(value, 250)
+        dialog.setText(detail ? `${progress.label} · ${detail}` : progress.label)
+        const dialogText = dialog.el.querySelector<HTMLElement>(".dialog-text")
+        if (dialogText) {
+          dialogText.textContent = detail
+            ? `${progress.label} · ${detail}`
+            : progress.label
+        }
+        return
+      }
       toastManager.update(toastId, {
         type: "loading",
         title:
@@ -219,18 +291,20 @@ function AppWorkspace() {
         timeout: 0,
       })
     }
-    toastManager.add({
-      id: toastId,
-      type: "loading",
-      title: "Refreshing Intervals.icu",
-      description: (
-        <RefreshProgressToast
-          startedAt={startedAt}
-          progress={{ phase: "starting", label: "Starting manual refresh", completed: 0, total: 1 }}
-        />
-      ),
-      timeout: 0,
-    })
+    if (!mobileProgressDialog) {
+      toastManager.add({
+        id: toastId,
+        type: "loading",
+        title: "Refreshing Intervals.icu",
+        description: (
+          <RefreshProgressToast
+            startedAt={startedAt}
+            progress={{ phase: "starting", label: "Starting manual refresh", completed: 0, total: 1 }}
+          />
+        ),
+        timeout: 0,
+      })
+    }
     try {
       const context = await refreshRecentIntervals(updateProgress)
       setSelectedWorkout((current) =>
@@ -259,14 +333,23 @@ function AppWorkspace() {
         timeout: 8000,
       })
     } finally {
+      if (mobileProgressDialog && mobileProgressDialog.dialog.opened) {
+        mobileProgressDialog.dialog.close()
+      }
       setIsRefreshing(false)
     }
-  }, [isRefreshing, toastManager])
+  }, [isRefreshing, mobileTerms, toastManager])
   useEffect(() => {
     const showReconnect = () => setIntervalsDisconnected(true)
     window.addEventListener("intervals-auth-expired", showReconnect)
     return () =>
       window.removeEventListener("intervals-auth-expired", showReconnect)
+  }, [])
+
+  useEffect(() => {
+    // Workout dialogs are transient UI. A reload should return to the page
+    // underneath instead of restoring a dialog opened in an earlier session.
+    forgetOpenWorkout()
   }, [])
 
   useEffect(() => {
@@ -348,6 +431,15 @@ function AppWorkspace() {
       )
     })
   }
+
+  useEffect(() => {
+    const navigate = (event: Event) => {
+      const item = (event as CustomEvent<string>).detail
+      if (typeof item === "string" && item) selectItem(item)
+    }
+    window.addEventListener("app-navigate", navigate)
+    return () => window.removeEventListener("app-navigate", navigate)
+  }, [selectItem])
 
   const openWorkout = (workout: PlannedWorkout) => {
     workoutReturnScroll.current = window.scrollY
@@ -448,6 +540,19 @@ function AppWorkspace() {
               />
             )}
           <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:flex">
+            {selectedWorkout?.status === "completed" && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={closeWorkout}
+                className="mr-2 shrink-0 rounded-lg"
+                aria-label="Back to calendar"
+              >
+                <ArrowLeft className="size-4" />
+                Calendar
+              </Button>
+            )}
             <h1 className="min-w-0 truncate text-sm font-semibold">
               {selectedReport
                 ? selectedReport.kind === "weekly"

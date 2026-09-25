@@ -1,5 +1,6 @@
 name: Auto-Sync Intervals.icu Data
 # training-agent-sync-v1
+# Legacy archive: automatic scheduling is intentionally disabled; manual recovery only.
 run-name: section11-sync-${{ inputs.request_id || github.run_id }}
 
 concurrency:
@@ -7,11 +8,14 @@ concurrency:
   cancel-in-progress: false
 
 on:
-  schedule:
-    # Run every 15 minutes
-    - cron: '*/15 * * * *'
+  # The app's Refresh button publishes directly. Keep this workflow for recovery.
   workflow_dispatch:
     inputs:
+      refresh_history:
+        description: Rebuild historical totals after correcting past activities
+        required: false
+        default: false
+        type: boolean
       request_id:
         description: Optional app sync request identifier
         required: false
@@ -60,6 +64,15 @@ jobs:
             exit 1
           fi
           echo "✅ All secrets configured"
+
+      - name: Refresh historical totals when requested
+        if: inputs.refresh_history == true
+        env:
+          ATHLETE_ID: ${{ secrets.ATHLETE_ID }}
+          INTERVALS_KEY: ${{ secrets.INTERVALS_KEY }}
+          WEEK_START: ${{ secrets.WEEK_START }}
+          ZONE_PREFERENCE: ${{ secrets.ZONE_PREFERENCE }}
+        run: python sync.py --athlete-id "$ATHLETE_ID" --intervals-key "$INTERVALS_KEY" --generate-history --output history.json
 
       - name: Run sync
         env:

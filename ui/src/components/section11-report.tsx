@@ -283,7 +283,7 @@ function ReportPanel({
           {result?.reason ||
             (!result
               ? "Checking report availability…"
-              : "Waiting for the saved report from Intervals.icu.")}
+              : "Waiting for the saved report in the app.")}
         </p>
       )}
       {(error || result?.error) && !complete && (
@@ -349,7 +349,7 @@ function ReportBody({
       text: text || "",
       startDate: period?.startDate || "",
       endDate: period?.endDate || "",
-      source: "intervals" as const,
+      source: "app" as const,
     }
     return kind === "weekly" ? (
       <WeeklyReportBody report={report} hideHeading />

@@ -6,6 +6,8 @@ export const freshWorkoutSync = () => ({
   seen: [],
   pending: [],
   pendingRefresh: false,
+  pendingRefreshId: null,
+  manualProgress: {},
   active: null,
   last: null,
 });
@@ -46,7 +48,9 @@ export function createWorkoutSync({
     const claim = await store.update((state) => {
       if (state.active || (!state.pending.length && !state.pendingRefresh)) return null;
       const active = {
-        requestId: randomUUID(),
+        requestId: state.pendingRefresh && state.pendingRefreshId
+          ? state.pendingRefreshId
+          : randomUUID(),
         ids: [...state.pending],
         manual: Boolean(state.pendingRefresh),
         startedAt: now(),
@@ -57,11 +61,12 @@ export function createWorkoutSync({
       state.active = active;
       state.pending = [];
       state.pendingRefresh = false;
+      state.pendingRefreshId = null;
       return active;
     });
     if (!claim) return;
     try {
-      const run = await github(`/actions/workflows/${workflow}/dispatches`, {
+      const run = await github(`/actions/workflows/${workflow}/dispatches?return_run_details=true`, {
         method: "POST",
         body: JSON.stringify({ ref: config.branch, inputs: { request_id: claim.requestId } }),
       });
@@ -98,7 +103,7 @@ export function createWorkoutSync({
     });
     await dispatch();
   }
-  async function poll() {
+  async function poll(requestId) {
     let state = await store.read();
     const active = state.active;
     let workflowProgress = null;
@@ -107,8 +112,14 @@ export function createWorkoutSync({
         let run;
         if (active.runId) run = await github(`/actions/runs/${active.runId}`);
         else {
+          const query = new URLSearchParams({
+            event: "workflow_dispatch",
+            branch: config.branch,
+            created: `>=${new Date(active.startedAt - 60_000).toISOString()}`,
+            per_page: "10",
+          });
           const runs = await github(
-            `/actions/workflows/${workflow}/runs?event=workflow_dispatch&branch=${encodeURIComponent(config.branch)}&per_page=100`
+            `/actions/workflows/${workflow}/runs?${query}`
           );
           run = runs.workflow_runs?.find(
             (r) => r.display_title === `section11-sync-${active.requestId}`
@@ -164,7 +175,19 @@ export function createWorkoutSync({
         });
         if (finished || missing) onFinished();
       } catch (error) {
+        if (requestId && active.requestId !== requestId) {
+          if (state.pendingRefreshId === requestId) {
+            return {
+              requestId,
+              manual: true,
+              status: "queued",
+              label: "Waiting for the current sync to finish",
+            };
+          }
+          return null;
+        }
         return {
+          requestId: active.requestId,
           status: "checking",
           url: active.url,
           error:
@@ -177,24 +200,73 @@ export function createWorkoutSync({
     await dispatch();
     state = await store.read();
     const result = state.active || state.last || { status: "idle" };
-    return {
-      ...result,
-      ...(workflowProgress && result.requestId === active?.requestId
-        ? { progress: workflowProgress }
-        : {}),
-    };
+    const requestedResult = requestId
+      ? state.active?.requestId === requestId
+        ? state.active
+        : state.last?.requestId === requestId
+          ? state.last
+          : state.pendingRefreshId === requestId
+            ? {
+                requestId,
+                manual: true,
+                status: "queued",
+                label: "Waiting for the current sync to finish",
+              }
+            : null
+      : result;
+    if (!requestedResult) return null;
+    return workflowProgress && requestedResult.requestId === active?.requestId
+      ? { ...requestedResult, progress: workflowProgress }
+      : requestedResult;
   }
   return {
     queue,
     poll,
-    async refresh() {
-      await poll();
+    async setManualProgress(requestId, progress) {
+      if (!requestId) return;
       await store.update((state) => {
-        if (!state.active || !state.active.manual) state.pendingRefresh = true;
+        state.manualProgress ||= {};
+        const cutoff = now() - 30 * 60_000;
+        for (const [id, saved] of Object.entries(state.manualProgress)) {
+          if (saved.updatedAt < cutoff) delete state.manualProgress[id];
+        }
+        state.manualProgress[requestId] = { ...progress, updatedAt: now() };
+        const recent = Object.entries(state.manualProgress)
+          .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
+          .slice(0, 12);
+        state.manualProgress = Object.fromEntries(recent);
+      });
+    },
+    async getManualProgress(requestId) {
+      const state = await store.read();
+      const progress = state.manualProgress?.[requestId];
+      return progress && progress.updatedAt >= now() - 30 * 60_000
+        ? progress
+        : null;
+    },
+    async refresh(requestId = randomUUID()) {
+      await poll();
+      const queued = await store.update((state) => {
+        if (state.active?.manual) {
+          return { requestId: state.active.requestId, coalesced: true };
+        }
+        state.pendingRefresh = true;
+        state.pendingRefreshId ||= requestId;
+        return { requestId: state.pendingRefreshId, coalesced: false };
       });
       await dispatch();
       const state = await store.read();
-      return state.active || state.last || { status: "idle" };
+      if (state.active?.requestId === queued.requestId) return state.active;
+      if (state.last?.requestId === queued.requestId) return state.last;
+      if (state.pendingRefreshId === queued.requestId) {
+        return {
+          requestId: queued.requestId,
+          manual: true,
+          status: "queued",
+          label: "Waiting for the current sync to finish",
+        };
+      }
+      return state.active || state.last || { requestId: queued.requestId, status: "queued" };
     },
     async observe(previous, context) {
       const before = new Set(completedActivityIds(previous));

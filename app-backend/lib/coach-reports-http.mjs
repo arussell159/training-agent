@@ -6,10 +6,11 @@ import { validateReportRequest } from "./report-targets.mjs";
 export function createReportsHttp({
   getReports,
   getCatalog,
+  getStore,
   env = () => process.env,
 }) {
   return async function handleReports(req, res, pathname) {
-    if (!pathname.startsWith("/api/coach/reports/")) return false;
+    if (pathname !== "/api/coach/reports" && !pathname.startsWith("/api/coach/reports/")) return false;
     const json = (status, value) => {
       if (res.destroyed || res.writableEnded) return;
       res.writeHead(status, {
@@ -21,17 +22,31 @@ export function createReportsHttp({
     };
     try {
       if (!req.appSession) throw new CoachError("Sign in to your app to continue.", 401);
-      if (req.method !== "POST") {
-        json(405, { error: "Method not allowed." });
+      const config = coachConfig(env());
+      if (req.method === "POST") checkOrigin(req, config);
+      if (pathname === "/api/coach/reports") {
+        const store = await getStore();
+        if (req.method === "GET") json(200, await getCatalog());
+        else if (req.method === "POST") json(200, await store.upsert(await bodyJson(req, 1_000_000)));
+        else json(405, { error: "Method not allowed." });
         return true;
       }
-      const config = coachConfig(env());
-      checkOrigin(req, config);
+      const item = pathname.match(/^\/api\/coach\/reports\/([a-f0-9]{40})$/);
+      if (item) {
+        if (req.method !== "GET") json(405, { error: "Method not allowed." });
+        else {
+          const report = await (await getStore()).get(item[1]);
+          json(report ? 200 : 404, report || { error: "Report not found." });
+        }
+        return true;
+      }
       if (pathname === "/api/coach/reports/catalog") {
-        await bodyJson(req);
+        if (req.method === "POST") await bodyJson(req);
+        else if (req.method !== "GET") { json(405, { error: "Method not allowed." }); return true; }
         json(200, await getCatalog());
         return true;
       }
+      if (req.method !== "POST") { json(405, { error: "Method not allowed." }); return true; }
       const body = await bodyJson(req);
       const target = validateReportRequest(body);
       if (pathname === "/api/coach/reports/status" && getCatalog) {
@@ -40,7 +55,7 @@ export function createReportsHttp({
           (report) =>
             report.kind === target.kind &&
             report.startDate === target.startDate &&
-            (target.kind !== "block" || report.planId === target.planId)
+            (target.kind !== "block" || !report.planId || report.planId === target.planId)
         );
         if (report || ["weekly", "block"].includes(target.kind)) {
           json(
@@ -60,7 +75,7 @@ export function createReportsHttp({
                   status: "empty",
                   eligible: false,
                   reason:
-                    "The completed report will appear here after it is saved in Intervals.icu.",
+                    "The completed report will appear here after it is saved in the app.",
                 }
           );
           return true;

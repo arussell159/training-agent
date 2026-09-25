@@ -31,9 +31,13 @@ export function useSheetDismiss(
       sheet?.style.removeProperty("transition-duration")
       gesture = null
     }
-    const start = (event: TouchEvent) => {
+    const start = (event: PointerEvent) => {
       reset()
-      if (event.touches.length !== 1 || !(event.target instanceof Element))
+      if (
+        !event.isPrimary ||
+        (event.pointerType === "mouse" && event.button !== 0) ||
+        !(event.target instanceof Element)
+      )
         return
       sheet = event.target.closest<HTMLElement>(".sheet-modal")
       if (
@@ -42,8 +46,8 @@ export function useSheetDismiss(
       )
         return
       gesture = {
-        x: event.touches[0].clientX,
-        y: event.touches[0].clientY,
+        x: event.clientX,
+        y: event.clientY,
         time: performance.now(),
         dy: 0,
         dragging: false,
@@ -57,12 +61,16 @@ export function useSheetDismiss(
         ),
         startHeight: sheet.getBoundingClientRect().height,
       }
+      try {
+        event.target.setPointerCapture(event.pointerId)
+      } catch {
+        // Pointer capture is best-effort; the sheet root still receives bubbling events.
+      }
     }
-    const move = (event: TouchEvent) => {
+    const move = (event: PointerEvent) => {
       if (!gesture || !sheet) return
-      if (event.touches.length !== 1) return reset()
-      const dx = event.touches[0].clientX - gesture.x
-      const dy = event.touches[0].clientY - gesture.y
+      const dx = event.clientX - gesture.x
+      const dy = event.clientY - gesture.y
       if (!gesture.dragging) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) < 6) return
         if (Math.abs(dx) > Math.abs(dy)) return reset()
@@ -117,15 +125,15 @@ export function useSheetDismiss(
       reset()
       if (dismiss) onClose()
     }
-    root.addEventListener("touchstart", start, { passive: true })
-    root.addEventListener("touchmove", move, { passive: false })
-    root.addEventListener("touchend", end)
-    root.addEventListener("touchcancel", reset)
+    root.addEventListener("pointerdown", start, { passive: true })
+    root.addEventListener("pointermove", move, { passive: false })
+    root.addEventListener("pointerup", end)
+    root.addEventListener("pointercancel", reset)
     return () => {
-      root.removeEventListener("touchstart", start)
-      root.removeEventListener("touchmove", move)
-      root.removeEventListener("touchend", end)
-      root.removeEventListener("touchcancel", reset)
+      root.removeEventListener("pointerdown", start)
+      root.removeEventListener("pointermove", move)
+      root.removeEventListener("pointerup", end)
+      root.removeEventListener("pointercancel", reset)
       reset()
     }
   }, [id, open, onClose, expanded, onExpand])

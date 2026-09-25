@@ -323,6 +323,7 @@ export function WorkoutCard({
               onPointerDown={(event) => event.stopPropagation()}
             >
               <MobileActionMenu
+                plain
                 label={`Options for ${workout.title}`}
                 disabled={disabled && Boolean(onAction)}
                 actions={[
@@ -511,6 +512,7 @@ function DayMenu({
       className={`transition-opacity group-hover/day:opacity-100 focus-within:opacity-100 ${open ? "opacity-100" : "md:opacity-0"}`}
     >
       <MobileActionMenu
+        plain
         label={`Workout actions for ${label}`}
         disabled={disabled}
         actions={[
@@ -591,13 +593,8 @@ export function TrainingCalendar({
   const [historyReady, setHistoryReady] = useState(false)
   const loadedWeeks = useRef(new Set<string>())
   const pendingWeeks = useRef(new Set<string>())
-  const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(
-    () =>
-      restoreOpenWorkout([
-        ...cachedTrainingContext().planned,
-        ...cachedTrainingContext().history,
-      ])
-  )
+  const [selectedWorkout, setSelectedWorkout] =
+    useState<PlannedWorkout | null>(null)
   const [newWorkoutDate, setNewWorkoutDate] = useState<string | null>(null)
   const [metricsDate, setMetricsDate] = useState<string | null>(null)
   const [activeWeekKey, setActiveWeekKey] = useState(""),
@@ -1961,9 +1958,11 @@ function WeekSummary({
 export function WorkoutDialog({
   workout: initialWorkout,
   onOpenChange,
+  showWorkoutProfile = true,
 }: {
   workout: PlannedWorkout | null
   onOpenChange: (open: boolean) => void
+  showWorkoutProfile?: boolean
 }) {
   const isMobile = useIsMobile()
   const workout = useEditedWorkout(initialWorkout)
@@ -2149,21 +2148,23 @@ export function WorkoutDialog({
                   ? "Completed"
                   : workout.status === "today"
                     ? "Today"
-                    : "Planned"}
+                  : "Planned"}
               </span>
             </div>
+            {showWorkoutProfile &&
+              workout.status !== "completed" &&
+              (workout.structure || workout.editor_model) && (
+                <div className="mt-3 overflow-hidden">
+                  <WorkoutProfile
+                    workout={workout}
+                    compact
+                    desktopDetail
+                    enableEditOnClick
+                  />
+                </div>
+              )}
           </section>
 
-          {workout.status !== "completed" && workout.structure && (
-            <div className="overflow-hidden rounded-lg border bg-muted/20 px-2 pt-2">
-              <WorkoutProfile
-                workout={workout}
-                compact
-                desktopDetail
-                enableEditOnClick
-              />
-            </div>
-          )}
           <div className="grid items-start gap-5 lg:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)]">
             <WorkoutSummary workout={workout} showElapsed={false} embedded />
             <div className="min-w-0 rounded-xl border bg-card p-4 shadow-sm">

@@ -4,7 +4,6 @@ import { recoverySeries, todaysWorkout } from "@/lib/dashboard-metrics"
 import { Activity, Clock3, Gauge, HeartPulse, MoonStar } from "lucide-react"
 import {
   Area,
-  AreaChart,
   CartesianGrid,
   ComposedChart,
   Line,
@@ -27,18 +26,16 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import type { PlannedWorkout, TrainingContext } from "@/lib/training-context"
+import { WorkoutProfile } from "@/components/workout-profile"
 import { EventsCard } from "@/components/race-events"
 import { MobileDailySessions } from "@/components/mobile-daily-sessions"
+import { hasWorkoutStructure } from "@/lib/workout-structure"
 
 const recoveryChartConfig = {
   value: { label: "Daily value", color: "var(--primary)" },
   average: { label: "7-day average", color: "var(--muted-foreground)" },
   baselineHigh: { label: "Baseline high", color: "var(--muted)" },
   baselineLow: { label: "Baseline low", color: "var(--card)" },
-} satisfies ChartConfig
-
-const workoutChartConfig = {
-  intensity: { label: "Intensity", color: "var(--chart-2)" },
 } satisfies ChartConfig
 
 function latestRecoverySeries(
@@ -367,11 +364,6 @@ function SleepCard({ context }: { context: TrainingContext }) {
   )
 }
 
-import {
-  hasWorkoutStructure,
-  structuredWorkoutProfile,
-} from "@/lib/workout-structure"
-
 export function SectionCards({
   context,
   onWorkoutOpen,
@@ -386,7 +378,6 @@ export function SectionCards({
     context.metrics.fatigue == null ? "—" : Math.round(context.metrics.fatigue)
   const form =
     context.metrics.form == null ? "—" : Math.round(context.metrics.form)
-  const profile = structuredWorkoutProfile(today?.structure)
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-12">
@@ -419,31 +410,7 @@ export function SectionCards({
         </CardHeader>
         <CardContent className="flex flex-1 flex-col justify-end gap-3">
           {hasWorkoutStructure(today?.structure) && (
-            <div>
-              <ChartContainer
-                config={workoutChartConfig}
-                className="h-20 w-full"
-                aria-label="Workout intensity profile"
-              >
-                <AreaChart data={profile} accessibilityLayer>
-                  <XAxis
-                    dataKey="position"
-                    type="number"
-                    hide
-                    domain={["dataMin", "dataMax"]}
-                  />
-                  <YAxis hide domain={[0, 100]} />
-                  <Area
-                    dataKey="intensity"
-                    type="linear"
-                    fill="var(--color-intensity)"
-                    fillOpacity={1}
-                    stroke="none"
-                    isAnimationActive={false}
-                  />
-                </AreaChart>
-              </ChartContainer>
-            </div>
+            <WorkoutProfile workout={today!} home />
           )}
           <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
             {today?.goal ?? "Keep the day easy and protect recovery."}
