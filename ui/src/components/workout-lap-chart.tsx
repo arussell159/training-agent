@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from "react"
 import {
   formatSignalClock,
   intervalSignals,
+  lapDuration,
   type RecordedLap,
 } from "@/lib/interval-signals"
 import type { RecordedPoint } from "@/lib/segment-statistics"
@@ -43,7 +44,11 @@ export function WorkoutLapChart({
   if (!bars.length) return null
   const duration = Math.max(
     1,
-    bars.reduce((sum, bar) => sum + bar.lap.end - bar.lap.start, 0)
+    bars.reduce(
+      (sum, bar) =>
+        sum + (swim ? lapDuration(bar.lap) : bar.lap.end - bar.lap.start),
+      0
+    )
   )
   const width = Math.max(480, bars.length * 60)
   const gap = 2,
@@ -52,8 +57,11 @@ export function WorkoutLapChart({
   const positions = new Map(
     bars.map((bar, index) => {
       const left = (elapsed / duration) * plotWidth + index * gap
-      const barWidth = ((bar.lap.end - bar.lap.start) / duration) * plotWidth
-      elapsed += bar.lap.end - bar.lap.start
+      const barDuration = swim
+        ? lapDuration(bar.lap)
+        : bar.lap.end - bar.lap.start
+      const barWidth = (barDuration / duration) * plotWidth
+      elapsed += barDuration
       return [
         bar.lap.id,
         { left, width: barWidth, center: left + barWidth / 2 },
@@ -155,7 +163,7 @@ export function WorkoutLapChart({
                     data-workout-lap-control
                     role="button"
                     tabIndex={0}
-                    aria-label={`${bar.lap.label}, ${format(bar.value)} ${unit}, duration ${formatSignalClock(bar.lap.end - bar.lap.start)}`}
+                    aria-label={`${bar.lap.label}, ${format(bar.value)} ${unit}, duration ${formatSignalClock(swim ? lapDuration(bar.lap) : bar.lap.end - bar.lap.start)}`}
                     aria-pressed={selected?.id === bar.lap.id}
                     className="cursor-pointer outline-none focus:opacity-70"
                     onPointerEnter={() => setHovered(bar.lap.id)}

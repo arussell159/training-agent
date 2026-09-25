@@ -5,6 +5,7 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  ReferenceLine,
   Tooltip as RechartsTooltip,
   XAxis,
   YAxis,
@@ -15,7 +16,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { completedActivityKey, completedActivityValues } from "../../../app-backend/lib/completed-activity.mjs"
 
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart"
-import { MobileSelect } from "@/components/ui/mobile-native-controls"
+import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
   Select,
@@ -108,6 +109,7 @@ function twelveWeekHistory(
       week: date.toISOString().slice(0, 10),
       hours: 0,
       distanceMeters: 0,
+      elevationMeters: 0,
     }
   })
   const byWeek = new Map(rows.map((row) => [row.week, row]))
@@ -117,6 +119,7 @@ function twelveWeekHistory(
       const values = completedActivityValues(item)
       row.hours += values.hours
       row.distanceMeters += values.distanceMeters
+      row.elevationMeters += values.elevationMeters
     }
   }
   return rows
@@ -129,7 +132,7 @@ function monthTick(
 ) {
   const month = value.slice(0, 7)
   const previous = rows[index - 1]?.week.slice(0, 7)
-  if (index === 0 && rows[1]?.week.slice(0, 7) !== month) return ""
+  if (index === 0) return ""
   if (index !== 0 && month === previous) return ""
   return new Date(`${value}T12:00:00Z`).toLocaleDateString("en-US", {
     month: "short",
@@ -161,21 +164,6 @@ function formatChartDistance(value: number, filter: SportFilter) {
   return `${value.toLocaleString("en-US", { maximumFractionDigits: 1 })} mi`
 }
 
-function weekTotals(records: TrainingContext["history"], now = new Date()) {
-  const start = weekStart(dateKey(now))
-  return records.reduce(
-    (total, item) => {
-      if (weekStart(item.workout_date) !== start) return total
-      const values = completedActivityValues(item)
-      total.hours += values.hours
-      total.distanceMeters += values.distanceMeters
-      total.elevationMeters += values.elevationMeters
-      return total
-    },
-    { hours: 0, distanceMeters: 0, elevationMeters: 0 }
-  )
-}
-
 export function ChartAreaInteractive({
   context,
 }: {
@@ -199,12 +187,23 @@ export function ChartAreaInteractive({
           : chartDistance(row.distanceMeters, sport),
     }))
   }, [history, historyMetric, sport])
-  const totals = useMemo(() => weekTotals(records), [records])
+  const selectedIndex = inspectIndex ?? chartHistory.length - 1
+  const selectedWeek = chartHistory[selectedIndex]
+  const selectedWeekIsCurrent = selectedIndex === chartHistory.length - 1
+  const selectedWeekLabel = selectedWeek
+    ? new Date(selectedWeek.week + "T12:00:00Z").toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      })
+    : ""
+  const yAxisMax = Math.max(1, ...chartHistory.map((row) => row.value))
+  const yAxisTicks = [0, yAxisMax / 2, yAxisMax]
   const inspectHistory = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!chartHistory.length) return
     const bounds = event.currentTarget.getBoundingClientRect()
-    const left = 4
-    const right = 52
+    const left = 0
+    const right = 32
     const ratio = Math.max(
       0,
       Math.min(
@@ -222,45 +221,59 @@ export function ChartAreaInteractive({
           className="training-history-filter-scroll"
           aria-label="Filter training history by sport"
         >
-          <div className="training-history-filters" role="group">
-            {sportOptions.map(({ value, label, icon: Icon }) => (
-              <F7Button
-                key={value}
-                active={sport === value}
-                round
-                outline
-                aria-pressed={sport === value}
-                onClick={(event) => {
-                  event.preventDefault()
-                  setSport(value)
-                }}
-              >
-                <Icon className="size-4" />
-                <span>{label}</span>
-              </F7Button>
-            ))}
-          </div>
+          {isMobile ? (
+            <MobileFilterTabs
+              label="Filter training history by sport"
+              items={sportOptions.map(({ value, label, icon }) => ({
+                value,
+                label,
+                icon,
+              }))}
+              value={sport}
+              onChange={setSport}
+              className="training-history-mobile-filters"
+            />
+          ) : (
+            <div className="training-history-filters" role="group">
+              {sportOptions.map(({ value, label, icon: Icon }) => (
+                <F7Button
+                  key={value}
+                  active={sport === value}
+                  round
+                  outline
+                  aria-pressed={sport === value}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    setSport(value)
+                  }}
+                >
+                  <Icon className="size-4" />
+                  <span>{label}</span>
+                </F7Button>
+              ))}
+            </div>
+          )}
         </div>
 
         <section
           className="training-history-summary"
-          aria-label="This week training totals"
+          aria-label={selectedWeekIsCurrent ? "This week training totals" : "Week of " + selectedWeekLabel + " training totals"}
         >
-          <h2>This week</h2>
+          <h2>{selectedWeekIsCurrent ? "This week" : "Week of " + selectedWeekLabel}</h2>
           <div className="training-history-totals">
             <div>
               <span>Duration</span>
-              <strong>{formatHours(totals.hours)}</strong>
+              <strong>{formatHours(selectedWeek?.hours ?? 0)}</strong>
             </div>
             <div>
               <span>Distance</span>
-              <strong>{formatDistance(totals.distanceMeters, sport)}</strong>
+              <strong>{formatDistance(selectedWeek?.distanceMeters ?? 0, sport)}</strong>
             </div>
             <div>
               <span>Elev gain</span>
               <strong>
                 {Math.round(
-                  totals.elevationMeters / METERS_PER_FOOT
+                  (selectedWeek?.elevationMeters ?? 0) / METERS_PER_FOOT
                 ).toLocaleString("en-US")}{" "}
                 ft
               </strong>
@@ -274,18 +287,7 @@ export function ChartAreaInteractive({
         >
           <div className="training-history-chart-heading">
             <h3>Past 12 weeks</h3>
-            <MobileSelect
-              aria-label="Training history metric"
-              value={historyMetric}
-              onValueChange={(value) =>
-                setHistoryMetric(value as HistoryMetric)
-              }
-              options={[
-                { value: "time", label: "Time" },
-                { value: "distance", label: "Distance" },
-              ]}
-              className="training-history-metric-select"
-            >
+            {!isMobile && (
               <Select
                 value={historyMetric}
                 onValueChange={(value) =>
@@ -306,7 +308,7 @@ export function ChartAreaInteractive({
                   <SelectItem value="distance">Distance</SelectItem>
                 </SelectContent>
               </Select>
-            </MobileSelect>
+            )}
           </div>
           <div
             className="relative touch-pan-y select-none"
@@ -322,23 +324,19 @@ export function ChartAreaInteractive({
               if (!isMobile) return
               if (event.currentTarget.hasPointerCapture(event.pointerId))
                 event.currentTarget.releasePointerCapture(event.pointerId)
-              setInspectIndex(null)
-            }}
-            onPointerCancel={() => {
-              if (isMobile) setInspectIndex(null)
             }}
           >
             {inspectIndex != null && chartHistory[inspectIndex] && (
-              <div className="pointer-events-none absolute top-4 right-[52px] bottom-8 left-1 z-10">
+              <div className="hidden">
                 <div
-                  className="absolute top-0 bottom-0 border-l border-foreground/35"
+                  className="absolute top-0 bottom-0 border-l-2 border-foreground"
                   style={{
                     left: `${(inspectIndex / Math.max(1, chartHistory.length - 1)) * 100}%`,
                   }}
                 >
                   <span
                     role="status"
-                    className="absolute top-0 text-sm font-semibold whitespace-nowrap text-foreground tabular-nums [text-shadow:0_1px_2px_var(--background),0_0_7px_var(--background),0_0_12px_var(--background)]"
+                    className="hidden"
                     style={{
                       transform:
                         inspectIndex === 0
@@ -360,12 +358,12 @@ export function ChartAreaInteractive({
             )}
             <ChartContainer
               config={historyChartConfig}
-              className="h-[245px] w-full sm:h-[320px]"
+              className={`w-full ${isMobile ? "h-[170px]" : "h-[320px]"}`}
             >
               <AreaChart
                 data={chartHistory}
                 accessibilityLayer
-                margin={{ top: 16, right: 8, left: 0, bottom: 0 }}
+                margin={{ top: 16, right: 0, left: 0, bottom: 8 }}
               >
                 <defs>
                   <linearGradient
@@ -392,7 +390,7 @@ export function ChartAreaInteractive({
                   dataKey="week"
                   axisLine={false}
                   tickLine={false}
-                  tickMargin={12}
+                  tickMargin={8}
                   interval={0}
                   tick={{ fontSize: 11 }}
                   tickFormatter={(value, index) =>
@@ -403,7 +401,9 @@ export function ChartAreaInteractive({
                   orientation="right"
                   axisLine={false}
                   tickLine={false}
-                  width={44}
+                  width={32}
+                  domain={[0, yAxisMax]}
+                  ticks={yAxisTicks}
                   tick={{ fontSize: 11 }}
                   tickFormatter={(value) => {
                     const amount = Number(value)
@@ -418,6 +418,14 @@ export function ChartAreaInteractive({
                       : `${amount.toFixed(amount < 10 ? 1 : 0)}h`
                   }}
                 />
+                {isMobile && selectedWeek && (
+                  <ReferenceLine
+                    x={selectedWeek.week}
+                    stroke="var(--foreground)"
+                    strokeWidth={2}
+                    ifOverflow="extendDomain"
+                  />
+                )}
                 {!isMobile && (
                   <RechartsTooltip
                     cursor={{
@@ -459,11 +467,33 @@ export function ChartAreaInteractive({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   fill="url(#trainingHistoryFill)"
-                  dot={{ r: 3, fill: "var(--card)", strokeWidth: 2 }}
+                  dot={(props) => {
+                    const pointIndex = Number(props.index)
+                    const cx = Number(props.cx)
+                    const cy = Number(props.cy)
+                    if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null
+                    const selected = pointIndex === selectedIndex
+                    return (
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={selected ? 4.5 : 3}
+                        fill={selected ? "var(--color-value)" : "var(--card)"}
+                        stroke="var(--color-value)"
+                        strokeWidth={selected ? 2 : 1.5}
+                        style={
+                          selected
+                            ? { filter: "drop-shadow(0 0 4px var(--color-value))" }
+                            : undefined
+                        }
+                      />
+                    )
+                  }}
                   activeDot={{
                     r: 5,
-                    fill: "var(--card)",
+                    fill: "var(--color-value)",
                     strokeWidth: 2,
+                    style: { filter: "drop-shadow(0 0 4px var(--color-value))" },
                   }}
                   isAnimationActive
                   animationBegin={0}

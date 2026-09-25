@@ -63,5 +63,8 @@ test("Intervals report catalog is read-only, filtered and newest first", async (
   }, new Date("2026-09-18T12:00:00Z"));
   assert.equal(requested[0], "/athlete/0/events?oldest=2020-01-01&newest=2026-09-18");
   assert.equal(requested[1], "/athlete/0/activities?oldest=2026-03-22&newest=2026-09-18");
-  assert.deepEqual(catalog.reports.map((report) => report.id), ["intervals-note:3", "intervals-note:1"]);
+  assert.deepEqual(
+    catalog.reports.map((report) => report.id),
+    ["intervals-note:3", "intervals-note:1"]
+  );
 });

@@ -24,7 +24,7 @@ test("swim pace and stroke rate are constant across each full recorded interval"
     { id: "a", label: "400 yd", start: 0, end: 400, distance: 365.76 },
     { id: "b", label: "100 yd", start: 430, end: 530, distance: 91.44 },
   ]);
-  assert.equal(91.44 / result[0].point.speed, 100);
+  assert.equal(result[0].point.speed, (1 * 100 + 2 * 300) / 400);
   assert.equal(result[0].point.cadence, 26);
   assert.equal(result[1].point.cadence, 30);
   assert.equal(

@@ -11,6 +11,14 @@ import { sportZoneSettings } from "./workout-editor-zones.mjs";
 
 // A read-only application projection. Never used by the provider serializer.
 const number = (value) => String(round(value, 6));
+const workoutDuration = (seconds) => {
+  const totalSeconds = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+  if (!minutes) return `${totalSeconds} sec${totalSeconds === 1 ? "" : "s"}`;
+  if (!remainingSeconds) return `${minutes} min${minutes === 1 ? "" : "s"}`;
+  return `${minutes} min ${remainingSeconds} sec${remainingSeconds === 1 ? "" : "s"}`;
+};
 const isRecovery = (node) => node.kind === "step" && ["rest", "recovery"].includes(node.role);
 const isRest = (step) =>
   step.role === "rest" || (step.role === "recovery" && step.target.kind === "none");
@@ -126,14 +134,20 @@ export function formatWorkoutDescription(model, settings = []) {
         : `${number(metres / distanceFactors.mi)} mi`;
     }
     if (step.end.kind === "lap" && !(step.end.value > 0)) return "Until lap press";
-    return isRest(step) ? `${number(step.end.value)} secs` : `${number(step.end.value / 60)} mins`;
+    return step.end.kind === "time"
+      ? workoutDuration(step.end.value)
+      : isRest(step)
+        ? `${number(step.end.value)} secs`
+        : `${number(step.end.value / 60)} mins`;
   };
   const describe = (step, repeated = false) => {
     if (isRest(step)) {
       const restAmount =
-        step.end.kind === "time" || step.end.kind === "lap"
-          ? `${number(step.end.value)} ${repeated ? "sec rests" : "secs rest"}`
-          : `${amount(step)} ${repeated ? "rests" : "rest"}`;
+        step.end.kind === "time"
+          ? `${workoutDuration(step.end.value).replace(/\bsecs\b/g, repeated ? "sec" : "secs")} ${repeated ? "rests" : "rest"}`
+          : step.end.kind === "lap"
+            ? `${number(step.end.value)} ${repeated ? "sec rests" : "secs rest"}`
+            : `${amount(step)} ${repeated ? "rests" : "rest"}`;
       return [restAmount, targetText(step.target, model, settings)].filter(Boolean).join(" ");
     }
     const text = [
@@ -286,7 +300,7 @@ export function appWorkoutDescription(workout, settings = []) {
     (workout.status === "completed" || workout.completed || workout.activity_id)
   )
     return null;
-  if (workout.app_description_version === 2 && typeof workout.details === "string")
+  if (workout.app_description_version === 3 && typeof workout.details === "string")
     return workout.details;
   try {
     if (workout.raw?.workout_doc) return eventWorkoutDescription(workout.raw, settings);

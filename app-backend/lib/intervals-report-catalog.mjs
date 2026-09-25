@@ -1,7 +1,6 @@
 import { shiftReportDate, validReportDate } from "./report-blocks.mjs";
 
-const REPORT_MARKER =
-  /\[\[SECTION11_REPORT:(WEEKLY|BLOCK)(?::([^\]]+))?\]\]/i;
+const REPORT_MARKER = /\[\[SECTION11_REPORT:(WEEKLY|BLOCK)(?::([^\]]+))?\]\]/i;
 const REPORT_WRAPPER = /\[\[\/?SECTION11_REPORT:[^\]]+\]\]/gi;
 const DATE = /\b\d{4}-\d{2}-\d{2}\b/g;
 
@@ -18,9 +17,7 @@ function cleanTitle(value, kind) {
 export function parseIntervalsReportNote(event) {
   const description = String(event.description || "");
   const marker = description.match(REPORT_MARKER);
-  const namedKind = String(event.name || "").match(
-    /Section\s*11\s+(weekly|block)\s+report/i
-  )?.[1];
+  const namedKind = String(event.name || "").match(/Section\s*11\s+(weekly|block)\s+report/i)?.[1];
   const kind = reportKind(marker?.[1] || namedKind);
   if (!["weekly", "block"].includes(kind)) return null;
   if (String(event?.category || "").toUpperCase() !== "NOTE") return null;
@@ -54,9 +51,7 @@ export function parseIntervalsReportNote(event) {
 export function parseIntervalsReportNotes(event) {
   const description = String(event.description || "");
   const markers = [
-    ...description.matchAll(
-      /\[\[SECTION11_REPORT:(WEEKLY|BLOCK)(?::([^\]]+))?\]\]/gi
-    ),
+    ...description.matchAll(/\[\[SECTION11_REPORT:(WEEKLY|BLOCK)(?::([^\]]+))?\]\]/gi),
   ];
   if (markers.length <= 1) return [parseIntervalsReportNote(event)].filter(Boolean);
   return markers.flatMap((marker, index) => {

@@ -1,5 +1,6 @@
 import { SavedReportButton } from "@/components/saved-report-button"
 import { planReportBlocks } from "../../../app-backend/lib/report-blocks.mjs"
+import { rollingPlanWindow } from "../../../app-backend/lib/rolling-plan-window.mjs"
 import {
   useCallback,
   useEffect,
@@ -8,10 +9,11 @@ import {
   useRef,
   useState,
 } from "react"
-import { CalendarDays, CalendarIcon, LoaderCircle, Pencil, Plus, Settings, Trash2 } from "lucide-react"
+import { CalendarDays, CalendarIcon, ChevronDown, LoaderCircle, Pencil, Plus, Settings, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { SettingsList, SettingsListItem } from "@/components/ui/settings-list"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { MobileSelect, MobileDatePicker } from "@/components/ui/mobile-native-controls"
 import { Calendar } from "@/components/ui/calendar"
@@ -22,6 +24,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { apiFetch } from "@/lib/api-client"
+import { useIsMobile } from "@/hooks/use-mobile"
 import {
   PLAN_PHASES,
   PHASE_COLORS,
@@ -59,29 +62,16 @@ type PlanSettings = {
   isDraft?: boolean
 }
 
-function monday(value: Date) {
-  const next = new Date(value)
-  next.setHours(12, 0, 0, 0)
-  next.setDate(next.getDate() - ((next.getDay() + 6) % 7))
-  return next
-}
-
-function shifted(value: Date, days: number) {
-  return new Date(value.getTime() + days * 86_400_000)
-}
-
 function iso(value: Date) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
 }
 
 function defaultSettings(context: TrainingContext): PlanSettings {
-  const current = monday(new Date())
-  const start = shifted(current, -26 * 7)
-  const end = shifted(current, 26 * 7 + 6)
+  const { startDate, endDate } = rollingPlanWindow(iso(new Date()))
   return {
     name: "Training Plan",
-    startDate: iso(start),
-    endDate: iso(end),
+    startDate,
+    endDate,
     baseline: recentAverages(context).hours,
     recoveryCycle: 4,
     events: [],
@@ -129,6 +119,9 @@ function parseHours(value: string): number | null | undefined {
   return Number.isFinite(hours) && hours >= 0 ? hours : undefined
 }
 
+const mobileFieldClass = "rounded-xl border border-input bg-card px-3 py-1.5 transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30"
+const mobileSubmitClass = "h-11 w-full rounded-full bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 sm:w-auto"
+
 function PlanDialog({ open, onOpenChange, initial, busy, submitError, onSubmit }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -147,26 +140,21 @@ function PlanDialog({ open, onOpenChange, initial, busy, submitError, onSubmit }
   }, [initial, open])
   const submit = () => {
     if (!settings.name.trim()) return setError("Enter a plan name.")
-    if (!settings.startDate || !settings.endDate || settings.endDate < settings.startDate) return setError("Choose a valid date range.")
     setError(null)
-    onSubmit({ ...settings, name: settings.name.trim() })
+    onSubmit({ ...settings, ...rollingPlanWindow(iso(new Date())), name: settings.name.trim() })
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{settings.id ? "Plan settings" : "Create training plan"}</DialogTitle>
-          <DialogDescription>Choose the dates shown in the rolling plan. Periodization is automatic and can still be adjusted week by week.</DialogDescription>
+          <DialogDescription>The plan shows six months before and after today. Training periods and hours can be adjusted week by week.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="space-y-1.5"><Label htmlFor="plan-name">Plan name</Label><Input id="plan-name" value={settings.name} onChange={(event) => setSettings((current) => ({ ...current, name: event.target.value }))} /></div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5"><Label htmlFor="plan-start">Start date</Label><Input id="plan-start" type="date" value={settings.startDate} onChange={(event) => setSettings((current) => ({ ...current, startDate: event.target.value }))} /></div>
-            <div className="space-y-1.5"><Label htmlFor="plan-end">End date</Label><Input id="plan-end" type="date" value={settings.endDate} onChange={(event) => setSettings((current) => ({ ...current, endDate: event.target.value }))} /></div>
-          </div>
+          <div className={mobileFieldClass}><Label htmlFor="plan-name" className="block text-[11px] leading-4 text-muted-foreground">Plan name</Label><Input id="plan-name" value={settings.name} onChange={(event) => setSettings((current) => ({ ...current, name: event.target.value }))} className="h-6 rounded-none border-0 bg-transparent px-0 py-0 text-sm focus-visible:ring-0 dark:bg-transparent" /></div>
           {(error || submitError) && <p role="alert" className="text-sm text-destructive">{error || submitError}</p>}
         </div>
-        <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button onClick={submit} disabled={busy}>{busy && <LoaderCircle className="animate-spin" />}{settings.id ? "Update dates" : "Create plan"}</Button></DialogFooter>
+        <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)} className="h-11 w-full rounded-full sm:w-auto">Cancel</Button><Button onClick={submit} disabled={busy} className={mobileSubmitClass}>{busy && <LoaderCircle className="animate-spin" />}{settings.id ? "Save plan" : "Create plan"}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   )
@@ -194,16 +182,16 @@ function RaceDialog({ week, event, open, busy, onOpenChange, onSubmit, onDelete 
   const selectedDate = date ? new Date(`${date}T12:00:00`) : undefined
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:max-w-md">
         <DialogHeader><DialogTitle>{event ? "Edit race event" : "Add race event"}</DialogTitle><DialogDescription>{event ? "Changes are saved to Intervals.icu, the annual plan and your calendar." : "This creates a race in Intervals.icu and adds it to your app calendar."}</DialogDescription></DialogHeader>
         <div className="space-y-4">
-          <div className="space-y-1.5"><Label htmlFor="race-name">Race name</Label><Input id="race-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Race name" /></div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5"><Label htmlFor="race-priority">Category</Label><MobileSelect id="race-priority" className="w-full" value={priority} onValueChange={(value) => setPriority(value as "A" | "B" | "C")} options={["A", "B", "C"].map((value) => ({ value, label: `Race ${value}` }))}><Select value={priority} onValueChange={(value) => setPriority(value as "A" | "B" | "C")}><SelectTrigger id="race-priority" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{["A", "B", "C"].map((value) => <SelectItem key={value} value={value}>Race {value}</SelectItem>)}</SelectContent></Select></MobileSelect></div>
-            <div className="space-y-1.5"><Label htmlFor="race-date">Date</Label><MobileDatePicker id="race-date" aria-label="Race date" className="w-full" value={date} onValueChange={setDate}><Popover><PopoverTrigger render={<Button id="race-date" type="button" variant="outline" className="w-full justify-start font-normal" />}><CalendarIcon />{date ? dateLabel(date, { month: "short", day: "numeric", year: "numeric" }) : "Choose date"}</PopoverTrigger><PopoverContent className="w-auto p-0" align="end"><Calendar mode="single" selected={selectedDate} defaultMonth={selectedDate} onSelect={(value) => { if (value) setDate(iso(value)) }} /></PopoverContent></Popover></MobileDatePicker></div>
+          <div className={mobileFieldClass}><Label htmlFor="race-name" className="block text-[11px] leading-4 text-muted-foreground">Race name</Label><Input id="race-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Race name" className="h-7 rounded-none border-0 bg-transparent px-0 py-0 text-sm focus-visible:ring-0 dark:bg-transparent" /></div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className={mobileFieldClass}><Label htmlFor="race-priority" className="block text-[11px] leading-4 text-muted-foreground">Category</Label><MobileSelect id="race-priority" className="h-7 w-full rounded-none border-0 bg-transparent px-0 text-sm focus-visible:ring-0" value={priority} onValueChange={(value) => setPriority(value as "A" | "B" | "C")} options={["A", "B", "C"].map((value) => ({ value, label: `Race ${value}` }))}><Select value={priority} onValueChange={(value) => setPriority(value as "A" | "B" | "C")}><SelectTrigger id="race-priority" className="h-7 w-full rounded-none border-0 bg-transparent px-0 text-sm shadow-none"><SelectValue /></SelectTrigger><SelectContent>{["A", "B", "C"].map((value) => <SelectItem key={value} value={value}>Race {value}</SelectItem>)}</SelectContent></Select></MobileSelect></div>
+            <div className={mobileFieldClass}><Label htmlFor="race-date" className="block text-[11px] leading-4 text-muted-foreground">Date</Label><MobileDatePicker id="race-date" aria-label="Race date" className="h-7 w-full rounded-none border-0 bg-transparent px-0 text-sm focus-visible:ring-0" value={date} onValueChange={setDate}><Popover><PopoverTrigger render={<Button id="race-date" type="button" variant="ghost" className="h-7 w-full justify-start rounded-none px-0 text-sm font-normal" />}><CalendarIcon />{date ? dateLabel(date, { month: "short", day: "numeric", year: "numeric" }) : "Choose date"}</PopoverTrigger><PopoverContent className="w-auto p-0" align="end"><Calendar mode="single" selected={selectedDate} defaultMonth={selectedDate} onSelect={(value) => { if (value) setDate(iso(value)) }} /></PopoverContent></Popover></MobileDatePicker></div>
           </div>
         </div>
-        <DialogFooter className="sm:justify-between">{event ? <Button variant="destructive" disabled={busy} onClick={onDelete}><Trash2 />Delete race</Button> : <span />}<div className="flex gap-2"><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={busy || !name.trim() || !date} onClick={() => onSubmit({ name: name.trim(), date, priority })}>{busy && <LoaderCircle className="animate-spin" />}{event ? "Save changes" : "Add race"}</Button></div></DialogFooter>
+        <DialogFooter className="gap-2 sm:justify-between">{event ? <Button variant="destructive" disabled={busy} onClick={onDelete} className="h-11 rounded-full"><Trash2 />Delete race</Button> : <span />}<div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row"><Button variant="outline" onClick={() => onOpenChange(false)} className="h-11 w-full rounded-full sm:w-auto">Cancel</Button><Button disabled={busy || !name.trim() || !date} onClick={() => onSubmit({ name: name.trim(), date, priority })} className={mobileSubmitClass}>{busy && <LoaderCircle className="animate-spin" />}{event ? "Save changes" : "Add race"}</Button></div></DialogFooter>
       </DialogContent>
     </Dialog>
   )
@@ -279,12 +267,12 @@ function SeasonChart({ plan, actuals, selectedWeek, onSelect }: {
 
   return (
     <TooltipProvider>
-      <div ref={scrollerRef} className="w-full overflow-x-auto overflow-y-hidden" aria-label="Planned and completed training hours">
+      <div ref={scrollerRef} className="w-full overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Planned and completed training hours">
         <div style={{ width: chartWidth }}>
           <div className="relative h-7 border-b border-r text-[10px] text-muted-foreground">
             {monthKeys.map((key, index) => <div key={key} className={`absolute inset-y-0 border-l border-border ${index % 2 ? "bg-muted/45" : "bg-background"}`} style={{ left: index * equalMonthWidth, width: equalMonthWidth }}><span className="block px-1.5 pt-1.5">{dateLabel(`${key}-01`, { month: "long" })}</span></div>)}
           </div>
-          <div className="relative h-48 border-b border-r bg-background">
+          <div className="relative h-28 border-b border-r bg-background md:h-48">
             {monthKeys.map((key, index) => <span key={key} aria-hidden className={`absolute inset-y-0 border-l border-border ${index % 2 ? "bg-muted/45" : "bg-background"}`} style={{ left: index * equalMonthWidth, width: equalMonthWidth }} />)}
             {plan.weeks.map((week) => {
               const completed = actuals.get(week.id)?.completedHours ?? null
@@ -298,12 +286,12 @@ function SeasonChart({ plan, actuals, selectedWeek, onSelect }: {
                     {(completed ?? 0) > 0 && <span className="absolute bottom-0 left-px z-20" style={{ width: "calc(100% - 2px)", height: `${completed! / max * 100}%`, backgroundColor:PHASE_COLORS[week.phase] }} />}
                     {events.map((event, eventIndex) => <span key={event.id} className="absolute z-30" style={{ top: 4 + eventIndex * 20, left: dateCenterX(event.date) - weekLeft - 10 }}><RaceMarkerIcon priority={event.priority} /></span>)}
                   </TooltipTrigger>
-                  <TooltipContent className="space-y-1"><p className="font-semibold">{dateLabel(week.startDate)}–{dateLabel(week.endDate)}</p><p>{phaseLabel(week)}</p><p>Planned: {clockHours(week.targetHours) || "—"}</p><p>Completed: {clockHours(completed) || "—"}</p>{events.map((event) => <p key={event.id}>{event.priority} · {event.name}</p>)}</TooltipContent>
+                  <TooltipContent className="hidden space-y-1 md:block"><p className="font-semibold">{dateLabel(week.startDate)}–{dateLabel(week.endDate)}</p><p>{phaseLabel(week)}</p><p>Planned: {clockHours(week.targetHours) || "—"}</p><p>Completed: {clockHours(completed) || "—"}</p>{events.map((event) => <p key={event.id}>{event.priority} · {event.name}</p>)}</TooltipContent>
                 </Tooltip>
               )
             })}
           </div>
-          <div className="relative h-20 bg-background">
+          <div className="relative hidden h-20 bg-background md:block">
             {groups.map((group) => {
               const left = boundaryX(group.startDate)
               const right = boundaryX(nextDay(group.endDate))
@@ -334,6 +322,82 @@ function InlineHours({ value, inputRef, onCommit, onNext, onTab }: {
   return <Input ref={inputRef} aria-label="Planned hours" value={text} placeholder="0:00:00" className="h-8 rounded-none border-0 bg-transparent px-2 text-sm tabular-nums shadow-none focus-visible:ring-inset" onChange={(event) => setText(event.target.value)} onFocus={(event) => event.currentTarget.select()} onBlur={commit} onKeyDown={(event) => { if(event.key==="Tab"&&onTab(event.shiftKey)){event.preventDefault();return}if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); requestAnimationFrame(onNext) } }} />
 }
 
+function MobileWeekNotes({ id, value, onCommit }: { id: string; value: string; onCommit: (value: string) => void }) {
+  const [text, setText] = useState(value)
+  useEffect(() => setText(value), [value])
+  return <textarea id={id} value={text} onChange={(event) => setText(event.target.value)} onBlur={() => { if (text !== value) onCommit(text) }} placeholder="Add notes for this week" rows={3} className="min-h-20 w-full resize-y bg-transparent py-1 text-sm outline-none placeholder:text-muted-foreground" />
+}
+
+function MobileWeekHours({ id, value, onCommit }: { id: string; value: number | null; onCommit: (value: number | null) => void }) {
+  const [text, setText] = useState(() => clockHours(value))
+  useEffect(() => setText(clockHours(value)), [value])
+  const commit = () => {
+    const parsed = parseHours(text)
+    if (parsed === undefined) { setText(clockHours(value)); return }
+    setText(clockHours(parsed))
+    if (parsed !== value) onCommit(parsed)
+  }
+  return <Input id={id} inputMode="decimal" value={text} onChange={(event) => setText(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur() }} placeholder="0:00:00" className="h-7 rounded-none border-0 bg-transparent px-0 py-0 text-sm tabular-nums focus-visible:ring-0 dark:bg-transparent" />
+}
+
+function MobileWeekCard({ week, weekNumber, completed, events, reportStartDate, current, expanded, onToggle, onPhaseChange, onHoursChange, onNotesChange, onRace }: {
+  week: AnnualPlanWeek
+  weekNumber: number
+  completed: number | null
+  events: PlanEvent[]
+  reportStartDate: string | null
+  current: boolean
+  expanded: boolean
+  onToggle: () => void
+  onPhaseChange: (phase: PlanPhase) => void
+  onHoursChange: (hours: number | null) => void
+  onNotesChange: (notes: string) => void
+  onRace: (event?: PlanEvent) => void
+}) {
+  return <article>
+    <SettingsListItem
+      icon={CalendarDays}
+      label={week.phase === "Race" ? "Race week" : `Week ${week.phaseWeek ?? weekNumber}${week.recovery ? " · Recovery" : ""}`}
+      description={`${dateLabel(week.startDate, { month: "short", day: "numeric" })} – ${dateLabel(week.endDate, { month: "short", day: "numeric", year: "numeric" })}`}
+      value={current ? "This week" : undefined}
+      expanded={expanded}
+      onClick={onToggle}
+    />
+    {expanded && <div className="space-y-3 border-t px-4 py-4">
+      <div className="text-xs tabular-nums text-muted-foreground">Planned {clockHours(week.targetHours) || "—"} <span aria-hidden="true">·</span> Completed {clockHours(completed) || "—"}</div>
+      {events.length > 0 && <p className="text-xs font-medium">{events.map(event => `${event.priority} · ${event.name}`).join(" · ")}</p>}
+      <div className={mobileFieldClass}>
+        <Label htmlFor={`atp-phase-${week.id}`} className="block text-[11px] leading-4 text-muted-foreground">Training period</Label>
+        <div className="relative"><select id={`atp-phase-${week.id}`} value={week.phase} onChange={(event) => onPhaseChange(event.target.value as PlanPhase)} className="h-7 w-full appearance-none border-0 bg-transparent pr-6 text-sm outline-none">{PLAN_PHASES.map(phase => <option key={phase} value={phase}>{phase}</option>)}</select><ChevronDown aria-hidden="true" className="pointer-events-none absolute right-0 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /></div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className={mobileFieldClass}><Label htmlFor={`atp-hours-${week.id}`} className="block text-[11px] leading-4 text-muted-foreground">Planned hours</Label><MobileWeekHours id={`atp-hours-${week.id}`} value={week.targetHours} onCommit={onHoursChange} /></div>
+        <div className={mobileFieldClass}><span className="block text-[11px] leading-4 text-muted-foreground">Completed hours</span><span className="flex h-7 items-center text-sm tabular-nums">{clockHours(completed) || "—"}</span></div>
+      </div>
+      <div className={mobileFieldClass}><Label htmlFor={`atp-notes-${week.id}`} className="block text-[11px] leading-4 text-muted-foreground">Week notes</Label><MobileWeekNotes id={`atp-notes-${week.id}`} value={week.notes} onCommit={onNotesChange} /></div>
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-muted-foreground">Race events</p>
+        {events.map(event => <button key={event.id} type="button" onClick={() => onRace(event)} className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-input px-3 text-left text-sm"><RaceMarkerIcon priority={event.priority} /><span className="min-w-0 flex-1 truncate">{event.name}</span><Pencil aria-hidden="true" className="size-3.5 text-muted-foreground" /></button>)}
+        <Button type="button" variant="outline" onClick={() => onRace()} className="h-10 w-full rounded-full"><Plus className="size-4" />Add race</Button>
+      </div>
+      {reportStartDate && <div className="flex justify-end"><SavedReportButton kind="block" startDate={reportStartDate} /></div>}
+    </div>}
+  </article>
+}
+
+function groupPlanWeeks(weeks: AnnualPlanWeek[]) {
+  const blocks: { key: string; phase: PlanPhase; weeks: AnnualPlanWeek[] }[] = []
+  for (const week of weeks) {
+    const last = blocks.at(-1)
+    if (last?.phase === week.phase) {
+      last.weeks.push(week)
+    } else {
+      blocks.push({ key: `${week.id}:${week.phase}`, phase: week.phase, weeks: [week] })
+    }
+  }
+  return blocks
+}
+
 function InlineNotes({ value, inputRef, onCommit, onNext, onTab }: {
   value: string
   inputRef: (element: HTMLInputElement | null) => void
@@ -347,6 +411,7 @@ function InlineNotes({ value, inputRef, onCommit, onNext, onTab }: {
 }
 
 export function AnnualPlanCreator() {
+  const isMobile = useIsMobile()
   const [context, setContext] = useState<TrainingContext>(() => cachedTrainingContext())
   const [plans, setPlans] = useState<AnnualPlan[]>([])
   const [plan, setPlan] = useState<AnnualPlan | null>(null)
@@ -364,6 +429,8 @@ export function AnnualPlanCreator() {
   const notesRefs = useRef(new Map<string, HTMLInputElement>())
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
   const tableScrollerRef = useRef<HTMLElement | null>(null)
+  const mobileWeekRefs = useRef(new Map<string, HTMLElement>())
+  const mobileScrollerRef = useRef<HTMLElement | null>(null)
   const centeredWeekRef = useRef<string | null>(null)
   useEffect(() => {
     const update = () => setContext(cachedTrainingContext())
@@ -374,6 +441,8 @@ export function AnnualPlanCreator() {
   const setCurrentPlan = useCallback((next: AnnualPlan | null) => {
     planRef.current = next
     setPlan(next)
+    setActiveWeekId(null)
+    centeredWeekRef.current = null
     if (next) setPlans((items) => [next, ...items.filter((item) => item.id !== next.id)])
   }, [])
 
@@ -402,6 +471,7 @@ export function AnnualPlanCreator() {
 
   const reportBlocks = useMemo(() => planReportBlocks(plan), [plan])
   const actuals = useMemo(() => calendarActuals(context, plan), [context, plan])
+  const mobileBlocks = useMemo(() => groupPlanWeeks(plan?.weeks || []), [plan])
   const today = iso(new Date())
   const currentWeek = plan?.weeks.find(
     (week) => today >= week.startDate && today <= week.endDate
@@ -409,6 +479,15 @@ export function AnnualPlanCreator() {
 
   const centerTableWeek = useCallback(
     (id: string, behavior: ScrollBehavior = "auto") => {
+      if (window.matchMedia("(max-width: 767px)").matches) {
+        const scroller = mobileScrollerRef.current
+        const card = mobileWeekRefs.current.get(id)
+        if (!scroller || !card) return
+        const scrollerTop = scroller.getBoundingClientRect().top
+        const cardTop = card.getBoundingClientRect().top
+        scroller.scrollTo({ top: Math.max(0, scroller.scrollTop + cardTop - scrollerTop - 64), behavior })
+        return
+      }
       const scroller = tableScrollerRef.current
       const row = rowRefs.current.get(id)
       if (!scroller || !row) return
@@ -424,13 +503,15 @@ export function AnnualPlanCreator() {
   )
 
   useLayoutEffect(() => {
-    if (!plan || !currentWeek) return
-    const centeringKey = `${plan.id}:${currentWeek.id}`
+    if (!plan) return
+    const weekId = activeWeekId || currentWeek?.id
+    if (!weekId) return
+    const centeringKey = `${isMobile ? "mobile" : "desktop"}:${plan.id}:${weekId}`
     if (centeredWeekRef.current === centeringKey) return
     centeredWeekRef.current = centeringKey
-    const frame = requestAnimationFrame(() => centerTableWeek(currentWeek.id))
+    const frame = requestAnimationFrame(() => centerTableWeek(weekId, activeWeekId ? "smooth" : "auto"))
     return () => cancelAnimationFrame(frame)
-  }, [centerTableWeek, currentWeek, plan])
+  }, [activeWeekId, centerTableWeek, currentWeek, isMobile, plan])
 
   const persistPlan = useCallback((next: AnnualPlan) => {
     planRef.current = next
@@ -466,8 +547,8 @@ export function AnnualPlanCreator() {
 
   const selectWeek = useCallback((id: string) => {
     setActiveWeekId(id)
-    requestAnimationFrame(() => centerTableWeek(id, "smooth"))
-  }, [centerTableWeek])
+    centeredWeekRef.current = null
+  }, [])
 
   const focusEditableCell = useCallback((rowIndex:number,column:0|1|2) => {
     const week=planRef.current?.weeks[rowIndex]
@@ -570,9 +651,14 @@ export function AnnualPlanCreator() {
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
       <MobileSiteNavbar
-        title={planSelector}
-        left={<button type="button" className="mobile-navbar-action" aria-label="Create new plan" onClick={createPlan}><Plus /></button>}
-        right={<button type="button" className="mobile-navbar-action" aria-label="Plan settings" disabled={!plan} onClick={editPlan}><Settings /></button>}
+        title="Annual Planner"
+        onBack={() => window.dispatchEvent(new CustomEvent("app-navigate", { detail: "Settings" }))}
+        backLabel="Back to settings"
+        actions={[
+          ...(plan ? [{ value: "plan-settings", label: "Plan settings", onSelect: editPlan }] : []),
+          { value: "new-plan", label: "New plan", onSelect: createPlan },
+          ...plans.filter(item => item.id !== plan?.id).map(item => ({ value: `switch-${item.id}`, label: `Switch to ${item.name}`, onSelect: () => persistPlan(item) })),
+        ]}
       />
       <header className="hidden h-14 shrink-0 items-center gap-2 border-b px-4 md:flex">
         <div className="min-w-0 text-base font-semibold">{planSelector}</div>
@@ -583,10 +669,24 @@ export function AnnualPlanCreator() {
 
       {plan ? <>
         <section className="shrink-0 border-b">
-          <div className="flex items-center justify-end gap-4 border-b px-4 py-1.5 text-[11px] text-muted-foreground"><span className="flex items-center gap-1.5"><span className="size-2.5 bg-slate-300 dark:bg-slate-600" /> Planned</span><span>Completed · period color</span></div>
+          <div className="hidden items-center justify-end gap-4 border-b px-4 py-1.5 text-[11px] text-muted-foreground md:flex"><span className="flex items-center gap-1.5"><span className="size-2.5 bg-slate-300 dark:bg-slate-600" /> Planned</span><span>Completed · period color</span></div>
           <SeasonChart plan={plan} actuals={actuals} selectedWeek={activeWeekId} onSelect={selectWeek} />
         </section>
-        <section ref={tableScrollerRef} className="min-h-0 flex-1 overflow-auto">
+        {isMobile && <section ref={mobileScrollerRef} aria-label="Training plan blocks" className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pb-24 pt-4">
+          {mobileBlocks.map(block => <section key={block.key} aria-label={block.phase}>
+            <h2 className="mb-2 px-1 text-sm text-muted-foreground">{block.phase}</h2>
+            <SettingsList>
+              {block.weeks.map((week, index) => {
+                const events = plan.events.filter(event => event.date >= week.startDate && event.date <= week.endDate)
+                const reportBlock = reportBlocks.find(item => item.endDate === week.endDate)
+                return <div key={week.id} ref={(element) => { if (element) mobileWeekRefs.current.set(week.id, element); else mobileWeekRefs.current.delete(week.id) }}>
+                  <MobileWeekCard week={week} weekNumber={index + 1} completed={actuals.get(week.id)?.completedHours ?? null} events={events} reportStartDate={reportBlock?.startDate || null} current={currentWeek?.id === week.id} expanded={(activeWeekId ?? currentWeek?.id) === week.id} onToggle={() => setActiveWeekId(current => (current ?? currentWeek?.id) === week.id ? "" : week.id)} onPhaseChange={phase => changePeriod(week.id, phase)} onHoursChange={hours => changeWeek(week.id, { targetHours: hours, manual: true })} onNotesChange={notes => changeWeek(week.id, { notes })} onRace={event => setRaceEditor({ week, event })} />
+                </div>
+              })}
+            </SettingsList>
+          </section>)}
+        </section>}
+        {!isMobile && <section ref={tableScrollerRef} className="min-h-0 flex-1 overflow-auto">
           <table className="w-full min-w-[980px] border-collapse text-xs">
             <thead className="sticky top-0 z-20 bg-slate-100 text-left text-slate-600 shadow-[0_1px_0_rgba(15,23,42,.35)] dark:bg-muted dark:text-muted-foreground"><tr><th className="w-[15%] px-2 py-1.5 font-medium">Week</th><th className="w-[22%] px-2 py-1.5 font-medium">Event</th><th className="w-[15%] px-2 py-1.5 font-medium">Period</th><th className="w-[10%] px-2 py-1.5 font-medium">Hours</th><th className="w-[10%] px-2 py-1.5 font-medium">Completed</th><th className="w-[28%] min-w-96 px-2 py-1.5 font-medium">Details</th></tr></thead>
             <tbody>
@@ -611,8 +711,8 @@ export function AnnualPlanCreator() {
               })}
             </tbody>
           </table>
-        </section>
-      </> : <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center"><div className="max-w-sm space-y-3"><CalendarDays className="mx-auto size-8 text-muted-foreground" /><h2 className="text-lg font-semibold">Create your rolling training plan</h2><p className="text-sm text-muted-foreground">Start with the six months around today, then edit hours, periods, races and notes directly in the weekly grid.</p><Button onClick={() => { setPlanSubmitError(null); setPlanDialogInitial(defaultSettings(context)); setPlanDialogOpen(true) }}><Plus />Create plan</Button></div></div>}
+        </section>}
+      </> : <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center"><div className="max-w-sm space-y-3"><CalendarDays className="mx-auto size-8 text-muted-foreground" /><h2 className="text-lg font-semibold">Create your rolling training plan</h2><p className="text-sm text-muted-foreground">Start with the six months around today, then edit hours, periods, races and notes week by week.</p><Button onClick={createPlan} className={mobileSubmitClass}><Plus />Create plan</Button></div></div>}
 
       <PlanDialog open={planDialogOpen} onOpenChange={(open) => { setPlanDialogOpen(open); if (!open) setPlanSubmitError(null) }} initial={planDialogInitial} busy={busy} submitError={planSubmitError} onSubmit={(settings) => void submitPlanSettings(settings)} />
       <RaceDialog week={raceEditor?.week || null} event={raceEditor?.event} open={Boolean(raceEditor)} busy={busy} onOpenChange={(open) => { if (!open) setRaceEditor(null) }} onSubmit={(value) => void saveRace(value)} onDelete={() => void deleteRace()} />

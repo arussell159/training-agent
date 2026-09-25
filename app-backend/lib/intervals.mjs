@@ -86,7 +86,9 @@ function pace(speed, distance, unit) {
 
 function paceSeconds(value, label) {
   if (value == null || value === "") return null;
-  const match = String(value).trim().match(/^(\d{1,3}):(\d{2})(?:\s|$)/);
+  const match = String(value)
+    .trim()
+    .match(/^(\d{1,3}):(\d{2})(?:\s|$)/);
   if (!match || Number(match[2]) > 59) throw new Error(`Enter ${label} as minutes:seconds.`);
   const seconds = Number(match[1]) * 60 + Number(match[2]);
   if (seconds < 30 || seconds > 3600) throw new Error(`Enter a valid ${label}.`);
@@ -94,19 +96,25 @@ function paceSeconds(value, label) {
 }
 
 function sportSetting(settings, pattern, fallback) {
-  return settings.find((setting) =>
-    (setting.types || [setting.type]).some((type) => pattern.test(type || ""))
-  ) || { type: fallback };
+  return (
+    settings.find((setting) =>
+      (setting.types || [setting.type]).some((type) => pattern.test(type || ""))
+    ) || { type: fallback }
+  );
 }
 
 export async function updateIntervalsTrainingZones(request, input = {}) {
   const bikeFtp = input.bike_ftp === "" || input.bike_ftp == null ? null : Number(input.bike_ftp);
   const runSeconds = paceSeconds(input.run_threshold_pace, "run threshold pace");
   const swimSeconds = paceSeconds(input.swim_css, "swim CSS");
-  const thresholdHr = input.threshold_hr === "" || input.threshold_hr == null ? null : Number(input.threshold_hr);
+  const thresholdHr =
+    input.threshold_hr === "" || input.threshold_hr == null ? null : Number(input.threshold_hr);
   if (bikeFtp != null && (!Number.isFinite(bikeFtp) || bikeFtp < 50 || bikeFtp > 1000))
     throw new Error("Enter a valid bike FTP in watts.");
-  if (thresholdHr != null && (!Number.isInteger(thresholdHr) || thresholdHr < 60 || thresholdHr > 230))
+  if (
+    thresholdHr != null &&
+    (!Number.isInteger(thresholdHr) || thresholdHr < 60 || thresholdHr > 230)
+  )
     throw new Error("Enter a valid threshold heart rate.");
 
   const athlete = await request("/athlete/0");
@@ -119,16 +127,24 @@ export async function updateIntervalsTrainingZones(request, input = {}) {
   );
   const updates = [];
   if (bikeFtp != null || (thresholdHr != null && !hasRunSetting)) {
-    updates.push({ setting: bike, type: "Ride", fields: {
-      ...(bikeFtp != null ? { ftp: bikeFtp } : {}),
-      ...(thresholdHr != null && !hasRunSetting ? { lthr: thresholdHr } : {}),
-    } });
+    updates.push({
+      setting: bike,
+      type: "Ride",
+      fields: {
+        ...(bikeFtp != null ? { ftp: bikeFtp } : {}),
+        ...(thresholdHr != null && !hasRunSetting ? { lthr: thresholdHr } : {}),
+      },
+    });
   }
   if (runSeconds != null || (thresholdHr != null && hasRunSetting)) {
-    updates.push({ setting: run, type: "Run", fields: {
-      ...(runSeconds != null ? { threshold_pace: 1609.344 / runSeconds } : {}),
-      ...(thresholdHr != null ? { lthr: thresholdHr } : {}),
-    } });
+    updates.push({
+      setting: run,
+      type: "Run",
+      fields: {
+        ...(runSeconds != null ? { threshold_pace: 1609.344 / runSeconds } : {}),
+        ...(thresholdHr != null ? { lthr: thresholdHr } : {}),
+      },
+    });
   }
   if (swimSeconds != null) {
     updates.push({ setting: swim, type: "Swim", fields: { threshold_pace: 91.44 / swimSeconds } });
@@ -146,12 +162,17 @@ export async function updateIntervalsTrainingZones(request, input = {}) {
   const verifiedBike = sportSetting(verifiedSettings, /ride|bike/i, "Ride");
   const verifiedRun = sportSetting(verifiedSettings, /run/i, "Run");
   const verifiedSwim = sportSetting(verifiedSettings, /swim/i, "Swim");
-  const close = (actual, expected, tolerance = 0.01) => Number.isFinite(Number(actual)) && Math.abs(Number(actual) - expected) <= tolerance;
-  if (bikeFtp != null && !close(verifiedBike.ftp, bikeFtp, 0.5)) throw new Error("Intervals.icu did not confirm the bike FTP update.");
-  if (runSeconds != null && !close(verifiedRun.threshold_pace, 1609.344 / runSeconds, 0.01)) throw new Error("Intervals.icu did not confirm the run threshold update.");
-  if (swimSeconds != null && !close(verifiedSwim.threshold_pace, 91.44 / swimSeconds, 0.01)) throw new Error("Intervals.icu did not confirm the swim CSS update.");
+  const close = (actual, expected, tolerance = 0.01) =>
+    Number.isFinite(Number(actual)) && Math.abs(Number(actual) - expected) <= tolerance;
+  if (bikeFtp != null && !close(verifiedBike.ftp, bikeFtp, 0.5))
+    throw new Error("Intervals.icu did not confirm the bike FTP update.");
+  if (runSeconds != null && !close(verifiedRun.threshold_pace, 1609.344 / runSeconds, 0.01))
+    throw new Error("Intervals.icu did not confirm the run threshold update.");
+  if (swimSeconds != null && !close(verifiedSwim.threshold_pace, 91.44 / swimSeconds, 0.01))
+    throw new Error("Intervals.icu did not confirm the swim CSS update.");
   const verifiedHr = verifiedRun.lthr ?? verifiedBike.lthr ?? null;
-  if (thresholdHr != null && Number(verifiedHr) !== thresholdHr) throw new Error("Intervals.icu did not confirm the threshold heart-rate update.");
+  if (thresholdHr != null && Number(verifiedHr) !== thresholdHr)
+    throw new Error("Intervals.icu did not confirm the threshold heart-rate update.");
   return {
     sport_settings: verifiedSettings,
     zones: {
@@ -262,7 +283,7 @@ export function mapIntervalsWorkout(
     actualDurationMinutes: actualMinutes,
     goal: sourceDescription,
     details: appDescription || sourceDescription,
-    ...(appDescription ? { app_description_version: 2 } : {}),
+    ...(appDescription ? { app_description_version: 3 } : {}),
     status: actual ? "completed" : date === today ? "today" : "upcoming",
     completed: Boolean(actual),
     load: item.icu_training_load ?? item.load_target ?? 0,
@@ -305,17 +326,35 @@ export function mapIntervalsWorkout(
 
 export async function fetchIntervalsContext(
   request,
-  { now = new Date(), timeZone = "America/Chicago", range, includeFutureRaces = false, repairWorkoutLinks = false, onProgress } = {}
+  {
+    now = new Date(),
+    timeZone = "America/Chicago",
+    range,
+    includeFutureRaces = false,
+    repairWorkoutLinks = false,
+    onProgress,
+  } = {}
 ) {
   const syncStartedAt = new Date().toISOString();
   const totalRequests = 4 + (range ? 1 : 0) + (includeFutureRaces ? 1 : 0);
   let completedRequests = 0;
-  const track = (promise, label) => Promise.resolve(promise).then((value) => {
-    completedRequests += 1;
-    onProgress?.({ phase: "intervals", label, completed: completedRequests, total: totalRequests });
-    return value;
+  const track = (promise, label) =>
+    Promise.resolve(promise).then((value) => {
+      completedRequests += 1;
+      onProgress?.({
+        phase: "intervals",
+        label,
+        completed: completedRequests,
+        total: totalRequests,
+      });
+      return value;
+    });
+  onProgress?.({
+    phase: "intervals",
+    label: "Connecting to Intervals.icu",
+    completed: 0,
+    total: totalRequests,
   });
-  onProgress?.({ phase: "intervals", label: "Connecting to Intervals.icu", completed: 0, total: totalRequests });
   const athlete = await track(request("/athlete/0"), "Loaded athlete profile");
   timeZone = athlete.timezone || athlete.time_zone || timeZone;
   const today = athleteLocalDate(now, timeZone);
@@ -326,14 +365,25 @@ export async function fetchIntervalsContext(
     track(request(`/athlete/0/activities?${query}`), "Loaded activities"),
     track(request(`/athlete/0/events?${query}`), "Loaded planned workouts and races"),
     includeFutureRaces
-      ? track(request(`/athlete/0/events?oldest=${today}&newest=${shift(365)}`).then((items) =>
-          (items || []).filter((event) => /^RACE(?:_[ABC])?$/i.test(String(event.category || "")))
-        ), "Loaded upcoming races")
+      ? track(
+          request(`/athlete/0/events?oldest=${today}&newest=${shift(365)}`).then((items) =>
+            (items || []).filter((event) => /^RACE(?:_[ABC])?$/i.test(String(event.category || "")))
+          ),
+          "Loaded upcoming races"
+        )
       : Promise.resolve([]),
-    track(request(
-      `/athlete/0/wellness?oldest=${range ? new Date(Date.parse(`${range.start}T12:00:00Z`) - 29 * 86400000).toISOString().slice(0, 10) : shift(-89)}&newest=${range?.end || today}`
-    ), "Loaded wellness history"),
-    range ? track(request(`/athlete/0/wellness?oldest=${today}&newest=${today}`), "Loaded today's wellness") : Promise.resolve(null),
+    track(
+      request(
+        `/athlete/0/wellness?oldest=${range ? new Date(Date.parse(`${range.start}T12:00:00Z`) - 29 * 86400000).toISOString().slice(0, 10) : shift(-89)}&newest=${range?.end || today}`
+      ),
+      "Loaded wellness history"
+    ),
+    range
+      ? track(
+          request(`/athlete/0/wellness?oldest=${today}&newest=${today}`),
+          "Loaded today's wellness"
+        )
+      : Promise.resolve(null),
   ]);
   const allEvents = [
     ...new Map(
@@ -342,14 +392,21 @@ export async function fetchIntervalsContext(
   ];
   const matches = pairIntervalsWorkouts(allEvents, activities || []);
   if (repairWorkoutLinks) {
-    const result = await persistInferredWorkoutLinks(request, allEvents, activities || [], matches, onProgress);
+    const result = await persistInferredWorkoutLinks(
+      request,
+      allEvents,
+      activities || [],
+      matches,
+      onProgress
+    );
     if (result.failed) {
       onProgress?.({
         phase: "pairing",
         label: `${result.linked} Intervals.icu link${result.linked === 1 ? "" : "s"} saved; ${result.failed} could not be saved`,
         completed: result.linked + result.failed + result.skipped,
         total: result.total,
-        error: "Some uniquely matched workouts could not be linked in Intervals.icu. The app still shows its match.",
+        error:
+          "Some uniquely matched workouts could not be linked in Intervals.icu. The app still shows its match.",
       });
     } else if (result.total) {
       onProgress?.({

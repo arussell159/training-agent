@@ -79,16 +79,20 @@ export function createCompletedWorkoutStore(config, store) {
             ];
           })
       );
-      const rows = workouts.map((workout) => {
-        const actual = workout.raw_activity || workout.completed_data || {};
-        const revision = createHash("sha256").update(JSON.stringify(actual)).digest("hex");
-        return {
-          athlete_id: recordId(String(workout.activity_id), "metadata"),
-          status: "archived",
-          cursor: { revision, workout, activity: actual },
-          updated_at: new Date().toISOString(),
-        };
-      }).filter((row) => previousRevisions.get(row.athlete_id.split(":").at(-2)) !== row.cursor.revision);
+      const rows = workouts
+        .map((workout) => {
+          const actual = workout.raw_activity || workout.completed_data || {};
+          const revision = createHash("sha256").update(JSON.stringify(actual)).digest("hex");
+          return {
+            athlete_id: recordId(String(workout.activity_id), "metadata"),
+            status: "archived",
+            cursor: { revision, workout, activity: actual },
+            updated_at: new Date().toISOString(),
+          };
+        })
+        .filter(
+          (row) => previousRevisions.get(row.athlete_id.split(":").at(-2)) !== row.cursor.revision
+        );
       if (rows.length) await store.upsert("sync_state", rows);
     },
     async load(id, kind, download, { force = false } = {}) {

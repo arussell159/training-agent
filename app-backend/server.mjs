@@ -26,13 +26,14 @@ import {intervalsOnlyContext} from './lib/intervals-only-context.mjs';
 import {readDurableState,writeDurableState} from './lib/durable-state.mjs';
 import {loadActivityBundle,loadActivityView} from './lib/activity-bundle.mjs';
 import {saveFastView,fastViewId,projectTrainingContext} from './lib/fast-context.mjs';
+import {retainRecentTrainingContext,twelveWeekStart} from './lib/training-retention.mjs';
 import {createMutationQueue,validateMutation,pendingMutationContext} from './lib/mutation-queue.mjs';
 import {createRequestCache} from './lib/request-cache.mjs';
 import {compressAsset} from './lib/asset-compression.mjs';
 import {updateWorkoutDescription} from './lib/workout-description.mjs';
 import {loadWorkoutEditor,saveWorkoutEditor,loadNewWorkoutEditor,createWorkoutEditor} from './lib/workout-editor.mjs';
 import {applyCompletionConfirmation} from './lib/completion-confirmation.mjs';
-import {duplicateAnnualPlan,generateAnnualPlan,mergeRegeneratedPlan,recordPlanRevision} from './lib/annual-plan.mjs';
+import {duplicateAnnualPlan,generateAnnualPlan,mergeRegeneratedPlan,recordPlanRevision,rollAnnualPlan} from './lib/annual-plan.mjs';
 import {
   addLocalComment,
   deleteAnnualPlanRecord,
@@ -170,8 +171,15 @@ function valueFingerprint(value) {
 }
 
 function trainingContextFingerprint(context) {
-  const { synced_at, sync_started_at, ...stable } = context || {};
+  const { synced_at, sync_started_at, source, ...stable } = context || {};
   return valueFingerprint(stable);
+}
+
+function trainingSourceFingerprint(context) {
+  return valueFingerprint(Object.fromEntries(
+    ['athlete','metrics','wellness','history','planned','wellness_history','performance']
+      .map(key=>[key,context?.[key] || null])
+  ));
 }
 
 function withZoneHistory(previous,incoming) {
@@ -197,11 +205,13 @@ export async function persistTrainingContext(config, context, {archiveActivities
   if (!store.ready) return {contextChanged:false};
   const previous=await loadSupabaseTrainingSnapshot(config,context.athlete?.id);
   context=withZoneHistory(previous,context);
-  context=mergeTrainingSnapshot(previous,context);
+  context=retainRecentTrainingContext(mergeTrainingSnapshot(previous,context));
   const contextChanged = !previous || trainingContextFingerprint(previous) !== trainingContextFingerprint(context);
+  const sourceChanged = !previous || trainingSourceFingerprint(previous) !== trainingSourceFingerprint(context);
   const archive=createCompletedWorkoutStore(config,store);
   await archive.saveWorkouts(context,{previousContext:previous});
-  const archivedVersions={...(previous?.archived_activity_versions || {}),...(context.archived_activity_versions || {})};
+  const activeActivityIds=new Set([...context.history,...context.planned].map(workout=>String(workout.activity_id || '')).filter(Boolean));
+  const archivedVersions=Object.fromEntries(Object.entries({...(previous?.archived_activity_versions || {}),...(context.archived_activity_versions || {})}).filter(([id])=>activeActivityIds.has(id)));
   if(archiveActivities){
     const completed=[...new Map([...(context.history || []),...(context.planned || [])].filter(w=>w.completed && w.activity_id).map(w=>[String(w.activity_id),w])).values()];
     const pending=completed.filter(w=>archivedVersions[String(w.activity_id)]!==createHash('sha256').update(JSON.stringify(w.raw_activity || w.completed_data || {})).digest('hex'));
@@ -297,7 +307,7 @@ export async function persistTrainingContext(config, context, {archiveActivities
     await saveFastView(config,store,context);
   }
   await store.prune();
-  return {contextChanged};
+  return {contextChanged,sourceChanged};
 }
 
 async function loadSupabaseTrainingSnapshot(config, athleteId = null) {
@@ -319,7 +329,7 @@ async function loadSupabaseTrainingSnapshot(config, athleteId = null) {
 async function saveVerifiedSnapshot(config,context) {
   if(!context)throw Error('The workout was verified in Intervals.icu but the saved calendar is unavailable. Refresh before retrying.');
   const store=createContextStore(config,updateLogs);
-  context={...context,provider_connection:providerConnection(config)};
+  context=retainRecentTrainingContext({...context,provider_connection:providerConnection(config)});
   await store.upsert('sync_state',[{athlete_id:String(context.athlete.id),status:'ready',cursor:{context},updated_at:new Date().toISOString()}]);
   await saveFastView(config,store,context);
   return projectTrainingContext(context,'full');
@@ -340,11 +350,39 @@ function applyVerifiedEvent(context,id,result,action) {
 const syncRequests=new Map();
 const directSyncRequests=new Map();
 const manualSyncProgress=new Map();
+const section11DirectAvailable=()=>Boolean(process.env.VERCEL || process.env.SECTION11_DIRECT_SYNC_ORIGIN);
 function setManualSyncProgress(id,progress) {
   if(!id)return;
   const now=Date.now();
   for(const [key,value] of manualSyncProgress)if(now-value.updatedAt>15*60_000)manualSyncProgress.delete(key);
   manualSyncProgress.set(id,{...progress,updatedAt:now});
+}
+async function syncSection11Files(config,athleteId,syncId,reportProgress) {
+  reportProgress({phase:'github',requestId:syncId,status:'running',label:'Generating Section 11 files and committing them to GitHub',completed:0,total:1});
+  let section11Sync;
+  try {
+    if(!section11DirectAvailable())throw Error('Section 11 direct sync requires the deployed Python function.');
+    const github=coachConfig();
+    const origin=process.env.SECTION11_DIRECT_SYNC_ORIGIN || (process.env.VERCEL_URL?`https://${process.env.VERCEL_URL}`:'');
+    if(!origin)throw Error('Section 11 direct sync needs the deployed app URL.');
+    const connection=providerConnection(config);
+    let operation=directSyncRequests.get(connection);
+    if(!operation){
+      operation=runSection11DirectSync({
+        repo:github.repo,branch:github.branch,githubToken:github.githubToken,
+        intervalsKey:config.INTERVALS_API_KEY,athleteId,
+        weekStart:process.env.WEEK_START,zonePreference:process.env.ZONE_PREFERENCE,
+        origin,
+      });
+      directSyncRequests.set(connection,operation);
+      void operation.finally(()=>{if(directSyncRequests.get(connection)===operation)directSyncRequests.delete(connection);}).catch(()=>{});
+    }
+    section11Sync=await operation;
+    reportServices?.snapshotCache.invalidate();
+    section11Sync={...section11Sync,requestId:syncId,label:'Section 11 files committed to GitHub'};
+  } catch(error) {section11Sync={requestId:syncId,status:'failed',error:error.message};}
+  reportProgress({phase:'github',requestId:syncId,status:section11Sync.status,label:section11Sync.status==='complete'?'Section 11 files committed to GitHub':'Section 11 direct sync failed',completed:section11Sync.status==='complete'?1:0,total:1,error:section11Sync.error || undefined});
+  return section11Sync;
 }
 async function syncRecentTraining(config,{force=false,onProgress}={}) {
   const key=providerConnection(config);
@@ -356,19 +394,21 @@ async function syncRecentTraining(config,{force=false,onProgress}={}) {
   }
   const operation=(async()=>{
     const saved=await loadSupabaseTrainingSnapshot(config);
-    if(!force && saved && Date.now()-Date.parse(saved.synced_at)<60000)
-      return {context:projectTrainingContext({...saved,provider_connection:key}),sourceChanged:false};
     const zone=saved?.athlete?.time_zone || 'America/Chicago';
     const today=athleteLocalDate(new Date(),zone),date=new Date(`${today}T12:00:00Z`);
     date.setUTCDate(date.getUTCDate()-((date.getUTCDay()+6)%7));
     const shift=days=>new Date(date.getTime()+days*86400000).toISOString().slice(0,10);
-    const range=saved?{start:shift(-14),end:shift(13)}:undefined;
+    const historyRange={start:twelveWeekStart(new Date(),zone),end:today};
+    const hasTwelveWeeks=saved && snapshotCoversRange(saved,historyRange);
+    if(!force && hasTwelveWeeks && Date.now()-Date.parse(saved.synced_at)<60000)
+      return {context:projectTrainingContext({...saved,provider_connection:key}),sourceChanged:false};
+    const range=saved?{start:hasTwelveWeeks?shift(-14):historyRange.start,end:shift(13)}:undefined;
     const incoming=await fetchIntervalsTrainingContext(config,{force:true,timeZone:zone,range,includeFutureRaces:true,repairWorkoutLinks:true,onProgress});
     onProgress?.({phase:'saving',label:'Saving refreshed training data',completed:0,total:1});
-    const persisted=await persistTrainingContext(config,mergeTrainingSnapshot(saved,incoming,range));
+    const persisted=await persistTrainingContext(config,mergeTrainingSnapshot(saved,incoming,range),{archiveActivities:false});
     onProgress?.({phase:'saving',label:'Training data saved',completed:1,total:1});
     const full=await createContextStore(config).getSyncRecord(fastViewId(config));
-    return {context:projectTrainingContext(full),sourceChanged:Boolean(persisted?.contextChanged)};
+    return {context:projectTrainingContext(full),sourceChanged:Boolean(persisted?.sourceChanged)};
   })();
   syncRequests.set(key,operation);
   try{return await operation;}finally{syncRequests.delete(key);}
@@ -596,15 +636,20 @@ export async function handleRequest(req, res) {
       const active=plans.find(item=>item.id===(local.active_annual_plan_id || plans[0]?.id));
       if(active && !active.events.some(event=>event.date===eventDate&&event.name.toLowerCase()===name.toLowerCase())) {
         const event={id:`event:${providerEvent.id}`,name,date:eventDate,sport:'Other',distance:'',priority,goal:'',targetCtl:null,source:'intervals-calendar'};
-        const generated=generateAnnualPlan({...active,mode:'automatic',methodology:'hours',events:[...active.events,event]},snapshot?.metrics || {});
-        plan=await saveAnnualPlanRecord({...mergeRegeneratedPlan(active,generated),updatedAt:new Date().toISOString()});
+        const today=athleteLocalDate(new Date(),snapshot?.athlete?.time_zone || local.athlete?.time_zone || 'America/Chicago');
+        const current=rollAnnualPlan(active,today,snapshot?.metrics || {});
+        const events=[...current.events,event];
+        const generated=generateAnnualPlan({...current,mode:'automatic',methodology:'hours',events},snapshot?.metrics || {});
+        plan=await saveAnnualPlanRecord({...mergeRegeneratedPlan(current,generated),events,updatedAt:new Date().toISOString()});
       }
       intervalsMemoryCache=null;providerReads.clear();
       res.writeHead(201,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({event:{id:String(providerEvent.id),name:providerEvent.name,date:eventDate,priority},context,plan}));return;
     }
     if(pathname==='/api/annual-plans' && req.method==='GET') {
       const local=await readLocalContext(),plans=Array.isArray(local.annual_plans)?local.annual_plans:[];
-      sendJson(req,res,{plans,activeId:local.active_annual_plan_id || plans[0]?.id || null});return;
+      const activeId=local.active_annual_plan_id || plans[0]?.id || null;
+      const today=athleteLocalDate(new Date(),local.athlete?.time_zone || 'America/Chicago');
+      sendJson(req,res,{plans:plans.map(plan=>rollAnnualPlan(plan,today)),activeId});return;
     }
     if(pathname==='/api/annual-plans/preview' && req.method==='POST') {
       const payload=await readBody(req);
@@ -636,9 +681,11 @@ export async function handleRequest(req, res) {
       const providerEvent=await createIntervalsRaceEvent(request,{name,date:eventDate,priority,externalId});
       const planEvent={id:`event:${providerEvent.id}`,name,date:eventDate,sport:'Other',distance:'',priority,goal:'',targetCtl:null,source:'intervals-calendar'};
       const snapshot=await loadSupabaseTrainingSnapshot(config);
-      const generated=generateAnnualPlan({...existing,mode:'automatic',methodology:'hours',events:[...existing.events,planEvent]},snapshot?.metrics || {});
-      const plan=await saveAnnualPlanRecord({...mergeRegeneratedPlan(existing,generated),updatedAt:new Date().toISOString()});
       const today=athleteLocalDate(new Date(),snapshot?.athlete?.time_zone || 'America/Chicago');
+      const current=rollAnnualPlan(existing,today,snapshot?.metrics || {});
+      const events=[...current.events,planEvent];
+      const generated=generateAnnualPlan({...current,mode:'automatic',methodology:'hours',events},snapshot?.metrics || {});
+      const plan=await saveAnnualPlanRecord({...mergeRegeneratedPlan(current,generated),events,updatedAt:new Date().toISOString()});
       const workout=mapIntervalsWorkout(providerEvent,today);
       const context=snapshot?await saveVerifiedSnapshot(config,applyVerifiedEvent(snapshot,workout.id,{event:providerEvent},'copy')):null;
       sendJson(req,res,{plan,event:planEvent,workout,context});return;
@@ -668,8 +715,9 @@ export async function handleRequest(req, res) {
       }
       intervalsMemoryCache=null;
       const snapshot=await loadSupabaseTrainingSnapshot(config);
-      const generated=generateAnnualPlan({...existing,mode:'automatic',methodology:'hours',events:nextEvents},snapshot?.metrics || {});
-      const plan=await saveAnnualPlanRecord({...mergeRegeneratedPlan(existing,generated),updatedAt:new Date().toISOString()});
+      const current=rollAnnualPlan(existing,athleteLocalDate(new Date(),snapshot?.athlete?.time_zone || 'America/Chicago'),snapshot?.metrics || {});
+      const generated=generateAnnualPlan({...current,mode:'automatic',methodology:'hours',events:nextEvents},snapshot?.metrics || {});
+      const plan=await saveAnnualPlanRecord({...mergeRegeneratedPlan(current,generated),events:nextEvents,updatedAt:new Date().toISOString()});
       const verifiedSnapshot=req.method==='DELETE'
         ? snapshot?deletedResults.reduce((current,item)=>applyVerifiedEvent(current,item.workoutId,item,'delete'),snapshot):null
         : snapshot?applyVerifiedEvent(snapshot,eventIdValue,result,'update'):null;
@@ -715,6 +763,8 @@ export async function handleRequest(req, res) {
       const config=await readConfig();
       const syncId=requestUrl.searchParams.get('syncId') || '';
       const manualRefresh=requestUrl.searchParams.get('force')==='1';
+      const trainingOnly=requestUrl.searchParams.get('trainingOnly')==='1' && !manualRefresh;
+      const section11Only=requestUrl.searchParams.get('section11Only')==='1' && !manualRefresh;
       const forceIntervals=manualRefresh || requestUrl.searchParams.get('forceIntervals')==='1';
       if(syncId && !/^[a-zA-Z0-9-]{16,80}$/.test(syncId))throw Error('Invalid sync progress ID.');
       let progressWrites=Promise.resolve();
@@ -725,37 +775,27 @@ export async function handleRequest(req, res) {
           await services?.sync.setManualProgress(syncId,progress);
         }).catch(()=>{});
       };
+      if(section11Only){
+        const view=await createContextStore(config).getSyncRecord(fastViewId(config));
+        if(!view?.athlete?.id)throw Error('Refresh Intervals.icu before syncing Section 11 files.');
+        const section11Sync=await syncSection11Files(config,view.athlete.id,syncId,reportProgress);
+        if(section11Sync.status==='complete')void triggerDueReports(config);
+        await progressWrites;
+        sendJson(req,res,{section11Sync,checked_at:new Date().toISOString()});return;
+      }
       reportProgress({phase:'intervals',label:'Preparing manual refresh',completed:0,total:6});
       const queue=await flushMutations(config,requestUrl.searchParams.get('retry')==='1');
       try {
         const {context,sourceChanged}=await syncRecentTraining(config,{force:forceIntervals,onProgress:reportProgress});
-        let section11Sync;
-        if(manualRefresh || (sourceChanged && (process.env.VERCEL || process.env.SECTION11_DIRECT_SYNC_ORIGIN))) {
-          reportProgress({phase:'github',requestId:syncId,status:'running',label:'Generating Section 11 files and committing them to GitHub',completed:0,total:1});
-          try {
-            if(!process.env.VERCEL && !process.env.SECTION11_DIRECT_SYNC_ORIGIN)
-              throw Error('Section 11 direct sync requires the deployed Python function.');
-            const github=coachConfig();
-            const origin=process.env.SECTION11_DIRECT_SYNC_ORIGIN || (process.env.VERCEL_URL?`https://${process.env.VERCEL_URL}`:'');
-            if(!origin)throw Error('Section 11 direct sync needs the deployed app URL.');
-            const connection=providerConnection(config);
-            let operation=directSyncRequests.get(connection);
-            if(!operation){
-              operation=runSection11DirectSync({
-                repo:github.repo,branch:github.branch,githubToken:github.githubToken,
-                intervalsKey:config.INTERVALS_API_KEY,athleteId:context.athlete.id,
-                weekStart:process.env.WEEK_START,zonePreference:process.env.ZONE_PREFERENCE,
-                origin,
-              });
-              directSyncRequests.set(connection,operation);
-              void operation.finally(()=>{if(directSyncRequests.get(connection)===operation)directSyncRequests.delete(connection);}).catch(()=>{});
-            }
-            section11Sync=await operation;
-            reportServices?.snapshotCache.invalidate();
-            section11Sync={...section11Sync,requestId:syncId,label:'Section 11 files committed to GitHub'};
-          } catch(error) {section11Sync={requestId:syncId,status:'failed',error:error.message};}
-          reportProgress({phase:'github',requestId:syncId,status:section11Sync.status,label:section11Sync.status==='complete'?'Section 11 files committed to GitHub':'Section 11 direct sync failed',completed:section11Sync.status==='complete'?1:0,total:1,error:section11Sync.error || undefined});
+        const section11Pending=sourceChanged && section11DirectAvailable();
+        if(trainingOnly){
+          if(!section11Pending && !(forceIntervals && section11DirectAvailable()))void triggerDueReports(config);
+          await progressWrites;
+          sendJson(req,res,{context,queue,sourceChanged,section11Pending,checked_at:new Date().toISOString()});return;
         }
+        const section11Sync=manualRefresh || section11Pending
+          ? await syncSection11Files(config,context.athlete.id,syncId,reportProgress)
+          : undefined;
         void triggerDueReports(config);
         await progressWrites;
         sendJson(req,res,{context,queue,section11Sync,checked_at:new Date().toISOString()});
@@ -875,7 +915,7 @@ export async function handleRequest(req, res) {
             library:local.library,
           };
           try {
-            await persistTrainingContext(config, mergeTrainingSnapshot(saved,liveContext,range));
+            await persistTrainingContext(config, mergeTrainingSnapshot(saved,liveContext,range),{archiveActivities:false});
             void triggerDueReports(config);
           } catch (error) {
             updateLogs(`context write failed: ${error.message}`);

@@ -4,10 +4,12 @@ import { athleteLocalDate } from "./athlete-date.mjs";
 import { intervalsOnlyContext } from "./intervals-only-context.mjs";
 import { elapsedSummary } from "./elapsed-summary.mjs";
 import { appWorkoutDescription } from "./workout-readable-description.mjs";
+import { retainRecentTrainingContext } from "./training-retention.mjs";
 
 export const fastViewId = (config, scope = "full") =>
   `view:v1:${providerConnection(config)}:${scope === "week" ? "startup" : "training"}`;
 export function projectTrainingContext(context, scope = "week", now = new Date()) {
+  context = retainRecentTrainingContext(context, now);
   context = intervalsOnlyContext(context);
   const today = athleteLocalDate(now, context.athlete?.time_zone || "America/Chicago");
   const date = new Date(`${today}T12:00:00Z`);
@@ -20,7 +22,7 @@ export function projectTrainingContext(context, scope = "week", now = new Date()
   ]
     .map((workout) => {
       const details = appWorkoutDescription(workout, context.athlete?.sport_settings || []);
-      return details ? { ...workout, details, app_description_version: 2 } : workout;
+      return details ? { ...workout, details, app_description_version: 3 } : workout;
     })
     .map(({ raw, raw_activity, ...workout }) => ({
       ...workout,

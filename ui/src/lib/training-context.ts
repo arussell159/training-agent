@@ -120,9 +120,9 @@ const contextRequests = new Map<"week" | "full", Promise<TrainingContext>>()
 const networkLoadedScopes = new Set<"week" | "full">()
 let contextRevision = 0
 let mutationsInFlight=0
-export function trainingMutationState() {return {revision:contextRevision,busy:mutationsInFlight>0}}
-if(typeof window!=='undefined')window.addEventListener('training-cache-reset',()=>{contextRevision++;contextCache.clear();contextRequests.clear();networkLoadedScopes.clear()})
 const STARTUP_KEY='training-agent-startup-v2'
+export function trainingMutationState() {return {revision:contextRevision,busy:mutationsInFlight>0}}
+if(typeof window!=='undefined')window.addEventListener('training-cache-reset',()=>{contextRevision++;contextCache.clear();contextRequests.clear();networkLoadedScopes.clear();try{localStorage.removeItem(STARTUP_KEY)}catch{/* Storage is optional. */}})
 type CachedContext = TrainingContext & {cache_scope?:string;version?:string;display_range?:{start:string;end:string}}
 export function cachedTrainingContext(): TrainingContext {
   // Prefer the complete archive once it has loaded. A later fast-week update
@@ -135,7 +135,7 @@ export function cachedTrainingContext(): TrainingContext {
       const day=new Intl.DateTimeFormat('en-CA',{timeZone:saved.athlete.time_zone || 'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())
       const sessions=[...new Map([...saved.history,...saved.planned].map(w=>[(w as PlannedWorkout).id,w as PlannedWorkout])).values()].filter((w):w is PlannedWorkout & {workout_date:string}=>typeof w.workout_date==='string')
       const context={...saved,history:sessions.filter(w=>w.workout_date<=day),planned:sessions.filter(w=>w.workout_date>=day)}
-      contextCache.set('week',context);return context
+      contextCache.set(saved.context_scope==='full'?'full':'week',context);return context
     }
   } catch { /* No cache, or storage is unavailable. */ }
   return fallbackTrainingContext
@@ -154,7 +154,9 @@ export function rememberTrainingContext(context: CachedContext,scope:'week'|'ful
   const day=new Date();const today=new Intl.DateTimeFormat('en-CA',{timeZone:context.athlete.time_zone || 'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(day)
   const start=new Date(`${today}T12:00:00Z`);start.setUTCDate(start.getUTCDate()-((start.getUTCDay()+6)%7))
   const date=(n:number)=>new Date(start.getTime()+n*86400000).toISOString().slice(0,10)
-  const week={...context,display_range:{start:date(-14),end:date(13)},history:context.history.filter(w=>w.workout_date>=date(-14)),planned:context.planned.filter(w=>(w.workout_date || '')<=date(13)),wellness_history:context.wellness_history?.filter(w=>(w.date || '')>=date(-30))}
+  const startupSource=contextCache.get('full') || context
+  const hasFullHistory=contextCache.has('full')
+  const week:CachedContext={...startupSource,context_scope:hasFullHistory?'full':'week',display_range:hasFullHistory?{start:date(-77),end:date(13)}:context.display_range || {start:date(-14),end:date(13)},history:startupSource.history.filter(w=>w.workout_date>=date(hasFullHistory?-77:-14)),planned:startupSource.planned,wellness_history:startupSource.wellness_history?.filter(w=>(w.date || '')>=date(hasFullHistory?-106:-30))}
   contextCache.set('week',week)
   try {localStorage.setItem(STARTUP_KEY,JSON.stringify(week))} catch { /* Cache is optional. */ }
   if(!previous?.version || previous.version!==context.version || scope==='full')window.dispatchEvent(new CustomEvent('training-context-updated',{detail:context}))
@@ -190,10 +192,20 @@ export async function refreshRecentIntervals(onProgress?: (progress: ManualRefre
   const report=(progress:ManualRefreshProgress)=>onProgress?.(progress)
   report({phase:"starting",label:"Starting manual refresh",completed:0,total:1})
   let requestDone=false
-  const request=apiFetch(`/api/sync?force=1&retry=1&syncId=${encodeURIComponent(syncId)}`,{
-    method:"POST",
-    headers:{Accept:"application/json"},
-  }).finally(()=>{requestDone=true})
+  const request=(async()=>{
+    const trainingResponse=await apiFetch(`/api/sync?trainingOnly=1&forceIntervals=1&retry=1&syncId=${encodeURIComponent(syncId)}`,{
+      method:"POST",headers:{Accept:"application/json"},
+    })
+    const training=await trainingResponse.json() as {context?:TrainingContext;sync_error?:string;error?:string}
+    if(!trainingResponse.ok || !training.context)throw Error(training.error || `Intervals.icu refresh failed (${trainingResponse.status})`)
+    if(training.sync_error)throw Error(training.sync_error)
+    rememberTrainingContext(training.context,'full')
+    const exportResponse=await apiFetch(`/api/sync?section11Only=1&syncId=${encodeURIComponent(syncId)}`,{
+      method:"POST",headers:{Accept:"application/json"},
+    })
+    const exported=await exportResponse.json() as {section11Sync?:{requestId?:string;status:string;error?:string|null;label?:string;progress?:{completed:number;total:number;currentStep:string|null}};error?:string}
+    return {context:training.context,section11Sync:exported.section11Sync || {status:'failed',error:exported.error || `Section 11 export failed (${exportResponse.status})`}}
+  })().finally(()=>{requestDone=true})
   const pollProgress=(async()=>{
     while(!requestDone){
       await new Promise(resolve=>setTimeout(resolve,1500))
@@ -208,20 +220,14 @@ export async function refreshRecentIntervals(onProgress?: (progress: ManualRefre
       }catch{/* The main sync request reports errors; progress polling is best effort. */}
     }
   })()
-  let response:Response
+  let result:Awaited<typeof request>
   try{
-    response=await request
+    result=await request
   }finally{
     requestDone=true
     await pollProgress
   }
-  if(!response.ok)throw new Error(`Intervals.icu refresh failed (${response.status})`)
-  const result=await response.json() as {context:TrainingContext;sync_error?:string;section11Sync?:{
-    requestId?:string;status:string;error?:string|null;label?:string;progress?:{completed:number;total:number;currentStep:string|null}
-  }}
   if(result.section11Sync?.requestId)progressId=result.section11Sync.requestId
-  if(result.context)rememberTrainingContext(result.context)
-  if(result.sync_error)throw Error(result.sync_error)
   let progress=result.section11Sync
   const reportGithub=(value:typeof progress)=>{
     if(!value)return
@@ -306,10 +312,7 @@ export async function changeWorkoutDay(date: string, action: "copy" | "delete") 
 }
 
 export async function loadTrainingContext(forceRefresh = false, scope: "week" | "full" = "week", networkOnly=false): Promise<TrainingContext> {
-  const needsLocalhostNetworkLoad = typeof window !== "undefined" &&
-    ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
-    !networkLoadedScopes.has(scope)
-  const requireNetwork = networkOnly || needsLocalhostNetworkLoad
+  const requireNetwork = networkOnly || !networkLoadedScopes.has(scope)
   if (forceRefresh) {
     contextRevision += 1
     contextRequests.clear()
@@ -352,8 +355,8 @@ export async function loadTrainingContext(forceRefresh = false, scope: "week" | 
 }
 export function revalidateTrainingContext() {return loadTrainingContext(false,'week',true)}
 
-export function loadFullTrainingContext(forceRefresh = false) {
-  return loadTrainingContext(forceRefresh, "full")
+export function loadFullTrainingContext(forceRefresh = false, networkOnly = false) {
+  return loadTrainingContext(forceRefresh, "full", networkOnly)
 }
 
 export function durationMinutes(workout: PlannedWorkout) {

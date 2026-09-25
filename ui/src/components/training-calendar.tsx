@@ -98,7 +98,7 @@ import {
   completedMinutes,
   cachedTrainingContext,
   hydrateDeviceHistory,
-  loadTrainingContext,
+  loadFullTrainingContext,
   mergeCalendarContext,
   rememberTrainingContext,
   moveWorkoutDate,
@@ -589,6 +589,7 @@ export function TrainingCalendar({
   onWorkoutOpen?: (workout: PlannedWorkout) => void
 }) {
   const [context, setContext] = useState(cachedTrainingContext)
+  const [calendarReady, setCalendarReady] = useState(false)
   const [annualPlan, setAnnualPlan] = useState<AnnualPlan | null>(null)
   const [historyReady, setHistoryReady] = useState(false)
   const loadedWeeks = useRef(new Set<string>())
@@ -614,11 +615,24 @@ export function TrainingCalendar({
   )
   useEffect(() => {
     let active = true
-    const range = (
-      cachedTrainingContext() as TrainingContext & {
-        display_range?: { start: string; end: string }
+    const markCoveredWeeks = (cached: TrainingContext & { cached_ranges?: Array<{ start: string; end: string }> }) => {
+      if (!cached.cached_ranges?.length) return
+      const now = new Date()
+      const cursor = startOfMonday(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 90))
+      const last = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate())
+      while (cursor <= last) {
+        const start = dateKey(cursor)
+        const end = dateKey(new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 6))
+        if (cached.cached_ranges.some((covered) => covered.start <= start && covered.end >= end))
+          loadedWeeks.current.add(start)
+        cursor.setDate(cursor.getDate() + 7)
       }
-    ).display_range
+    }
+    const cached = cachedTrainingContext() as TrainingContext & {
+      display_range?: { start: string; end: string }
+      cached_ranges?: Array<{ start: string; end: string }>
+    }
+    const range = cached.display_range
     if (range && range.start > "0000-01-01") {
       const start = new Date(`${range.start}T12:00:00`),
         end = new Date(`${range.end}T12:00:00`)
@@ -627,12 +641,13 @@ export function TrainingCalendar({
         start.setDate(start.getDate() + 7)
       }
     }
-    void hydrateDeviceHistory().then((saved) => {
-      if (active && saved)
-        setContext((current) => mergeCalendarContext(saved, current))
-    })
-    void loadTrainingContext().then((saved) => {
-      if (active) setContext((current) => mergeCalendarContext(current, saved))
+    markCoveredWeeks(cached)
+    void Promise.all([hydrateDeviceHistory(), loadFullTrainingContext()]).then(([device, full]) => {
+      if (!active) return
+      markCoveredWeeks(full)
+      const loaded = device ? mergeCalendarContext(device, full) : full
+      setContext((current) => mergeCalendarContext(current, loaded))
+      setCalendarReady(true)
     })
     const update = (event: Event) => {
       if (active)
@@ -952,7 +967,7 @@ export function TrainingCalendar({
   // changing the set of week keys. Keep today anchored during that startup
   // work on desktop as well as mobile, until the user actually moves away.
   useLayoutEffect(() => {
-    if (calendarUserScrolled.current || calendarWasDragged.current) return
+    if (initialAlignmentDone.current || calendarUserScrolled.current || calendarWasDragged.current) return
     const mobileViewport = window.matchMedia("(max-width: 767px)").matches
     const today = new Date()
     const element = mobileViewport
@@ -989,9 +1004,10 @@ export function TrainingCalendar({
 
   useEffect(() => {
     // Wait until initial date alignment finishes before observing the actual viewport.
+    if (!calendarReady) return
     const timer = window.setTimeout(() => setHistoryReady(true), 300)
     return () => window.clearTimeout(timer)
-  }, [])
+  }, [calendarReady])
 
   const workouts = useMemo(() => {
     const workouts = new Map<string, PlannedWorkout>()
@@ -1161,7 +1177,7 @@ export function TrainingCalendar({
               wellness_history: [...wellness.values()],
             }
           })
-          if (!scrolled)
+          if (!scrolled && !initialAlignmentDone.current)
             requestAnimationFrame(() => {
               const element = isMobile
                 ? calendarRef.current?.querySelector(
@@ -1230,6 +1246,7 @@ export function TrainingCalendar({
 
   useLayoutEffect(() => {
     if (
+      initialAlignmentDone.current ||
       !weeks.length ||
       calendarWasDragged.current ||
       calendarUserScrolled.current
@@ -1240,7 +1257,7 @@ export function TrainingCalendar({
       ? todayWeek
       : weeks[weeks.length - 1].key
     const alignToday = () => {
-      if (calendarWasDragged.current || calendarUserScrolled.current) return
+      if (initialAlignmentDone.current || calendarWasDragged.current || calendarUserScrolled.current) return
       const mobileViewport = window.matchMedia("(max-width: 767px)").matches
       setActiveWeekKey(target)
       const element = mobileViewport
@@ -1350,6 +1367,7 @@ export function TrainingCalendar({
         ),
         behavior: "instant",
       })
+      initialAlignmentDone.current = true
     }
     scrollToToday()
     requestAnimationFrame(() => requestAnimationFrame(scrollToToday))
@@ -1478,6 +1496,13 @@ export function TrainingCalendar({
     rememberOpenWorkout(workout)
     setSelectedWorkout(workout)
   }
+
+  if (!calendarReady) return (
+    <div className="flex min-h-[calc(100svh-7rem)] w-full flex-col" aria-busy="true">
+      <MobileSiteNavbar title="Calendar" />
+      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">Loading calendar…</div>
+    </div>
+  )
 
   return (
     <DndContext

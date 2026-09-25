@@ -1,11 +1,9 @@
 import { lazy, Suspense, useEffect, useState } from "react"
 
-import { ChartAreaInteractive } from "@/components/chart-area-interactive"
 import { SectionCards } from "@/components/section-cards"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
   loadFullTrainingContext,
-  loadTrainingContext,
   cachedTrainingContext,
   type PlannedWorkout,
 } from "@/lib/training-context"
@@ -18,6 +16,11 @@ import {
 const WorkoutDialog = lazy(() =>
   import("@/components/training-calendar").then((module) => ({
     default: module.WorkoutDialog,
+  }))
+)
+const ChartAreaInteractive = lazy(() =>
+  import("@/components/chart-area-interactive").then((module) => ({
+    default: module.ChartAreaInteractive,
   }))
 )
 
@@ -41,17 +44,11 @@ export function TrainingDashboard({
   }
   useEffect(() => {
     let active = true
-    // Render the fast weekly view first, then replace it with the complete
-    // archive. Running these in sequence prevents the short request from
-    // winning the race and erasing the history chart.
-    void loadTrainingContext()
-      .then((nextContext) => {
-        if (active) setContext(nextContext)
-        return loadFullTrainingContext()
-      })
-      .then((nextContext) => {
-        if (active) setContext(nextContext)
-      })
+    // The saved 12-week view paints immediately; one compact network read
+    // refreshes it without replacing the chart with a short weekly view.
+    void loadFullTrainingContext().then((nextContext) => {
+      if (active) setContext(nextContext)
+    })
     return () => {
       active = false
     }
@@ -79,9 +76,11 @@ export function TrainingDashboard({
   }, [])
 
   return (
-    <div className="flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:gap-4 md:gap-6 md:p-6">
+    <div className="mobile-dashboard flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:gap-4 md:gap-6 md:p-6">
       <SectionCards context={context} onWorkoutOpen={openWorkout} />
-      <ChartAreaInteractive context={context} />
+      <Suspense fallback={<div className="training-history-card min-h-[350px] rounded-2xl border bg-background md:min-h-[430px]" aria-label="Loading training history" />}>
+        <ChartAreaInteractive context={context} />
+      </Suspense>
       {selectedWorkout ? (
         <Suspense fallback={null}>
           <WorkoutDialog

@@ -109,7 +109,8 @@ export function createCoachReports({
       const entry = entries.find(
         (e) =>
           e.kind === request.kind &&
-          e.planId === request.planId && e.startDate === request.startDate
+          e.planId === request.planId &&
+          e.startDate === request.startDate
       );
       if (entry) {
         const old = await record(entry.key).read();
@@ -242,7 +243,7 @@ export function createCoachReports({
         messages: [
           {
             role: "user",
-          content: `Generate the complete official Section 11 ${target.kind} report for the supplied reportSubject. Use the exact official template and fresh source evidence. Preserve the template's exact opening title and section labels; for a block, use the phase and week range from reportSubject, which comes from the saved Supabase annual plan. Use previous weekly reports only for continuity. Do not schedule or change any workouts.`,
+            content: `Generate the complete official Section 11 ${target.kind} report for the supplied reportSubject. Use the exact official template and fresh source evidence. Preserve the template's exact opening title and section labels; for a block, use the phase and week range from reportSubject, which comes from the saved Supabase annual plan. Use previous weekly reports only for continuity. Do not schedule or change any workouts.`,
           },
         ],
       });
@@ -351,30 +352,38 @@ export function createCoachReports({
   }
   async function savedReports() {
     const entries = (await index.read()).reports || [];
-    const states = await Promise.all(entries.map(entry => record(entry.key).read()));
+    const states = await Promise.all(entries.map((entry) => record(entry.key).read()));
     return states.flatMap((state, position) => {
       if (state.status !== "complete" || !state.text) return [];
-      const entry = entries[position], target = state.target || entry;
+      const entry = entries[position],
+        target = state.target || entry;
       const kind = { pre: "pre_workout", post: "post_workout" }[entry.kind] || entry.kind;
       if (!["pre_workout", "post_workout", "weekly", "block"].includes(kind)) return [];
       const workout = kind.endsWith("_workout");
       const recordedSport = target.workout?.sport || target.workout?.planned?.sport || target.sport;
-      const sport = recordedSport && String(recordedSport).toLowerCase() !== "workout" ? recordedSport : "Other";
-      return [{
-        kind,
-        ...(workout ? {
-          sport,
-          workoutId: entry.workoutId || target.workoutId,
-          eventId: target.eventId,
-          activityId: target.activityId,
-        } : {}),
-        planId: entry.planId,
-        startDate: entry.startDate,
-        endDate: entry.endDate || target.endDate,
-        title: target.title,
-        body: state.text,
-        generatedAt: state.generatedAt,
-      }];
+      const sport =
+        recordedSport && String(recordedSport).toLowerCase() !== "workout"
+          ? recordedSport
+          : "Other";
+      return [
+        {
+          kind,
+          ...(workout
+            ? {
+                sport,
+                workoutId: entry.workoutId || target.workoutId,
+                eventId: target.eventId,
+                activityId: target.activityId,
+              }
+            : {}),
+          planId: entry.planId,
+          startDate: entry.startDate,
+          endDate: entry.endDate || target.endDate,
+          title: target.title,
+          body: state.text,
+          generatedAt: state.generatedAt,
+        },
+      ];
     });
   }
   async function generateDue() {
@@ -389,15 +398,23 @@ export function createCoachReports({
       ...(context?.planned || []),
       ...(context?.workouts || []),
     ];
-    const unique = new Map(workouts.filter((workout) => workout?.id).map((workout) => [workout.id, workout]));
-    const previousMonday = shiftReportDate(today, -((new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7) - 7);
+    const unique = new Map(
+      workouts.filter((workout) => workout?.id).map((workout) => [workout.id, workout])
+    );
+    const previousMonday = shiftReportDate(
+      today,
+      -((new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7) - 7
+    );
     const previousSunday = shiftReportDate(previousMonday, 6);
     const previousWeek = [...unique.values()].filter((workout) => {
       const date = String(workout.workout_date || workout.date || "").slice(0, 10);
       return date >= previousMonday && date <= previousSunday;
     });
-    const hasUncompletedScheduledWorkout = previousWeek.some((workout) => workout.status !== "completed" && workout.completed !== true);
-    if (previousWeek.length && !hasUncompletedScheduledWorkout) targets.push({ kind: "weekly", startDate: previousMonday });
+    const hasUncompletedScheduledWorkout = previousWeek.some(
+      (workout) => workout.status !== "completed" && workout.completed !== true
+    );
+    if (previousWeek.length && !hasUncompletedScheduledWorkout)
+      targets.push({ kind: "weekly", startDate: previousMonday });
     for (const plan of await readPlans()) {
       for (const block of planReportBlocks(plan)) {
         if (block.endDate < today && block.endDate >= shiftReportDate(today, -7))

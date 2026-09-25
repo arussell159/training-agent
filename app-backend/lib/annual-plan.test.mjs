@@ -4,8 +4,10 @@ import {
   generateAnnualPlan,
   mergeRegeneratedPlan,
   recordPlanRevision,
+  rollAnnualPlan,
   seasonWeekCount,
 } from "./annual-plan.mjs";
+import { rollingPlanWindow } from "./rolling-plan-window.mjs";
 
 const settings = {
   name: "2027 season",
@@ -103,4 +105,51 @@ test("revision records a restorable compact snapshot", () => {
   assert.equal(revised.revision, 1);
   assert.equal(revised.revisionHistory[0].reason, "Changed targets");
   assert.equal(revised.revisionHistory[0].weeks.length, 52);
+});
+
+test("rolling window spans six calendar months on each side in whole weeks", () => {
+  assert.deepEqual(rollingPlanWindow("2026-09-25"), {
+    startDate: "2026-03-23",
+    endDate: "2027-03-28",
+  });
+  assert.deepEqual(rollingPlanWindow("2028-08-31"), {
+    startDate: "2028-02-28",
+    endDate: "2029-03-04",
+  });
+});
+
+test("rolling plan preserves edited weeks and archives weeks outside the visible year", () => {
+  const original = generateAnnualPlan({
+    ...settings,
+    startDate: "2026-03-16",
+    endDate: "2027-03-21",
+  });
+  const edited = {
+    ...original,
+    events: settings.events,
+    weeks: original.weeks.map((week) =>
+      week.startDate === "2026-09-21"
+        ? { ...week, targetHours: 12, notes: "Keep this note", manual: true }
+        : week
+    ),
+  };
+  const rolled = rollAnnualPlan(edited, "2026-09-25");
+  assert.equal(rolled.startDate, "2026-03-23");
+  assert.equal(rolled.endDate, "2027-03-28");
+  assert.equal(rolled.weeks[0].startDate, "2026-03-23");
+  assert.equal(rolled.weeks.at(-1).endDate, "2027-03-28");
+  assert.equal(rolled.weeks.find((week) => week.id === "2026-09-21").notes, "Keep this note");
+  assert.equal(rolled.weeks.find((week) => week.id === "2026-09-21").targetHours, 12);
+  assert.equal(rolled.archivedWeeks.find((week) => week.id === "2026-03-16").id, "2026-03-16");
+  assert.equal(rollAnnualPlan(rolled, "2026-09-25"), rolled);
+
+  const regenerated = generateAnnualPlan({ ...rolled, baseline: 12 });
+  const merged = mergeRegeneratedPlan(rolled, regenerated);
+  assert.equal(merged.archivedWeeks.find((week) => week.id === "2026-03-16").id, "2026-03-16");
+  assert.equal(merged.events.find((event) => event.id === "race-a").date, "2027-10-10");
+
+  const advanced = rollAnnualPlan(rolled, "2026-10-02");
+  assert.equal(advanced.archivedWeeks.find((week) => week.id === "2026-03-16").id, "2026-03-16");
+  assert.equal(advanced.weeks.find((week) => week.id === "2026-09-21").notes, "Keep this note");
+  assert.ok(advanced.weeks.some((week) => week.startDate === "2027-03-29"));
 });

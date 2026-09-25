@@ -2,10 +2,10 @@ import { type ReactNode, type MouseEvent, type KeyboardEvent } from "react"
 import { Tab, Tabs, Toolbar, ToolbarPane } from "framework7-react"
 import {
   CalendarDays,
+  Menu,
   Home,
   Library,
   MessageCircle,
-  Settings,
 } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 
@@ -14,7 +14,7 @@ const destinations = [
   { label: "Calendar", icon: CalendarDays, id: "calendar" },
   { label: "Coach", icon: MessageCircle, id: "coach" },
   { label: "Library", icon: Library, id: "library" },
-  { label: "Settings", icon: Settings, id: "settings" },
+  { label: "Settings", displayLabel: "More", icon: Menu, id: "settings" },
 ]
 
 export function MobilePageTabs({
@@ -67,7 +67,7 @@ export function MobileNavbar({
       aria-label="Primary navigation"
     >
       <ToolbarPane {...{ role: "tablist" }} aria-label="App pages">
-        {destinations.map(({ label, icon: Icon, id }, index) => (
+        {destinations.map(({ label, displayLabel, icon: Icon, id }, index) => (
           <button
             key={id}
             type="button"
@@ -79,7 +79,7 @@ export function MobileNavbar({
             }
             id={`mobile-tab-${id}`}
             role="tab"
-            aria-label={label}
+            aria-label={displayLabel ?? label}
             aria-selected={activeItem === label}
             aria-controls={`mobile-panel-${id}`}
             tabIndex={
@@ -118,8 +118,8 @@ export function MobileNavbar({
                 ?.focus()
             }}
           >
-            <Icon aria-hidden="true" />
-            <span className="tabbar-label">{label}</span>
+            <Icon aria-hidden="true" strokeWidth={label === "Settings" ? 2.8 : undefined} />
+            <span className="tabbar-label">{displayLabel ?? label}</span>
           </button>
         ))}
       </ToolbarPane>

@@ -1,7 +1,12 @@
 import { formatDuration } from "@/lib/duration"
 import { durationMinutes } from "@/lib/training-context"
 import { recoverySeries, todaysWorkout } from "@/lib/dashboard-metrics"
-import { Activity, Clock3, Gauge, HeartPulse, MoonStar } from "lucide-react"
+import {
+  BedDouble,
+  Clock3,
+  Heart,
+  PersonStanding,
+} from "lucide-react"
 import {
   Area,
   CartesianGrid,
@@ -13,7 +18,6 @@ import {
 
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -141,20 +145,16 @@ function RecoveryTrendCard({
   return (
     <Card className="min-w-0 overflow-hidden [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-2">
       <CardHeader className="pb-0">
-        <CardDescription>{isHrv ? "HRV" : "RHR"}</CardDescription>
+        <CardDescription className="flex items-center gap-1.5 font-semibold text-rose-500">
+          <Heart className="size-3.5 fill-current" aria-hidden="true" />
+          {isHrv ? "HRV" : "RHR"}
+        </CardDescription>
         <CardTitle className="text-2xl tabular-nums sm:text-3xl">
           {current ?? "—"}
           <span className="ml-1 text-sm font-normal text-muted-foreground">
             {isHrv ? "ms" : "bpm"}
           </span>
         </CardTitle>
-        <CardAction>
-          {isHrv ? (
-            <Activity className="size-4 text-muted-foreground" />
-          ) : (
-            <HeartPulse className="size-4 text-muted-foreground" />
-          )}
-        </CardAction>
       </CardHeader>
       <CardContent className="px-1 pb-2 sm:px-2 sm:pb-3">
         <ChartContainer
@@ -220,12 +220,12 @@ function RecoveryTrendCard({
         </ChartContainer>
         {data.length > 0 && (
           <div
-            className="flex flex-wrap justify-between gap-1 px-3 pt-1 text-[11px] text-muted-foreground"
+            className="flex flex-nowrap justify-between gap-0.5 px-1 pt-0 text-[9px] text-muted-foreground md:flex-wrap md:gap-1 md:px-3 md:pt-1 md:text-[11px]"
             aria-label={`${isHrv ? "HRV" : "Resting heart rate"} baseline range`}
           >
-            <span>Low {data.at(-1)!.baselineLow}</span>
-            <span>Avg {data.at(-1)!.average}</span>
-            <span>
+            <span className="whitespace-nowrap">Low {data.at(-1)!.baselineLow}</span>
+            <span className="whitespace-nowrap">Avg {data.at(-1)!.average}</span>
+            <span className="whitespace-nowrap">
               High {data.at(-1)!.baselineHigh} {isHrv ? "ms" : "bpm"}
             </span>
           </div>
@@ -321,26 +321,16 @@ function SleepCard({ context }: { context: TrainingContext }) {
     (item, index, values) =>
       values.findIndex((candidate) => candidate.label === item.label) === index
   )
-  const date = latest?.date || latest?.id || latest?.timeStamp
   return (
     <Card className="min-w-0 [--card-spacing:--spacing(3)]">
       <CardHeader>
-        <CardDescription>
+        <CardDescription className="flex items-center gap-1.5 font-semibold text-teal-500">
+          <BedDouble className="size-4" aria-hidden="true" />
           Sleep
-          {date ? (
-            <span className="ml-2">
-              {new Date(
-                `${String(date).slice(0, 10)}T12:00:00`
-              ).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-            </span>
-          ) : null}
         </CardDescription>
         <CardTitle className="text-2xl tabular-nums sm:text-3xl">
           {total != null && Number.isFinite(total) ? sleepDuration(total) : "—"}
         </CardTitle>
-        <CardAction>
-          <MoonStar className="size-4 text-muted-foreground" />
-        </CardAction>
       </CardHeader>
       <CardContent>
         {allDetails.length ? (
@@ -348,7 +338,11 @@ function SleepCard({ context }: { context: TrainingContext }) {
             {allDetails.map((detail) => (
               <div key={detail.label} className="min-w-0">
                 <p className="truncate text-xs text-muted-foreground">
-                  {detail.label}
+                  {/sleep\s+score/i.test(detail.label)
+                    ? "Score"
+                    : /sleep\s+quality/i.test(detail.label)
+                      ? "Quality"
+                      : detail.label}
                 </p>
                 <p className="mt-1 font-medium tabular-nums">{detail.value}</p>
               </div>
@@ -436,17 +430,17 @@ export function SectionCards({
       <EventsCard context={context} />
       <RecoveryTrendCard context={context} metric="hrv" />
       <RecoveryTrendCard context={context} metric="resting_hr" />
-      <div className="col-span-2 grid min-w-0 gap-3 sm:gap-4 lg:col-span-6 lg:col-start-7 lg:grid-cols-2">
+      <div className="col-span-2 grid min-w-0 grid-cols-2 gap-3 sm:gap-4 lg:col-span-6 lg:col-start-7">
         <SleepCard context={context} />
         <Card className="min-w-0 [--card-spacing:--spacing(3)]">
           <CardHeader>
-            <CardDescription>Fitness</CardDescription>
+            <CardDescription className="flex items-center gap-1.5 font-semibold text-violet-500">
+              <PersonStanding className="size-4" aria-hidden="true" />
+              Fitness
+            </CardDescription>
             <CardTitle className="text-2xl tabular-nums sm:text-3xl">
               {fitness} <span className="text-sm font-normal text-muted-foreground">CTL</span>
             </CardTitle>
-            <CardAction>
-              <Gauge className="size-4 text-muted-foreground" />
-            </CardAction>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t pt-3 sm:grid-cols-3 sm:pt-4">

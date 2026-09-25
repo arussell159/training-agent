@@ -4,6 +4,7 @@ import { WorkoutTableCard } from "@/components/ui/workout-table-card"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
   formatSignalClock,
+  lapDuration,
   type RecordedLap,
   intervalSignals,
 } from "@/lib/interval-signals"
@@ -48,7 +49,7 @@ export function WorkoutLapsTable({
       <tbody>{intervals.map(({ lap, point }, index) => <tr key={lap.id} data-lap-id={lap.id} aria-selected={selected?.id === lap.id} className={selected?.id === lap.id ? "bg-sky-100 dark:bg-sky-950" : ""} onClick={() => onSelect(lap)}>
         <th scope="row" className="py-4 text-left font-normal"><button type="button" aria-label={`Select ${lap.label}`} className="min-h-11 min-w-8 text-left" onClick={event => { event.stopPropagation(); onSelect(lap) }}>{index + 1}</button></th>
         <td className="py-4">{lap.distance != null ? swim ? `${Math.round(recordedSwimYards(lap.distance))} yd` : `${(lap.distance / 1609.344).toFixed(2)} mi` : "—"}</td>
-        <td className="py-4">{formatSignalClock(lap.end - lap.start)}</td>
+        <td className="py-4">{formatSignalClock(swim ? lapDuration(lap) : lap.end - lap.start)}</td>
         <td className="py-4">{point.speed != null && point.speed > 0 ? pace ? `${formatSignalClock((swim ? METERS_PER_100_YARDS : 1609.344) / point.speed)} /${swim ? "100 yd" : "mi"}` : `${(point.speed * 2.2369362921).toFixed(1)} mph` : "—"}</td>
       </tr>)}</tbody>
     </table>
@@ -124,7 +125,7 @@ export function WorkoutLapsTable({
                   </button>
                 </td>
                 <td className="numeric-cell px-2 py-2">
-                  {formatSignalClock(lap.end - lap.start)}
+                  {formatSignalClock(swim ? lapDuration(lap) : lap.end - lap.start)}
                 </td>
                 <td className="numeric-cell px-2 py-2">
                   {point.speed != null && point.speed > 0

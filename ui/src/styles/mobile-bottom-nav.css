@@ -13,8 +13,117 @@
     box-shadow:
       0 0 0 1px rgb(48 65 76 / 18%),
       0 5px 18px rgb(21 32 39 / 15%);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .framework7-root .mobile-filter-toolbar.toolbar .toolbar-pane {
+    height: 40px;
+    border: 1px solid rgb(48 65 76 / 18%);
+    border-radius: 999px;
+    background: transparent;
+    box-shadow: none;
+    overflow: hidden;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .framework7-root .workout-detail-view-tabs.toolbar::before,
+  .framework7-root .workout-detail-view-tabs.toolbar::after {
+    display: none;
+  }
+
+  .framework7-root .mobile-filter-toolbar.toolbar .tab-link {
+    height: 38px;
+    flex: 1;
+    color: var(--foreground);
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .framework7-root .mobile-filter-toolbar.toolbar .tab-link-highlight {
+    width: 25% !important;
+  }
+
+  .mobile-filter-tabs-inline {
+    display: grid;
+    width: 100%;
+    height: 40px;
+    margin: 12px 0;
+    padding: 3px;
+    border: 1px solid rgb(255 255 255 / 72%);
+    border-radius: 999px;
+    background: rgb(255 255 255 / 4%);
+    box-shadow:
+      0 0 0 1px rgb(48 65 76 / 18%),
+      0 5px 18px rgb(21 32 39 / 15%);
     -webkit-backdrop-filter: blur(12px) saturate(130%);
     backdrop-filter: blur(12px) saturate(130%);
+  }
+
+  .mobile-filter-tab-pill {
+    display: flex;
+    min-width: 0;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--foreground);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .mobile-filter-tab-pill.is-active {
+    border-color: rgb(255 255 255 / 78%);
+    background: rgb(255 255 255 / 9%);
+    box-shadow:
+      0 0 0 1px rgb(48 65 76 / 15%),
+      0 2px 7px rgb(21 32 39 / 12%);
+  }
+
+  .mobile-filter-tab-pill:focus-visible {
+    outline: 2px solid #425b6a;
+    outline-offset: -4px;
+  }
+
+  .framework7-root .mobile-filter-toolbar.toolbar .tab-link-highlight::before,
+  .framework7-root .mobile-filter-toolbar.toolbar .tab-link-highlight::after {
+    inset: 3px;
+    border-radius: 999px;
+  }
+
+  .framework7-root .mobile-filter-toolbar.toolbar .tab-link-highlight::before {
+    border: 1px solid rgb(255 255 255 / 78%);
+    background: rgb(255 255 255 / 9%);
+    box-shadow:
+      0 0 0 1px rgb(48 65 76 / 15%),
+      0 2px 7px rgb(21 32 39 / 12%);
+  }
+
+  .framework7-root .mobile-filter-toolbar.toolbar .tab-link-highlight::after {
+    border-top: 1px solid rgb(255 255 255 / 72%);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .framework7-root .mobile-filter-toolbar.toolbar .tab-link.tab-link-active {
+    color: var(--foreground);
+  }
+
+  .framework7-root .mobile-filter-toolbar.toolbar .tab-link:focus-visible {
+    outline: 2px solid #425b6a;
+    outline-offset: -4px;
+    border-radius: 24px;
+  }
+
+  .framework7-root .mobile-filter-toolbar.toolbar .tab-link .tabbar-label {
+    line-height: 1;
   }
 
   .framework7-root .mobile-navbar.toolbar .tab-link {
@@ -64,6 +173,40 @@
     box-shadow:
       0 0 0 1px rgb(0 0 0 / 24%),
       0 5px 18px rgb(0 0 0 / 28%);
+  }
+
+  .dark .framework7-root .mobile-filter-toolbar.toolbar .toolbar-pane {
+    border-color: rgb(255 255 255 / 32%);
+    background: rgb(255 255 255 / 4%);
+    box-shadow:
+      0 0 0 1px rgb(0 0 0 / 24%),
+      0 5px 18px rgb(0 0 0 / 28%);
+  }
+
+  .dark .mobile-filter-tabs-inline {
+    border-color: rgb(255 255 255 / 32%);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .dark .mobile-filter-tab-pill.is-active {
+    border-color: rgb(255 255 255 / 38%);
+    background: rgb(255 255 255 / 7%);
+    box-shadow:
+      0 0 0 1px rgb(0 0 0 / 22%),
+      0 2px 7px rgb(0 0 0 / 20%);
+  }
+
+  .dark .framework7-root .mobile-filter-toolbar.toolbar .tab-link-highlight::before {
+    border-color: rgb(255 255 255 / 38%);
+    background: rgb(255 255 255 / 7%);
+    box-shadow:
+      0 0 0 1px rgb(0 0 0 / 22%),
+      0 2px 7px rgb(0 0 0 / 20%);
+  }
+
+  .dark .framework7-root .mobile-filter-toolbar.toolbar .tab-link-highlight::after {
+    border-top-color: rgb(255 255 255 / 42%);
   }
 
   .dark .framework7-root .mobile-navbar.toolbar .tab-link-highlight::before {

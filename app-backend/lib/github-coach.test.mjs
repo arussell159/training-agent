@@ -206,8 +206,7 @@ test("model receives official documents and fresh data, tools preserve stateless
       assert.ok(
         body.input.some(
           (item) =>
-            item.type === "function_call_output" &&
-            item.output.includes("# Weekly Report Template")
+            item.type === "function_call_output" && item.output.includes("# Weekly Report Template")
         )
       );
       return json({

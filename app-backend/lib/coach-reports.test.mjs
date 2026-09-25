@@ -132,7 +132,10 @@ function harness() {
           model: "fixture",
         };
       },
-      saveReport: async input => { savedInputs.push(input); return { id: "app-report-id" }; },
+      saveReport: async (input) => {
+        savedInputs.push(input);
+        return { id: "app-report-id" };
+      },
     });
   return {
     build,
@@ -165,8 +168,14 @@ function harness() {
 
 test("report targets reject client-authored facts and resolve saved workouts and complete phase blocks", () => {
   const h = harness();
-  assert.throws(() => validateReportRequest({ kind: "pre", workoutId: "event:1" }), /supported report type/);
-  assert.throws(() => validateReportRequest({ kind: "post", workoutId: "activity:i2" }), /supported report type/);
+  assert.throws(
+    () => validateReportRequest({ kind: "pre", workoutId: "event:1" }),
+    /supported report type/
+  );
+  assert.throws(
+    () => validateReportRequest({ kind: "post", workoutId: "activity:i2" }),
+    /supported report type/
+  );
   assert.throws(() => validateReportRequest({ kind: "weekly", startDate: "2026-09-13" }), /Monday/);
   assert.throws(
     () => validateReportRequest({ kind: "weekly", startDate: "2026-02-30" }),
@@ -194,19 +203,47 @@ test("report targets reject client-authored facts and resolve saved workouts and
 
 test("legacy post-workout records migrate with their workout ID and sport", async () => {
   const h = harness();
-  await h.index.update(state => {
-    state.reports = [{ key: "old-post", kind: "post", workoutId: "activity:i2", startDate: "2026-09-17", endDate: "2026-09-17" }];
+  await h.index.update((state) => {
+    state.reports = [
+      {
+        key: "old-post",
+        kind: "post",
+        workoutId: "activity:i2",
+        startDate: "2026-09-17",
+        endDate: "2026-09-17",
+      },
+    ];
   });
-  await h.record("old-post").update(state => {
-    Object.assign(state, { status: "complete", text: "Original report\n", generatedAt: "2026-09-17T18:00:00Z", target: {
-      kind: "post", workoutId: "activity:i2", activityId: "i2", startDate: "2026-09-17", endDate: "2026-09-17", workout: { sport: "Swim" },
-    } });
+  await h.record("old-post").update((state) => {
+    Object.assign(state, {
+      status: "complete",
+      text: "Original report\n",
+      generatedAt: "2026-09-17T18:00:00Z",
+      target: {
+        kind: "post",
+        workoutId: "activity:i2",
+        activityId: "i2",
+        startDate: "2026-09-17",
+        endDate: "2026-09-17",
+        workout: { sport: "Swim" },
+      },
+    });
   });
-  assert.deepEqual(await h.build().savedReports(), [{
-    kind: "post_workout", sport: "Swim", workoutId: "activity:i2", eventId: undefined,
-    activityId: "i2", planId: undefined, startDate: "2026-09-17", endDate: "2026-09-17",
-    title: undefined, body: "Original report\n", generatedAt: "2026-09-17T18:00:00Z",
-  }]);
+  assert.deepEqual(await h.build().savedReports(), [
+    {
+      kind: "post_workout",
+      sport: "Swim",
+      workoutId: "activity:i2",
+      eventId: undefined,
+      activityId: "i2",
+      planId: undefined,
+      startDate: "2026-09-17",
+      endDate: "2026-09-17",
+      title: undefined,
+      body: "Original report\n",
+      generatedAt: "2026-09-17T18:00:00Z",
+    },
+  ]);
 });
 
 test("weekly and block reports wait for period end, later export and full history coverage", async () => {
@@ -472,7 +509,10 @@ test("report HTTP requires app login, same-origin POST and a validated target", 
     });
   assert.equal((await call("generate", { ...headers, "X-Test-Login": "" })).status, 401);
   assert.equal((await call("generate", { ...headers, origin: "https://other.test" })).status, 403);
-  assert.equal((await call("generate", headers, { kind: "post", workoutId: "activity:1" })).status, 400);
+  assert.equal(
+    (await call("generate", headers, { kind: "post", workoutId: "activity:1" })).status,
+    400
+  );
   const catalog = await call("catalog");
   assert.equal(catalog.status, 200);
   assert.deepEqual((await catalog.json()).reports, [catalogReport]);

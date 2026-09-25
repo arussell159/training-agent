@@ -3,14 +3,10 @@ import { CoachError } from "./github-coach-source.mjs";
 import { coachConfig } from "./github-coach.mjs";
 import { validateReportRequest } from "./report-targets.mjs";
 
-export function createReportsHttp({
-  getReports,
-  getCatalog,
-  getStore,
-  env = () => process.env,
-}) {
+export function createReportsHttp({ getReports, getCatalog, getStore, env = () => process.env }) {
   return async function handleReports(req, res, pathname) {
-    if (pathname !== "/api/coach/reports" && !pathname.startsWith("/api/coach/reports/")) return false;
+    if (pathname !== "/api/coach/reports" && !pathname.startsWith("/api/coach/reports/"))
+      return false;
     const json = (status, value) => {
       if (res.destroyed || res.writableEnded) return;
       res.writeHead(status, {
@@ -27,7 +23,8 @@ export function createReportsHttp({
       if (pathname === "/api/coach/reports") {
         const store = await getStore();
         if (req.method === "GET") json(200, await getCatalog());
-        else if (req.method === "POST") json(200, await store.upsert(await bodyJson(req, 1_000_000)));
+        else if (req.method === "POST")
+          json(200, await store.upsert(await bodyJson(req, 1_000_000)));
         else json(405, { error: "Method not allowed." });
         return true;
       }
@@ -42,11 +39,17 @@ export function createReportsHttp({
       }
       if (pathname === "/api/coach/reports/catalog") {
         if (req.method === "POST") await bodyJson(req);
-        else if (req.method !== "GET") { json(405, { error: "Method not allowed." }); return true; }
+        else if (req.method !== "GET") {
+          json(405, { error: "Method not allowed." });
+          return true;
+        }
         json(200, await getCatalog());
         return true;
       }
-      if (req.method !== "POST") { json(405, { error: "Method not allowed." }); return true; }
+      if (req.method !== "POST") {
+        json(405, { error: "Method not allowed." });
+        return true;
+      }
       const body = await bodyJson(req);
       const target = validateReportRequest(body);
       if (pathname === "/api/coach/reports/status" && getCatalog) {
@@ -74,8 +77,7 @@ export function createReportsHttp({
               : {
                   status: "empty",
                   eligible: false,
-                  reason:
-                    "The completed report will appear here after it is saved in the app.",
+                  reason: "The completed report will appear here after it is saved in the app.",
                 }
           );
           return true;

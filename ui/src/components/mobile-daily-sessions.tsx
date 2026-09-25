@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react"
 import { Clock3 } from "lucide-react"
 
 import {
@@ -17,35 +17,11 @@ import {
   type TrainingContext,
 } from "@/lib/training-context"
 
-const DAY_RANGE = 14
-
 function dateAt(day: string, offset: number) {
   const value = new Date(`${day}T12:00:00`)
   value.setDate(value.getDate() + offset)
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
 }
-
-function sportKind(sport: string) {
-  const value = sport.toLowerCase()
-  if (value.includes("swim")) return "swim"
-  if (
-    value.includes("bike") ||
-    value.includes("ride") ||
-    value.includes("brick")
-  )
-    return "bike"
-  if (value.includes("run")) return "run"
-  if (value.includes("strength")) return "strength"
-  return "other"
-}
-
-const sportColor = {
-  swim: "bg-cyan-500",
-  bike: "bg-orange-500",
-  run: "bg-lime-500",
-  strength: "bg-violet-500",
-  other: "bg-slate-400",
-} as const
 
 function allSessions(context: TrainingContext) {
   const candidates = [
@@ -74,10 +50,13 @@ function allSessions(context: TrainingContext) {
 }
 
 function selectedDayLabel(day: string, today: string) {
-  if (day === today) return "Today’s workout"
-  return `${new Date(`${day}T12:00:00`).toLocaleDateString("en-US", {
-    weekday: "long",
-  })} workout`
+  const date = new Date(`${day}T12:00:00`)
+  const label = date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  })
+  return day === today ? `Today · ${label}` : label
 }
 
 function trainingLoad(workout: PlannedWorkout) {
@@ -116,7 +95,7 @@ function SessionCard({
         event.preventDefault()
         onOpen()
       }}
-      className="relative w-full shrink-0 snap-center overflow-hidden border-transparent shadow-sm ring-1 ring-inset ring-border"
+      className="mobile-dashboard-workout relative w-full shrink-0 snap-center overflow-hidden border-transparent shadow-sm ring-1 ring-inset ring-border"
     >
       <CardHeader className="gap-3">
         <CardDescription>
@@ -180,15 +159,9 @@ export function MobileDailySessions({
   const [selectedDate, setSelectedDate] = useState(today)
   const [activeSession, setActiveSession] = useState(0)
   const sessionScroller = useRef<HTMLDivElement>(null)
-  const dateScroller = useRef<HTMLDivElement>(null)
+  const swipeStart = useRef<{ x: number; y: number } | null>(null)
+  const ignoreNextClick = useRef(false)
   const sessions = useMemo(() => allSessions(context), [context])
-  const days = useMemo(
-    () =>
-      Array.from({ length: DAY_RANGE * 2 + 1 }, (_, index) =>
-        dateAt(today, index - DAY_RANGE)
-      ),
-    [today]
-  )
   const selectedSessions = sessions.filter(
     (workout) => workout.workout_date === selectedDate
   )
@@ -198,18 +171,38 @@ export function MobileDailySessions({
     sessionScroller.current?.scrollTo({ left: 0, behavior: "smooth" })
   }, [selectedDate])
 
-  useEffect(() => {
-    dateScroller.current
-      ?.querySelector<HTMLElement>(`[data-session-date="${today}"]`)
-      ?.scrollIntoView({ inline: "center", block: "nearest" })
-  }, [today])
+  const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0]
+    if (touch) swipeStart.current = { x: touch.clientX, y: touch.clientY }
+  }
+
+  const handleTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+    const start = swipeStart.current
+    const touch = event.changedTouches[0]
+    swipeStart.current = null
+    if (!start || !touch || selectedSessions.length > 1) return
+
+    const deltaX = touch.clientX - start.x
+    const deltaY = touch.clientY - start.y
+    if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.25) return
+
+    ignoreNextClick.current = true
+    window.setTimeout(() => {
+      ignoreNextClick.current = false
+    }, 350)
+    setSelectedDate((day) => dateAt(day, deltaX < 0 ? 1 : -1))
+  }
 
   return (
-    <div className="col-span-2 min-w-0 md:hidden">
+    <div
+      className={`col-span-2 min-w-0 md:hidden ${selectedSessions.length <= 1 ? "touch-pan-y" : ""}`}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       {selectedSessions.length ? (
         <div
           ref={sessionScroller}
-          className="flex snap-x snap-mandatory [scrollbar-width:none] gap-3 overflow-x-auto overscroll-x-contain [&::-webkit-scrollbar]:hidden"
+          className="flex snap-x snap-mandatory [scrollbar-width:none] gap-3 overflow-x-auto overscroll-x-contain rounded-[22px] [&::-webkit-scrollbar]:hidden"
           onScroll={(event) => {
             const first = event.currentTarget
               .firstElementChild as HTMLElement | null
@@ -230,7 +223,9 @@ export function MobileDailySessions({
               dayLabel={selectedDayLabel(selectedDate, today)}
               activeSession={activeSession}
               sessionCount={selectedSessions.length}
-              onOpen={() => onWorkoutOpen?.(workout)}
+              onOpen={() => {
+                if (!ignoreNextClick.current) onWorkoutOpen?.(workout)
+              }}
             />
           ))}
         </div>
@@ -263,47 +258,6 @@ export function MobileDailySessions({
         </Card>
       )}
 
-      <div
-        ref={dateScroller}
-        className="mt-3 flex snap-x snap-mandatory [scrollbar-width:none] gap-1.5 overflow-x-auto overscroll-x-contain px-0.5 py-1 [&::-webkit-scrollbar]:hidden"
-        aria-label="Choose training day"
-      >
-        {days.map((day) => {
-          const date = new Date(`${day}T12:00:00`)
-          const daySessions = sessions.filter(
-            (workout) => workout.workout_date === day
-          )
-          const selected = day === selectedDate
-          const isToday = day === today
-          return (
-            <button
-              key={day}
-              type="button"
-              data-session-date={day}
-              onClick={() => setSelectedDate(day)}
-              className={`flex min-w-[62px] snap-center flex-col items-center rounded-xl border-2 px-2 py-2.5 transition-colors ${isToday ? "border-primary bg-muted/80 text-foreground" : selected ? "border-foreground/20 bg-muted/80 text-foreground" : "border-transparent bg-muted/40 text-muted-foreground"}`}
-              aria-pressed={selected}
-              aria-current={isToday ? "date" : undefined}
-            >
-              <span className="text-lg font-semibold tabular-nums">
-                {date.getDate()}
-              </span>
-              <span className="text-xs">
-                {date.toLocaleDateString("en-US", { weekday: "short" })}
-              </span>
-              <span className="mt-2 flex min-h-1 items-center justify-center gap-1">
-                {daySessions.map((workout) => (
-                  <span
-                    key={workout.id}
-                    className={`h-1 w-4 rounded-full ${sportColor[sportKind(workout.sport)]}`}
-                    aria-hidden="true"
-                  />
-                ))}
-              </span>
-            </button>
-          )
-        })}
-      </div>
     </div>
   )
 }

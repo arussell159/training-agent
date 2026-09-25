@@ -59,7 +59,7 @@ create table if not exists public.coach_reports (
   id text primary key,
   scope text not null default 'default',
   athlete_id text not null default 'default',
-  kind text not null check (kind in ('pre_workout', 'post_workout', 'weekly', 'block')),
+  kind text not null check (kind in ('pre_workout', 'post_workout', 'weekly', 'block', 'season', 'nutrition')),
   sport text,
   workout_id text,
   event_id text,
@@ -87,7 +87,8 @@ grant select, insert, update on table public.coach_reports to service_role;
 -- These archive rows are intentionally not pruned by the 90-day context RPC.
 -- kind='bundle' contains all streams, ready-to-display views and original-file
 -- bytes/checksum. Large cursor.data payloads use encoding='gzip-json-v1'.
--- Ready snapshots also retain full wellness/performance history across syncs.
+-- Ready snapshots retain the 12-week app window and the wellness/performance
+-- lead-in needed for baseline charts. Older archived activity rows are preserved.
 create or replace function prune_old_training_context() returns void language sql security definer as $$
   delete from workout_context where workout_date < now() - interval '90 days';
   delete from athlete_comments where created_at < now() - interval '90 days' and comment_type in ('pre','post');

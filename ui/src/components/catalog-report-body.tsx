@@ -1,7 +1,7 @@
 import { reportPeriodLabel } from "../../../app-backend/lib/coach-report-display.mjs"
 import { MessageResponse } from "@/components/ai-elements/message"
 
-export type ReportKind = "pre_workout" | "post_workout" | "weekly" | "block"
+export type ReportKind = "pre_workout" | "post_workout" | "weekly" | "block" | "season" | "nutrition" | (string & {})
 export type CatalogReport = {
   id: string
   kind: ReportKind
@@ -19,7 +19,7 @@ export type CatalogReport = {
   source: "app"
 }
 export type Catalog = { reports: CatalogReport[] }
-export type Filter = "all" | ReportKind
+export type Filter = "all" | "pre_workout" | "post_workout" | "weekly" | "others"
 
 export function periodLabel(report: CatalogReport) {
   return reportPeriodLabel(report)

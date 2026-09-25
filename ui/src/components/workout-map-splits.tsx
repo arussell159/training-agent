@@ -34,7 +34,7 @@ export function WorkoutMapSplits({
     if (!id || suppliedAnalysis) return
     const controller = new AbortController()
     void apiFetch(
-      `/api/activities/${encodeURIComponent(id)}/analysis?schema=6&v=${encodeURIComponent(revision)}`,
+      `/api/activities/${encodeURIComponent(id)}/analysis?schema=8&v=${encodeURIComponent(revision)}`,
       { signal: controller.signal }
     )
       .then(async (response) => {

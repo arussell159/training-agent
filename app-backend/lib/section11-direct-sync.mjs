@@ -28,9 +28,7 @@ export async function runSection11DirectSync({
     zone_preference: zonePreference,
   });
   const timestamp = String(Math.floor(now() / 1000));
-  const signature = createHmac("sha256", githubToken)
-    .update(`${timestamp}.${body}`)
-    .digest("hex");
+  const signature = createHmac("sha256", githubToken).update(`${timestamp}.${body}`).digest("hex");
   const response = await fetchImpl(new URL("/internal/section11-worker", origin), {
     method: "POST",
     redirect: "error",
@@ -43,7 +41,11 @@ export async function runSection11DirectSync({
     body,
   });
   let result;
-  try { result = await response.json(); } catch { result = {}; }
+  try {
+    result = await response.json();
+  } catch {
+    result = {};
+  }
   if (!response.ok || result.status !== "complete")
     throw Error(result.error || `Section 11 direct sync failed (HTTP ${response.status}).`);
   return result;

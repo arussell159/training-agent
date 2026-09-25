@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { rollingPlanWindow } from "./rolling-plan-window.mjs";
 
 export const ANNUAL_PLAN_PHASES = [
   "Not Set",
@@ -320,13 +321,25 @@ export function generateAnnualPlan(input = {}, athlete = {}) {
 
 export function mergeRegeneratedPlan(existing, generated, selectedWeekIds = null) {
   const selected = selectedWeekIds?.length ? new Set(selectedWeekIds) : null;
-  const old = new Map((existing?.weeks || []).map((week) => [week.id, week]));
+  const old = new Map(
+    [...(existing?.archivedWeeks || []), ...(existing?.weeks || [])].map((week) => [week.id, week])
+  );
+  const generatedIds = new Set(generated.weeks.map((week) => week.id));
   return {
     ...generated,
     id: existing.id,
     createdAt: existing.createdAt,
     revision: existing.revision,
     revisionHistory: existing.revisionHistory,
+    events: [
+      ...generated.events,
+      ...(existing.events || []).filter(
+        (event) => event.date < generated.startDate || event.date > generated.endDate
+      ),
+    ].sort((a, b) => a.date.localeCompare(b.date)),
+    archivedWeeks: [...old.values()]
+      .filter((week) => !generatedIds.has(week.id))
+      .sort((a, b) => a.startDate.localeCompare(b.startDate)),
     weeks: generated.weeks.map((week) => {
       const prior = old.get(week.id);
       if (!prior) return week;
@@ -342,6 +355,40 @@ export function mergeRegeneratedPlan(existing, generated, selectedWeekIds = null
       };
     }),
   };
+}
+
+export function rollAnnualPlan(plan, today, athlete = {}) {
+  if (!plan || !Array.isArray(plan.weeks)) return plan;
+  const { startDate, endDate } = rollingPlanWindow(today);
+  const existing = new Map(
+    [...(plan.archivedWeeks || []), ...plan.weeks].map((week) => [week.id, week])
+  );
+  const fitness =
+    athlete.fitness ??
+    [...plan.weeks].reverse().find((week) => week.projectedCtl != null)?.projectedCtl ??
+    null;
+  const generationSettings = {
+    ...plan,
+    startDate,
+    endDate,
+    ...(plan.methodology === "target_ctl" && fitness == null
+      ? { methodology: "hours", baseline: null }
+      : {}),
+  };
+  const generated = generateAnnualPlan(generationSettings, { ...athlete, fitness });
+  const weeks = generated.weeks.map((week) => existing.get(week.id) || week);
+  if (
+    plan.startDate === startDate &&
+    plan.endDate === endDate &&
+    plan.weeks.length === weeks.length &&
+    plan.weeks.every((week, index) => week.id === weeks[index].id)
+  )
+    return plan;
+  const visibleIds = new Set(weeks.map((week) => week.id));
+  const archivedWeeks = [...existing.values()]
+    .filter((week) => !visibleIds.has(week.id))
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+  return { ...plan, startDate, endDate, weeks, archivedWeeks };
 }
 
 export function recordPlanRevision(plan, reason = "Saved changes") {

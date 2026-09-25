@@ -219,13 +219,19 @@ function AppWorkspace() {
   useMobileViewport()
   const mobileTerms = useIsMobile()
   useEffect(() => {
-    const warm = () => ["Home", "Calendar", "Coach"].forEach(preloadPage)
-    if ("requestIdleCallback" in window) {
-      const id = window.requestIdleCallback(warm, { timeout: 750 })
-      return () => window.cancelIdleCallback(id)
+    let active = true
+    const warm = async () => {
+      for (const item of ["Home", "Calendar", "Coach", "Library", "Settings", "Annual Plan"]) {
+        if (!active) return
+        if (item !== routeItem()) await pageImports[item as keyof typeof pageImports]().catch(() => {})
+      }
     }
-    const id = setTimeout(warm, 300)
-    return () => clearTimeout(id)
+    if ("requestIdleCallback" in window) {
+      const id = window.requestIdleCallback(() => void warm(), { timeout: 1500 })
+      return () => { active = false; window.cancelIdleCallback(id) }
+    }
+    const id = setTimeout(() => void warm(), 1000)
+    return () => { active = false; clearTimeout(id) }
   }, [])
   const [selectedReport, setSelectedReport] = useState(restoreReportReader)
   const [activeItem, setActiveItem] = useState(routeItem)
@@ -512,14 +518,16 @@ function AppWorkspace() {
           inert={mobileTerms && termsOpen}
           aria-hidden={mobileTerms && termsOpen ? true : undefined}
           className={
-            (isCoachPage || activeItem === "Library") &&
-            !selectedWorkout &&
-            !selectedReport
-              ? "coach-app-shell h-dvh min-h-0 overflow-hidden"
-              : (activeItem === "Settings" || activeItem === "Annual Plan") &&
-                  !selectedWorkout
-                ? "h-svh min-h-0 overflow-hidden"
-                : undefined
+            activeItem === "Home" && !selectedWorkout && !selectedReport
+              ? "home-dashboard-shell"
+              : (isCoachPage || activeItem === "Library") &&
+                  !selectedWorkout &&
+                  !selectedReport
+                ? "coach-app-shell h-dvh min-h-0 overflow-hidden"
+                : (activeItem === "Settings" || activeItem === "Annual Plan") &&
+                    !selectedWorkout
+                  ? "h-svh min-h-0 overflow-hidden"
+                  : undefined
           }
         >
           {!selectedReport &&
@@ -558,7 +566,7 @@ function AppWorkspace() {
                 ? selectedReport.kind === "weekly"
                   ? "Weekly Report"
                   : "Training Block"
-                : selectedWorkout?.title || activeItem}
+                : selectedWorkout?.title || (activeItem === "Annual Plan" ? "Annual Planner" : activeItem)}
             </h1>
             <DropdownMenu>
               <DropdownMenuTrigger

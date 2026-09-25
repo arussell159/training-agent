@@ -6,8 +6,7 @@ export async function bodyJson(req, maxBytes = 160000) {
   const chunks = [];
   for await (const chunk of req) {
     size += Buffer.byteLength(chunk);
-    if (size > maxBytes)
-      throw new CoachError("This request is too large.", 413);
+    if (size > maxBytes) throw new CoachError("This request is too large.", 413);
     chunks.push(Buffer.from(chunk));
   }
   try {

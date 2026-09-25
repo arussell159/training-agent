@@ -11,6 +11,7 @@ import {
 import { lazy, Suspense, useEffect, useState } from "react"
 import { formatDuration } from "@/lib/duration"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
 import { WorkoutDetailSurface } from "@/components/workout-detail-surface"
 const WorkoutAnalysis = lazy(() =>
   import("@/components/workout-analysis").then((m) => ({
@@ -927,30 +928,17 @@ export function WorkoutDetailPage({
                   />
                 </div>
               </div>
-              <div
-                role="tablist"
-                aria-label="Workout view"
-                className="my-3 grid h-9 grid-cols-2 rounded-md bg-muted/70 p-0.5 text-sm font-semibold"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={plannedTab === "summary"}
-                  onClick={() => setPlannedTab("summary")}
-                  className={`rounded-[5px] transition ${plannedTab === "summary" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
-                >
-                  Summary
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={plannedTab === "zones"}
-                  onClick={() => setPlannedTab("zones")}
-                  className={`rounded-[5px] transition ${plannedTab === "zones" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
-                >
-                  Zones
-                </button>
-              </div>
+              <MobileFilterTabs
+                label="Workout view"
+                items={[
+                  { value: "summary", label: "Workout" },
+                  { value: "zones", label: "Zones" },
+                ] as const}
+                value={plannedTab}
+                onChange={setPlannedTab}
+                className="workout-detail-view-tabs"
+                inline
+              />
               {plannedTab === "summary" ? (
                 <div className="pt-1">
                   <WorkoutDescription

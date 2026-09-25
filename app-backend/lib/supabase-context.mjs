@@ -24,7 +24,9 @@ export function createContextStore(config, log = () => {}, fetchImpl = fetch) {
   const url = String(config.SUPABASE_URL || "").replace(/\/$/, "");
   const key = config.SUPABASE_SECRET_KEY;
   const ready = Boolean(url && key);
-  const account = createHash("sha256").update(`${url}\0${key || ""}`).digest("hex");
+  const account = createHash("sha256")
+    .update(`${url}\0${key || ""}`)
+    .digest("hex");
   async function request(table, options = {}) {
     if (!ready) throw new Error("Supabase project URL is not configured");
     const method = (options.method || "GET").toUpperCase();
@@ -65,8 +67,7 @@ export function createContextStore(config, log = () => {}, fetchImpl = fetch) {
         throw error;
       });
     readCache.delete(cacheKey);
-    if (readCache.size >= READ_CACHE_MAX_ENTRIES)
-      readCache.delete(readCache.keys().next().value);
+    if (readCache.size >= READ_CACHE_MAX_ENTRIES) readCache.delete(readCache.keys().next().value);
     if (generation === readCacheGeneration) readCache.set(cacheKey, entry);
     return structuredClone(await entry.promise);
   }

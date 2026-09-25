@@ -172,6 +172,7 @@ function ReportPanel({
   useEffect(() => {
     alive.current = true
     let checking = false
+    let lastInteractionAt = Date.now()
     async function check() {
       if (!active.current || checking || last.current?.status === "complete")
         return
@@ -188,15 +189,26 @@ function ReportPanel({
     )
     if (root.current) observer.observe(root.current)
     const timer = window.setInterval(() => {
-      if (!document.hidden) void check()
+      if (!document.hidden && Date.now() - lastInteractionAt < 5 * 60_000) void check()
     }, 15000)
+    const interaction = () => {
+      lastInteractionAt = Date.now()
+      if (!document.hidden) void check()
+    }
+    root.current?.addEventListener("pointerdown", interaction)
+    window.addEventListener("keydown", interaction)
+    window.addEventListener("focus", interaction)
     const refresh = () => void check()
     window.addEventListener("training-context-updated", refresh)
     const pending = requests.current
+    const reportRoot = root.current
     return () => {
       alive.current = false
       observer.disconnect()
       clearInterval(timer)
+      reportRoot?.removeEventListener("pointerdown", interaction)
+      window.removeEventListener("keydown", interaction)
+      window.removeEventListener("focus", interaction)
       window.removeEventListener("training-context-updated", refresh)
       pending.forEach((controller) => controller.abort())
     }

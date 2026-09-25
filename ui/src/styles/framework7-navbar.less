@@ -204,10 +204,20 @@
   }
 
   .coach-report-page {
+    --f7-navbar-height: 56px;
+    --f7-subnavbar-height: 40px;
     background: var(--background);
     color: var(--foreground);
+    position: relative;
+
+    > .min-h-0.flex-1.overflow-y-auto {
+      position: absolute;
+      inset: 0;
+    }
+
     .coach-report-content {
-      padding: 20px 16px calc(6rem + env(safe-area-inset-bottom));
+      padding: calc(var(--f7-navbar-height) + var(--f7-subnavbar-height) + 40px)
+        16px calc(6rem + env(safe-area-inset-bottom));
     }
     .coach-report-content > [role="alert"],
     .coach-report-content > p,
@@ -221,25 +231,42 @@
   }
 
   .coach-report-navbar {
+    --f7-subnavbar-height: 40px;
+    position: absolute;
+    inset: 0 0 auto;
     height: calc(var(--f7-navbar-height) + var(--f7-subnavbar-height) + 20px);
 
     > .navbar {
       height: var(--f7-navbar-height);
+      position: relative;
+      background: transparent;
+
+      .navbar-bg {
+        background: transparent;
+      }
     }
 
-    .coach-report-subnavbar {
-      --f7-glass-shadow:
-        inset 0 0 0 0.5px rgb(128 128 128 / 18%),
-        inset 0 1px 1px rgb(255 255 255 / 65%), 0 3px 12px rgb(0 0 0 / 10%);
-      --f7-subnavbar-text-color: var(--foreground);
-      --f7-subnavbar-border-color: transparent;
-      top: calc(100% + 20px);
-      .segmented {
-        width: 100%;
+    .mobile-filter-toolbar {
+      --f7-toolbar-height: 40px;
+      --f7-toolbar-inner-padding-left: 22px;
+      --f7-toolbar-inner-padding-right: 22px;
+      position: absolute;
+      z-index: 2;
+      top: calc(var(--f7-navbar-height) + 12px);
+      left: 0;
+      width: 100%;
+      height: 40px;
+      background: transparent;
+      box-shadow: none;
+
+      &::before,
+      &::after {
+        display: none;
       }
-      .button {
-        font-size: 14px;
-        font-weight: 500;
+
+      .toolbar-inner {
+        padding: 0 22px;
+        background: transparent;
       }
     }
   }
@@ -640,8 +667,13 @@
     min-height: 0;
     padding: 16px 0 max(45dvh, 220px);
     overflow-y: auto;
+    scrollbar-width: none;
     overscroll-behavior: contain;
     touch-action: pan-y;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
   }
   .terms-metric-data-card.card {
     --f7-card-margin-horizontal: 0px;
@@ -879,6 +911,7 @@
       }
     }
   }
+
   .training-history-summary,
   .training-history-chart {
     padding-inline: 16px;

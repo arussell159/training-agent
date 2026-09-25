@@ -189,6 +189,7 @@ export function normalizeAnalysis(activity, streams, fitLaps = [], fitSwimLength
       power: l.power,
       heartRate: l.heartRate,
       distance: l.distance,
+      elapsedDuration: l.duration,
       kind: "lap",
     }));
   const intervals = (activity.icu_intervals || [])
@@ -217,6 +218,7 @@ export function normalizeAnalysis(activity, streams, fitLaps = [], fitSwimLength
   const displayedLaps = swim
     ? (swimLaps.length ? swimLaps : workIntervals).map((l, i) => ({
         ...l,
+        elapsedDuration: l.elapsedDuration ?? l.end - l.start,
         label:
           l.distance > 0
             ? `${Math.round(recordedSwimYards(l.distance))} yd · ${swimLaps.length ? l.label : `Interval ${i + 1}`}`
@@ -225,7 +227,7 @@ export function normalizeAnalysis(activity, streams, fitLaps = [], fitSwimLength
       }))
     : laps;
   return {
-    version: 7,
+    version: 8,
     dfa: /ride|bike|cycl|run/i.test(activity.type || "") ? dfaSignal(points) : null,
     activityId: activity.id,
     points,

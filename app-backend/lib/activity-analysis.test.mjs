@@ -52,7 +52,7 @@ test("analysis keeps zero watts, gaps, elevation, GPS and real sample times; lap
   assert.equal(result.points[2].elevation, null);
   assert.deepEqual([result.points[0].latitude, result.points[0].longitude], [30, -97]);
   assert.equal(result.points[2].latitude, null);
-  assert.equal(result.version, 7);
+  assert.equal(result.version, 8);
   assert.equal(result.laps[0].start, 2);
   assert.equal(result.laps[0].end, 5);
   assert.equal(result.intervals[0].kind, "interval");

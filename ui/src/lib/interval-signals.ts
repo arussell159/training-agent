@@ -1,6 +1,12 @@
 import {segmentStatistics, type RecordedPoint} from './segment-statistics.ts'
 
-export type RecordedLap = {id:string; label:string; start:number; end:number; distance?:number|null; speed?:number|null}
+export type RecordedLap = {id:string; label:string; start:number; end:number; distance?:number|null; speed?:number|null; elapsedDuration?:number|null}
+
+export function lapDuration(lap: RecordedLap) {
+  return lap.elapsedDuration != null && lap.elapsedDuration > 0
+    ? lap.elapsedDuration
+    : lap.end - lap.start
+}
 
 export function formatSignalClock(seconds: number) {
   const rounded = Math.max(0, Math.round(seconds))
@@ -10,7 +16,10 @@ export function formatSignalClock(seconds: number) {
 export function intervalSignals(points: RecordedPoint[], laps: RecordedLap[]) {
   return laps.filter(l => l.end > l.start).map(lap => {
     const averages = segmentStatistics(points, lap.start, lap.end)
-    const speed = lap.speed ?? (lap.distance != null && lap.distance > 0 ? lap.distance / (lap.end - lap.start) : averages.speed)
+    // Prefer the recorded velocity stream, which follows the same SI-based
+    // pace calculation used elsewhere. Intervals lap speeds can disagree when
+    // swim pool units are interpreted differently by the source.
+    const speed = averages.speed ?? lap.speed ?? (lap.distance != null && lap.distance > 0 ? lap.distance / (lap.end - lap.start) : null)
     return {lap, point:{time:lap.start, distance:null, power:averages.power, heartRate:averages.heartRate, cadence:averages.cadence, speed} satisfies RecordedPoint}
   })
 }

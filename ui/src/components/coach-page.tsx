@@ -4,9 +4,8 @@ import {
   type Catalog,
   type CatalogReport,
   type Filter,
-  type ReportKind,
 } from "@/components/catalog-report-body"
-import { filterCoachReports, groupWorkoutReportsByWeek, reportDisplayTitle, REPORT_FILTERS } from "../../../app-backend/lib/coach-report-display.mjs"
+import { filterCoachReports, groupOtherReportsByType, groupWorkoutReportsByWeek, reportDisplayTitle, REPORT_FILTERS } from "../../../app-backend/lib/coach-report-display.mjs"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Dialog,
@@ -15,12 +14,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Button as F7Button, Segmented, Subnavbar, Sheet } from "framework7-react"
+import { Sheet } from "framework7-react"
 import { FileText } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { SettingsList, SettingsListItem } from "@/components/ui/settings-list"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useSheetDismiss } from "@/hooks/use-sheet-dismiss"
 import { coachRequest } from "@/lib/coach-client"
@@ -30,12 +30,13 @@ export function CoachPage() {
   const reportTrigger = useRef<HTMLElement | null>(null)
   const sheetHistory = useRef(false)
   const [reportExpanded, setReportExpanded] = useState(false)
+  const [openReportId, setOpenReportId] = useState<string | null>(null)
   const closeReport = useCallback(() => {
     setReportExpanded(false)
     if (sheetHistory.current) window.history.back()
     else setOpenReportId(null)
-  }, [])
-  const expandReport = useCallback(() => setReportExpanded(true), [])
+  }, [setOpenReportId, setReportExpanded])
+  const expandReport = useCallback(() => setReportExpanded(true), [setReportExpanded])
   useEffect(() => {
     const pop = (event: PopStateEvent) => {
       if (!sheetHistory.current) return
@@ -49,7 +50,6 @@ export function CoachPage() {
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [filter, setFilter] = useState<Filter>("pre_workout")
   const [query, setQuery] = useState("")
-  const [openReportId, setOpenReportId] = useState<string | null>(null)
   const [displayedReportId, setDisplayedReportId] = useState<string | null>(
     null
   )
@@ -99,18 +99,18 @@ export function CoachPage() {
     [catalog, filter, query]
   )
   const groupedWorkouts = filter === "pre_workout" || filter === "post_workout"
+  const groupedOthers = filter === "others"
   const reportGroups = useMemo(
     () => groupedWorkouts
       ? groupWorkoutReportsByWeek(reports)
-      : [{ startDate: "all", label: "", reports }],
-    [groupedWorkouts, reports]
+      : groupedOthers
+        ? groupOtherReportsByType(reports)
+        : [{ startDate: "all", label: "", reports }],
+    [groupedOthers, groupedWorkouts, reports]
   )
   const selectedReport = catalog?.reports.find(
     (report) => report.id === displayedReportId
   )
-  const count = (kind: ReportKind) =>
-    catalog?.reports.filter((report) => report.kind === kind).length || 0
-
   const reportItem = (report: CatalogReport) => {
     const isOpen = openReportId === report.id
     return <div key={report.id}>
@@ -137,32 +137,23 @@ export function CoachPage() {
   }
 
   const filters = (
-    <Segmented strong round className="coach-report-filters w-full">
-      {REPORT_FILTERS.map(({ value, label }) => (
-        <F7Button
-          key={value}
-          active={filter === value}
-          smallMd
-          onClick={(event) => {
-            event.preventDefault()
-            setFilter(value as Filter)
-            setOpenReportId(null)
-          }}
-          aria-pressed={filter === value}
-        >
-          {label}{" "}
-          <span className="ml-1 hidden opacity-70 md:inline">{count(value as ReportKind)}</span>
-        </F7Button>
-      ))}
-    </Segmented>
+    <MobileFilterTabs
+      label="Filter reports"
+      items={REPORT_FILTERS.map(({ value, label }) => ({ value: value as Filter, label }))}
+      value={filter}
+      onChange={(value) => {
+        setFilter(value)
+        setOpenReportId(null)
+      }}
+    />
   )
 
-  const workoutReportAccordions = (
+  const reportSections = (
     <div className="coach-week-report-groups space-y-6 pt-2 md:pt-6">
       {reportGroups.map((group) => (
         <section key={group.startDate} aria-label={group.label}>
           {group.label && (
-            <h2 className="mb-2 text-lg font-semibold text-muted-foreground">
+            <h2 className="mb-2 px-1 text-sm text-muted-foreground">
               {group.label}
             </h2>
           )}
@@ -180,12 +171,7 @@ export function CoachPage() {
       className="coach-report-page flex min-h-0 flex-1 flex-col bg-background"
     >
       <MobileSiteNavbar title="Coach" className="coach-report-navbar">
-        <Subnavbar
-          className="coach-report-subnavbar"
-          {...{ role: "group", "aria-label": "Filter reports" }}
-        >
-          {filters}
-        </Subnavbar>
+        {filters}
       </MobileSiteNavbar>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <div className="coach-report-content mx-auto w-full max-w-4xl px-4 py-5 md:px-8 md:py-14">
@@ -240,8 +226,8 @@ export function CoachPage() {
             <p className="text-sm text-muted-foreground">
               Loading saved reports…
             </p>
-          ) : reports.length && groupedWorkouts ? (
-            workoutReportAccordions
+          ) : reports.length && (groupedWorkouts || groupedOthers) ? (
+            reportSections
           ) : reports.length && !mobile ? (
             <div className="space-y-8">
               {reportGroups.map((group) => (

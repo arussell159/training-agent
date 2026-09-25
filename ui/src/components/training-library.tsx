@@ -1,5 +1,5 @@
-import { Button as F7Button, Segmented, Subnavbar } from "framework7-react"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
 import { apiFetch } from "@/lib/api-client"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useEffect, useMemo, useState } from "react"
@@ -83,23 +83,12 @@ export function TrainingLibrary({
     return (
       <div className="coach-report-page flex min-h-0 flex-1 flex-col bg-background">
         <MobileSiteNavbar title="Library" className="coach-report-navbar">
-          <Subnavbar className="coach-report-subnavbar">
-            <Segmented strong round className="w-full">
-              {disciplines.map((item) => (
-                <F7Button
-                  key={item}
-                  active={discipline === item}
-                  onClick={(event) => {
-                    event.preventDefault()
-                    setDiscipline(item)
-                  }}
-                  aria-pressed={discipline === item}
-                >
-                  {item}
-                </F7Button>
-              ))}
-            </Segmented>
-          </Subnavbar>
+          <MobileFilterTabs
+            label="Filter workouts by sport"
+            items={disciplines.map((item) => ({ value: item, label: item }))}
+            value={discipline}
+            onChange={setDiscipline}
+          />
         </MobileSiteNavbar>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="coach-report-content mx-auto w-full max-w-4xl px-4 py-5">

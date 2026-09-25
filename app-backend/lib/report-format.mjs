@@ -1,10 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 
-const files = new Set([
-  "WEEKLY_REPORT_TEMPLATE.md",
-  "BLOCK_REPORT_TEMPLATE.md",
-]);
+const files = new Set(["WEEKLY_REPORT_TEMPLATE.md", "BLOCK_REPORT_TEMPLATE.md"]);
 
 // These are the athlete's exact supplied templates, deployed with the app.
 export async function readReportTemplate(file) {
@@ -47,30 +44,31 @@ export function reportFollowsStructure(kind, markdown, evidence = {}) {
   )
     return false;
   const text = markdown.replace(/[*#`]/g, "").trim();
-  const required = kind === "weekly"
-    ? [
-        /^Week .+ Summary/i,
-        /Compliance:/i,
-        /Session Breakdown:/i,
-        /Polarization:/i,
-        /Fitness:/i,
-        /Wellness Trends:/i,
-        /Section 11 Flags:/i,
-        /Interpretation:/i,
-        /Next Week Preview:/i,
-      ]
-    : [
-        /^Block .+ Report/i,
-        /Volume Progression:/i,
-        /Compliance:/i,
-        /Fitness Progression:/i,
-        /Polarization/i,
-        /Wellness/i,
-        /Section 11 Flags/i,
-        /Phase Progression Check:/i,
-        /Interpretation:/i,
-        /Next Block Plan:/i,
-      ];
+  const required =
+    kind === "weekly"
+      ? [
+          /^Week .+ Summary/i,
+          /Compliance:/i,
+          /Session Breakdown:/i,
+          /Polarization:/i,
+          /Fitness:/i,
+          /Wellness Trends:/i,
+          /Section 11 Flags:/i,
+          /Interpretation:/i,
+          /Next Week Preview:/i,
+        ]
+      : [
+          /^Block .+ Report/i,
+          /Volume Progression:/i,
+          /Compliance:/i,
+          /Fitness Progression:/i,
+          /Polarization/i,
+          /Wellness/i,
+          /Section 11 Flags/i,
+          /Phase Progression Check:/i,
+          /Interpretation:/i,
+          /Next Block Plan:/i,
+        ];
   let cursor = 0;
   for (const pattern of required) {
     const match = text.slice(cursor).match(pattern);

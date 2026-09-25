@@ -125,7 +125,7 @@ test("omitted final recovery, nested sets and combination swims preserve executi
   const before = expandSteps(nested.steps);
   assert.equal(
     formatWorkoutDescription(nested),
-    "Main Set:\n1 x (100 yd FS in Z3 + 20 secs rest)\n100 yd FS in Z3\n+ 60 secs rest\n1 x (100 yd FS in Z3 + 20 secs rest)\n100 yd FS in Z3"
+    "Main Set:\n1 x (100 yd FS in Z3 + 20 secs rest)\n100 yd FS in Z3\n+ 1 min rest\n1 x (100 yd FS in Z3 + 20 secs rest)\n100 yd FS in Z3"
   );
   assert.deepEqual(expandSteps(nested.steps), before);
 });
@@ -135,7 +135,7 @@ test("bike zones use configured boundaries and keep exact watts and ramps", () =
   const settings = [{ types: ["Ride"], ftp: 250, power_zones: [55, 75, 90, 105, 120, 999] }];
   assert.equal(
     formatWorkoutDescription(model, settings),
-    "Warm Up:\n10 mins in Z1 → Z2 (100 → 180 W)\n\nMain Set:\n3 x (3 mins in Z3 (200–220 W) at 85–95 rpm + 1 mins in Z1 (100 W) recovery)\n\nWarm Down:\n5 mins in Z2 → Z1 (150 → 90 W)"
+    "Warm Up:\n10 mins in Z1 → Z2 (100 → 180 W)\n\nMain Set:\n3 x (3 mins in Z3 (200–220 W) at 85–95 rpm + 1 min in Z1 (100 W) recovery)\n\nWarm Down:\n5 mins in Z2 → Z1 (150 → 90 W)"
   );
   assert.match(formatWorkoutDescription(model), /200–220 W/);
   assert.doesNotMatch(formatWorkoutDescription(model), /\bZ\d/);
@@ -147,7 +147,7 @@ test("run pace and sub-minute durations stay exact, including recovery pace", ()
   model.steps[1].recovery.end.value = 90;
   assert.equal(
     formatWorkoutDescription(model),
-    "Warm Up:\n5 mins at 10:00 min/mile\n\nMain Set:\n4 x (0.5 mins at 7:30–8:00 min/mile + 1.5 mins at 10:30 min/mile recovery)\n\nWarm Down:\n5 mins at 10:00 min/mile"
+    "Warm Up:\n5 mins at 10:00 min/mile\n\nMain Set:\n4 x (30 secs at 7:30–8:00 min/mile + 1 min 30 secs at 10:30 min/mile recovery)\n\nWarm Down:\n5 mins at 10:00 min/mile"
   );
 });
 

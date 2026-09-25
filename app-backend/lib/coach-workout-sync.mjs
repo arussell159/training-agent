@@ -48,9 +48,8 @@ export function createWorkoutSync({
     const claim = await store.update((state) => {
       if (state.active || (!state.pending.length && !state.pendingRefresh)) return null;
       const active = {
-        requestId: state.pendingRefresh && state.pendingRefreshId
-          ? state.pendingRefreshId
-          : randomUUID(),
+        requestId:
+          state.pendingRefresh && state.pendingRefreshId ? state.pendingRefreshId : randomUUID(),
         ids: [...state.pending],
         manual: Boolean(state.pendingRefresh),
         startedAt: now(),
@@ -66,10 +65,13 @@ export function createWorkoutSync({
     });
     if (!claim) return;
     try {
-      const run = await github(`/actions/workflows/${workflow}/dispatches?return_run_details=true`, {
-        method: "POST",
-        body: JSON.stringify({ ref: config.branch, inputs: { request_id: claim.requestId } }),
-      });
+      const run = await github(
+        `/actions/workflows/${workflow}/dispatches?return_run_details=true`,
+        {
+          method: "POST",
+          body: JSON.stringify({ ref: config.branch, inputs: { request_id: claim.requestId } }),
+        }
+      );
       await store.update((state) => {
         if (state.active?.requestId !== claim.requestId) return;
         state.active.status = "queued";
@@ -118,9 +120,7 @@ export function createWorkoutSync({
             created: `>=${new Date(active.startedAt - 60_000).toISOString()}`,
             per_page: "10",
           });
-          const runs = await github(
-            `/actions/workflows/${workflow}/runs?${query}`
-          );
+          const runs = await github(`/actions/workflows/${workflow}/runs?${query}`);
           run = runs.workflow_runs?.find(
             (r) => r.display_title === `section11-sync-${active.requestId}`
           );
@@ -240,9 +240,7 @@ export function createWorkoutSync({
     async getManualProgress(requestId) {
       const state = await store.read();
       const progress = state.manualProgress?.[requestId];
-      return progress && progress.updatedAt >= now() - 30 * 60_000
-        ? progress
-        : null;
+      return progress && progress.updatedAt >= now() - 30 * 60_000 ? progress : null;
     },
     async refresh(requestId = randomUUID()) {
       await poll();

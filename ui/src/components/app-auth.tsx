@@ -73,15 +73,20 @@ export function AppAuth({ children }: { children: ReactNode }) {
   }, [update])
   useEffect(() => {
     let active = true
+    let checking = false
+    let lastCheckedAt = 0
     const check = () => {
-      if (document.visibilityState !== "hidden")
+      if (document.visibilityState !== "hidden" && !checking && Date.now() - lastCheckedAt >= 15 * 60_000) {
+        checking = true
+        lastCheckedAt = Date.now()
         void refresh().catch((problem) => {
           if (active) {
             setApiAuthenticated(false)
             setSession(null)
             setError(authError(problem))
           }
-        })
+        }).finally(() => { checking = false })
+      }
     }
     const expired = () => {
       revision.current++
@@ -100,15 +105,17 @@ export function AppAuth({ children }: { children: ReactNode }) {
     window.addEventListener("focus", check)
     window.addEventListener("pageshow", check)
     window.addEventListener("storage", storage)
+    window.addEventListener("pointerdown", check, { passive: true })
+    window.addEventListener("keydown", check)
     document.addEventListener("visibilitychange", check)
-    const timer = window.setInterval(check, 60000)
     return () => {
       active = false
-      window.clearInterval(timer)
       window.removeEventListener("app-auth-required", expired)
       window.removeEventListener("focus", check)
       window.removeEventListener("pageshow", check)
       window.removeEventListener("storage", storage)
+      window.removeEventListener("pointerdown", check)
+      window.removeEventListener("keydown", check)
       document.removeEventListener("visibilitychange", check)
     }
   }, [refresh])
