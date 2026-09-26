@@ -11,6 +11,7 @@ import { createCoachReportCatalog } from "./coach-report-migration.mjs";
 import { createReportsHttp } from "./coach-reports-http.mjs";
 import {
   filterCoachReports,
+  groupWeeklyReportsByMonth,
   groupWorkoutReportsByWeek,
   reportDisplayTitle,
   reportPeriodLabel,
@@ -167,6 +168,25 @@ test("workout reports group by Monday week and sort newest first within each wee
     ["sunday", "friday", "monday"]
   );
   assert.equal(groupWorkoutReportsByWeek([{ startDate: "2027-01-01" }])[0].startDate, "2026-12-28");
+});
+
+test("weekly reports group by start month, newest month and week first", () => {
+  const reports = [
+    { id: "dec", startDate: "2026-12-28", generatedAt: "2026-12-29" },
+    { id: "jan-old", startDate: "2027-01-04", generatedAt: "2027-01-05" },
+    { id: "jan-new", startDate: "2027-01-11", generatedAt: "2027-01-12" },
+    { id: "jan-revised", startDate: "2027-01-11", generatedAt: "2027-01-13" },
+  ];
+  const groups = groupWeeklyReportsByMonth(reports);
+  assert.deepEqual(
+    groups.map((group) => [group.startDate, group.label]),
+    [
+      ["2027-01-01", "January 2027"],
+      ["2026-12-01", "December 2026"],
+    ]
+  );
+  assert.deepEqual(groups[0].reports.map((report) => report.id), ["jan-revised", "jan-new", "jan-old"]);
+  assert.deepEqual(groupWeeklyReportsByMonth([]), []);
 });
 
 test("legacy weekly and block reports copy once and catalog reads only app storage", async () => {

@@ -7,8 +7,12 @@ import {
 } from "@/lib/training-context"
 
 const NEXT_CHECK_KEY = "training-agent-next-background-sync"
+const PENDING_EXPORT_KEY = "training-agent-section11-export-pending"
 const CHECK_INTERVAL_MS = 15 * 60_000
+const FOLLOW_UP_INTERVAL_MS = 2 * 60_000
 const RETRY_INTERVAL_MS = 5 * 60_000
+const EXPORT_RETRY_INTERVAL_MS = 60_000
+const RESUME_IDLE_MS = 2 * 60_000
 
 function nextCheck() {
   try {
@@ -33,7 +37,25 @@ export function BackgroundSync() {
     let pendingCheck = false
     let failures = 0
     let lastInteractionCheck = 0
+    let lastActivityAt = Date.now()
     let initialCheckStarted = false
+    let quickFollowUp = false
+    let followUpTimer = 0
+    let pendingExport = false
+    try {
+      pendingExport = localStorage.getItem(PENDING_EXPORT_KEY) === "1"
+    } catch {
+      // Keep the pending state for this page when storage is unavailable.
+    }
+    const setPendingExport = (value: boolean) => {
+      pendingExport = value
+      try {
+        if (value) localStorage.setItem(PENDING_EXPORT_KEY, "1")
+        else localStorage.removeItem(PENDING_EXPORT_KEY)
+      } catch {
+        // The in-memory state still handles retries while this page is open.
+      }
+    }
     const controller = new AbortController()
 
     const check = async () => {
@@ -43,6 +65,7 @@ export function BackgroundSync() {
       }
       if (!active || trainingMutationState().busy || !navigator.onLine) return
       busy = true
+      window.clearTimeout(followUpTimer)
       const revision = trainingMutationState().revision
       try {
         const response = await apiFetch("/api/sync?trainingOnly=1", {
@@ -54,6 +77,7 @@ export function BackgroundSync() {
           error?: string
           sync_error?: string
           section11Pending?: boolean
+          sourceChanged?: boolean
           section11Sync?: { status: string; error?: string }
           queue?: { failed: number }
         }
@@ -65,8 +89,11 @@ export function BackgroundSync() {
         if (result.section11Sync?.status === "failed" || result.queue?.failed)
           console.warn(result.section11Sync?.error || "A saved edit needs a sync retry.")
         failures = 0
-        scheduleNext(CHECK_INTERVAL_MS)
-        if (result.section11Pending) {
+        const needsFollowUp = quickFollowUp && !result.sourceChanged
+        scheduleNext(needsFollowUp ? FOLLOW_UP_INTERVAL_MS : CHECK_INTERVAL_MS)
+        quickFollowUp = false
+        if (result.section11Pending) setPendingExport(true)
+        if (pendingExport) {
           try {
             const exportResponse = await apiFetch("/api/sync?section11Only=1", {
               method: "POST",
@@ -78,10 +105,18 @@ export function BackgroundSync() {
             }
             if (!exportResponse.ok || exportResult.section11Sync?.status !== "complete")
               throw Error(exportResult.section11Sync?.error || exportResult.error || "Section 11 export failed.")
+            setPendingExport(false)
           } catch (error) {
-            if (active && !controller.signal.aborted)
+            if (active && !controller.signal.aborted) {
               console.warn("Section 11 files could not be updated after the workout refresh.", error)
+              scheduleNext(EXPORT_RETRY_INTERVAL_MS)
+            }
           }
+        }
+        if (needsFollowUp && !pendingExport) {
+          followUpTimer = window.setTimeout(() => {
+            if (active && !busy) checkWhenDue()
+          }, Math.max(0, nextCheck() - Date.now()) + 100)
         }
       } catch (error) {
         if (active && !controller.signal.aborted) {
@@ -100,36 +135,64 @@ export function BackgroundSync() {
 
     const checkWhenDue = () => {
       if (document.visibilityState === "visible" && navigator.onLine && (!initialCheckStarted || Date.now() >= nextCheck())) {
+        if (!initialCheckStarted) quickFollowUp = true
         initialCheckStarted = true
         scheduleNext(CHECK_INTERVAL_MS)
         void check()
       }
     }
-    // Opening the app always checks once; the 15-minute gate applies only
-    // while the same page stays open and the user resumes interacting.
+    const checkOnResume = () => {
+      if (document.visibilityState !== "visible" || !navigator.onLine) return
+      const now = Date.now()
+      const wasIdle = now - lastActivityAt >= RESUME_IDLE_MS
+      lastActivityAt = now
+      if (wasIdle && !busy) {
+        quickFollowUp = true
+        initialCheckStarted = true
+        scheduleNext(CHECK_INTERVAL_MS)
+        void check()
+      } else checkWhenDue()
+    }
+    // Opening or resuming checks once, then allows one short follow-up for
+    // workouts that arrive in Intervals.icu shortly after the first check.
+    // Only this one follow-up runs without interaction; idle tabs do not keep polling.
     const start = window.setTimeout(checkWhenDue, 2000)
     const interaction = () => {
-      if (Date.now() - lastInteractionCheck < 60_000) return
-      lastInteractionCheck = Date.now()
+      const now = Date.now()
+      const wasIdle = now - lastActivityAt >= RESUME_IDLE_MS
+      lastActivityAt = now
+      if (wasIdle) {
+        if (!busy) {
+          quickFollowUp = true
+          initialCheckStarted = true
+          scheduleNext(CHECK_INTERVAL_MS)
+          void check()
+        }
+        lastInteractionCheck = now
+        return
+      }
+      if (now - lastInteractionCheck < 60_000) return
+      lastInteractionCheck = now
       checkWhenDue()
     }
     const edit = () => window.setTimeout(() => void check(), 0)
     window.addEventListener("request-background-sync", edit)
-    window.addEventListener("focus", checkWhenDue)
+    window.addEventListener("focus", checkOnResume)
     window.addEventListener("pointerdown", interaction, { passive: true })
     window.addEventListener("keydown", interaction)
     window.addEventListener("wheel", interaction, { passive: true })
-    document.addEventListener("visibilitychange", checkWhenDue)
+    document.addEventListener("visibilitychange", checkOnResume)
     return () => {
       active = false
       controller.abort()
       window.clearTimeout(start)
+      window.clearTimeout(followUpTimer)
       window.removeEventListener("request-background-sync", edit)
-      window.removeEventListener("focus", checkWhenDue)
+      window.removeEventListener("focus", checkOnResume)
       window.removeEventListener("pointerdown", interaction)
       window.removeEventListener("keydown", interaction)
       window.removeEventListener("wheel", interaction)
-      document.removeEventListener("visibilitychange", checkWhenDue)
+      document.removeEventListener("visibilitychange", checkOnResume)
     }
   }, [])
   return null

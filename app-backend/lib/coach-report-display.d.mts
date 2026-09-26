@@ -13,3 +13,4 @@ export function reportDisplayTitle(report: DisplayReport): string;
 export function reportPeriodLabel(report: DisplayReport): string;
 export function groupOtherReportsByType<T extends DisplayReport & { generatedAt?: string }>(reports: T[]): Array<{ startDate: string; label: string; reports: T[] }>;
 export function groupWorkoutReportsByWeek<T extends DisplayReport & { generatedAt?: string }>(reports: T[]): Array<{ startDate: string; label: string; reports: T[] }>;
+export function groupWeeklyReportsByMonth<T extends DisplayReport & { generatedAt?: string }>(reports: T[]): Array<{ startDate: string; label: string; reports: T[] }>;

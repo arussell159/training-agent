@@ -102,3 +102,31 @@ export function groupWorkoutReportsByWeek(reports) {
       ),
     }));
 }
+
+export function groupWeeklyReportsByMonth(reports) {
+  const groups = new Map();
+  for (const report of reports) {
+    const date = new Date(`${report.startDate}T00:00:00Z`);
+    if (Number.isNaN(date.getTime())) continue;
+    const startDate = date.toISOString().slice(0, 7) + "-01";
+    if (!groups.has(startDate)) {
+      const label = new Intl.DateTimeFormat("en-US", {
+        month: "long",
+        year: "numeric",
+        timeZone: "UTC",
+      }).format(date);
+      groups.set(startDate, { startDate, label, reports: [] });
+    }
+    groups.get(startDate).reports.push(report);
+  }
+  return [...groups.values()]
+    .sort((a, b) => b.startDate.localeCompare(a.startDate))
+    .map((group) => ({
+      ...group,
+      reports: group.reports.sort(
+        (a, b) =>
+          String(b.startDate || "").localeCompare(String(a.startDate || "")) ||
+          String(b.generatedAt || "").localeCompare(String(a.generatedAt || ""))
+      ),
+    }));
+}

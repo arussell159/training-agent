@@ -72,6 +72,7 @@ function SessionCard({
       aria-label={workout ? `Open ${workout.title}` : `${dayLabel}: no workout scheduled`}
       onClick={workout ? onOpen : undefined}
       onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return
         if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
           event.preventDefault()
           onMoveDay(event.key === "ArrowRight" ? 1 : -1)
@@ -79,7 +80,6 @@ function SessionCard({
         }
         if (!workout || (event.key !== "Enter" && event.key !== " "))
           return
-        if (event.target !== event.currentTarget) return
         event.preventDefault()
         onOpen()
       }}
@@ -92,7 +92,17 @@ function SessionCard({
         </CardDescription>
         {sessionCount > 1 && (
           <div className="absolute top-3 right-3 flex items-center gap-1" aria-label={`${activeSession + 1} of ${sessionCount} workouts`}>
-            <span className="text-xs font-semibold tabular-nums">{activeSession + 1}/{sessionCount}</span>
+            <button
+              type="button"
+              aria-label="Show next workout for this day"
+              className="flex h-7 min-w-8 items-center justify-center rounded-full px-1 text-xs font-semibold tabular-nums"
+              onClick={(event) => {
+                event.stopPropagation()
+                onSelectSession((activeSession + 1) % sessionCount)
+              }}
+            >
+              {activeSession + 1}/{sessionCount}
+            </button>
             {Array.from({ length: sessionCount }, (_, index) => (
               <button
                 key={index}

@@ -5,7 +5,7 @@ import {
   type CatalogReport,
   type Filter,
 } from "@/components/catalog-report-body"
-import { filterCoachReports, groupOtherReportsByType, groupWorkoutReportsByWeek, reportDisplayTitle, REPORT_FILTERS } from "../../../app-backend/lib/coach-report-display.mjs"
+import { filterCoachReports, groupOtherReportsByType, groupWeeklyReportsByMonth, groupWorkoutReportsByWeek, reportDisplayTitle, REPORT_FILTERS } from "../../../app-backend/lib/coach-report-display.mjs"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Dialog,
@@ -99,14 +99,17 @@ export function CoachPage() {
     [catalog, filter, query]
   )
   const groupedWorkouts = filter === "pre_workout" || filter === "post_workout"
+  const groupedWeekly = filter === "weekly"
   const groupedOthers = filter === "others"
   const reportGroups = useMemo(
     () => groupedWorkouts
       ? groupWorkoutReportsByWeek(reports)
+      : groupedWeekly
+        ? groupWeeklyReportsByMonth(reports)
       : groupedOthers
         ? groupOtherReportsByType(reports)
         : [{ startDate: "all", label: "", reports }],
-    [groupedOthers, groupedWorkouts, reports]
+    [groupedOthers, groupedWeekly, groupedWorkouts, reports]
   )
   const selectedReport = catalog?.reports.find(
     (report) => report.id === displayedReportId
@@ -226,7 +229,7 @@ export function CoachPage() {
             <p className="text-sm text-muted-foreground">
               Loading saved reports…
             </p>
-          ) : reports.length && (groupedWorkouts || groupedOthers) ? (
+          ) : reports.length && (groupedWorkouts || groupedWeekly || groupedOthers) ? (
             reportSections
           ) : reports.length && !mobile ? (
             <div className="space-y-8">
