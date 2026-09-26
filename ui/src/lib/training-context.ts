@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api-client"
+import { syncSection11Export } from "@/lib/section11-export"
 import {readDeviceCache,writeDeviceCache,clearDeviceCache} from './device-cache'
 export interface TrainingHistoryItem {
   workout_date: string
@@ -200,11 +201,7 @@ export async function refreshRecentIntervals(onProgress?: (progress: ManualRefre
     if(!trainingResponse.ok || !training.context)throw Error(training.error || `Intervals.icu refresh failed (${trainingResponse.status})`)
     if(training.sync_error)throw Error(training.sync_error)
     rememberTrainingContext(training.context,'full')
-    const exportResponse=await apiFetch(`/api/sync?section11Only=1&syncId=${encodeURIComponent(syncId)}`,{
-      method:"POST",headers:{Accept:"application/json"},
-    })
-    const exported=await exportResponse.json() as {section11Sync?:{requestId?:string;status:string;error?:string|null;label?:string;progress?:{completed:number;total:number;currentStep:string|null}};error?:string}
-    return {context:training.context,section11Sync:exported.section11Sync || {status:'failed',error:exported.error || `Section 11 export failed (${exportResponse.status})`}}
+    return training.context
   })().finally(()=>{requestDone=true})
   const pollProgress=(async()=>{
     while(!requestDone){
@@ -220,43 +217,18 @@ export async function refreshRecentIntervals(onProgress?: (progress: ManualRefre
       }catch{/* The main sync request reports errors; progress polling is best effort. */}
     }
   })()
-  let result:Awaited<typeof request>
+  let context:Awaited<typeof request>
   try{
-    result=await request
+    context=await request
   }finally{
     requestDone=true
     await pollProgress
   }
-  if(result.section11Sync?.requestId)progressId=result.section11Sync.requestId
-  let progress=result.section11Sync
-  const reportGithub=(value:typeof progress)=>{
-    if(!value)return
-    const steps=value.progress
-    report({
-      phase:"github",
-      requestId:value.requestId || undefined,
-      label:value.label || (steps?.currentStep ? `Section 11 · ${steps.currentStep}` : `Section 11 · ${value.status}`),
-      status:value.status,
-      completed:steps?.completed ?? null,
-      total:steps?.total ?? null,
-      currentStep:steps?.currentStep || null,
-      error:value.error || undefined,
-    })
-  }
-  reportGithub(progress)
-  const deadline=Date.now()+30*60_000
-  while(progress && ["dispatching","queued","running","checking","waiting"].includes(progress.status) && Date.now()<deadline){
-    await new Promise(resolve=>setTimeout(resolve,5000))
-    const status=await apiFetch(`/api/sync/progress?id=${encodeURIComponent(progressId)}`)
-    if(!status.ok)throw Error("Training refreshed; Section 11 sync status could not be checked.")
-    progress=await status.json()
-    reportGithub(progress as typeof progress)
-  }
-  if(progress && progress.status!=="complete")throw Error(progress.error || (["failed","unavailable"].includes(progress.status)?"Training refreshed; Section 11 sync failed. Try Refresh again.":"Training refreshed; Section 11 sync is still running. Check again shortly."))
-  report({phase:"finalizing",label:"Loading refreshed data into the app",completed:0,total:1})
-  const context=await loadTrainingContext(false,"full",true)
-  report({phase:"complete",label:"Refresh complete",completed:1,total:1})
-  return context
+  // Start the GitHub export before returning; the caller can release the UI
+  // while this request continues and report its outcome separately.
+  const githubSync=syncSection11Export(syncId)
+  report({phase:"complete",label:"Training data ready",completed:1,total:1})
+  return {context,githubSync}
 }
 
 export async function moveWorkoutDate(id: string, date: string) {

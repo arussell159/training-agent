@@ -256,10 +256,7 @@ function AppWorkspace() {
     const updateProgress = (progress: ManualRefreshProgress) => {
       if (mobileProgressDialog && !mobileProgressDialog.dismissed) {
         const { dialog } = mobileProgressDialog
-        const title =
-          progress.phase === "github"
-            ? "Syncing training data to GitHub"
-            : "Refreshing Intervals.icu"
+        const title = "Refreshing Intervals.icu"
         const hasProgress =
           typeof progress.completed === "number" &&
           typeof progress.total === "number" &&
@@ -270,9 +267,7 @@ function AppWorkspace() {
             ? Math.max(0, Math.min(100, (progress.completed! / progress.total!) * 100))
             : 0
         const detail = hasProgress
-          ? progress.phase === "github"
-            ? `${progress.completed} of ${progress.total} GitHub Actions steps complete`
-            : progress.phase === "intervals"
+          ? progress.phase === "intervals"
               ? `${progress.completed} of ${progress.total} Intervals.icu requests complete`
               : ""
           : ""
@@ -289,10 +284,7 @@ function AppWorkspace() {
       }
       toastManager.update(toastId, {
         type: "loading",
-        title:
-          progress.phase === "github"
-            ? "Syncing training data to GitHub"
-            : "Refreshing Intervals.icu",
+        title: "Refreshing Intervals.icu",
         description: <RefreshProgressToast startedAt={startedAt} progress={progress} />,
         timeout: 0,
       })
@@ -312,7 +304,7 @@ function AppWorkspace() {
       })
     }
     try {
-      const context = await refreshRecentIntervals(updateProgress)
+      const { context, githubSync } = await refreshRecentIntervals(updateProgress)
       setSelectedWorkout((current) =>
         current
           ? [...context.planned, ...context.history].find(
@@ -323,11 +315,31 @@ function AppWorkspace() {
       )
       const elapsed = Math.floor((Date.now() - startedAt) / 1000)
       const duration = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`
-      toastManager.update(toastId, {
-        type: "success",
-        title: "Intervals.icu refresh complete",
-        description: `Training data updated in ${duration}.`,
+      if (mobileProgressDialog?.dialog.opened) mobileProgressDialog.dialog.close()
+      const readyToast = {
+        type: "success" as const,
+        title: "Training data ready",
+        description: `Updated in ${duration}. GitHub sync is running in the background.`,
         timeout: 6000,
+      }
+      if (mobileProgressDialog) toastManager.add({ id: toastId, ...readyToast })
+      else toastManager.update(toastId, readyToast)
+      void githubSync.then(() => {
+        toastManager.add({
+          id: "section11-github-sync-complete",
+          type: "success",
+          title: "GitHub sync complete",
+          description: "Section 11 files are ready in GitHub.",
+          timeout: 6000,
+        })
+      }).catch((error) => {
+        toastManager.add({
+          id: "section11-github-sync-failed",
+          type: "error",
+          title: "GitHub sync needs a retry",
+          description: `${error instanceof Error ? error.message : "Section 11 files could not be updated."} The app will retry when it next checks for training data.`,
+          timeout: 10000,
+        })
       })
     } catch (error) {
       const elapsed = Math.floor((Date.now() - startedAt) / 1000)

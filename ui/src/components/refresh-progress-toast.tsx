@@ -44,7 +44,7 @@ export function RefreshProgressToast({
       </div>
       {hasStepProgress && progress.phase === "github" && (
         <p className="text-[11px] text-muted-foreground">
-          {progress.completed} of {progress.total} GitHub Actions steps complete
+          {progress.completed} of {progress.total} Section 11 steps complete
         </p>
       )}
       {progress.phase === "intervals" && hasStepProgress && (

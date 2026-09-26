@@ -1,13 +1,17 @@
 import { useEffect } from "react"
 import { apiFetch } from "@/lib/api-client"
 import {
+  markSection11ExportPending,
+  section11ExportPending,
+  syncSection11Export,
+} from "@/lib/section11-export"
+import {
   rememberTrainingContext,
   trainingMutationState,
   type TrainingContext,
 } from "@/lib/training-context"
 
 const NEXT_CHECK_KEY = "training-agent-next-background-sync"
-const PENDING_EXPORT_KEY = "training-agent-section11-export-pending"
 const CHECK_INTERVAL_MS = 15 * 60_000
 const FOLLOW_UP_INTERVAL_MS = 2 * 60_000
 const RETRY_INTERVAL_MS = 5 * 60_000
@@ -41,21 +45,6 @@ export function BackgroundSync() {
     let initialCheckStarted = false
     let quickFollowUp = false
     let followUpTimer = 0
-    let pendingExport = false
-    try {
-      pendingExport = localStorage.getItem(PENDING_EXPORT_KEY) === "1"
-    } catch {
-      // Keep the pending state for this page when storage is unavailable.
-    }
-    const setPendingExport = (value: boolean) => {
-      pendingExport = value
-      try {
-        if (value) localStorage.setItem(PENDING_EXPORT_KEY, "1")
-        else localStorage.removeItem(PENDING_EXPORT_KEY)
-      } catch {
-        // The in-memory state still handles retries while this page is open.
-      }
-    }
     const controller = new AbortController()
 
     const check = async () => {
@@ -92,20 +81,12 @@ export function BackgroundSync() {
         const needsFollowUp = quickFollowUp && !result.sourceChanged
         scheduleNext(needsFollowUp ? FOLLOW_UP_INTERVAL_MS : CHECK_INTERVAL_MS)
         quickFollowUp = false
-        if (result.section11Pending) setPendingExport(true)
-        if (pendingExport) {
+        if (result.section11Pending) {
+          markSection11ExportPending()
+        }
+        if (section11ExportPending()) {
           try {
-            const exportResponse = await apiFetch("/api/sync?section11Only=1", {
-              method: "POST",
-              signal: controller.signal,
-            })
-            const exportResult = (await exportResponse.json()) as {
-              section11Sync?: { status: string; error?: string }
-              error?: string
-            }
-            if (!exportResponse.ok || exportResult.section11Sync?.status !== "complete")
-              throw Error(exportResult.section11Sync?.error || exportResult.error || "Section 11 export failed.")
-            setPendingExport(false)
+            await syncSection11Export()
           } catch (error) {
             if (active && !controller.signal.aborted) {
               console.warn("Section 11 files could not be updated after the workout refresh.", error)
@@ -113,7 +94,7 @@ export function BackgroundSync() {
             }
           }
         }
-        if (needsFollowUp && !pendingExport) {
+        if (needsFollowUp && !section11ExportPending()) {
           followUpTimer = window.setTimeout(() => {
             if (active && !busy) checkWhenDue()
           }, Math.max(0, nextCheck() - Date.now()) + 100)
