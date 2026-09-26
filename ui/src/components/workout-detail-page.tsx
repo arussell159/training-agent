@@ -864,7 +864,7 @@ export function WorkoutDetailPage({
         <WorkoutDetailSurface
           completed={workout.status === "completed"}
           onClose={onBack}
-          className={`relative z-10 flex w-full min-w-0 transform-gpu flex-col gap-6 bg-background px-5 pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-[0_-12px_30px_rgba(0,0,0,0.08)] will-change-transform sm:px-7 md:px-0 md:pt-5 md:pb-10 md:shadow-none ${mobileMapAvailable && !swim ? "-mt-7 rounded-t-[28px] pt-3" : "pt-[76px]"}`}
+          className={`relative z-10 flex w-full min-w-0 transform-gpu flex-col gap-6 bg-background px-5 pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-[0_-12px_30px_rgba(0,0,0,0.08)] will-change-transform sm:px-7 md:px-0 md:pt-5 md:pb-10 md:shadow-none ${mobileMapAvailable && !swim ? "-mt-7 rounded-t-[28px] pt-3" : "pt-[calc(76px+env(safe-area-inset-top,0px))]"}`}
         >
           <section
             className={`pt-1 md:hidden ${workout.status === "completed" ? "space-y-5" : "hidden"}`}

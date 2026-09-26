@@ -31,6 +31,7 @@ export function MobileHeaderMenu({
     <div className="ml-auto shrink-0 md:hidden">
       <MobileActionMenu
         label="Options"
+        liquidGlass
         className="mobile-navbar-action size-11 p-0"
         actions={[
           {

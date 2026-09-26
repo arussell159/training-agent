@@ -17,6 +17,25 @@
     backdrop-filter: blur(18px) saturate(130%);
   }
 
+  .framework7-root .mobile-navbar.toolbar .toolbar-pane.liquid-glass-nav {
+    isolation: isolate;
+    background: rgb(255 255 255 / 10%);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .framework7-root .mobile-navbar.toolbar .liquid-glass-filter-layer {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    border-radius: inherit;
+    background: rgb(255 255 255 / 75%);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 70%);
+    -webkit-backdrop-filter: blur(5px) saturate(180%);
+    backdrop-filter: blur(5px) saturate(180%);
+    pointer-events: none;
+  }
+
   .framework7-root .mobile-filter-toolbar.toolbar .toolbar-pane {
     height: 40px;
     border: 1px solid rgb(48 65 76 / 18%);
@@ -128,7 +147,7 @@
 
   .framework7-root .mobile-navbar.toolbar .tab-link {
     position: relative;
-    z-index: 1;
+    z-index: 2;
     height: 58px;
     color: var(--foreground);
   }
@@ -141,6 +160,10 @@
 
   .framework7-root .mobile-navbar.toolbar .tab-link.tab-link-active {
     color: var(--foreground);
+  }
+
+  .framework7-root .mobile-navbar.toolbar .tab-link-highlight {
+    z-index: 1;
   }
 
   .framework7-root .mobile-navbar.toolbar .tab-link-highlight::before,
@@ -175,6 +198,14 @@
     box-shadow:
       0 0 0 1px rgb(0 0 0 / 24%),
       0 5px 18px rgb(0 0 0 / 28%);
+  }
+
+  .dark .framework7-root .mobile-navbar.toolbar .toolbar-pane.liquid-glass-nav {
+    background: rgb(24 31 41 / 12%);
+  }
+
+  .dark .framework7-root .mobile-navbar.toolbar .liquid-glass-filter-layer {
+    background: rgb(24 31 41 / 74%);
   }
 
   .dark .framework7-root .mobile-filter-toolbar.toolbar .toolbar-pane {

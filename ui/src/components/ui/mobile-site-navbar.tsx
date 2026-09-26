@@ -5,6 +5,7 @@ import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
 import { MobileActionMenu } from "@/components/ui/mobile-native-controls"
+import { LiquidGlassLayer } from "@/components/ui/liquid-glass-layer"
 
 export function MobileSiteNavbar({
   title,
@@ -63,10 +64,11 @@ export function MobileSiteNavbar({
             {onBack && (
               <button
                 type="button"
-                className="mobile-navbar-action"
+                className="mobile-navbar-action liquid-glass-button"
                 aria-label={backLabel}
                 onClick={onBack}
               >
+                <LiquidGlassLayer />
                 <ChevronLeft aria-hidden="true" />
               </button>
             )}

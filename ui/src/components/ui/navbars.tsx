@@ -8,6 +8,7 @@ import {
   MessageCircle,
 } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { LiquidGlassLayer } from "@/components/ui/liquid-glass-layer"
 
 const destinations = [
   { label: "Home", icon: Home, id: "home" },
@@ -66,7 +67,8 @@ export function MobileNavbar({
       {...{ role: "navigation" }}
       aria-label="Primary navigation"
     >
-      <ToolbarPane {...{ role: "tablist" }} aria-label="App pages">
+      <ToolbarPane className="liquid-glass-nav" {...{ role: "tablist" }} aria-label="App pages">
+        <LiquidGlassLayer />
         {destinations.map(({ label, displayLabel, icon: Icon, id }, index) => (
           <button
             key={id}

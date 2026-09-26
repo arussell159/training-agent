@@ -91,6 +91,11 @@ html, body {
     overflow: hidden;
   }
 
+  .workout-mobile-map > div {
+    height: calc(min(48svh, 420px) + env(safe-area-inset-top, 0px));
+    min-height: calc(300px + env(safe-area-inset-top, 0px));
+  }
+
   .workout-map-navbar {
     --f7-navbar-bg-color: transparent;
     color: white;
