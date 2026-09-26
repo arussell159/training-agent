@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type TouchEvent } from "react"
+import { useEffect, useRef, useState, type PointerEvent } from "react"
 import { Clock3 } from "lucide-react"
 
 import {
@@ -48,110 +48,94 @@ function trainingLoad(workout: PlannedWorkout) {
 }
 
 function SessionCard({
-  workouts,
+  workout,
   dayLabel,
+  activeSession,
+  sessionCount,
   onOpen,
+  onSelectSession,
   onMoveDay,
 }: {
-  workouts: PlannedWorkout[]
+  workout?: PlannedWorkout
   dayLabel: string
-  onOpen: (workout: PlannedWorkout) => void
+  activeSession: number
+  sessionCount: number
+  onOpen: () => void
+  onSelectSession: (index: number) => void
   onMoveDay: (offset: number) => void
 }) {
-  const workout = workouts[0]
-  const multiple = workouts.length > 1
   const completed = workout?.status === "completed"
   return (
     <Card
-      role={workout && !multiple ? "button" : "group"}
+      role={workout ? "button" : "group"}
       tabIndex={0}
-      aria-label={multiple ? `${dayLabel}: ${workouts.length} workouts` : workout ? `Open ${workout.title}` : `${dayLabel}: no workout scheduled`}
-      onClick={workout && !multiple ? () => onOpen(workout) : undefined}
+      aria-label={workout ? `Open ${workout.title}` : `${dayLabel}: no workout scheduled`}
+      onClick={workout ? onOpen : undefined}
       onKeyDown={(event) => {
         if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
           event.preventDefault()
           onMoveDay(event.key === "ArrowRight" ? 1 : -1)
           return
         }
-        if (!workout || multiple || (event.key !== "Enter" && event.key !== " "))
+        if (!workout || (event.key !== "Enter" && event.key !== " "))
           return
         if (event.target !== event.currentTarget) return
         event.preventDefault()
-        onOpen(workout)
+        onOpen()
       }}
       className="mobile-dashboard-workout relative h-[320px] w-full overflow-hidden border-transparent shadow-sm ring-1 ring-inset ring-border"
     >
       <CardHeader className="gap-3">
         <CardDescription>
           {dayLabel}
-          {!multiple && completed && <span className="ml-2 text-primary">Completed</span>}
+          {completed && <span className="ml-2 text-primary">Completed</span>}
         </CardDescription>
-        {multiple ? (
-          <span className="absolute top-4 right-4 text-xs font-medium text-muted-foreground">
-            {workouts.length} workouts
-          </span>
-        ) : (
-          <CardTitle>
-            <h1 className="line-clamp-2 text-2xl leading-tight font-semibold tracking-tight">
-              {workout?.title ?? "No workout scheduled"}
-            </h1>
-          </CardTitle>
+        {sessionCount > 1 && (
+          <div className="absolute top-3 right-3 flex items-center gap-1" aria-label={`${activeSession + 1} of ${sessionCount} workouts`}>
+            <span className="text-xs font-semibold tabular-nums">{activeSession + 1}/{sessionCount}</span>
+            {Array.from({ length: sessionCount }, (_, index) => (
+              <button
+                key={index}
+                type="button"
+                aria-label={`Show workout ${index + 1} of ${sessionCount}`}
+                aria-current={index === activeSession ? "true" : undefined}
+                className="flex size-7 items-center justify-center rounded-full"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onSelectSession(index)
+                }}
+              >
+                <span aria-hidden="true" className={`h-1.5 rounded-full transition-all ${index === activeSession ? "w-4 bg-primary" : "w-1.5 bg-muted-foreground/40"}`} />
+              </button>
+            ))}
+          </div>
         )}
+        <CardTitle>
+          <h1 className="line-clamp-2 text-2xl leading-tight font-semibold tracking-tight">
+            {workout?.title ?? "No workout scheduled"}
+          </h1>
+        </CardTitle>
       </CardHeader>
-      {multiple ? (
-        <CardContent className={`flex min-h-0 flex-1 flex-col ${workouts.length > 2 ? "overflow-y-auto" : "overflow-hidden"}`}>
-          {workouts.map((session) => (
-            <div
-              key={session.id}
-              role="button"
-              tabIndex={0}
-              aria-label={`Open ${session.title}`}
-              className="flex min-h-[120px] shrink-0 cursor-pointer flex-col justify-between border-t py-2 first:border-t-0"
-              onClick={(event) => {
-                event.stopPropagation()
-                onOpen(session)
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter" && event.key !== " ") return
-                event.preventDefault()
-                event.stopPropagation()
-                onOpen(session)
-              }}
-            >
-              <h2 className="line-clamp-2 text-[15px] leading-5 font-semibold">{session.title}</h2>
-              <div className="h-12 overflow-hidden">
-                <WorkoutProfile workout={session} compact />
-              </div>
-              <div className="flex gap-4 text-xs text-muted-foreground">
-                <span>{formatDuration(durationMinutes(session))}</span>
-                <span>{trainingLoad(session)} TSS</span>
-                {session.status === "completed" && <span className="text-primary">Completed</span>}
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      ) : (
-        <CardContent className="flex flex-1 flex-col justify-end gap-0">
-          <div className="h-20 shrink-0 overflow-hidden">
-            {workout && <WorkoutProfile workout={workout} compact tall />}
+      <CardContent className="flex flex-1 flex-col justify-end gap-0">
+        <div className="h-20 shrink-0 overflow-hidden">
+          {workout && <WorkoutProfile workout={workout} compact tall />}
+        </div>
+        <div className="grid grid-cols-2 gap-4 border-t pt-4">
+          <div>
+            <p className="text-xs text-muted-foreground">Duration</p>
+            <p className="mt-1 flex items-center gap-2 font-medium">
+              <Clock3 className="size-4" />
+              {workout ? formatDuration(durationMinutes(workout)) : "—"}
+            </p>
           </div>
-          <div className="grid grid-cols-2 gap-4 border-t pt-4">
-            <div>
-              <p className="text-xs text-muted-foreground">Duration</p>
-              <p className="mt-1 flex items-center gap-2 font-medium">
-                <Clock3 className="size-4" />
-                {workout ? formatDuration(durationMinutes(workout)) : "—"}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Training load</p>
-              <p className="mt-1 font-medium tabular-nums">
-                {workout ? trainingLoad(workout) : 0} TSS
-              </p>
-            </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Training load</p>
+            <p className="mt-1 font-medium tabular-nums">
+              {workout ? trainingLoad(workout) : 0} TSS
+            </p>
           </div>
-        </CardContent>
-      )}
+        </div>
+      </CardContent>
     </Card>
   )
 }
@@ -165,32 +149,34 @@ export function MobileDailySessions({
 }) {
   const today = dashboardToday(context)
   const [selectedDate, setSelectedDate] = useState(today)
-  const swipeStart = useRef<{ x: number; y: number } | null>(null)
+  const [activeSession, setActiveSession] = useState(0)
+  const swipeStart = useRef<{ id: number; x: number; y: number } | null>(null)
   const ignoreClickUntil = useRef(0)
   const selectedSessions = dailyWorkouts(context, selectedDate)
+  const visibleSession = Math.min(activeSession, Math.max(0, selectedSessions.length - 1))
 
   useEffect(() => {
     setSelectedDate(today)
+    setActiveSession(0)
   }, [today])
 
   const moveDay = (offset: number) => {
     ignoreClickUntil.current = Date.now() + 500
+    setActiveSession(0)
     setSelectedDate((day) => dateAt(day, offset))
   }
 
-  const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
-    const touch = event.touches[0]
-    if (touch) swipeStart.current = { x: touch.clientX, y: touch.clientY }
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.isPrimary) swipeStart.current = { id: event.pointerId, x: event.clientX, y: event.clientY }
   }
 
-  const handleTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+  const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
     const start = swipeStart.current
-    const touch = event.changedTouches[0]
     swipeStart.current = null
-    if (!start || !touch) return
+    if (!start || start.id !== event.pointerId) return
 
-    const deltaX = touch.clientX - start.x
-    const deltaY = touch.clientY - start.y
+    const deltaX = event.clientX - start.x
+    const deltaY = event.clientY - start.y
     if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.25) return
 
     moveDay(deltaX < 0 ? 1 : -1)
@@ -199,18 +185,26 @@ export function MobileDailySessions({
   return (
     <div
       className="col-span-2 min-w-0 touch-pan-y md:hidden"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      onTouchCancel={() => {
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={() => {
         swipeStart.current = null
       }}
     >
       <SessionCard
-        workouts={selectedSessions}
+        workout={selectedSessions[visibleSession]}
         dayLabel={selectedDayLabel(selectedDate, today)}
+        activeSession={visibleSession}
+        sessionCount={selectedSessions.length}
         onMoveDay={moveDay}
-        onOpen={(workout) => {
-          if (Date.now() >= ignoreClickUntil.current) onWorkoutOpen?.(workout)
+        onSelectSession={(index) => {
+          if (Date.now() >= ignoreClickUntil.current) setActiveSession(index)
+        }}
+        onOpen={() => {
+          if (Date.now() >= ignoreClickUntil.current) {
+            const workout = selectedSessions[visibleSession]
+            if (workout) onWorkoutOpen?.(workout)
+          }
         }}
       />
     </div>

@@ -127,6 +127,8 @@
   }
 
   .framework7-root .mobile-navbar.toolbar .tab-link {
+    position: relative;
+    z-index: 1;
     height: 58px;
     color: var(--foreground);
   }

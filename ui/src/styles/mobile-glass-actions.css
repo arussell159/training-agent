@@ -4,8 +4,8 @@
   .mobile-glass-action,
   .terms-metric-sheet-close {
     --glass-ink: var(--foreground);
-    --glass-edge: rgb(255 255 255 / 72%);
-    --glass-ring: rgb(48 65 76 / 16%);
+    --glass-edge: rgb(255 255 255 / 90%);
+    --glass-ring: rgb(255 255 255 / 78%);
     --glass-fill: rgb(255 255 255 / 4%);
     --glass-shadow:
       0 0 0 1px var(--glass-ring),
@@ -26,6 +26,12 @@
       border-color 200ms ease,
       box-shadow 200ms ease,
       filter 200ms ease;
+  }
+
+  .mobile-site-navbar .mobile-navbar-action {
+    width: 43px;
+    height: 43px;
+    transform: translateY(-1px);
   }
 
   .mobile-site-navbar .mobile-navbar-action::before,
@@ -112,6 +118,12 @@
   .workout-map-navbar .mobile-navbar-action,
   .dark .workout-map-navbar .mobile-navbar-action {
     --glass-ink: #111827;
+    --glass-edge: rgb(255 255 255 / 92%);
+    --glass-ring: rgb(255 255 255 / 80%);
+    --glass-fill: rgb(255 255 255 / 84%);
+    --glass-shadow:
+      0 0 0 1px var(--glass-ring),
+      0 3px 10px rgb(21 32 39 / 10%);
   }
 
   .calendar-month-title-button:focus-visible {
