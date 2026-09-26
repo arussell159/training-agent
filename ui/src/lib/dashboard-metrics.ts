@@ -1,5 +1,37 @@
 import type {PlannedWorkout, TrainingContext} from './training-context'
 
+export function dailyWorkouts(context: TrainingContext, day: string): PlannedWorkout[] {
+  const candidates = [
+    ...context.planned,
+    ...(context.history.filter((item) => 'id' in item) as PlannedWorkout[]),
+  ]
+  const sessions = new Map<string, PlannedWorkout>()
+  for (const workout of candidates) {
+    if (workout.workout_date !== day) continue
+    const completedMinutes = Math.max(
+      Number(workout.actualDurationMinutes) || 0,
+      Number(workout.completed_data?.duration_minutes) || 0,
+      (Number(workout.workout_summary?.completed?.duration_seconds) || 0) / 60
+    )
+    const plannedMinutes = Math.max(
+      Number(workout.plannedDurationMinutes) || 0,
+      Number(workout.planned?.duration_minutes) || 0,
+      (Number(workout.workout_summary?.planned?.duration_seconds) || 0) / 60
+    )
+    if (completedMinutes <= 0 && plannedMinutes <= 0) continue
+    const key = workout.activity_id ? `activity:${workout.activity_id}` : workout.id
+    const current = sessions.get(key)
+    if (!current || workout.id.startsWith('event:')) sessions.set(key, workout)
+  }
+  const priority = (sport: string) => /swim|bike|ride|brick|run/i.test(sport) ? 0 : 1
+  return [...sessions.values()].sort((a, b) =>
+    priority(a.sport) - priority(b.sport) ||
+    String(a.scheduled_start_at || a.recorded_start_local || a.title).localeCompare(
+      String(b.scheduled_start_at || b.recorded_start_local || b.title)
+    )
+  )
+}
+
 export function dashboardToday(context: TrainingContext, now = new Date()) {
   const zone = context.athlete?.time_zone || 'America/Chicago'
   return new Intl.DateTimeFormat('en-CA', {timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit'}).format(now)

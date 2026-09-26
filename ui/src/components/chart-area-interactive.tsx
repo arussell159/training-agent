@@ -1,4 +1,4 @@
-import { useMemo, useState, type ComponentType } from "react"
+import { useEffect, useMemo, useState, type ComponentType } from "react"
 import type { PointerEvent as ReactPointerEvent } from "react"
 import { Activity, Bike, Footprints, Waves } from "lucide-react"
 import {
@@ -12,6 +12,7 @@ import {
 } from "recharts"
 import { Button as F7Button } from "framework7-react"
 import { Card, CardContent } from "@/components/ui/card"
+import { apiFetch } from "@/lib/api-client"
 // @ts-expect-error Shared browser/server helper is plain JavaScript by design.
 import { completedActivityKey, completedActivityValues } from "../../../app-backend/lib/completed-activity.mjs"
 
@@ -34,6 +35,8 @@ const METERS_PER_FOOT = 0.3048
 type SportFilter = "all" | "run" | "bike" | "swim"
 type HistoryMetric = "time" | "distance"
 type HistoryRecord = Record<string, unknown>
+type HistoryTotals = { hours: number; distanceMeters: number; elevationMeters: number }
+type HistoryWeek = { week: string } & Record<SportFilter, HistoryTotals>
 type SportOption = {
   value: SportFilter
   label: string
@@ -173,11 +176,30 @@ export function ChartAreaInteractive({
   const [sport, setSport] = useState<SportFilter>("all")
   const [historyMetric, setHistoryMetric] = useState<HistoryMetric>("time")
   const [inspectIndex, setInspectIndex] = useState<number | null>(null)
+  const [savedWeeks, setSavedWeeks] = useState<HistoryWeek[] | null>(null)
+  useEffect(() => {
+    let active = true
+    void apiFetch("/api/training-history", { headers: { Accept: "application/json" } })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Training history ${response.status}`)
+        return response.json() as Promise<{ weeks?: HistoryWeek[] }>
+      })
+      .then(({ weeks }) => {
+        if (active && Array.isArray(weeks) && weeks.length === 12) setSavedWeeks(weeks)
+      })
+      .catch(() => {
+        // The current context remains available while a history read retries on remount.
+      })
+    return () => { active = false }
+  }, [context.synced_at])
   const records = useMemo(
     () => completedHistory(context, sport),
     [context, sport]
   )
-  const history = useMemo(() => twelveWeekHistory(records), [records])
+  const history = useMemo(
+    () => savedWeeks?.map((row) => ({ week: row.week, ...row[sport] })) ?? twelveWeekHistory(records),
+    [savedWeeks, records, sport]
+  )
   const chartHistory = useMemo(() => {
     return history.map((row) => ({
       ...row,

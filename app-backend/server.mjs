@@ -27,6 +27,7 @@ import {readDurableState,writeDurableState} from './lib/durable-state.mjs';
 import {loadActivityBundle,loadActivityView} from './lib/activity-bundle.mjs';
 import {saveFastView,fastViewId,projectTrainingContext} from './lib/fast-context.mjs';
 import {retainRecentTrainingContext,twelveWeekStart} from './lib/training-retention.mjs';
+import {buildTwelveWeekTrainingHistory} from './lib/training-history.mjs';
 import {createMutationQueue,validateMutation,pendingMutationContext} from './lib/mutation-queue.mjs';
 import {createRequestCache} from './lib/request-cache.mjs';
 import {compressAsset} from './lib/asset-compression.mjs';
@@ -825,6 +826,18 @@ export async function handleRequest(req, res) {
         if(range)projected={...projected,display_range:range,history:projected.history.filter(w=>w.workout_date>=range.start && w.workout_date<=range.end),planned:projected.planned.filter(w=>w.workout_date>=range.start && w.workout_date<=range.end)};
         sendJson(req,res,projected);return;
       }
+    }
+    if(pathname==='/api/training-history' && req.method==='GET') {
+      const config=await readConfig(),store=createContextStore(config);
+      const view=store.ready?await store.getSyncRecord(fastViewId(config)):null;
+      const source=view?.history?.length?view:await loadSupabaseTrainingSnapshot(config);
+      if(!source){
+        res.writeHead(503,{'Content-Type':'application/json','Cache-Control':'no-store'});
+        res.end(JSON.stringify({error:'Training history is unavailable.'}));
+        return;
+      }
+      sendJson(req,res,{weeks:buildTwelveWeekTrainingHistory(source),synced_at:source.synced_at});
+      return;
     }
     if (pathname === '/api/config') {
       if (req.method === 'GET') {

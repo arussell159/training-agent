@@ -9,12 +9,12 @@
     margin-top: 4px;
     border: 1px solid rgb(255 255 255 / 72%);
     border-radius: 999px;
-    background: rgb(255 255 255 / 4%);
+    background: rgb(255 255 255 / 78%);
     box-shadow:
       0 0 0 1px rgb(48 65 76 / 18%),
       0 5px 18px rgb(21 32 39 / 15%);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
+    -webkit-backdrop-filter: blur(18px) saturate(130%);
+    backdrop-filter: blur(18px) saturate(130%);
   }
 
   .framework7-root .mobile-filter-toolbar.toolbar .toolbar-pane {
@@ -149,7 +149,7 @@
 
   .framework7-root .mobile-navbar.toolbar .tab-link-highlight::before {
     border: 1px solid rgb(255 255 255 / 78%);
-    background: rgb(255 255 255 / 9%);
+    background: rgb(255 255 255 / 82%);
     box-shadow:
       0 0 0 1px rgb(48 65 76 / 15%),
       0 2px 7px rgb(21 32 39 / 12%);
@@ -169,7 +169,7 @@
 
   .dark .framework7-root .mobile-navbar.toolbar .toolbar-pane {
     border-color: rgb(255 255 255 / 32%);
-    background: rgb(255 255 255 / 4%);
+    background: rgb(24 31 41 / 78%);
     box-shadow:
       0 0 0 1px rgb(0 0 0 / 24%),
       0 5px 18px rgb(0 0 0 / 28%);

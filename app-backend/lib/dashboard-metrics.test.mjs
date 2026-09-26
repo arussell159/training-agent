@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  dailyWorkouts,
   todaysWorkout,
   recoverySeries,
   workoutDurations,
@@ -30,6 +31,66 @@ test("dashboard retains today completed prescription instead of tomorrow or an u
   assert.equal(
     todaysWorkout({ ...context, planned: [next] }, new Date("2026-09-15T20:00:00Z")),
     undefined
+  );
+});
+test("home keeps both distinct workouts for a day and collapses paired activity duplicates", () => {
+  const bike = {
+    id: "event:bike",
+    activity_id: "bike-1",
+    workout_date: "2026-09-25",
+    sport: "Ride",
+    title: "Bike",
+    plannedDurationMinutes: 60,
+  };
+  const run = {
+    id: "event:run",
+    activity_id: "run-1",
+    workout_date: "2026-09-25",
+    sport: "Run",
+    title: "Run",
+    plannedDurationMinutes: 30,
+  };
+  const recording = { ...bike, id: "activity:bike-1" };
+  assert.deepEqual(
+    dailyWorkouts({ ...context, planned: [bike, run], history: [recording] }, "2026-09-25"),
+    [bike, run]
+  );
+  assert.deepEqual(
+    dailyWorkouts(
+      {
+        ...context,
+        planned: [bike],
+        history: [
+          {
+            id: "activity:other",
+            workout_date: "2026-09-25",
+            sport: "Other",
+            actualDurationMinutes: 0,
+          },
+        ],
+      },
+      "2026-09-25"
+    ),
+    [bike]
+  );
+  assert.deepEqual(
+    dailyWorkouts(
+      {
+        ...context,
+        planned: [
+          bike,
+          {
+            id: "event:other",
+            workout_date: "2026-09-25",
+            sport: "Other",
+            plannedDurationMinutes: 0,
+          },
+        ],
+        history: [],
+      },
+      "2026-09-25"
+    ),
+    [bike]
   );
 });
 test("Intervals wellness supplies daily HRV and resting HR range and average without workouts", () => {

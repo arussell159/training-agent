@@ -361,10 +361,19 @@ export function loadFullTrainingContext(forceRefresh = false, networkOnly = fals
 
 export function durationMinutes(workout: PlannedWorkout) {
   if (Number.isFinite(workout.plannedDurationMinutes)) {
-    return Number(workout.plannedDurationMinutes)
+    const plannedMinutes = Number(workout.plannedDurationMinutes)
+    if (plannedMinutes > 0) return plannedMinutes
   }
   if (Number.isFinite(workout.planned?.duration_minutes)) {
-    return Number(workout.planned?.duration_minutes)
+    const plannedMinutes = Number(workout.planned?.duration_minutes)
+    if (plannedMinutes > 0) return plannedMinutes
+  }
+
+  if (Number.isFinite(workout.actualDurationMinutes)) {
+    return Number(workout.actualDurationMinutes)
+  }
+  if (Number.isFinite(workout.completed_data?.duration_minutes)) {
+    return Number(workout.completed_data?.duration_minutes)
   }
 
   const hours = Number(workout.duration.match(/(\d+)h/)?.[1] ?? 0)

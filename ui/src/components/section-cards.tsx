@@ -1,6 +1,6 @@
 import { formatDuration } from "@/lib/duration"
 import { durationMinutes } from "@/lib/training-context"
-import { recoverySeries, todaysWorkout } from "@/lib/dashboard-metrics"
+import { dailyWorkouts, dashboardToday, recoverySeries, todaysWorkout } from "@/lib/dashboard-metrics"
 import {
   BedDouble,
   Clock3,
@@ -365,7 +365,9 @@ export function SectionCards({
   context: TrainingContext
   onWorkoutOpen?: (workout: PlannedWorkout) => void
 }) {
-  const today = todaysWorkout(context)
+  const todayWorkouts = dailyWorkouts(context, dashboardToday(context))
+  const today = todayWorkouts[0] ?? todaysWorkout(context)
+  const multipleToday = todayWorkouts.length > 1
   const fitness =
     context.metrics.fitness == null ? "—" : Math.round(context.metrics.fitness)
   const fatigue =
@@ -377,12 +379,12 @@ export function SectionCards({
     <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-12">
       <MobileDailySessions context={context} onWorkoutOpen={onWorkoutOpen} />
       <Card
-        role={onWorkoutOpen ? "button" : undefined}
-        tabIndex={onWorkoutOpen ? 0 : undefined}
-        aria-label={onWorkoutOpen && today ? `Open ${today.title}` : undefined}
-        onClick={() => today && onWorkoutOpen?.(today)}
+        role={onWorkoutOpen && !multipleToday ? "button" : undefined}
+        tabIndex={onWorkoutOpen && !multipleToday ? 0 : undefined}
+        aria-label={onWorkoutOpen && today && !multipleToday ? `Open ${today.title}` : undefined}
+        onClick={() => !multipleToday && today && onWorkoutOpen?.(today)}
         onKeyDown={(event) => {
-          if (!onWorkoutOpen || (event.key !== "Enter" && event.key !== " "))
+          if (multipleToday || !onWorkoutOpen || (event.key !== "Enter" && event.key !== " "))
             return
           event.preventDefault()
           if (today) onWorkoutOpen(today)
@@ -391,17 +393,48 @@ export function SectionCards({
       >
         <CardHeader className="gap-3">
           <CardDescription>
-            Today&apos;s workout
-            {today?.status === "completed" && (
+            Today&apos;s {multipleToday ? "workouts" : "workout"}
+            {!multipleToday && today?.status === "completed" && (
               <span className="ml-2 text-primary">Completed</span>
             )}
           </CardDescription>
-          <CardTitle>
-            <h1 className="text-2xl leading-tight font-semibold tracking-tight md:text-3xl">
-              {today?.title ?? "No workout scheduled"}
-            </h1>
-          </CardTitle>
+          {!multipleToday && (
+            <CardTitle>
+              <h1 className="text-2xl leading-tight font-semibold tracking-tight md:text-3xl">
+                {today?.title ?? "No workout scheduled"}
+              </h1>
+            </CardTitle>
+          )}
         </CardHeader>
+        {multipleToday ? (
+          <CardContent className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+            {todayWorkouts.map((session) => (
+              <div
+                key={session.id}
+                role={onWorkoutOpen ? "button" : undefined}
+                tabIndex={onWorkoutOpen ? 0 : undefined}
+                aria-label={onWorkoutOpen ? `Open ${session.title}` : undefined}
+                className="flex min-h-[115px] flex-1 cursor-pointer flex-col justify-between border-t py-2 first:border-t-0"
+                onClick={() => onWorkoutOpen?.(session)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return
+                  event.preventDefault()
+                  onWorkoutOpen?.(session)
+                }}
+              >
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <h2 className="truncate font-semibold">{session.title}</h2>
+                  {session.status === "completed" && <span className="shrink-0 text-xs text-primary">Completed</span>}
+                </div>
+                <div className="h-12 overflow-hidden"><WorkoutProfile workout={session} compact /></div>
+                <div className="flex gap-4 text-xs text-muted-foreground">
+                  <span>{formatDuration(durationMinutes(session))}</span>
+                  <span>{Math.round(session.workout_summary?.completed?.tss ?? session.workout_summary?.planned?.tss ?? session.completed_data?.tss ?? session.planned?.tss ?? session.load ?? 0)} TSS</span>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        ) : (
         <CardContent className="flex flex-1 flex-col justify-end gap-3">
           {hasWorkoutStructure(today?.structure) && (
             <WorkoutProfile workout={today!} home />
@@ -425,6 +458,7 @@ export function SectionCards({
             </div>
           </div>
         </CardContent>
+        )}
       </Card>
 
       <EventsCard context={context} />
