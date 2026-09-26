@@ -36,6 +36,16 @@
     pointer-events: none;
   }
 
+  .framework7-root .coach-app-shell .mobile-navbar.toolbar .liquid-glass-filter-layer {
+    background: rgb(255 255 255 / 88%);
+  }
+
+  .framework7-root .coach-report-navbar .mobile-filter-toolbar.toolbar .toolbar-pane {
+    background: rgb(255 255 255 / 88%);
+    -webkit-backdrop-filter: blur(12px) saturate(130%);
+    backdrop-filter: blur(12px) saturate(130%);
+  }
+
   .framework7-root .mobile-filter-toolbar.toolbar .toolbar-pane {
     height: 40px;
     border: 1px solid rgb(48 65 76 / 18%);
@@ -206,6 +216,11 @@
 
   .dark .framework7-root .mobile-navbar.toolbar .liquid-glass-filter-layer {
     background: rgb(24 31 41 / 74%);
+  }
+
+  .dark .framework7-root .coach-app-shell .mobile-navbar.toolbar .liquid-glass-filter-layer,
+  .dark .framework7-root .coach-report-navbar .mobile-filter-toolbar.toolbar .toolbar-pane {
+    background: rgb(24 31 41 / 88%);
   }
 
   .dark .framework7-root .mobile-filter-toolbar.toolbar .toolbar-pane {
