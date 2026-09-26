@@ -32,6 +32,40 @@ class SyncFailure(Exception):
     pass
 
 
+def export_environment(payload):
+    environment = {
+        name: os.environ[name]
+        for name in ("PATH", "HOME", "LANG", "LC_ALL", "TZ", "TMPDIR",
+                     "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE")
+        if name in os.environ
+    }
+    # Vercel adds bundled dependencies to the handler's sys.path. A child
+    # interpreter in /tmp does not inherit those runtime path changes.
+    environment["PYTHONPATH"] = os.pathsep.join(
+        str(Path(entry).resolve()) for entry in sys.path if entry
+    )
+    environment["PYTHONIOENCODING"] = "utf-8"
+    environment["ATHLETE_ID"] = str(payload["athlete_id"])
+    environment["INTERVALS_KEY"] = payload["intervals_key"]
+    if payload.get("week_start"):
+        environment["WEEK_START"] = str(payload["week_start"])
+    if payload.get("zone_preference"):
+        environment["ZONE_PREFERENCE"] = str(payload["zone_preference"])
+    return environment
+
+
+def export_failure(result, phase="export"):
+    # Never return stdout or a raw traceback: sync.py prints credential prefixes
+    # and private training details. Only expose a bounded exception category.
+    stderr = result.stderr.decode("utf-8", errors="replace")[-4000:]
+    missing = re.search(r"ModuleNotFoundError: No module named '([A-Za-z0-9_.]{1,80})'", stderr)
+    if missing:
+        return f"Section 11 {phase} needs the Python dependency {missing.group(1)}. Redeploy the sync worker."
+    categories = re.findall(r"^([A-Za-z]{1,60}(?:Error|Exception)):", stderr, re.MULTILINE)
+    detail = f", {categories[-1]}" if categories else ""
+    return f"Section 11 {phase} failed (exit {result.returncode}{detail})."
+
+
 def github(repo, token, method, path, *, payload=None, raw=False, missing=False):
     headers = {
         "Authorization": f"Bearer {token}",
@@ -143,18 +177,7 @@ def run_export(payload, token):
                 previous[name] = content
                 (directory / name).write_bytes(content)
 
-        environment = {
-            name: os.environ[name]
-            for name in ("PATH", "HOME", "LANG", "LC_ALL", "TZ", "TMPDIR",
-                         "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE")
-            if name in os.environ
-        }
-        environment["ATHLETE_ID"] = athlete
-        environment["INTERVALS_KEY"] = intervals_key
-        if payload.get("week_start"):
-            environment["WEEK_START"] = str(payload["week_start"])
-        if payload.get("zone_preference"):
-            environment["ZONE_PREFERENCE"] = str(payload["zone_preference"])
+        environment = export_environment(payload)
         started = time.monotonic()
         if history_is_overdue(previous.get("history.json")):
             try:
@@ -166,7 +189,7 @@ def run_export(payload, token):
             except subprocess.TimeoutExpired as exc:
                 raise SyncFailure("Section 11 history rebuild timed out.") from exc
             if history_result.returncode != 0:
-                raise SyncFailure(f"Section 11 history rebuild failed (exit {history_result.returncode}).")
+                raise SyncFailure(export_failure(history_result, "history rebuild"))
         try:
             result = subprocess.run(
                 [sys.executable, "sync.py", "--days", "7", "--output", "latest.json"],
@@ -177,7 +200,7 @@ def run_export(payload, token):
         except subprocess.TimeoutExpired as exc:
             raise SyncFailure("Section 11 export timed out.") from exc
         if result.returncode != 0:
-            raise SyncFailure(f"Section 11 export failed (exit {result.returncode}).")
+            raise SyncFailure(export_failure(result))
         latest = directory / "latest.json"
         if not latest.exists():
             raise SyncFailure("Section 11 did not produce latest.json.")

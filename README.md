@@ -101,6 +101,7 @@ Reports remain unavailable until the private repository contains an export after
 
 `npm run dev` starts the UI; run `npm start` separately for API requests.
 `npm test` runs backend tests using mock credentials and provider responses.
+`python -m unittest discover -s tests` checks the Python worker's isolated runtime and error redaction.
 `npm run build` type-checks and builds the UI.
 
 With the UI dev server running, `/tests/sync-mobile-frame.html` previews the real
