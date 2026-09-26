@@ -4,6 +4,14 @@
     --f7-tabbar-link-active-color: var(--foreground);
   }
 
+  /* Keep the backdrop continuous through the home-indicator area. Overscan
+     avoids a sharp strip at the viewport edge during Safari's compositing. */
+  .framework7-root .mobile-navbar.toolbar::before,
+  .framework7-root .mobile-navbar.toolbar::after {
+    display: block;
+    bottom: -2px;
+  }
+
   .framework7-root .mobile-navbar.toolbar .toolbar-pane {
     height: 60px;
     margin-top: 4px;

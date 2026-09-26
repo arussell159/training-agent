@@ -1,5 +1,19 @@
 import { createHmac } from "node:crypto";
 
+export function section11WorkerOrigin(env = process.env) {
+  // The unique deployment URL can be protected or retired. Use the app's
+  // configured public origin for this signed server-to-server request.
+  return (
+    env.SECTION11_DIRECT_SYNC_ORIGIN ||
+    env.APP_ORIGIN ||
+    (env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : env.VERCEL_URL
+        ? `https://${env.VERCEL_URL}`
+        : "")
+  );
+}
+
 export async function runSection11DirectSync({
   repo,
   branch,
@@ -46,7 +60,16 @@ export async function runSection11DirectSync({
   } catch {
     result = {};
   }
-  if (!response.ok || result.status !== "complete")
-    throw Error(result.error || `Section 11 direct sync failed (HTTP ${response.status}).`);
+  if (!response.ok || result.status !== "complete") {
+    const detail =
+      typeof result.error === "string"
+        ? result.error
+        : typeof result.error?.message === "string"
+          ? result.error.message
+          : "";
+    throw Error(
+      `GitHub export failed (HTTP ${response.status}).${detail ? ` ${detail}` : " The sync worker did not return a completed export."}`
+    );
+  }
   return result;
 }

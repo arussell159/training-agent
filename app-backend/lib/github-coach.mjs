@@ -12,8 +12,8 @@ import { reportFollowsStructure, validReportSummary } from "./report-format.mjs"
 export function coachConfig(env = process.env) {
   const config = {
     githubToken: env.TRAINING_DATA_GITHUB_TOKEN || "",
-    repo: env.TRAINING_DATA_GITHUB_REPO || "",
-    branch: env.TRAINING_DATA_GITHUB_BRANCH || "main",
+    repo: (env.TRAINING_DATA_GITHUB_REPO || "").trim(),
+    branch: (env.TRAINING_DATA_GITHUB_BRANCH || "").trim() || "main",
     openaiKey: env.OPENAI_API_KEY || "",
     model: env.OPENAI_MODEL || "gpt-5.4-mini",
     calendarTimeZone: env.COACH_TIME_ZONE || "America/Chicago",

@@ -116,10 +116,13 @@ def run_export(payload, token):
     branch = payload.get("branch")
     athlete = payload.get("athlete_id")
     intervals_key = payload.get("intervals_key")
-    if (not os.getenv("TRAINING_DATA_GITHUB_REPO") or
-            repo != os.getenv("TRAINING_DATA_GITHUB_REPO") or
-            branch != os.getenv("TRAINING_DATA_GITHUB_BRANCH", "main") or
-            not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", str(athlete or "")) or
+    configured_repo = os.getenv("TRAINING_DATA_GITHUB_REPO", "").strip()
+    configured_branch = os.getenv("TRAINING_DATA_GITHUB_BRANCH", "").strip() or "main"
+    if not configured_repo or not isinstance(repo, str) or repo.casefold() != configured_repo.casefold():
+        raise SyncFailure("Section 11 repository configuration does not match the app. Check TRAINING_DATA_GITHUB_REPO and redeploy.")
+    if branch != configured_branch:
+        raise SyncFailure("Section 11 branch configuration does not match the app. Check TRAINING_DATA_GITHUB_BRANCH and redeploy.")
+    if (not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", str(athlete or "")) or
             not isinstance(intervals_key, str) or not intervals_key or
             payload.get("days") != 7):
         raise SyncFailure("Invalid Section 11 sync request.")

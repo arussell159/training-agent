@@ -1,7 +1,40 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { runSection11DirectSync } from "./section11-direct-sync.mjs";
+import { runSection11DirectSync, section11WorkerOrigin } from "./section11-direct-sync.mjs";
+
+test("worker uses the public app URL instead of the protected deployment URL", () => {
+  const env = {
+    APP_ORIGIN: "https://app.example",
+    VERCEL_URL: "protected.vercel.app",
+    VERCEL_PROJECT_PRODUCTION_URL: "public.vercel.app",
+  };
+  assert.equal(section11WorkerOrigin(env), "https://app.example");
+  assert.equal(section11WorkerOrigin({ ...env, APP_ORIGIN: "" }), "https://public.vercel.app");
+  assert.equal(
+    section11WorkerOrigin({ ...env, SECTION11_DIRECT_SYNC_ORIGIN: "https://worker.example" }),
+    "https://worker.example"
+  );
+});
+
+test("worker platform errors are readable instead of becoming object Object", async () => {
+  await assert.rejects(
+    runSection11DirectSync({
+      repo: "athlete/data",
+      branch: "main",
+      githubToken: "fake",
+      intervalsKey: "fake",
+      athleteId: "i123",
+      origin: "https://app.example",
+      fetchImpl: async () =>
+        Response.json(
+          { error: { code: "DEPLOYMENT_NOT_FOUND", message: "Deployment unavailable" } },
+          { status: 404 }
+        ),
+    }),
+    /GitHub export failed \(HTTP 404\).*Deployment unavailable/
+  );
+});
 
 test("direct sync signs a server-only request to the Python worker", async () => {
   const result = await runSection11DirectSync({

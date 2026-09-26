@@ -1,0 +1,7 @@
+/* Framework7's mobile button reset is unlayered and sets width: 100%.
+   Keep the dismiss target fixed so it cannot squeeze the message to zero. */
+.app-toast-close {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+}

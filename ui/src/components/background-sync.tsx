@@ -4,6 +4,8 @@ import {
   markSection11ExportPending,
   section11ExportPending,
   syncSection11Export,
+  waitForSection11Export,
+  type Section11Sync,
 } from "@/lib/section11-export"
 import {
   rememberTrainingContext,
@@ -67,7 +69,7 @@ export function BackgroundSync() {
           sync_error?: string
           section11Pending?: boolean
           sourceChanged?: boolean
-          section11Sync?: { status: string; error?: string }
+          section11Sync?: Section11Sync
           queue?: { failed: number }
         }
         if (!response.ok || !result.context)
@@ -84,9 +86,10 @@ export function BackgroundSync() {
         if (result.section11Pending) {
           markSection11ExportPending()
         }
-        if (section11ExportPending()) {
+        if (result.section11Sync || section11ExportPending()) {
           try {
-            await syncSection11Export()
+            if (result.section11Sync) await waitForSection11Export(result.section11Sync)
+            else await syncSection11Export()
           } catch (error) {
             if (active && !controller.signal.aborted) {
               console.warn("Section 11 files could not be updated after the workout refresh.", error)
@@ -94,7 +97,7 @@ export function BackgroundSync() {
             }
           }
         }
-        if (needsFollowUp && !section11ExportPending()) {
+        if (needsFollowUp || section11ExportPending()) {
           followUpTimer = window.setTimeout(() => {
             if (active && !busy) checkWhenDue()
           }, Math.max(0, nextCheck() - Date.now()) + 100)
@@ -159,6 +162,7 @@ export function BackgroundSync() {
     const edit = () => window.setTimeout(() => void check(), 0)
     window.addEventListener("request-background-sync", edit)
     window.addEventListener("focus", checkOnResume)
+    window.addEventListener("online", checkOnResume)
     window.addEventListener("pointerdown", interaction, { passive: true })
     window.addEventListener("keydown", interaction)
     window.addEventListener("wheel", interaction, { passive: true })
@@ -170,6 +174,7 @@ export function BackgroundSync() {
       window.clearTimeout(followUpTimer)
       window.removeEventListener("request-background-sync", edit)
       window.removeEventListener("focus", checkOnResume)
+      window.removeEventListener("online", checkOnResume)
       window.removeEventListener("pointerdown", interaction)
       window.removeEventListener("keydown", interaction)
       window.removeEventListener("wheel", interaction)

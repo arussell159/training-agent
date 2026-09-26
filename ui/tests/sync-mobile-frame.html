@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Mobile sync verification</title>
+    <style>
+      body {
+        margin: 0;
+        background: #dce1e5;
+        font: 14px system-ui;
+      }
+      header {
+        padding: 12px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      iframe {
+        display: block;
+        margin: 0 auto;
+        border: 0;
+        box-shadow: 0 0 0 1px #a0a6ad;
+      }
+      label {
+        display: flex;
+        gap: 6px;
+      }
+      pre {
+        max-width: 1000px;
+        margin: 12px auto;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <b>Sync verification</b
+      ><label
+        >Width<select id="width">
+          <option>320</option>
+          <option selected>390</option>
+          <option>430</option>
+          <option>1100</option>
+        </select></label
+      ><label
+        >Scenario<select id="scenario">
+          <option value="success">Success</option>
+          <option value="github-error">GitHub error</option>
+          <option value="intervals-error">Intervals error</option>
+        </select></label
+      ><button id="inspect">Inspect layout</button>
+    </header>
+    <iframe
+      id="preview"
+      title="App preview"
+      width="390"
+      height="844"
+      src="/tests/sync-mobile.html"
+    ></iframe>
+    <pre id="result"></pre>
+    <script>
+      const frame = document.getElementById("preview")
+      document.getElementById("width").onchange = (event) =>
+        (frame.width = event.target.value)
+      document.getElementById("scenario").onchange = (event) =>
+        (frame.src = "/tests/sync-mobile.html?scenario=" + event.target.value)
+      document.getElementById("inspect").onclick = () => {
+        const d = frame.contentDocument,
+          w = frame.contentWindow
+        const nav = d.querySelector(".mobile-navbar")
+        const box = nav?.getBoundingClientRect()
+        document.getElementById("result").textContent = JSON.stringify(
+          {
+            viewport: w.innerWidth,
+            pageWidth: d.documentElement.scrollWidth,
+            viewportBottom: w.innerHeight,
+            menuBottom: box?.bottom,
+            blurBottom: nav ? w.getComputedStyle(nav, "::before").bottom : null,
+            toasts: [...d.querySelectorAll("[data-type]")].map((e) => ({
+              type: e.getAttribute("data-type"),
+              text: e.textContent,
+              width: e.getBoundingClientRect().width,
+            })),
+          },
+          null,
+          2
+        )
+      }
+    </script>
+  </body>
+</html>

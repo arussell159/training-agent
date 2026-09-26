@@ -48,8 +48,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { MobileNavbar, MobilePageTabs } from "@/components/ui/navbars"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
-import { f7ready } from "framework7-react"
-import type { Dialog as Framework7Dialog } from "framework7/types"
 import {
   MobileHeaderNavigation,
   MobileDefinitionsOpen,
@@ -177,44 +175,6 @@ function RouteScrollReset({ route }: { route: string }) {
   return null
 }
 
-type MobileRefreshDialog = {
-  dialog: Framework7Dialog.Dialog
-  dismissed: boolean
-}
-
-function openMobileRefreshDialog(): Promise<MobileRefreshDialog | null> {
-  return new Promise((resolve) => {
-    f7ready((app) => {
-      if (!app.dialog) {
-        resolve(null)
-        return
-      }
-      const dialog = app.dialog.progress("Refreshing Intervals.icu", 0)
-      const inner = dialog.el.querySelector<HTMLElement>(".dialog-inner")
-      if (inner) {
-        inner.style.position = "relative"
-        inner.style.paddingRight = "42px"
-        const closeButton = document.createElement("button")
-        closeButton.type = "button"
-        closeButton.className = "refresh-progress-dialog-close"
-        closeButton.setAttribute("aria-label", "Dismiss sync progress")
-        closeButton.textContent = "×"
-        closeButton.style.cssText =
-          "position:absolute;top:8px;right:8px;display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:999px;background:var(--f7-dialog-button-bg-color, transparent);color:var(--foreground);font-size:24px;line-height:1;cursor:pointer"
-        inner.append(closeButton)
-        const refreshDialog = { dialog, dismissed: false }
-        closeButton.addEventListener("click", () => {
-          refreshDialog.dismissed = true
-          dialog.close()
-        })
-        resolve(refreshDialog)
-        return
-      }
-      resolve({ dialog, dismissed: false })
-    })
-  })
-}
-
 function AppWorkspace() {
   useMobileViewport()
   const mobileTerms = useIsMobile()
@@ -249,60 +209,26 @@ function AppWorkspace() {
     if (isRefreshing) return
     setIsRefreshing(true)
     const startedAt = Date.now()
-    const mobileProgressDialog = mobileTerms
-      ? await openMobileRefreshDialog()
-      : null
     const toastId = "intervals-icu-refresh"
     const updateProgress = (progress: ManualRefreshProgress) => {
-      if (mobileProgressDialog && !mobileProgressDialog.dismissed) {
-        const { dialog } = mobileProgressDialog
-        const title = "Refreshing Intervals.icu"
-        const hasProgress =
-          typeof progress.completed === "number" &&
-          typeof progress.total === "number" &&
-          progress.total > 0
-        const value = progress.phase === "complete"
-          ? 100
-          : hasProgress
-            ? Math.max(0, Math.min(100, (progress.completed! / progress.total!) * 100))
-            : 0
-        const detail = hasProgress
-          ? progress.phase === "intervals"
-              ? `${progress.completed} of ${progress.total} Intervals.icu requests complete`
-              : ""
-          : ""
-        dialog.setTitle(title)
-        dialog.setProgress(value, 250)
-        dialog.setText(detail ? `${progress.label} · ${detail}` : progress.label)
-        const dialogText = dialog.el.querySelector<HTMLElement>(".dialog-text")
-        if (dialogText) {
-          dialogText.textContent = detail
-            ? `${progress.label} · ${detail}`
-            : progress.label
-        }
-        return
-      }
       toastManager.update(toastId, {
         type: "loading",
         title: "Refreshing Intervals.icu",
-        description: <RefreshProgressToast startedAt={startedAt} progress={progress} />,
+        description: <RefreshProgressToast progress={progress} />,
         timeout: 0,
       })
     }
-    if (!mobileProgressDialog) {
-      toastManager.add({
-        id: toastId,
-        type: "loading",
-        title: "Refreshing Intervals.icu",
-        description: (
-          <RefreshProgressToast
-            startedAt={startedAt}
-            progress={{ phase: "starting", label: "Starting manual refresh", completed: 0, total: 1 }}
-          />
-        ),
-        timeout: 0,
-      })
-    }
+    toastManager.add({
+      id: toastId,
+      type: "loading",
+      title: "Refreshing Intervals.icu",
+      description: (
+        <RefreshProgressToast
+          progress={{ phase: "starting", label: "Starting manual refresh", completed: 0, total: 1 }}
+        />
+      ),
+      timeout: 0,
+    })
     try {
       const { context, githubSync } = await refreshRecentIntervals(updateProgress)
       setSelectedWorkout((current) =>
@@ -313,50 +239,48 @@ function AppWorkspace() {
             ) || current
           : null
       )
-      const elapsed = Math.floor((Date.now() - startedAt) / 1000)
-      const duration = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`
-      if (mobileProgressDialog?.dialog.opened) mobileProgressDialog.dialog.close()
-      const readyToast = {
-        type: "success" as const,
-        title: "Training data ready",
-        description: `Updated in ${duration}. GitHub sync is running in the background.`,
-        timeout: 6000,
-      }
-      if (mobileProgressDialog) toastManager.add({ id: toastId, ...readyToast })
-      else toastManager.update(toastId, readyToast)
-      void githubSync.then(() => {
+      toastManager.update(toastId, {
+        type: "loading",
+        title: "Updating GitHub",
+        description: (
+          <RefreshProgressToast progress={{
+            phase: "github",
+            label: "App updated. Saving to GitHub…",
+          }} />
+        ),
+        timeout: 0,
+      })
+      await githubSync.then(() => {
         toastManager.add({
-          id: "section11-github-sync-complete",
+          id: toastId,
           type: "success",
-          title: "GitHub sync complete",
-          description: "Section 11 files are ready in GitHub.",
+          title: "Refresh complete",
+          description: "App and GitHub are up to date.",
           timeout: 6000,
         })
       }).catch((error) => {
         toastManager.add({
-          id: "section11-github-sync-failed",
+          id: toastId,
           type: "error",
           title: "GitHub sync needs a retry",
-          description: `${error instanceof Error ? error.message : "Section 11 files could not be updated."} The app will retry when it next checks for training data.`,
+          description: error instanceof Error ? error.message : "Section 11 files could not be updated. Try Refresh again.",
           timeout: 10000,
         })
       })
     } catch (error) {
       const elapsed = Math.floor((Date.now() - startedAt) / 1000)
       const duration = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`
-      toastManager.update(toastId, {
+      toastManager.add({
+        id: toastId,
         type: "error",
         title: "Intervals.icu refresh failed",
         description: `${error instanceof Error ? error.message : "Training data could not be refreshed."} (${duration})`,
         timeout: 8000,
       })
     } finally {
-      if (mobileProgressDialog && mobileProgressDialog.dialog.opened) {
-        mobileProgressDialog.dialog.close()
-      }
       setIsRefreshing(false)
     }
-  }, [isRefreshing, mobileTerms, toastManager])
+  }, [isRefreshing, toastManager])
   useEffect(() => {
     const showReconnect = () => setIntervalsDisconnected(true)
     window.addEventListener("intervals-auth-expired", showReconnect)

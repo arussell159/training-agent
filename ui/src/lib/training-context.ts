@@ -1,5 +1,5 @@
 import { apiFetch } from "@/lib/api-client"
-import { syncSection11Export } from "@/lib/section11-export"
+import { markSection11ExportPending, syncSection11Export, waitForSection11Export, type Section11Sync } from "@/lib/section11-export"
 import {readDeviceCache,writeDeviceCache,clearDeviceCache} from './device-cache'
 export interface TrainingHistoryItem {
   workout_date: string
@@ -188,18 +188,23 @@ export type ManualRefreshProgress = {
 }
 
 export async function refreshRecentIntervals(onProgress?: (progress: ManualRefreshProgress) => void) {
+  contextRevision++
+  mutationsInFlight++
   const syncId=crypto.randomUUID()
   let progressId:string=syncId
   const report=(progress:ManualRefreshProgress)=>onProgress?.(progress)
   report({phase:"starting",label:"Starting manual refresh",completed:0,total:1})
   let requestDone=false
+  let exportStatus:Section11Sync|undefined
   const request=(async()=>{
     const trainingResponse=await apiFetch(`/api/sync?trainingOnly=1&forceIntervals=1&retry=1&syncId=${encodeURIComponent(syncId)}`,{
       method:"POST",headers:{Accept:"application/json"},
     })
-    const training=await trainingResponse.json() as {context?:TrainingContext;sync_error?:string;error?:string}
+    const training=await trainingResponse.json() as {context?:TrainingContext;sync_error?:string;error?:string;section11Sync?:Section11Sync}
     if(!trainingResponse.ok || !training.context)throw Error(training.error || `Intervals.icu refresh failed (${trainingResponse.status})`)
     if(training.sync_error)throw Error(training.sync_error)
+    markSection11ExportPending()
+    exportStatus=training.section11Sync
     rememberTrainingContext(training.context,'full')
     return training.context
   })().finally(()=>{requestDone=true})
@@ -223,10 +228,11 @@ export async function refreshRecentIntervals(onProgress?: (progress: ManualRefre
   }finally{
     requestDone=true
     await pollProgress
+    mutationsInFlight--
   }
-  // Start the GitHub export before returning; the caller can release the UI
-  // while this request continues and report its outcome separately.
-  const githubSync=syncSection11Export(syncId)
+  // The server has already started the export. Only its status depends on the
+  // page staying open; the fast training context is ready immediately.
+  const githubSync=exportStatus ? waitForSection11Export(exportStatus) : syncSection11Export(syncId)
   report({phase:"complete",label:"Training data ready",completed:1,total:1})
   return {context,githubSync}
 }

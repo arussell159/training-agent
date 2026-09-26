@@ -57,7 +57,7 @@ The app's Intervals.icu sync runs the private repository's `sync.py` in a Vercel
 | Variable                      | Value                                                                                                  |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `TRAINING_DATA_GITHUB_TOKEN`  | Fine-grained token: Contents read/write and Actions read/write, restricted to your training repository |
-| `TRAINING_DATA_GITHUB_REPO`   | `arussell159/my-training-data` (or your own `owner/repository`)                                        |
+| `TRAINING_DATA_GITHUB_REPO`   | `arussell159/SECTION_11` (or your own `owner/repository`)                                        |
 | `TRAINING_DATA_GITHUB_BRANCH` | `main`                                                                                                 |
 | `OPENAI_API_KEY`              | OpenAI project API key                                                                                 |
 | `APP_PASSWORD`                | Unique app password of at least 20 characters; existing `COACH_ACCESS_PASSWORD` is a fallback          |
@@ -93,6 +93,8 @@ The private data repository's `.github/workflows/auto-sync.yml` already has its 
 
 **Direct sync:** The app checks for new training whenever it opens; while the page stays open, resumed user activity triggers another check at most once every 15 minutes. No saved-data popup appears. Normal idle pages do not poll training data or session status; an open in-progress report stops status checks after five minutes of inactivity. The **Refresh Intervals.icu** button forces a refresh on demand, and saved edits prompt a background check. The Supabase app snapshot and device startup cache keep at least the current Monday-through-Sunday week plus the preceding 11 weeks; older calendar weeks load from Intervals.icu on demand. The app displays newly fetched Intervals.icu workouts as soon as they are saved; the deployed server then invokes `sync.py` from the configured private data repository in an isolated Python function when provider data changes or on manual refresh, loads the existing JSON files as its incremental cache, rebuilds history when it is over 28 days old, and commits `latest.json`, `history.json`, `intervals.json`, `routes.json`, `ftp_history.json`, `saved_workouts.json`, and an archive snapshot in one commit. This path does not dispatch GitHub Actions. It needs **Contents: Read and write** on the app's GitHub token, the Intervals.icu API key already configured in the app, and `sync.py` at the data repository root. Set `WEEK_START` and `ZONE_PREFERENCE` in Vercel too if the old workflow uses nondefault values. The Python function has a five-minute maximum duration and runs on Vercel; local `npm start` does not host it. Verify one direct refresh in production after deploying the app.
 
+GitHub exports are started by the server as part of the training refresh. A durable claim in the existing encrypted `app_settings` table records the requested source version, progress, confirmed commit and failures across browsers and server instances. Vercel's `waitUntil` keeps the export running after the training response returns, so the page does not need to send a second request to start it. The app polls `/api/section11-sync` for completion. Unchanged provider data can still retry a failed or missing export. The worker uses `SECTION11_DIRECT_SYNC_ORIGIN`, then `APP_ORIGIN`, then the production URL; the unique deployment URL is only a fallback because deployment protection can block it. Keep `TRAINING_DATA_GITHUB_REPO` and `TRAINING_DATA_GITHUB_BRANCH` consistent for both functions and redeploy after changing them.
+
 Reports remain unavailable until the private repository contains an export after the requested period with enough history to cover it. Refreshing the app updates those files directly; a failed export can be retried with **Refresh Intervals.icu**. Workouts outside the export window and weeks or blocks without sufficient history show an explicit limitation.
 
 ## Development and tests
@@ -100,3 +102,8 @@ Reports remain unavailable until the private repository contains an export after
 `npm run dev` starts the UI; run `npm start` separately for API requests.
 `npm test` runs backend tests using mock credentials and provider responses.
 `npm run build` type-checks and builds the UI.
+
+With the UI dev server running, `/tests/sync-mobile-frame.html` previews the real
+refresh flow at phone and desktop widths using mocked requests. Use its scenario
+selector to check success and errors; it never connects to the deployed app or
+training providers.

@@ -3,7 +3,7 @@ import {athleteLocalDate} from './lib/athlete-date.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createCoachHttp } from './lib/coach-http.mjs';
 import { createCoachCalendar } from './lib/coach-calendar.mjs';
 import { createEncryptedRecordStore } from './lib/app-auth-store.mjs';
@@ -11,7 +11,9 @@ import { createAppAuth } from './lib/app-auth.mjs';
 import { coachConfig, createCoach } from './lib/github-coach.mjs';
 import { createGithubCoachSource } from './lib/github-coach-source.mjs';
 import { createWorkoutSync, freshWorkoutSync } from './lib/coach-workout-sync.mjs';
-import { runSection11DirectSync } from './lib/section11-direct-sync.mjs';
+import { waitUntil } from '@vercel/functions';
+import { runSection11DirectSync, section11WorkerOrigin } from './lib/section11-direct-sync.mjs';
+import { createSection11Sync, freshSection11Sync } from './lib/section11-sync.mjs';
 import { createCoachReports, createReportSnapshotCache, freshReport } from './lib/coach-reports.mjs';
 import { createReportsHttp } from './lib/coach-reports-http.mjs';
 import { createCoachReportStore } from './lib/coach-report-store.mjs';
@@ -349,7 +351,6 @@ function applyVerifiedEvent(context,id,result,action) {
 }
 
 const syncRequests=new Map();
-const directSyncRequests=new Map();
 const manualSyncProgress=new Map();
 const section11DirectAvailable=()=>Boolean(process.env.VERCEL || process.env.SECTION11_DIRECT_SYNC_ORIGIN);
 function setManualSyncProgress(id,progress) {
@@ -364,26 +365,42 @@ async function syncSection11Files(config,athleteId,syncId,reportProgress) {
   try {
     if(!section11DirectAvailable())throw Error('Section 11 direct sync requires the deployed Python function.');
     const github=coachConfig();
-    const origin=process.env.SECTION11_DIRECT_SYNC_ORIGIN || (process.env.VERCEL_URL?`https://${process.env.VERCEL_URL}`:'');
+    const origin=section11WorkerOrigin();
     if(!origin)throw Error('Section 11 direct sync needs the deployed app URL.');
-    const connection=providerConnection(config);
-    let operation=directSyncRequests.get(connection);
-    if(!operation){
-      operation=runSection11DirectSync({
+    section11Sync=await runSection11DirectSync({
         repo:github.repo,branch:github.branch,githubToken:github.githubToken,
         intervalsKey:config.INTERVALS_API_KEY,athleteId,
         weekStart:process.env.WEEK_START,zonePreference:process.env.ZONE_PREFERENCE,
         origin,
       });
-      directSyncRequests.set(connection,operation);
-      void operation.finally(()=>{if(directSyncRequests.get(connection)===operation)directSyncRequests.delete(connection);}).catch(()=>{});
-    }
-    section11Sync=await operation;
     reportServices?.snapshotCache.invalidate();
     section11Sync={...section11Sync,requestId:syncId,label:'Section 11 files committed to GitHub'};
   } catch(error) {section11Sync={requestId:syncId,status:'failed',error:error.message};}
   reportProgress({phase:'github',requestId:syncId,status:section11Sync.status,label:section11Sync.status==='complete'?'Section 11 files committed to GitHub':'Section 11 direct sync failed',completed:section11Sync.status==='complete'?1:0,total:1,error:section11Sync.error || undefined});
   return section11Sync;
+}
+function section11SyncService(config) {
+  const github=coachConfig();
+  return createSection11Sync({
+    store:createEncryptedRecordStore(config,`${providerConnection(config)}:${github.repo}@${github.branch}`,{
+      namespace:'section11-export',name:'SECTION11_EXPORT',fresh:freshSection11Sync,timestampCas:true,
+    }),
+    run:async claim=>{
+      const result=await syncSection11Files(config,claim.athleteId,claim.requestId,()=>{});
+      if(result.status==='complete')void triggerDueReports(config);
+      return result;
+    },
+    waitUntil,
+  });
+}
+async function ensureSection11Export(config,context,{force=false,requestId=''}={}) {
+  if(!section11DirectAvailable())return {status:'failed',error:'GitHub export requires the deployed sync worker.'};
+  try {
+    return await section11SyncService(config).ensure({
+      version:context.version || trainingSourceFingerprint(context),athleteId:context.athlete.id,
+      force,requestId:requestId || randomUUID(),
+    });
+  }catch(error){return {status:'failed',error:error.message};}
 }
 async function syncRecentTraining(config,{force=false,onProgress}={}) {
   const key=providerConnection(config);
@@ -758,7 +775,10 @@ export async function handleRequest(req, res) {
       sendJson(req,res,progress || {phase:'starting',label:'Starting manual refresh',completed:0,total:1});return;
     }
     if(pathname==='/api/section11-sync' && req.method==='GET') {
-      sendJson(req,res,{status:'direct',label:'Use Refresh Intervals.icu to sync Section 11 files.'});return;
+      const revision=Number(requestUrl.searchParams.get('revision')) || undefined;
+      if(revision!==undefined && (!Number.isSafeInteger(revision) || revision<1))throw Error('Invalid GitHub sync revision.');
+      const config=await readConfig();
+      sendJson(req,res,await section11SyncService(config).progress(revision));return;
     }
     if(pathname==='/api/sync' && req.method==='POST') {
       const config=await readConfig();
@@ -779,8 +799,7 @@ export async function handleRequest(req, res) {
       if(section11Only){
         const view=await createContextStore(config).getSyncRecord(fastViewId(config));
         if(!view?.athlete?.id)throw Error('Refresh Intervals.icu before syncing Section 11 files.');
-        const section11Sync=await syncSection11Files(config,view.athlete.id,syncId,reportProgress);
-        if(section11Sync.status==='complete')void triggerDueReports(config);
+        const section11Sync=await ensureSection11Export(config,view,{force:true,requestId:syncId});
         await progressWrites;
         sendJson(req,res,{section11Sync,checked_at:new Date().toISOString()});return;
       }
@@ -788,15 +807,14 @@ export async function handleRequest(req, res) {
       const queue=await flushMutations(config,requestUrl.searchParams.get('retry')==='1');
       try {
         const {context,sourceChanged}=await syncRecentTraining(config,{force:forceIntervals,onProgress:reportProgress});
-        const section11Pending=sourceChanged && section11DirectAvailable();
+        // Compare with the last exported version, not just this request's source
+        // delta: another page may already have saved the new Intervals data.
+        const section11Sync=await ensureSection11Export(config,context,{force:forceIntervals,requestId:syncId});
         if(trainingOnly){
-          if(!section11Pending && !(forceIntervals && section11DirectAvailable()))void triggerDueReports(config);
+          if(section11Sync.status==='complete')void triggerDueReports(config);
           await progressWrites;
-          sendJson(req,res,{context,queue,sourceChanged,section11Pending,checked_at:new Date().toISOString()});return;
+          sendJson(req,res,{context,queue,sourceChanged,section11Sync,checked_at:new Date().toISOString()});return;
         }
-        const section11Sync=manualRefresh || section11Pending
-          ? await syncSection11Files(config,context.athlete.id,syncId,reportProgress)
-          : undefined;
         void triggerDueReports(config);
         await progressWrites;
         sendJson(req,res,{context,queue,section11Sync,checked_at:new Date().toISOString()});
