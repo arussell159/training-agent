@@ -418,8 +418,12 @@ async function syncRecentTraining(config,{force=false,onProgress}={}) {
     const shift=days=>new Date(date.getTime()+days*86400000).toISOString().slice(0,10);
     const historyRange={start:twelveWeekStart(new Date(),zone),end:today};
     const hasTwelveWeeks=saved && snapshotCoversRange(saved,historyRange);
-    if(!force && hasTwelveWeeks && Date.now()-Date.parse(saved.synced_at)<60000)
-      return {context:projectTrainingContext({...saved,provider_connection:key}),sourceChanged:false};
+    if(!force && hasTwelveWeeks && Date.now()-Date.parse(saved.synced_at)<60000){
+      // Reuse the same content version as the fetch path. Projecting the raw
+      // snapshot alone falls back to its timestamp and requests a duplicate export.
+      const full=await createContextStore(config).getSyncRecord(fastViewId(config));
+      return {context:projectTrainingContext(full || {...saved,provider_connection:key}),sourceChanged:false};
+    }
     const range=saved?{start:hasTwelveWeeks?shift(-14):historyRange.start,end:shift(13)}:undefined;
     const incoming=await fetchIntervalsTrainingContext(config,{force:true,timeZone:zone,range,includeFutureRaces:true,repairWorkoutLinks:true,onProgress});
     onProgress?.({phase:'saving',label:'Saving refreshed training data',completed:0,total:1});
