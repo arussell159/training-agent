@@ -17,13 +17,19 @@ export function useMobileViewport() {
         )
       const keyboard =
         (viewport?.scale ?? 1) <= 1.05 && window.innerHeight - height > 120
-      root.style.setProperty("--app-viewport-height", `${height}px`)
-      root.style.setProperty("--app-viewport-top", `${top}px`)
+      const keyboardOpen = mobile.matches && keyboard
+      if (keyboardOpen) {
+        root.style.setProperty("--app-viewport-height", `${height}px`)
+        root.style.setProperty("--app-viewport-top", `${top}px`)
+      } else {
+        root.style.removeProperty("--app-viewport-height")
+        root.style.removeProperty("--app-viewport-top")
+      }
       root.dataset.mobileEditing = String(
         mobile.matches && (editing || keyboard)
       )
       // Keep the input's tap target stationary until the keyboard actually opens.
-      root.dataset.mobileKeyboardOpen = String(mobile.matches && keyboard)
+      root.dataset.mobileKeyboardOpen = String(keyboardOpen)
     }
     const schedule = () => {
       cancelAnimationFrame(frame)

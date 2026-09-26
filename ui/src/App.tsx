@@ -459,7 +459,7 @@ function AppWorkspace() {
               : (isCoachPage || activeItem === "Library") &&
                   !selectedWorkout &&
                   !selectedReport
-                ? "coach-app-shell h-dvh min-h-0 overflow-hidden"
+                ? "coach-app-shell h-svh min-h-0 overflow-hidden"
                 : (activeItem === "Settings" || activeItem === "Annual Plan") &&
                     !selectedWorkout
                   ? "h-svh min-h-0 overflow-hidden"
