@@ -86,41 +86,26 @@ function SessionCard({
       className="mobile-dashboard-workout relative h-[320px] w-full overflow-hidden border-transparent shadow-sm ring-1 ring-inset ring-border"
     >
       <CardHeader className="gap-3">
-        <CardDescription>
+        <CardDescription className={sessionCount > 1 ? "pr-14" : undefined}>
           {dayLabel}
           {completed && <span className="ml-2 text-primary">Completed</span>}
         </CardDescription>
         {sessionCount > 1 && (
-          <div className="absolute top-3 right-3 flex items-center gap-1" aria-label={`${activeSession + 1} of ${sessionCount} workouts`}>
+          <div className="absolute top-2 right-2">
             <button
               type="button"
-              aria-label="Show next workout for this day"
-              className="flex h-7 min-w-8 items-center justify-center rounded-full px-1 text-xs font-semibold tabular-nums"
+              aria-label={`Show next workout, ${activeSession + 1} of ${sessionCount}`}
+              className="flex min-h-12 min-w-14 items-center justify-center rounded-full px-3 text-sm font-semibold tabular-nums transition-colors hover:bg-muted/70 focus-visible:outline-2 focus-visible:outline-ring"
               onClick={(event) => {
                 event.stopPropagation()
                 onSelectSession((activeSession + 1) % sessionCount)
               }}
             >
-              {activeSession + 1}/{sessionCount}
+              {activeSession + 1} / {sessionCount}
             </button>
-            {Array.from({ length: sessionCount }, (_, index) => (
-              <button
-                key={index}
-                type="button"
-                aria-label={`Show workout ${index + 1} of ${sessionCount}`}
-                aria-current={index === activeSession ? "true" : undefined}
-                className="flex size-7 items-center justify-center rounded-full"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onSelectSession(index)
-                }}
-              >
-                <span aria-hidden="true" className={`h-1.5 rounded-full transition-all ${index === activeSession ? "w-4 bg-primary" : "w-1.5 bg-muted-foreground/40"}`} />
-              </button>
-            ))}
           </div>
         )}
-        <CardTitle>
+        <CardTitle className={sessionCount > 1 ? "pr-14" : undefined}>
           <h1 className="line-clamp-2 text-2xl leading-tight font-semibold tracking-tight">
             {workout?.title ?? "No workout scheduled"}
           </h1>
