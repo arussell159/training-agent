@@ -37,7 +37,7 @@
   .mobile-site-navbar {
     // Keep the existing calendar, map and chat offsets, with 44px touch targets.
     --f7-navbar-height: 56px;
-    --f7-safe-area-top: env(safe-area-inset-top, 0px);
+    --f7-safe-area-top: 0px;
     --f7-navbar-text-color: var(--foreground);
     --f7-navbar-bg-color: var(--background);
     // The outer shadow fits within the 6px above the controls, including in iOS standalone mode.
@@ -46,13 +46,13 @@
     z-index: 50;
     flex-shrink: 0;
     width: 100%;
-    height: calc(var(--f7-navbar-height) + var(--f7-safe-area-top));
+    height: var(--f7-navbar-height);
 
     .navbar {
       z-index: auto;
     }
     .navbar-inner {
-      padding-top: calc(6px + var(--f7-safe-area-top));
+      padding-top: 6px;
       padding-bottom: 6px;
     }
     .title h1 {
@@ -150,7 +150,7 @@
   .mobile-calendar-picker-layer {
     position: fixed;
     z-index: 49;
-    inset: calc(var(--app-viewport-top, 0px) + 56px + env(safe-area-inset-top, 0px)) 0 0;
+    inset: calc(var(--app-viewport-top, 0px) + 56px) 0 0;
     background: rgb(0 0 0 / 12%);
     animation: calendar-picker-backdrop-in 180ms ease-out both;
   }
