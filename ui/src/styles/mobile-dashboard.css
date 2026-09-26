@@ -1,6 +1,6 @@
 @media (width < 48rem) {
   .home-dashboard-shell {
-    min-height: 100svh;
+    min-height: 100dvh;
     background:
       radial-gradient(110% 30% at 50% 0%, rgb(255 255 255 / 78%), transparent 76%),
       linear-gradient(180deg, #f5f5f7 0%, var(--background) 56%, #f1f1f3 100%);
