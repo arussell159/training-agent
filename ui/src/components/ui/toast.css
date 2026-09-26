@@ -5,3 +5,7 @@
   height: 44px;
   min-width: 44px;
 }
+
+.dark .app-toast {
+  --primary: var(--color-blue-400);
+}

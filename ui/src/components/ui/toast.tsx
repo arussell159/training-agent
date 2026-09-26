@@ -22,7 +22,7 @@ function ToastList() {
     <ToastPrimitive.Root
       key={toast.id}
       toast={toast}
-      className="pointer-events-auto relative w-full shrink-0 rounded-2xl border border-border/60 bg-card p-4 text-card-foreground shadow-[0_8px_32px_-8px_rgb(0_0_0/0.22),0_2px_6px_rgb(0_0_0/0.04)] transition-[transform,opacity] duration-200 outline-none data-ending-style:-translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:-translate-y-2 data-starting-style:opacity-0 motion-reduce:transition-none"
+      className="app-toast pointer-events-auto relative w-full shrink-0 rounded-2xl border border-border/60 bg-card p-4 text-card-foreground shadow-[0_8px_32px_-8px_rgb(0_0_0/0.22),0_2px_6px_rgb(0_0_0/0.04)] transition-[transform,opacity] duration-200 outline-none data-ending-style:-translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:-translate-y-2 data-starting-style:opacity-0 motion-reduce:transition-none"
     >
       <ToastPrimitive.Content className="flex items-start gap-3">
         <div
