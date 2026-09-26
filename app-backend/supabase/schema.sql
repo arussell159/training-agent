@@ -59,7 +59,7 @@ create table if not exists public.coach_reports (
   id text primary key,
   scope text not null default 'default',
   athlete_id text not null default 'default',
-  kind text not null check (kind in ('pre_workout', 'post_workout', 'weekly', 'block', 'season', 'nutrition')),
+  kind text not null check (kind ~ '^[a-z][a-z0-9_]{0,63}$'),
   sport text,
   workout_id text,
   event_id text,

@@ -10,9 +10,17 @@ export const COACH_REPORT_KINDS = [
   "season",
   "nutrition",
 ];
+const workoutReportKinds = new Set(["pre_workout", "post_workout"]);
+
+function normalizeReportKind(value) {
+  const kind = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!/^[a-z][a-z0-9_]{0,63}$/.test(kind))
+    throw new CoachError("Choose a valid report type name.", 400);
+  return kind;
+}
 
 export function reportTitle(kind, sport, title) {
-  if (kind === "pre_workout" || kind === "post_workout") {
+  if (workoutReportKinds.has(kind)) {
     const raw = String(sport || "").trim();
     if (!raw || raw.length > 80)
       throw new CoachError("Choose a sport for the workout report.", 400);
@@ -29,7 +37,10 @@ export function reportTitle(kind, sport, title) {
     season: "Season Report",
     nutrition: "Nutrition Report",
   };
-  return supplied || defaults[kind] || "Other Report";
+  const fallback = `${kind
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())} Report`;
+  return supplied || defaults[kind] || fallback;
 }
 
 export function normalizeCoachReport(input, scope = "default", now = () => new Date()) {
@@ -37,17 +48,18 @@ export function normalizeCoachReport(input, scope = "default", now = () => new D
     !input ||
     typeof input !== "object" ||
     Array.isArray(input) ||
-    !COACH_REPORT_KINDS.includes(input.kind)
+    typeof input.kind !== "string"
   )
-    throw new CoachError("Choose a supported report type.", 400);
-  const kind = input.kind;
+    throw new CoachError("Choose a valid report type name.", 400);
+  const kind = normalizeReportKind(input.kind);
+  const isWorkoutReport = workoutReportKinds.has(kind);
   const startDate = input.startDate;
-  const endDate = input.endDate || (kind.endsWith("_workout") ? startDate : null);
+  const endDate = input.endDate || (isWorkoutReport ? startDate : null);
   if (
     !validReportDate(startDate) ||
     !validReportDate(endDate) ||
     endDate < startDate ||
-    (kind.endsWith("_workout") && endDate !== startDate)
+    (isWorkoutReport && endDate !== startDate)
   )
     throw new CoachError("Choose a valid report date or date range.", 400);
   const body = String(input.body ?? input.text ?? "");
@@ -63,18 +75,18 @@ export function normalizeCoachReport(input, scope = "default", now = () => new D
   const eventId = identifier(input.eventId);
   const activityId = identifier(input.activityId);
   const planId = identifier(input.planId);
-  const sport = kind.endsWith("_workout") ? String(input.sport || "").trim() : null;
+  const sport = isWorkoutReport ? String(input.sport || "").trim() : null;
   const title = reportTitle(kind, sport, input.title);
   const sourceKey =
     identifier(input.sourceKey) ||
-    (kind.endsWith("_workout")
+    (isWorkoutReport
       ? `${kind}:${workoutId || eventId || activityId || ""}`
       : kind === "weekly"
         ? `weekly:${startDate}`
         : kind === "block"
           ? `block:${startDate}:${endDate}`
           : `${kind}:${startDate}:${endDate}`);
-  if (kind.endsWith("_workout") && ![workoutId, eventId, activityId].some(Boolean))
+  if (isWorkoutReport && ![workoutId, eventId, activityId].some(Boolean))
     throw new CoachError("Choose a workout, event, or activity for this report.", 400);
   const generatedAt = input.generatedAt || now().toISOString();
   if (!Number.isFinite(Date.parse(generatedAt)))

@@ -358,8 +358,8 @@ export function createCoachReports({
       const entry = entries[position],
         target = state.target || entry;
       const kind = { pre: "pre_workout", post: "post_workout" }[entry.kind] || entry.kind;
-      if (!["pre_workout", "post_workout", "weekly", "block"].includes(kind)) return [];
-      const workout = kind.endsWith("_workout");
+      if (typeof kind !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(kind)) return [];
+      const workout = kind === "pre_workout" || kind === "post_workout";
       const recordedSport = target.workout?.sport || target.workout?.planned?.sport || target.sport;
       const sport =
         recordedSport && String(recordedSport).toLowerCase() !== "workout"
