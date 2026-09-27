@@ -115,6 +115,53 @@ def history_is_overdue(content):
         return True
 
 
+def validate_intervals_export(latest_data, intervals_data, export_started_at):
+    """Reject a successful export if its interval cache is stale or incomplete."""
+    if not isinstance(latest_data, dict) or not isinstance(intervals_data, dict):
+        raise SyncFailure("Section 11 generated invalid training data files.")
+    generated_at = intervals_data.get("generated_at")
+    if not isinstance(generated_at, str):
+        raise SyncFailure("Section 11 did not generate intervals.json.")
+    try:
+        generated = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise SyncFailure("Section 11 generated an invalid intervals timestamp.") from exc
+    if generated.tzinfo is not None:
+        generated = generated.astimezone().replace(tzinfo=None)
+    if generated < export_started_at:
+        raise SyncFailure("Section 11 intervals.json was not refreshed during this sync.")
+
+    rows = intervals_data.get("activities")
+    if not isinstance(rows, list):
+        raise SyncFailure("Section 11 generated an invalid intervals activity list.")
+    retention_days = intervals_data.get("retention_days", 14)
+    if not isinstance(retention_days, int) or retention_days < 0:
+        retention_days = 14
+    cutoff = (datetime.now() - timedelta(days=retention_days)).date().isoformat()
+    recent = latest_data.get("recent_activities")
+    if not isinstance(recent, list):
+        raise SyncFailure("Section 11 latest.json is missing its recent activity list.")
+    expected = {
+        str(activity["id"])
+        for activity in recent
+        if isinstance(activity, dict)
+        and activity.get("id") is not None
+        and activity.get("has_intervals") is True
+        and str(activity.get("date", "")) >= cutoff
+    }
+    actual = {
+        str(activity["activity_id"])
+        for activity in rows
+        if isinstance(activity, dict) and activity.get("activity_id") is not None
+    }
+    missing = expected - actual
+    if missing:
+        raise SyncFailure(
+            f"Section 11 intervals.json is missing {len(missing)} recent activities marked as having intervals."
+        )
+    return generated_at
+
+
 def commit_files(repo, branch, token, original_head, files):
     if not files:
         return original_head
@@ -190,6 +237,7 @@ def run_export(payload, token):
                 raise SyncFailure("Section 11 history rebuild timed out.") from exc
             if history_result.returncode != 0:
                 raise SyncFailure(export_failure(history_result, "history rebuild"))
+        export_started_at = datetime.now()
         try:
             result = subprocess.run(
                 [sys.executable, "sync.py", "--days", "7", "--output", "latest.json"],
@@ -205,9 +253,19 @@ def run_export(payload, token):
         if not latest.exists():
             raise SyncFailure("Section 11 did not produce latest.json.")
         try:
-            json.loads(latest.read_text(encoding="utf-8"))
+            latest_data = json.loads(latest.read_text(encoding="utf-8"))
         except (ValueError, UnicodeDecodeError) as exc:
             raise SyncFailure("Section 11 produced an invalid latest.json.") from exc
+        intervals_path = directory / "intervals.json"
+        if not intervals_path.exists():
+            raise SyncFailure("Section 11 did not generate intervals.json.")
+        try:
+            intervals_data = json.loads(intervals_path.read_text(encoding="utf-8"))
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise SyncFailure("Section 11 generated an invalid intervals.json.") from exc
+        intervals_generated_at = validate_intervals_export(
+            latest_data, intervals_data, export_started_at
+        )
 
         changed = {}
         for name in FILES:
@@ -216,6 +274,10 @@ def run_export(payload, token):
                 content = file.read_bytes()
                 if content != previous.get(name):
                     changed[name] = content
+        # Include the verified interval snapshot in every sync commit. This keeps
+        # GitHub's current copy tied to the confirmed export even when the content
+        # happens to be byte-for-byte identical to the previous snapshot.
+        changed["intervals.json"] = intervals_path.read_bytes()
         timestamp = datetime.now(timezone.utc)
         archive_name = f"archive/{timestamp:%Y-%m}/{timestamp:%Y%m%d_%H%M%S}.json"
         changed[archive_name] = latest.read_bytes()
@@ -230,7 +292,12 @@ def run_export(payload, token):
             if updated != original:
                 changed["README.md"] = updated.encode("utf-8")
         commit = commit_files(repo, branch, token, head, changed)
-        return {"status": "complete", "commit": commit, "files": list(changed)}
+        return {
+            "status": "complete",
+            "commit": commit,
+            "files": list(changed),
+            "intervals_generated_at": intervals_generated_at,
+        }
 
 
 class handler(BaseHTTPRequestHandler):

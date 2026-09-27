@@ -1,4 +1,5 @@
 import importlib.util
+from datetime import datetime, timedelta
 import os
 from pathlib import Path
 import subprocess
@@ -50,6 +51,41 @@ class ExportRuntimeTests(unittest.TestCase):
     def test_error_reports_only_exception_type(self):
         result = SimpleNamespace(returncode=1, stderr=b"ValueError: private data and key\n")
         self.assertEqual(worker.export_failure(result), "Section 11 export failed (exit 1, ValueError).")
+
+    def test_intervals_export_must_be_fresh_and_include_recent_flagged_activities(self):
+        now = datetime.now()
+        latest = {
+            "recent_activities": [
+                {"id": "i190882155", "date": now.date().isoformat(), "has_intervals": True}
+            ]
+        }
+        intervals = {
+            "generated_at": (now + timedelta(seconds=1)).isoformat(),
+            "retention_days": 14,
+            "activities": [{"activity_id": "i190882155", "intervals": [{"type": "WORK"}]}],
+        }
+        self.assertEqual(
+            worker.validate_intervals_export(latest, intervals, now),
+            intervals["generated_at"],
+        )
+
+    def test_intervals_export_rejects_stale_or_missing_recent_activity(self):
+        now = datetime.now()
+        latest = {
+            "recent_activities": [
+                {"id": "i190882155", "date": now.date().isoformat(), "has_intervals": True}
+            ]
+        }
+        stale = {
+            "generated_at": (now - timedelta(minutes=1)).isoformat(),
+            "retention_days": 14,
+            "activities": [],
+        }
+        with self.assertRaisesRegex(worker.SyncFailure, "not refreshed"):
+            worker.validate_intervals_export(latest, stale, now)
+        stale["generated_at"] = (now + timedelta(seconds=1)).isoformat()
+        with self.assertRaisesRegex(worker.SyncFailure, "missing 1 recent activities"):
+            worker.validate_intervals_export(latest, stale, now)
 
 
 if __name__ == "__main__":
