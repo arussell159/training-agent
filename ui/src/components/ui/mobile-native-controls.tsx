@@ -2,7 +2,7 @@ import type { ComponentProps, ReactNode } from "react"
 import { Ellipsis } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
-import { LiquidGlassLayer } from "@/components/ui/liquid-glass-layer"
+import { MobileHeaderGlass } from "@/components/ui/mobile-header-glass"
 
 type NativeOption = { value: string; label: string; disabled?: boolean }
 
@@ -74,7 +74,7 @@ export function MobileActionMenu({
           ? "relative inline-flex size-9 shrink-0 items-center justify-center"
           : "mobile-glass-action relative inline-flex size-9 shrink-0 items-center justify-center rounded-full",
         disabled && "opacity-50",
-        liquidGlass && "liquid-glass-button",
+        liquidGlass && "package-glass-action",
         className
       )}
       onClick={(event) => event.stopPropagation()}
@@ -82,7 +82,7 @@ export function MobileActionMenu({
       onTouchStart={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
     >
-      {liquidGlass && <LiquidGlassLayer />}
+      {liquidGlass && <MobileHeaderGlass />}
       <Ellipsis className="pointer-events-none size-5" aria-hidden="true" />
       <select
         data-native-control="actions"

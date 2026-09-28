@@ -1,4 +1,35 @@
 @media (width < 48rem) {
+  /* Leave the actual page visible behind the refractive header controls. */
+  .mobile-site-navbar-has-glass-back .navbar-bg {
+    -webkit-mask-image: radial-gradient(circle at 38px 28px, transparent 25px, #000 43px);
+    mask-image: radial-gradient(circle at 38px 28px, transparent 25px, #000 43px);
+  }
+
+  .mobile-site-navbar-has-glass-menu .navbar-bg {
+    -webkit-mask-image: radial-gradient(circle at calc(100% - 38px) 28px, transparent 25px, #000 43px);
+    mask-image: radial-gradient(circle at calc(100% - 38px) 28px, transparent 25px, #000 43px);
+  }
+
+  .mobile-site-navbar-has-glass-back.mobile-site-navbar-has-glass-menu .navbar-bg {
+    -webkit-mask-image:
+      radial-gradient(circle at 38px 28px, transparent 25px, #000 43px),
+      radial-gradient(circle at calc(100% - 38px) 28px, transparent 25px, #000 43px);
+    mask-image:
+      radial-gradient(circle at 38px 28px, transparent 25px, #000 43px),
+      radial-gradient(circle at calc(100% - 38px) 28px, transparent 25px, #000 43px);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+  }
+
+  /* This panel normally starts below the header, so it could never be sampled. */
+  .mobile-site-navbar-over-scroll {
+    margin-bottom: calc(-1 * var(--f7-navbar-height));
+  }
+
+  .mobile-site-navbar-over-scroll + .overflow-y-auto {
+    padding-top: calc(1.25rem + var(--f7-navbar-height));
+  }
+
   .mobile-site-navbar .mobile-navbar-action,
   .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action,
   .mobile-glass-action,
@@ -156,6 +187,71 @@
   .workout-map-navbar .liquid-glass-button,
   .dark .workout-map-navbar .liquid-glass-button {
     --glass-fill: rgb(255 255 255 / 18%);
+  }
+
+  .mobile-site-navbar .mobile-navbar-action.package-glass-action,
+  .mobile-glass-action.package-glass-action {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .mobile-site-navbar .mobile-navbar-action.package-glass-action::before,
+  .mobile-site-navbar .mobile-navbar-action.package-glass-action::after,
+  .mobile-glass-action.package-glass-action::before,
+  .mobile-glass-action.package-glass-action::after {
+    content: none;
+  }
+
+  .mobile-header-glass-wrap {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    display: block;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  .mobile-header-glass-size {
+    display: block;
+    width: 43px;
+    height: 43px;
+  }
+
+  .mobile-header-glass {
+    width: 43px;
+    height: 43px;
+  }
+
+  .mobile-header-glass-wrap > span {
+    box-shadow:
+      inset 0 0 0 0.5px rgb(255 255 255 / 60%),
+      0 1px 3px rgb(21 32 39 / 8%) !important;
+  }
+
+  .mobile-header-glass .glass {
+    width: 43px;
+    height: 43px;
+    border: 1px solid rgb(255 255 255 / 86%);
+    background: rgb(255 255 255 / 10%);
+    box-shadow:
+      0 0 0 1px rgb(48 65 76 / 16%),
+      0 3px 10px rgb(21 32 39 / 10%) !important;
+  }
+
+  .mobile-header-glass .glass__warp {
+    opacity: 0.65;
+  }
+
+  .dark .mobile-header-glass .glass {
+    border-color: rgb(255 255 255 / 32%);
+    background: rgb(24 31 41 / 18%);
+    box-shadow:
+      0 0 0 1px rgb(0 0 0 / 24%),
+      0 3px 10px rgb(0 0 0 / 20%) !important;
   }
 
   .calendar-month-title-button:focus-visible {
