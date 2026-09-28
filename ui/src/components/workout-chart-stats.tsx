@@ -1,6 +1,6 @@
 import { METERS_PER_100_YARDS } from "../../../app-backend/lib/swim-units.mjs"
 import type { WorkoutSummaryValues } from "@/lib/training-context"
-import { formatSignalClock } from "@/lib/interval-signals"
+import { formatDuration, formatPace } from "@/lib/duration"
 
 export function WorkoutChartStats({
   track,
@@ -24,13 +24,13 @@ export function WorkoutChartStats({
       : null
   const pace = (speed: number | null | undefined) =>
     speed != null && speed > 0
-      ? `${formatSignalClock((swim ? METERS_PER_100_YARDS : 1609.344) / speed)} /${swim ? "100 yd" : "mi"}`
+      ? `${formatPace((swim ? METERS_PER_100_YARDS : 1609.344) / speed)} /${swim ? "100 yd" : "mi"}`
       : null
   const speed = (value: number | null | undefined) =>
     number(value == null ? null : value * 2.2369362921, "mi/h", 1)
   const time = (seconds: number | null | undefined) =>
     seconds != null && Number.isFinite(seconds)
-      ? formatSignalClock(seconds)
+      ? formatDuration(seconds / 60)
       : null
   const rows: Array<[string, string | null]> =
     track === "pace"

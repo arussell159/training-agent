@@ -1,31 +1,41 @@
 import { apiFetch } from "@/lib/api-client"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
-import { CalendarRange, ChevronDown, ChevronRight, Gauge, LoaderCircle, SunMoon, Trophy } from "lucide-react"
+import { Activity, Bike, BookOpen, ChevronDown, ChevronRight, Footprints, Gauge, LoaderCircle, SunMoon, Trophy, Waves } from "lucide-react"
 
 import { displayRunThreshold, displaySwimCss, ThresholdHistory } from "@/components/training-zones-display"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { SettingsList, SettingsListItem } from "@/components/ui/settings-list"
+import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
+import { loadLocalPerformancePreview, type PerformanceData, type PerformanceRecord } from "@/lib/personal-statistics-preview"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useTheme } from "@/components/theme-provider"
-import { loadTrainingContext, rememberTrainingContext, fallbackTrainingContext, type TrainingContext } from "@/lib/training-context"
+import { loadTrainingContext, rememberTrainingContext, fallbackTrainingContext, type PlannedWorkout, type TrainingContext } from "@/lib/training-context"
+import { cn } from "@/lib/utils"
 
-type SettingsSection = "zones" | "race" | "atp" | "appearance"
+type SettingsSection = "zones" | "race" | "performance" | "library" | "appearance"
 type SettingsItem = { id: SettingsSection; label: string; description: string; icon: LucideIcon }
 type RaceEvent = { id: string; name: string; date: string; priority: string }
-type PlanSummary = { id: string; name?: string; startDate?: string; endDate?: string; events?: RaceEvent[] }
+type PerformanceSport = "Run" | "Bike" | "Swim"
+const performanceSports: Array<{ value: PerformanceSport; label: string; icon?: LucideIcon }> = [
+  { value: "Run", label: "Run", icon: Footprints },
+  { value: "Bike", label: "Bike", icon: Bike },
+  { value: "Swim", label: "Swim", icon: Waves },
+]
 
 const groups: Array<{ label: string; items: SettingsItem[] }> = [
   { label: "Training", items: [
     { id: "zones", label: "Training zones", description: "Edit bike, run, swim, and heart-rate thresholds", icon: Gauge },
     { id: "race", label: "Race goal", description: "Current goal, upcoming races, and race history", icon: Trophy },
+    { id: "performance", label: "Performance", description: "Training statistics and personal bests", icon: Activity },
   ] },
   { label: "Planning", items: [
-    { id: "atp", label: "ATP", description: "Annual training plan and race schedule", icon: CalendarRange },
+    { id: "library", label: "Library", description: "Browse your training library", icon: BookOpen },
   ] },
   { label: "Preferences", items: [
     { id: "appearance", label: "Appearance", description: "Light, dark, or system", icon: SunMoon },
@@ -39,6 +49,191 @@ const settingsSubmitButtonClass = "h-12 w-full rounded-full bg-zinc-950 text-sm 
 
 function SettingRow({ label, value }: { label: string; value: string }) {
   return <div className="flex items-center justify-between gap-4 px-4 py-3 text-sm"><span className="text-muted-foreground">{label}</span><span className="text-right font-medium">{value}</span></div>
+}
+
+function PerformanceSection({ title, children }: {
+  title: string
+  children: ReactNode
+}) {
+  return <section className="space-y-2">
+    <h2 className="mb-2 px-1 text-sm text-muted-foreground">{title}</h2>
+    <SettingsList>{children}</SettingsList>
+  </section>
+}
+
+const RUN_PERSONAL_BESTS = [
+  { meters: 400, label: "400 m" }, { meters: 804.672, label: "½ mile" },
+  { meters: 1000, label: "1 km" }, { meters: 1609.344, label: "1 mile" },
+  { meters: 3218.688, label: "2 miles" }, { meters: 5000, label: "5 km" },
+  { meters: 10000, label: "10 km" }, { meters: 15000, label: "15 km" },
+  { meters: 16093.44, label: "10 miles" }, { meters: 20000, label: "20 km" },
+  { meters: 21097.5, label: "Half marathon" }, { meters: 30000, label: "30 km" },
+  { meters: 42195, label: "Marathon" },
+]
+const BIKE_PERSONAL_BESTS = [
+  { meters: 8046.72, label: "5 miles" }, { meters: 10000, label: "10 km" },
+  { meters: 16093.44, label: "10 miles" }, { meters: 20000, label: "20 km" },
+  { meters: 30000, label: "30 km" }, { meters: 40000, label: "40 km" },
+  { meters: 50000, label: "50 km" }, { meters: 90000, label: "90 km" },
+  { meters: 80467.2, label: "50 miles" }, { meters: 144840.96, label: "90 miles" },
+  { meters: 100000, label: "100 km" }, { meters: 160934.4, label: "100 miles" },
+  { meters: 180000, label: "180 km" },
+]
+const SWIM_PERSONAL_BESTS = [
+  { meters: 91.44, label: "100 yd" }, { meters: 182.88, label: "200 yd" },
+  { meters: 365.76, label: "400 yd" }, { meters: 548.64, label: "600 yd" },
+  { meters: 731.52, label: "800 yd" }, { meters: 914.4, label: "1,000 yd" },
+  { meters: 1931.2128, label: "1.2 miles" }, { meters: 3862.4256, label: "2.4 miles" },
+]
+const effortSets: Record<PerformanceSport, typeof RUN_PERSONAL_BESTS> = {
+  Run: RUN_PERSONAL_BESTS,
+  Bike: BIKE_PERSONAL_BESTS,
+  Swim: SWIM_PERSONAL_BESTS,
+}
+
+function recordMatchesSport(record: PerformanceRecord, sport: PerformanceSport) {
+  const type = record.sport.toLowerCase()
+  return sport === "Run" ? type.includes("run") : sport === "Bike" ? /ride|bike|cycl/.test(type) : type.includes("swim")
+}
+
+function formatStatTime(seconds: number) {
+  const minutes = Math.round(Math.max(0, seconds) / 60)
+  const hours = Math.floor(minutes / 60)
+  return hours ? `${hours.toLocaleString("en-US")}h ${minutes % 60}m` : `${minutes}m`
+}
+
+function formatStatDistance(meters: number, sport: PerformanceSport) {
+  if (sport === "Swim") return `${Math.round(meters / 0.9144).toLocaleString("en-US")} yd`
+  return `${(meters / 1609.344).toLocaleString("en-US", { maximumFractionDigits: 1 })} mi`
+}
+
+function formatStatDate(date: string) {
+  return new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
+}
+
+function activityWorkout(record: PerformanceRecord): PlannedWorkout {
+  const id = record.id || `preview-${record.sport.toLowerCase()}-${record.date}`
+  const seconds = Number(record.duration_seconds) || 0
+  const distance = Number(record.distance_meters) || 0
+  return {
+    id: `activity:${id}`,
+    activity_id: record.id?.startsWith("preview-") ? null : id,
+    day: record.date,
+    date: record.date,
+    workout_date: record.date,
+    sport: record.sport,
+    title: record.name || `${record.sport} activity`,
+    duration: formatStatTime(seconds),
+    distance_meters: distance,
+    goal: "Completed activity",
+    status: "completed",
+    actualDurationMinutes: seconds / 60,
+    workout_summary: {
+      planned: null,
+      completed: {
+        duration_seconds: seconds,
+        distance_meters: distance,
+        average_speed: seconds > 0 ? distance / seconds : null,
+        elevation_gain: Number(record.elevation_meters) || 0,
+      },
+    },
+  }
+}
+
+function bestPaceEffort(records: PerformanceRecord[], meters: number) {
+  let best: { seconds: number; record: PerformanceRecord } | null = null
+  for (const record of records) {
+    for (const achievement of record.achievements || []) {
+      const distance = Number(achievement.distance)
+      const seconds = Number(achievement.secs)
+      if (achievement.type?.toUpperCase() !== "BEST_PACE" || !(distance > 0 && seconds > 0)) continue
+      if (Math.abs(distance - meters) > Math.max(5, meters * 0.01)) continue
+      if (!best || seconds < best.seconds) best = { seconds, record }
+    }
+  }
+  return best
+}
+
+function PerformanceEffortRows({ sport, records, onActivityOpen }: { sport: PerformanceSport; records: PerformanceRecord[]; onActivityOpen?: (workout: PlannedWorkout) => void }) {
+  const sportRecords = records.filter(record => recordMatchesSport(record, sport))
+  const rows = effortSets[sport].map(effort => ({ ...effort, result: bestPaceEffort(sportRecords, effort.meters) }))
+  return <div>
+    {sport === "Bike" && (() => {
+      const longestRide = sportRecords.reduce<PerformanceRecord | null>((best, record) => !best || record.distance_meters > best.distance_meters ? record : best, null)
+      const biggestClimb = sportRecords.reduce<PerformanceRecord | null>((best, record) => !best || record.elevation_meters > best.elevation_meters ? record : best, null)
+      const totalElevation = sportRecords.reduce((total, record) => total + record.elevation_meters, 0)
+      return <>
+        {longestRide ? <SettingsListItem icon={Trophy} label="Longest ride" description={`${longestRide.name} · ${formatStatDate(longestRide.date)}`} value={formatStatDistance(longestRide.distance_meters, "Bike")} onClick={() => onActivityOpen?.(activityWorkout(longestRide))} /> : <SettingRow label="Longest ride" value="—" />}
+        {biggestClimb ? <SettingsListItem icon={Trophy} label="Biggest climb" description={`${biggestClimb.name} · ${formatStatDate(biggestClimb.date)}`} value={`${Math.round(biggestClimb.elevation_meters / 0.3048).toLocaleString("en-US")} ft`} onClick={() => onActivityOpen?.(activityWorkout(biggestClimb))} /> : <SettingRow label="Biggest climb" value="—" />}
+        <SettingRow label="All-time elevation gain" value={`${Math.round(totalElevation / 0.3048).toLocaleString("en-US")} ft`} />
+      </>
+    })()}
+    {rows.map(({ meters, label, result }) => result ? <SettingsListItem key={meters} icon={Trophy} label={label} description={`${result.record.name || "Activity"} · ${formatStatDate(result.record.date)}`} value={formatStatTime(result.seconds)} onClick={() => onActivityOpen?.(activityWorkout(result.record))} /> : <SettingRow key={meters} label={label} value="—" />)}
+  </div>
+}
+
+function PerformanceStatsPanel({ data, loading, error, notice, sport, onSportChange, onRetry, onActivityOpen }: {
+  data: PerformanceData | null
+  loading: boolean
+  error: string
+  notice: string
+  sport: PerformanceSport
+  onSportChange: (sport: PerformanceSport) => void
+  onRetry: () => void
+  onActivityOpen?: (workout: PlannedWorkout) => void
+}) {
+  const mobile = useIsMobile()
+  if (loading) return <p className="py-6 text-sm text-muted-foreground">Loading activity statistics from Intervals.icu…</p>
+  if (error) return <div role="alert" className="space-y-3 py-6"><p className="text-sm text-destructive">{error}</p><Button variant="outline" onClick={onRetry}>Try again</Button></div>
+  if (!data) return null
+  const records = data.records.filter(record => recordMatchesSport(record, sport))
+  const recentStart = new Date(`${data.today}T12:00:00Z`)
+  recentStart.setUTCDate(recentStart.getUTCDate() - 27)
+  const recentStartKey = recentStart.toISOString().slice(0, 10)
+  const recentRecords = records.filter(record => record.date >= recentStartKey && record.date <= data.today)
+  const yearStart = `${data.today.slice(0, 4)}-01-01`
+  const yearRecords = records.filter(record => record.date >= yearStart && record.date <= data.today)
+  const totals = (items: PerformanceRecord[]) => items.reduce((sum, record) => ({
+    activities: sum.activities + 1,
+    distance: sum.distance + (Number(record.distance_meters) || 0),
+    seconds: sum.seconds + (Number(record.duration_seconds) || 0),
+    elevation: sum.elevation + (Number(record.elevation_meters) || 0),
+  }), { activities: 0, distance: 0, seconds: 0, elevation: 0 })
+  const recent = totals(recentRecords)
+  const year = totals(yearRecords)
+  const all = totals(records)
+  const mean = (value: number) => (value / 4).toLocaleString("en-US", { maximumFractionDigits: 1 })
+  const rowGroup = (items: Array<[string, string]>) => items.map(([label, value]) => <SettingRow key={label} label={label} value={value} />)
+  const localHost = typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname.toLowerCase())
+  return <div className="space-y-6">
+    {data.source === "local-placeholder" && !localHost && <p role="status" className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground">Sample data is stored in this browser only. {notice || "It is not sent to Supabase."}</p>}
+    {!mobile && <MobileFilterTabs label="Filter performance by sport" items={performanceSports} value={sport} onChange={onSportChange} inline className="performance-sport-tabs mb-1" />}
+    <PerformanceSection title="Activity">
+      {rowGroup([
+        ["Avg activities / week", mean(recent.activities)],
+        ["Avg time / week", formatStatTime(recent.seconds / 4)],
+        ["Avg distance / week", formatStatDistance(recent.distance / 4, sport)],
+      ])}
+    </PerformanceSection>
+    <PerformanceSection title="Year to date">
+      {rowGroup([
+        ["Activities", year.activities.toLocaleString("en-US")],
+        ["Time", formatStatTime(year.seconds)],
+        ["Distance", formatStatDistance(year.distance, sport)],
+        ["Elevation gain", `${Math.round(year.elevation / 0.3048).toLocaleString("en-US")} ft`],
+      ])}
+    </PerformanceSection>
+    <PerformanceSection title="All time">
+      {rowGroup([
+        ["Activities", all.activities.toLocaleString("en-US")],
+        ["Distance", formatStatDistance(all.distance, sport)],
+        ["Elevation gain", `${Math.round(all.elevation / 0.3048).toLocaleString("en-US")} ft`],
+      ])}
+    </PerformanceSection>
+    <PerformanceSection title="Personal bests">
+      <PerformanceEffortRows sport={sport} records={data.records} onActivityOpen={onActivityOpen} />
+    </PerformanceSection>
+  </div>
 }
 
 function SettingsInputField({ id, label, value, placeholder, inputMode, type, onChange }: {
@@ -74,15 +269,20 @@ function SettingsSelectField({ id, label, value, onChange, options }: {
   </div>
 }
 
-export function SettingsWorkspace() {
+export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout: PlannedWorkout) => void }) {
+  const mobile = useIsMobile()
   const [context, setContext] = useState<TrainingContext>(fallbackTrainingContext)
   const [section, setSection] = useState<SettingsSection | null>(null)
   const [dialogSection, setDialogSection] = useState<SettingsSection | null>(null)
   const [zones, setZones] = useState({ bike_ftp: "", run_threshold_pace: "", swim_css: "", threshold_hr: "" })
   const [zonesEdited, setZonesEdited] = useState(false)
   const [events, setEvents] = useState<RaceEvent[]>([])
-  const [plans, setPlans] = useState<PlanSummary[]>([])
-  const [activePlanId, setActivePlanId] = useState<string | null>(null)
+  const [performanceData, setPerformanceData] = useState<PerformanceData | null>(null)
+  const [performanceLoading, setPerformanceLoading] = useState(false)
+  const [performanceError, setPerformanceError] = useState("")
+  const [performanceNotice, setPerformanceNotice] = useState("")
+  const [performanceSport, setPerformanceSport] = useState<PerformanceSport>("Run")
+  const [performanceRetry, setPerformanceRetry] = useState(0)
   const [raceName, setRaceName] = useState("")
   const [raceDate, setRaceDate] = useState("")
   const [priority, setPriority] = useState("A")
@@ -101,14 +301,34 @@ export function SettingsWorkspace() {
         if (!response.ok) throw new Error(value.error || "Race events could not be loaded.")
         if (active) setEvents(value.events || [])
       }).catch(error => { if (active) setLoadError(error instanceof Error ? error.message : "Race events could not be loaded.") }),
-      apiFetch("/api/annual-plans", { cache: "no-store" }).then(async response => {
-        if (!response.ok) return
-        const value = await response.json() as { plans?: PlanSummary[]; activeId?: string | null }
-        if (active) { setPlans(value.plans || []); setActivePlanId(value.activeId || null) }
-      }).catch(() => {}),
     ])
     return () => { active = false }
   }, [])
+
+  useEffect(() => {
+    if ((section !== "performance" && dialogSection !== "performance") || performanceData) return
+    const controller = new AbortController()
+    let active = true
+    setPerformanceLoading(true)
+    setPerformanceError("")
+    setPerformanceNotice("")
+    void apiFetch("/api/personal-statistics", { signal: controller.signal, headers: { Accept: "application/json" } })
+      .then(async response => {
+        const result = await response.json() as PerformanceData & { error?: string }
+        if (!response.ok) throw new Error(result.error || "Performance statistics could not be loaded.")
+        return result
+      })
+      .then(value => { if (active) setPerformanceData(value) })
+      .catch(error => {
+        if (active && !controller.signal.aborted) {
+          const reason = error instanceof Error ? error.message : "Intervals.icu statistics are unavailable."
+          setPerformanceNotice(`${reason} Using local preview data.`)
+          setPerformanceData(loadLocalPerformancePreview())
+        }
+      })
+      .finally(() => { if (active) setPerformanceLoading(false) })
+    return () => { active = false; controller.abort() }
+  }, [section, dialogSection, performanceData, performanceRetry])
 
   useEffect(() => {
     const values = context.athlete.zones
@@ -120,12 +340,11 @@ export function SettingsWorkspace() {
   const upcoming = events.filter(event => event.date >= today)
   const past = events.filter(event => event.date < today).reverse()
   const currentGoal = upcoming.find(event => event.priority === "A") || upcoming[0] || (context.athlete.race && context.athlete.race_date ? { id: "athlete-current-goal", name: context.athlete.race, date: context.athlete.race_date, priority: "A" } : undefined)
-  const activePlan = plans.find(plan => plan.id === activePlanId) || plans[0]
-
   function summary(id: SettingsSection) {
     if (id === "zones") return context.athlete.zones?.bike_ftp ? `FTP ${context.athlete.zones.bike_ftp} W` : "Edit thresholds"
     if (id === "race") return currentGoal ? `${currentGoal.name} · ${compactDate(currentGoal.date)}` : "No upcoming races"
-    if (id === "atp") return activePlan?.name || (activePlan ? "Plan available" : "No plan yet")
+    if (id === "performance") return performanceData ? `${performanceData.records.length.toLocaleString("en-US")} activities` : "Activity stats and personal bests"
+    if (id === "library") return "Browse workouts"
     return theme[0].toUpperCase() + theme.slice(1)
   }
 
@@ -161,11 +380,10 @@ export function SettingsWorkspace() {
     setSaving(true); setFeedback("")
     try {
       const response = await apiFetch("/api/race-events", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ name: raceName, date: raceDate, priority }) })
-      const result = await response.json() as { event?: RaceEvent; context?: TrainingContext; plan?: PlanSummary; error?: string }
+      const result = await response.json() as { event?: RaceEvent; context?: TrainingContext; error?: string }
       if (!response.ok || !result.event) throw new Error(result.error || "Race could not be added.")
       setEvents(current => [...current.filter(event => event.id !== result.event!.id), result.event!].sort((a, b) => a.date.localeCompare(b.date)))
       if (result.context) { setContext(result.context); rememberTrainingContext(result.context, "full") }
-      if (result.plan) setPlans(current => [result.plan!, ...current.filter(plan => plan.id !== result.plan!.id)])
       setRaceName(""); setRaceDate(""); setRaceEdited(false); setFeedback("Race added to Intervals.icu.")
     } catch (error) { setFeedback(error instanceof Error ? error.message : "Race could not be added.") }
     finally { setSaving(false) }
@@ -178,7 +396,7 @@ export function SettingsWorkspace() {
     finally { setSaving(false) }
   }
 
-  function openAtp() { window.dispatchEvent(new CustomEvent("app-navigate", { detail: "Annual Plan" })) }
+  function openLibrary() { window.dispatchEvent(new CustomEvent("app-navigate", { detail: "Library" })) }
 
   function renderMobileItem(item: SettingsItem) {
     if (item.id === "appearance") {
@@ -217,8 +435,8 @@ export function SettingsWorkspace() {
         label={item.label}
         value={summary(item.id)}
         onClick={() => {
-          if (item.id === "atp") {
-            openAtp()
+          if (item.id === "library") {
+            openLibrary()
             return
           }
           setSection(item.id)
@@ -258,9 +476,8 @@ export function SettingsWorkspace() {
       <section className="space-y-3"><h3 className="text-sm font-semibold">Race history</h3>{past.length ? <Card className="gap-0 divide-y py-0 shadow-none">{past.map(event => <SettingRow key={event.id} label={`${event.priority ? `${event.priority} · ` : ""}${compactDate(event.date)}`} value={event.name} />)}</Card> : <p className="text-sm text-muted-foreground">No past races in Intervals.icu.</p>}</section>
       {loadError && <p role="alert" className="text-sm text-destructive">{loadError}</p>}
     </div>
-    if (id === "atp") return <div className="space-y-5"><p className="text-sm text-muted-foreground">Your annual training plan and event calendar.</p>
-      {activePlan ? <Card className="gap-3 p-4 shadow-none"><div><p className="font-medium">{activePlan.name || "Annual training plan"}</p><p className="text-sm text-muted-foreground">{activePlan.startDate || ""}{activePlan.endDate ? ` – ${activePlan.endDate}` : ""}</p></div><p className="text-sm text-muted-foreground">{activePlan.events?.length || 0} planned races</p></Card> : <p className="rounded-lg border border-dashed px-4 py-5 text-sm text-muted-foreground">No annual training plan yet.</p>}
-      <Button onClick={openAtp}>Open ATP</Button></div>
+    if (id === "performance") return <PerformanceStatsPanel data={performanceData} loading={performanceLoading} error={performanceError} notice={performanceNotice} sport={performanceSport} onSportChange={setPerformanceSport} onRetry={() => { setPerformanceData(null); setPerformanceError(""); setPerformanceRetry(value => value + 1) }} onActivityOpen={onWorkoutOpen} />
+    if (id === "library") return null
     if (id === "appearance") return <div className="space-y-3"><div className="grid grid-cols-3 gap-2">{(["light", "dark", "system"] as const).map(value => <Button key={value} disabled={saving} variant={theme === value ? "default" : "outline"} onClick={() => void saveAppearance(value)}>{value[0].toUpperCase() + value.slice(1)}</Button>)}</div>{feedback && <p role="status" className="text-sm text-muted-foreground">{feedback}</p>}</div>
     return null
   }
@@ -269,10 +486,10 @@ export function SettingsWorkspace() {
   const dialogItem = getItem(dialogSection)
   return <div className="flex min-h-0 w-full flex-1 flex-col bg-background">
     {loadError && section !== "race" && <div role="alert" className="border-b px-4 py-3 text-sm text-destructive">{loadError}</div>}
-    <div className="flex min-h-0 flex-1 flex-col md:hidden"><MobileSiteNavbar className="mobile-site-navbar-over-scroll" title={mobileItem?.label || "Settings"} backLabel="Back to settings" onBack={section ? () => { setSection(null); setFeedback("") } : undefined} />
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">{section ? renderPanel(section) : <div className="space-y-5">{groups.map(group => <section key={group.label}><h2 className="mb-2 px-1 text-sm text-muted-foreground">{group.label}</h2><SettingsList>{group.items.map(renderMobileItem)}</SettingsList></section>)}</div>}</div>
+    <div className={cn("flex min-h-0 flex-1 flex-col md:hidden", section === "performance" && "coach-report-page")}><MobileSiteNavbar className={section === "performance" ? "coach-report-navbar" : "mobile-site-navbar-over-scroll"} title={mobileItem?.label || "Settings"} backLabel="Back to settings" onBack={section ? () => { setSection(null); setFeedback("") } : undefined}>{mobile && section === "performance" && <MobileFilterTabs label="Filter performance by sport" items={performanceSports} value={performanceSport} onChange={setPerformanceSport} className="performance-sport-filter" />}</MobileSiteNavbar>
+      <div className={cn("min-h-0 flex-1 overflow-y-auto", section === "performance" ? "overscroll-contain" : "px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom))]")}>{section === "performance" ? <div className="coach-report-content mx-auto w-full max-w-4xl px-4 py-5">{renderPanel(section)}</div> : section ? renderPanel(section) : <div className="space-y-5">{groups.map(group => <section key={group.label}><h2 className="mb-2 px-1 text-sm text-muted-foreground">{group.label}</h2><SettingsList>{group.items.map(renderMobileItem)}</SettingsList></section>)}</div>}</div>
     </div>
-    <div className="hidden min-h-0 flex-1 overflow-y-auto md:block"><div className="mx-auto w-full max-w-4xl px-8 py-14 lg:py-16"><h1 className="text-2xl font-medium tracking-tight">Settings</h1><p className="mt-1 text-sm text-muted-foreground">Manage training, race goals, and app preferences.</p><div className="mt-10 space-y-12">{groups.map(group => <section key={group.label}><h2 className="mb-4 text-sm font-medium">{group.label}</h2><Card className="gap-0 divide-y py-0 shadow-none">{group.items.map(item => { const Icon = item.icon; return <div key={item.id} className="flex min-h-16 items-center gap-3 px-4 py-3"><Icon className="size-4 text-muted-foreground" /><div className="min-w-0 flex-1"><p className="text-sm font-medium">{item.label}</p><p className="text-xs text-muted-foreground">{item.description}</p></div><span className="mr-2 max-w-56 truncate text-xs text-muted-foreground">{summary(item.id)}</span><Button variant="outline" size="sm" onClick={() => { setDialogSection(item.id); setFeedback("") }}>Manage</Button></div> })}</Card></section>)}</div></div></div>
+    <div className="hidden min-h-0 flex-1 overflow-y-auto md:block"><div className="mx-auto w-full max-w-4xl px-8 py-14 lg:py-16"><h1 className="text-2xl font-medium tracking-tight">Settings</h1><p className="mt-1 text-sm text-muted-foreground">Manage training, race goals, and app preferences.</p><div className="mt-10 space-y-12">{groups.map(group => <section key={group.label}><h2 className="mb-4 text-sm font-medium">{group.label}</h2><Card className="gap-0 divide-y py-0 shadow-none">{group.items.map(item => { const Icon = item.icon; return <div key={item.id} className="flex min-h-16 items-center gap-3 px-4 py-3"><Icon className="size-4 text-muted-foreground" /><div className="min-w-0 flex-1"><p className="text-sm font-medium">{item.label}</p><p className="text-xs text-muted-foreground">{item.description}</p></div><span className="mr-2 max-w-56 truncate text-xs text-muted-foreground">{summary(item.id)}</span><Button variant="outline" size="sm" onClick={() => { if (item.id === "library") { openLibrary(); return } setDialogSection(item.id); setFeedback("") }}> {item.id === "library" ? "Open" : "Manage"}</Button></div> })}</Card></section>)}</div></div></div>
     <Dialog open={Boolean(dialogSection)} onOpenChange={open => { if (!open) { setDialogSection(null); setFeedback("") } }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{dialogItem?.label}</DialogTitle><DialogDescription>{dialogItem?.description}</DialogDescription></DialogHeader>{dialogSection && renderPanel(dialogSection)}</DialogContent></Dialog>
   </div>
 }

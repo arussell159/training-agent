@@ -22,7 +22,7 @@ export function SettingsListItem({
   icon?: LucideIcon
   label: string
   description?: string
-  value?: string
+  value?: ReactNode
   onClick: (event: MouseEvent<HTMLButtonElement>) => void
   expanded?: boolean
   className?: string

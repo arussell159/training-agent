@@ -1,4 +1,4 @@
-import {formatDuration} from '@/lib/duration'
+import {formatDuration,formatPace} from '@/lib/duration'
 import {METERS_PER_100_YARDS,METERS_PER_YARD} from '../../../app-backend/lib/swim-units.mjs'
 import type {PlannedWorkout,WorkoutSummaryValues} from '@/lib/training-context'
 import {useEffect,useState} from 'react'
@@ -24,11 +24,11 @@ export function WorkoutSummary({workout,showElapsed=true,embedded=false,section=
  const planned=data?.planned,completed=recorded?{...data?.completed,...recorded,elapsed_time_seconds:recorded.elapsed_time_seconds ?? data?.completed?.elapsed_time_seconds,elapsed_speed:recorded.elapsed_speed ?? data?.completed?.elapsed_speed}:data?.completed
  const number=(v:number|null|undefined,digits=0)=>v==null || !Number.isFinite(v)?'':v.toLocaleString('en-US',{maximumFractionDigits:digits,minimumFractionDigits:digits})
  const clock=(v:number|null|undefined)=>v==null?'':formatDuration(v/60)
- const pace=(v:number|null|undefined,recorded=true)=>{if(!(Number(v)>0))return '';const s=Math.round((swim?(recorded?METERS_PER_100_YARDS:100):1609.344)/Number(v));return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`}
+ const pace=(v:number|null|undefined,recorded=true)=>{if(!(Number(v)>0))return '';const s=Math.round((swim?(recorded?METERS_PER_100_YARDS:100):1609.344)/Number(v));return formatPace(s)}
  const rows:{label:string;unit:string;value:(v:WorkoutSummaryValues|undefined|null,recorded?:boolean)=>string}[]=[
   {label:'Duration',unit:'',value:v=>clock(v?.duration_seconds)},
   ...(showElapsed && /swim|run/i.test(workout.sport)?[
-    {label:'Elapsed time',unit:'',value:(v:WorkoutSummaryValues|undefined|null)=>v?.elapsed_time_seconds==null?'':`${Math.floor(Math.round(v.elapsed_time_seconds)/60)}:${String(Math.round(v.elapsed_time_seconds)%60).padStart(2,'0')}`},
+    {label:'Elapsed time',unit:'',value:(v:WorkoutSummaryValues|undefined|null)=>v?.elapsed_time_seconds==null?'':formatDuration(v.elapsed_time_seconds/60)},
     {label:'Elapsed pace',unit:swim?'min:sec/100y':'min/mi',value:(v:WorkoutSummaryValues|undefined|null,recorded=false)=>pace(v?.elapsed_speed,recorded)},
   ]:[]),
   {label:'Distance',unit:swim?'yds':'mi',value:(v,recorded=false)=>number(v?.distance_meters==null||v.distance_meters<=0?null:v.distance_meters/(swim?(recorded?METERS_PER_YARD:1):1609.344),swim?0:2)},

@@ -9,6 +9,7 @@ import { WorkoutMapSplits } from "@/components/workout-map-splits"
 import { Button } from "@/components/ui/button"
 import { apiFetch } from "@/lib/api-client"
 import { distanceSplits } from "@/lib/distance-splits"
+import { formatDuration, formatPace } from "@/lib/duration"
 import { segmentStatistics, type RecordedPoint } from "@/lib/segment-statistics"
 import { intervalSignals } from "@/lib/interval-signals"
 import type { PlannedWorkout, WorkoutSummaryValues } from "@/lib/training-context"
@@ -52,8 +53,9 @@ const clock = (seconds:number) => {
   const value=Math.max(0,Math.round(seconds)),hours=Math.floor(value/3600),minutes=Math.floor((value%3600)/60),remainder=value%60
   return hours?`${hours}:${String(minutes).padStart(2,"0")}:${String(remainder).padStart(2,"0")}`:`${minutes}:${String(remainder).padStart(2,"0")}`
 }
+const durationClock = (seconds:number) => formatDuration(seconds / 60)
 const effortLabel=(seconds:number)=>seconds<60?`${seconds} secs`:seconds<3600?`${seconds/60} min${seconds===60?"":"s"}`:`${seconds/3600} hour${seconds===3600?"":"s"}`
-const pace=(seconds:number)=>seconds>0&&Number.isFinite(seconds)?clock(seconds):"—"
+const pace=(seconds:number)=>seconds>0&&Number.isFinite(seconds)?formatPace(seconds):"—"
 const workoutDate=(workout:PlannedWorkout)=>{
   const value=workout.workout_date||workout.date
   const date=new Date(`${value}T12:00:00`)
@@ -256,7 +258,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
   const summaryStats=summaryRange?rangeStatistics(data.points,summaryRange[0],summaryRange[1]):activeStats
   const laneHeight=70,height=signalTracks.length*laneHeight+8,activeDuration=summaryRange?summaryRange[1]-summaryRange[0]:totals?.duration_seconds??viewEnd-viewStart,activeDistance=summaryStats.distance,activeElevation=activeStats.elevationChange
   const summaryGroups:Array<{title:string;values:Array<[string,string|null]>}>=[
-    {title:"Active",values:[["Time",clock(activeDuration)],["Distance",activeDistance!=null?(swim?`${Math.round(recordedSwimYards(activeDistance)).toLocaleString()} yd`:`${(activeDistance/1609.344).toFixed(2)} mi`):!summaryRange&&totals?.distance_meters!=null?`${(totals.distance_meters/1609.344).toFixed(2)} mi`:null],[run||swim?"Avg pace":"Avg speed",summaryStats.speed!=null&&summaryStats.speed>0?(run||swim?`${pace(paceDistance/summaryStats.speed)} ${unit("pace")}`:`${(summaryStats.speed*2.236936).toFixed(1)} mph`):null]]},
+    {title:"Active",values:[["Time",durationClock(activeDuration)],["Distance",activeDistance!=null?(swim?`${Math.round(recordedSwimYards(activeDistance)).toLocaleString()} yd`:`${(activeDistance/1609.344).toFixed(2)} mi`):!summaryRange&&totals?.distance_meters!=null?`${(totals.distance_meters/1609.344).toFixed(2)} mi`:null],[run||swim?"Avg pace":"Avg speed",summaryStats.speed!=null&&summaryStats.speed>0?(run||swim?`${pace(paceDistance/summaryStats.speed)} ${unit("pace")}`:`${(summaryStats.speed*2.236936).toFixed(1)} mph`):null]]},
     {title:"Power",values:[["Average",activeStats.power!=null?`${Math.round(activeStats.power)} W`:null],["Normalized",!range&&totals?.normalized_power!=null?`${Math.round(totals.normalized_power)} W`:null],["Maximum",activeStats.maxPower!=null?`${Math.round(activeStats.maxPower)} W`:null]]},
     {title:"Load & energy",values:[["Work",`${Math.round(range?activeStats.workKj:totals?.work_kj??activeStats.workKj)} kJ`],["Training load",!range&&totals?.tss!=null?`${Math.round(totals.tss)} TSS`:null],["Intensity",!range&&totals?.intensity_factor!=null?`${Math.round(totals.intensity_factor*100)}%`:null]]},
     {title:"Elevation",values:[["Gain",`${Math.round((range?activeStats.elevationGain:totals?.elevation_gain??activeStats.elevationGain)/.3048)} ft`],["Loss",`${Math.round((range?activeStats.elevationLoss:totals?.elevation_loss??activeStats.elevationLoss)/.3048)} ft`],["Net",activeElevation!=null?`${activeElevation>=0?"+":""}${Math.round(activeElevation/.3048)} ft`:null]]},
@@ -279,14 +281,14 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection}:{id:string;r
   const overviewDistance=totals?.distance_meters??wholeStats.distance,overviewSpeed=totals?.average_speed??wholeStats.speed
   const overviewPrimary=[
     {label:"Distance",value:overviewDistance!=null?(swim?`${Math.round(recordedSwimYards(overviewDistance)).toLocaleString()} yd`:`${(overviewDistance/1609.344).toFixed(2)} mi`):"—"},
-    {label:"Moving time",value:clock(totals?.duration_seconds??duration)},
+    {label:"Moving time",value:durationClock(totals?.duration_seconds??duration)},
     {label:run||swim?"Pace":"Avg speed",value:overviewSpeed!=null&&overviewSpeed>0?(run||swim?`${pace(paceDistance/overviewSpeed)} ${unit("pace")}`:`${(overviewSpeed*2.236936).toFixed(1)} mph`):"—"},
     {label:"Training load",value:totals?.tss!=null?String(Math.round(totals.tss)):"—"},
   ]
   const overviewDetails=[
     {label:"Elevation",value:`${Math.round((totals?.elevation_gain??wholeStats.elevationGain)/.3048).toLocaleString()} ft`},
     {label:"Calories",value:totals?.calories!=null?Math.round(totals.calories).toLocaleString():null},
-    {label:"Elapsed time",value:totals?.elapsed_time_seconds!=null?clock(totals.elapsed_time_seconds):null},
+    {label:"Elapsed time",value:totals?.elapsed_time_seconds!=null?durationClock(totals.elapsed_time_seconds):null},
     ...((run||swim)?[{label:"Elapsed pace",value:totals?.elapsed_speed!=null&&totals.elapsed_speed>0?`${pace(paceDistance/totals.elapsed_speed)} ${unit("pace")}`:null}]:[]),
   ]
   const overviewConditions=[

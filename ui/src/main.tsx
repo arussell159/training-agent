@@ -9,6 +9,7 @@ import Actions from "framework7/components/actions"
 import Calendar from "framework7/components/calendar"
 import Dialog from "framework7/components/dialog"
 import Progressbar from "framework7/components/progressbar"
+import Range from "framework7/components/range"
 import Sortable from "framework7/components/sortable"
 import Framework7React, { App as Framework7App } from "framework7-react"
 
@@ -35,6 +36,7 @@ Framework7.use([
   Calendar,
   Dialog,
   Progressbar,
+  Range,
   Sortable,
 ])
 
@@ -71,6 +73,7 @@ createRoot(document.getElementById("root")!).render(
     <Framework7App
       name="Training Agent"
       theme="ios"
+      sortable={{ moveElements: false }}
       clicks={{ externalLinks: "a" }}
       touch={{ activeState: false, touchRipple: false, touchHighlight: false }}
     >

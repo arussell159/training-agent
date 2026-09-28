@@ -2,9 +2,9 @@ import { type ReactNode, type MouseEvent, type KeyboardEvent } from "react"
 import { Tab, Tabs, Toolbar, ToolbarPane } from "framework7-react"
 import {
   CalendarDays,
+  CalendarRange,
   Menu,
   Home,
-  Library,
   MessageCircle,
 } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -14,7 +14,12 @@ const destinations = [
   { label: "Home", icon: Home, id: "home" },
   { label: "Calendar", icon: CalendarDays, id: "calendar" },
   { label: "Coach", icon: MessageCircle, id: "coach" },
-  { label: "Library", icon: Library, id: "library" },
+  {
+    label: "Annual Plan",
+    displayLabel: "ATP",
+    icon: CalendarRange,
+    id: "annual-plan",
+  },
   { label: "Settings", displayLabel: "More", icon: Menu, id: "settings" },
 ]
 
@@ -29,8 +34,7 @@ export function MobilePageTabs({
   if (!mobile) return children
   return (
     <Tabs className="mobile-page-tabs">
-      {[...destinations, { label: "Annual Plan", id: "annual-plan" }].map(
-        ({ label, id }) => (
+      {destinations.map(({ label, id }) => (
           <Tab
             key={id}
             id={`mobile-panel-${id}`}
@@ -41,8 +45,7 @@ export function MobilePageTabs({
           >
             {activeItem === label ? children : null}
           </Tab>
-        )
-      )}
+        ))}
     </Tabs>
   )
 }
@@ -94,6 +97,10 @@ export function MobileNavbar({
               event.preventDefault()
               if (label === "Calendar" && activeItem === "Calendar") {
                 window.dispatchEvent(new Event("calendar-go-today"))
+                return
+              }
+              if (label === "Annual Plan" && activeItem === "Annual Plan") {
+                window.dispatchEvent(new Event("annual-plan-go-current-week"))
                 return
               }
               onNavigate(label)

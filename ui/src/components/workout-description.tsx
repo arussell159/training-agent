@@ -97,10 +97,10 @@ export function WorkoutDescription({
           )}
         </h3>
         {showContent && !editing && canEditWorkout(workout) && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="absolute top-1/2 right-0 size-8 -translate-y-1/2 p-0"
+          <button
+            type="button"
+            className={`absolute top-1/2 right-0 flex shrink-0 -translate-y-1/2 items-center justify-center rounded-lg text-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring ${mobileCompact ? "size-8" : "h-8 gap-1 px-2.5 text-sm"}`}
+            style={mobileCompact ? { width: 32, minWidth: 32, maxWidth: 32, height: 32 } : undefined}
             onClick={() => {
               setDraft(saved)
               setEditing(true)
@@ -109,7 +109,7 @@ export function WorkoutDescription({
           >
             <Pencil className="size-3.5" />
             {mobileCompact ? <span className="sr-only">Edit</span> : "Edit"}
-          </Button>
+          </button>
         )}
       </div>
       <div hidden={!showContent} className="space-y-3">
@@ -125,7 +125,7 @@ export function WorkoutDescription({
             <div className="grid w-full min-w-0 grid-cols-2 gap-2">
               <Button
                 variant="outline"
-                size="sm"
+                className="h-10 w-full rounded-full"
                 disabled={busy}
                 onClick={() => {
                   setDraft(saved)
@@ -135,8 +135,8 @@ export function WorkoutDescription({
                 Cancel
               </Button>
               <Button
-                size="sm"
-                className="min-w-0 w-full"
+                variant="outline"
+                className="h-10 w-full min-w-0 rounded-full"
                 disabled={busy || draft === saved}
                 onClick={() => void save()}
               >

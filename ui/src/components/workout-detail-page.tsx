@@ -9,7 +9,7 @@ import {
   useEditedWorkout,
 } from "@/components/workout-editor"
 import { lazy, Suspense, useEffect, useState } from "react"
-import { formatDuration } from "@/lib/duration"
+import { formatDuration, formatPace } from "@/lib/duration"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
 import { WorkoutDetailSurface } from "@/components/workout-detail-surface"
@@ -406,9 +406,7 @@ export function WorkoutDetailPage({
       : null
   const movingTime =
     duration != null
-      ? duration >= 3600
-        ? `${Math.floor(duration / 3600)}:${String(Math.floor((duration % 3600) / 60)).padStart(2, "0")}:${String(duration % 60).padStart(2, "0")}`
-        : `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}`
+      ? formatDuration(duration / 60)
       : Number.isFinite(workout.actualDurationMinutes)
         ? formatDuration(completed)
         : null
@@ -439,7 +437,7 @@ export function WorkoutDetailPage({
           ? `${numeric(values.average_power)} W`
           : null
         : pace
-          ? `${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, "0")} /${swim ? "100 yd" : "mi"}`
+          ? `${formatPace(pace)} /${swim ? "100 yd" : "mi"}`
           : null,
     },
     {

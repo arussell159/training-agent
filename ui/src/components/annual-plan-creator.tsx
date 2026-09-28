@@ -25,6 +25,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { apiFetch } from "@/lib/api-client"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useSheetDismiss } from "@/hooks/use-sheet-dismiss"
+import { Sheet } from "framework7-react"
 import {
   PLAN_PHASES,
   PHASE_COLORS,
@@ -105,6 +107,14 @@ function clockHours(value: number | null) {
   if (value == null || !Number.isFinite(value)) return ""
   const seconds = Math.round(value * 3600)
   return `${Math.floor(seconds / 3600)}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`
+}
+
+function hourMinuteLabel(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return "—"
+  const minutes = Math.round(value * 60)
+  const hours = Math.floor(minutes / 60)
+  const remainder = minutes % 60
+  return remainder ? `${hours}h ${remainder}m` : `${hours}h`
 }
 
 function parseHours(value: string): number | null | undefined {
@@ -197,13 +207,15 @@ function RaceDialog({ week, event, open, busy, onOpenChange, onSubmit, onDelete 
   )
 }
 
-function SeasonChart({ plan, actuals, selectedWeek, onSelect }: {
+function SeasonChart({ plan, actuals, selectedWeek, onSelect, glassBackground = false }: {
   plan: AnnualPlan
   actuals: Map<string, WeekActuals>
   selectedWeek: string | null
   onSelect: (id: string) => void
+  glassBackground?: boolean
 }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
+  const [chartLoaded, setChartLoaded] = useState(false)
   const [viewportWidth, setViewportWidth] = useState(0)
   const monthWidth = 96
   const monthKeys = useMemo(() => {
@@ -261,29 +273,37 @@ function SeasonChart({ plan, actuals, selectedWeek, onSelect }: {
   useEffect(() => {
     const element = scrollerRef.current
     if (!element || !currentWeek) return
-    const currentX = dateCenterX(today)
+    const currentLeft = boundaryX(currentWeek.startDate)
+    const currentRight = boundaryX(nextDay(currentWeek.endDate))
+    const currentX = (currentLeft + currentRight) / 2
     requestAnimationFrame(() => { element.scrollLeft = Math.max(0, currentX - element.clientWidth / 2) })
   }, [chartWidth, currentWeek, plan.id, plan.startDate, plan.endDate, today])
 
+  useEffect(() => {
+    setChartLoaded(false)
+    const frame = requestAnimationFrame(() => setChartLoaded(true))
+    return () => cancelAnimationFrame(frame)
+  }, [plan.id])
+
   return (
     <TooltipProvider>
-      <div ref={scrollerRef} className="w-full overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Planned and completed training hours">
+      <div ref={scrollerRef} className={`w-full overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${glassBackground ? "rounded-b-[20px]" : ""}`} aria-label="Planned and completed training hours">
         <div style={{ width: chartWidth }}>
           <div className="relative h-7 border-b border-r text-[10px] text-muted-foreground">
-            {monthKeys.map((key, index) => <div key={key} className={`absolute inset-y-0 border-l border-border ${index % 2 ? "bg-muted/45" : "bg-background"}`} style={{ left: index * equalMonthWidth, width: equalMonthWidth }}><span className="block px-1.5 pt-1.5">{dateLabel(`${key}-01`, { month: "long" })}</span></div>)}
+            {monthKeys.map((key, index) => <div key={key} className={`absolute inset-y-0 border-l border-border ${glassBackground ? (index % 2 ? "bg-white/5 dark:bg-white/5" : "bg-transparent") : index % 2 ? "bg-muted/45" : "bg-background"}`} style={{ left: index * equalMonthWidth, width: equalMonthWidth }}><span className="block px-1.5 pt-1.5">{dateLabel(`${key}-01`, { month: "long" })}</span></div>)}
           </div>
-          <div className="relative h-28 border-b border-r bg-background md:h-48">
-            {monthKeys.map((key, index) => <span key={key} aria-hidden className={`absolute inset-y-0 border-l border-border ${index % 2 ? "bg-muted/45" : "bg-background"}`} style={{ left: index * equalMonthWidth, width: equalMonthWidth }} />)}
-            {plan.weeks.map((week) => {
+          <div className={`relative h-28 border-b border-r md:h-48 ${glassBackground ? "overflow-hidden rounded-b-[20px] bg-transparent" : "bg-background"}`}>
+            {monthKeys.map((key, index) => <span key={key} aria-hidden className={`absolute inset-y-0 border-l border-border ${glassBackground ? (index % 2 ? "bg-white/5 dark:bg-white/5" : "bg-transparent") : index % 2 ? "bg-muted/45" : "bg-background"}`} style={{ left: index * equalMonthWidth, width: equalMonthWidth }} />)}
+            {plan.weeks.map((week, index) => {
               const completed = actuals.get(week.id)?.completedHours ?? null
               const events = plan.events.filter((event) => event.date >= week.startDate && event.date <= week.endDate)
               const weekLeft = boundaryX(week.startDate)
               const weekRight = boundaryX(nextDay(week.endDate))
               return (
                 <Tooltip key={week.id}>
-                  <TooltipTrigger render={<button type="button" />} onClick={() => onSelect(week.id)} style={{ left: weekLeft, width: Math.max(2, weekRight - weekLeft) }} className={`group absolute inset-y-0 z-10 outline-none hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-primary ${selectedWeek === week.id ? "ring-2 ring-inset ring-primary" : ""}`} aria-label={`${dateLabel(week.startDate)} planned ${clockHours(week.targetHours) || "not set"}, completed ${clockHours(completed) || "not recorded"}`}>
-                    {(week.targetHours ?? 0) > 0 && <span className="absolute bottom-0 left-px bg-slate-300 transition-colors group-hover:bg-slate-400 dark:bg-slate-600" style={{ width: "calc(100% - 2px)", height: `${week.targetHours! / max * 100}%` }} />}
-                    {(completed ?? 0) > 0 && <span className="absolute bottom-0 left-px z-20" style={{ width: "calc(100% - 2px)", height: `${completed! / max * 100}%`, backgroundColor:PHASE_COLORS[week.phase] }} />}
+                  <TooltipTrigger render={<button type="button" />} onClick={() => onSelect(week.id)} style={{ left: weekLeft, width: Math.max(2, weekRight - weekLeft) }} className={`group absolute inset-y-0 z-10 outline-none hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-primary ${currentWeek?.id === week.id ? "bg-foreground/5" : ""} ${selectedWeek === week.id && currentWeek?.id !== week.id ? "ring-2 ring-inset ring-primary" : ""}`} aria-label={`${dateLabel(week.startDate)} planned ${clockHours(week.targetHours) || "not set"}, completed ${clockHours(completed) || "not recorded"}`}>
+                    {(week.targetHours ?? 0) > 0 && <span className={`absolute bottom-0 left-px transition-[height,opacity] duration-700 ease-out motion-reduce:transition-none ${currentWeek?.id === week.id ? "bg-slate-400 dark:bg-slate-500" : "bg-slate-300 group-hover:bg-slate-400 dark:bg-slate-600"}`} style={{ width: "calc(100% - 2px)", height: `${chartLoaded ? week.targetHours! / max * 100 : 0}%`, opacity: chartLoaded ? 1 : 0, transitionDelay: `${Math.min(index, 24) * 14}ms` }} />}
+                    {(completed ?? 0) > 0 && <span className="absolute bottom-0 left-px z-20 transition-[height,opacity] duration-700 ease-out motion-reduce:transition-none" style={{ width: "calc(100% - 2px)", height: `${chartLoaded ? completed! / max * 100 : 0}%`, opacity: chartLoaded ? 1 : 0, backgroundColor:PHASE_COLORS[week.phase], transitionDelay: `${Math.min(index, 24) * 14 + 90}ms` }} />}
                     {events.map((event, eventIndex) => <span key={event.id} className="absolute z-30" style={{ top: 4 + eventIndex * 20, left: dateCenterX(event.date) - weekLeft - 10 }}><RaceMarkerIcon priority={event.priority} /></span>)}
                   </TooltipTrigger>
                   <TooltipContent className="hidden space-y-1 md:block"><p className="font-semibold">{dateLabel(week.startDate)}–{dateLabel(week.endDate)}</p><p>{phaseLabel(week)}</p><p>Planned: {clockHours(week.targetHours) || "—"}</p><p>Completed: {clockHours(completed) || "—"}</p>{events.map((event) => <p key={event.id}>{event.priority} · {event.name}</p>)}</TooltipContent>
@@ -340,30 +360,33 @@ function MobileWeekHours({ id, value, onCommit }: { id: string; value: number | 
   return <Input id={id} inputMode="decimal" value={text} onChange={(event) => setText(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur() }} placeholder="0:00:00" className="h-7 rounded-none border-0 bg-transparent px-0 py-0 text-sm tabular-nums focus-visible:ring-0 dark:bg-transparent" />
 }
 
-function MobileWeekCard({ week, weekNumber, completed, events, reportStartDate, current, expanded, onToggle, onPhaseChange, onHoursChange, onNotesChange, onRace }: {
+function MobileWeekCard({ week, weekNumber, current, onOpen }: {
   week: AnnualPlanWeek
   weekNumber: number
+  current: boolean
+  onOpen: (trigger: HTMLButtonElement) => void
+}) {
+  return <SettingsListItem
+    icon={CalendarDays}
+    label={week.phase === "Race" ? "Race week" : `Week ${week.phaseWeek ?? weekNumber}${week.recovery ? " · Recovery" : ""}`}
+    description={`${dateLabel(week.startDate, { month: "short", day: "numeric" })} – ${dateLabel(week.endDate, { month: "short", day: "numeric", year: "numeric" })}`}
+    value={<span className="inline-flex items-center gap-2 whitespace-nowrap"><span className="font-medium tabular-nums text-foreground">{hourMinuteLabel(week.targetHours)}</span>{current && <span>This week</span>}</span>}
+    className={current ? "bg-muted text-foreground hover:bg-muted hover:text-foreground dark:bg-muted/50 dark:hover:bg-muted/50 [&>span>span:first-child]:font-semibold" : undefined}
+    onClick={(event) => onOpen(event.currentTarget)}
+  />
+}
+
+function MobileWeekDetails({ week, completed, events, reportStartDate, onPhaseChange, onHoursChange, onNotesChange, onRace }: {
+  week: AnnualPlanWeek
   completed: number | null
   events: PlanEvent[]
   reportStartDate: string | null
-  current: boolean
-  expanded: boolean
-  onToggle: () => void
   onPhaseChange: (phase: PlanPhase) => void
   onHoursChange: (hours: number | null) => void
   onNotesChange: (notes: string) => void
   onRace: (event?: PlanEvent) => void
 }) {
-  return <article>
-    <SettingsListItem
-      icon={CalendarDays}
-      label={week.phase === "Race" ? "Race week" : `Week ${week.phaseWeek ?? weekNumber}${week.recovery ? " · Recovery" : ""}`}
-      description={`${dateLabel(week.startDate, { month: "short", day: "numeric" })} – ${dateLabel(week.endDate, { month: "short", day: "numeric", year: "numeric" })}`}
-      value={current ? "This week" : undefined}
-      expanded={expanded}
-      onClick={onToggle}
-    />
-    {expanded && <div className="space-y-3 border-t px-4 py-4">
+  return <div className="space-y-3 px-1 py-2">
       <div className="text-xs tabular-nums text-muted-foreground">Planned {clockHours(week.targetHours) || "—"} <span aria-hidden="true">·</span> Completed {clockHours(completed) || "—"}</div>
       {events.length > 0 && <p className="text-xs font-medium">{events.map(event => `${event.priority} · ${event.name}`).join(" · ")}</p>}
       <div className={mobileFieldClass}>
@@ -381,8 +404,7 @@ function MobileWeekCard({ week, weekNumber, completed, events, reportStartDate, 
         <Button type="button" variant="outline" onClick={() => onRace()} className="h-10 w-full rounded-full"><Plus className="size-4" />Add race</Button>
       </div>
       {reportStartDate && <div className="flex justify-end"><SavedReportButton kind="block" startDate={reportStartDate} /></div>}
-    </div>}
-  </article>
+  </div>
 }
 
 function groupPlanWeeks(weeks: AnnualPlanWeek[]) {
@@ -417,11 +439,16 @@ export function AnnualPlanCreator() {
   const [plan, setPlan] = useState<AnnualPlan | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [mobileChartOpen, setMobileChartOpen] = useState(false)
   const [planDialogOpen, setPlanDialogOpen] = useState(false)
   const [planSubmitError, setPlanSubmitError] = useState<string | null>(null)
   const [planDialogInitial, setPlanDialogInitial] = useState<PlanSettings>(() => defaultSettings(context))
   const [raceEditor, setRaceEditor] = useState<{ week: AnnualPlanWeek; event?: PlanEvent } | null>(null)
   const [activeWeekId, setActiveWeekId] = useState<string | null>(null)
+  const [mobileWeekDialogId, setMobileWeekDialogId] = useState<string | null>(null)
+  const [weekSheetExpanded, setWeekSheetExpanded] = useState(false)
+  const weekSheetHistory = useRef(false)
+  const weekSheetTrigger = useRef<HTMLElement | null>(null)
   const planRef = useRef<AnnualPlan | null>(null)
   const saveQueue = useRef<Promise<void>>(Promise.resolve())
   const phaseRefs = useRef(new Map<string, HTMLButtonElement | HTMLSelectElement>())
@@ -442,6 +469,7 @@ export function AnnualPlanCreator() {
     planRef.current = next
     setPlan(next)
     setActiveWeekId(null)
+    setMobileWeekDialogId(null)
     centeredWeekRef.current = null
     if (next) setPlans((items) => [next, ...items.filter((item) => item.id !== next.id)])
   }, [])
@@ -476,6 +504,17 @@ export function AnnualPlanCreator() {
   const currentWeek = plan?.weeks.find(
     (week) => today >= week.startDate && today <= week.endDate
   )
+  const mobileWeekDialog = plan?.weeks.find((week) => week.id === mobileWeekDialogId) || null
+  const mobileWeekDialogBlock = mobileWeekDialog
+    ? mobileBlocks.find((block) => block.weeks.some((week) => week.id === mobileWeekDialog.id))
+    : null
+  const mobileWeekDialogNumber = mobileWeekDialogBlock?.weeks.findIndex((week) => week.id === mobileWeekDialog?.id) ?? 0
+  const mobileWeekDialogEvents = mobileWeekDialog
+    ? plan?.events.filter((event) => event.date >= mobileWeekDialog.startDate && event.date <= mobileWeekDialog.endDate) || []
+    : []
+  const mobileWeekDialogReport = mobileWeekDialog
+    ? reportBlocks.find((item) => item.endDate === mobileWeekDialog.endDate)
+    : null
 
   const centerTableWeek = useCallback(
     (id: string, behavior: ScrollBehavior = "auto") => {
@@ -501,6 +540,18 @@ export function AnnualPlanCreator() {
     },
     []
   )
+
+  useEffect(() => {
+    const returnToCurrentWeek = () => {
+      if (!currentWeek || !plan) return
+      const centeringKey = `${isMobile ? "mobile" : "desktop"}:${plan.id}:${currentWeek.id}`
+      centeredWeekRef.current = centeringKey
+      setActiveWeekId(currentWeek.id)
+      centerTableWeek(currentWeek.id, "smooth")
+    }
+    window.addEventListener("annual-plan-go-current-week", returnToCurrentWeek)
+    return () => window.removeEventListener("annual-plan-go-current-week", returnToCurrentWeek)
+  }, [centerTableWeek, currentWeek, isMobile, plan])
 
   useLayoutEffect(() => {
     if (!plan) return
@@ -548,6 +599,31 @@ export function AnnualPlanCreator() {
   const selectWeek = useCallback((id: string) => {
     setActiveWeekId(id)
     centeredWeekRef.current = null
+  }, [])
+
+  const closeWeekSheet = useCallback(() => {
+    setWeekSheetExpanded(false)
+    if (weekSheetHistory.current) {
+      weekSheetHistory.current = false
+      setMobileWeekDialogId(null)
+      window.history.back()
+    } else setMobileWeekDialogId(null)
+  }, [])
+  const expandWeekSheet = useCallback(() => setWeekSheetExpanded(true), [])
+  useSheetDismiss("annual-plan-week-layer", Boolean(mobileWeekDialogId), closeWeekSheet, {
+    expanded: weekSheetExpanded,
+    onExpand: expandWeekSheet,
+  })
+  useEffect(() => {
+    const pop = (event: PopStateEvent) => {
+      if (!weekSheetHistory.current) return
+      event.stopImmediatePropagation()
+      weekSheetHistory.current = false
+      setWeekSheetExpanded(false)
+      setMobileWeekDialogId(null)
+    }
+    window.addEventListener("popstate", pop, true)
+    return () => window.removeEventListener("popstate", pop, true)
   }, [])
 
   const focusEditableCell = useCallback((rowIndex:number,column:0|1|2) => {
@@ -649,17 +725,43 @@ export function AnnualPlanCreator() {
   if (loading) return <div className="flex h-full w-full items-center justify-center"><LoaderCircle className="size-6 animate-spin text-muted-foreground" /></div>
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
+    <div id="annual-plan-week-layer" className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
       <MobileSiteNavbar
-        title="Annual Planner"
+        className={mobileChartOpen ? "calendar-picker-navbar-open" : undefined}
+        titleLabel="Annual Planner"
+        title={<button
+          type="button"
+          aria-label="Toggle season chart"
+          aria-expanded={mobileChartOpen}
+          aria-controls="annual-plan-season-chart"
+          onClick={() => setMobileChartOpen((open) => !open)}
+          className="calendar-month-title-button"
+        >
+          <span>Annual Planner</span>
+          <ChevronDown aria-hidden="true" />
+        </button>}
         onBack={() => window.dispatchEvent(new CustomEvent("app-navigate", { detail: "Settings" }))}
         backLabel="Back to settings"
+        showMenu={!mobileChartOpen}
         actions={[
           ...(plan ? [{ value: "plan-settings", label: "Plan settings", onSelect: editPlan }] : []),
           { value: "new-plan", label: "New plan", onSelect: createPlan },
           ...plans.filter(item => item.id !== plan?.id).map(item => ({ value: `switch-${item.id}`, label: `Switch to ${item.name}`, onSelect: () => persistPlan(item) })),
         ]}
       />
+      {isMobile && mobileChartOpen && plan && <div
+        className="mobile-calendar-picker-layer annual-plan-chart-layer"
+        onClick={(event) => { if (event.target === event.currentTarget) setMobileChartOpen(false) }}
+      >
+        <div
+          id="annual-plan-season-chart"
+          className="mobile-calendar-picker-panel"
+          role="dialog"
+          aria-label="Season chart"
+        >
+          <SeasonChart key={plan.id} plan={plan} actuals={actuals} selectedWeek={activeWeekId} onSelect={selectWeek} glassBackground />
+        </div>
+      </div>}
       <header className="hidden h-14 shrink-0 items-center gap-2 border-b px-4 md:flex">
         <div className="min-w-0 text-base font-semibold">{planSelector}</div>
         <Button type="button" size="icon-sm" variant="ghost" aria-label="Create new plan" onClick={createPlan}><Plus /></Button>
@@ -668,19 +770,18 @@ export function AnnualPlanCreator() {
       </header>
 
       {plan ? <>
-        <section className="shrink-0 border-b">
+        {!isMobile && <section className="shrink-0 border-b">
           <div className="hidden items-center justify-end gap-4 border-b px-4 py-1.5 text-[11px] text-muted-foreground md:flex"><span className="flex items-center gap-1.5"><span className="size-2.5 bg-slate-300 dark:bg-slate-600" /> Planned</span><span>Completed · period color</span></div>
-          <SeasonChart plan={plan} actuals={actuals} selectedWeek={activeWeekId} onSelect={selectWeek} />
+          <SeasonChart key={plan.id} plan={plan} actuals={actuals} selectedWeek={activeWeekId} onSelect={selectWeek} />
         </section>
-        {isMobile && <section ref={mobileScrollerRef} aria-label="Training plan blocks" className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pb-24 pt-4">
+        }
+        {isMobile && <section ref={mobileScrollerRef} aria-label="Training plan blocks" className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
           {mobileBlocks.map(block => <section key={block.key} aria-label={block.phase}>
-            <h2 className="mb-2 px-1 text-sm text-muted-foreground">{block.phase}</h2>
+            <h2 className="mb-2 px-1 text-sm font-medium" style={{ color: PHASE_COLORS[block.phase] }}>{block.phase}</h2>
             <SettingsList>
               {block.weeks.map((week, index) => {
-                const events = plan.events.filter(event => event.date >= week.startDate && event.date <= week.endDate)
-                const reportBlock = reportBlocks.find(item => item.endDate === week.endDate)
                 return <div key={week.id} ref={(element) => { if (element) mobileWeekRefs.current.set(week.id, element); else mobileWeekRefs.current.delete(week.id) }}>
-                  <MobileWeekCard week={week} weekNumber={index + 1} completed={actuals.get(week.id)?.completedHours ?? null} events={events} reportStartDate={reportBlock?.startDate || null} current={currentWeek?.id === week.id} expanded={(activeWeekId ?? currentWeek?.id) === week.id} onToggle={() => setActiveWeekId(current => (current ?? currentWeek?.id) === week.id ? "" : week.id)} onPhaseChange={phase => changePeriod(week.id, phase)} onHoursChange={hours => changeWeek(week.id, { targetHours: hours, manual: true })} onNotesChange={notes => changeWeek(week.id, { notes })} onRace={event => setRaceEditor({ week, event })} />
+                  <MobileWeekCard week={week} weekNumber={index + 1} current={currentWeek?.id === week.id} onOpen={(trigger) => { weekSheetTrigger.current = trigger; setWeekSheetExpanded(false); window.history.pushState({ ...window.history.state, annualPlanWeek: week.id }, ""); weekSheetHistory.current = true; selectWeek(week.id); setMobileWeekDialogId(week.id) }} />
                 </div>
               })}
             </SettingsList>
@@ -716,6 +817,49 @@ export function AnnualPlanCreator() {
 
       <PlanDialog open={planDialogOpen} onOpenChange={(open) => { setPlanDialogOpen(open); if (!open) setPlanSubmitError(null) }} initial={planDialogInitial} busy={busy} submitError={planSubmitError} onSubmit={(settings) => void submitPlanSettings(settings)} />
       <RaceDialog week={raceEditor?.week || null} event={raceEditor?.event} open={Boolean(raceEditor)} busy={busy} onOpenChange={(open) => { if (!open) setRaceEditor(null) }} onSubmit={(value) => void saveRace(value)} onDelete={() => void deleteRace()} />
+      {isMobile && <>
+        <div
+          className={`terms-metric-backdrop sheet-backdrop annual-plan-week-backdrop${mobileWeekDialogId ? " backdrop-in" : ""}`}
+          aria-hidden="true"
+          onClick={closeWeekSheet}
+        />
+        <Sheet
+          containerEl="#annual-plan-week-layer"
+          className={`terms-metric-sheet detail-sheet-expandable ${weekSheetExpanded ? "detail-sheet-expanded" : ""}`}
+          opened={Boolean(mobileWeekDialogId)}
+          backdrop
+          backdropEl="#annual-plan-week-layer .annual-plan-week-backdrop"
+          closeByBackdropClick
+          closeOnEscape
+          onSheetClose={closeWeekSheet}
+          onSheetClosed={() => weekSheetTrigger.current?.focus({ preventScroll: true })}
+          {...{
+            role: "dialog",
+            "aria-modal": true,
+            "aria-label": mobileWeekDialog ? `Week of ${dateLabel(mobileWeekDialog.startDate)}` : "Training week",
+          }}
+        >
+          <div className="terms-metric-sheet-handle detail-sheet-handle" aria-hidden="true"><span /></div>
+          <div className="terms-metric-sheet-heading">
+            <div>
+              <h2>{mobileWeekDialog ? (mobileWeekDialog.phase === "Race" ? "Race week" : `Week ${mobileWeekDialog.phaseWeek ?? mobileWeekDialogNumber + 1}${mobileWeekDialog.recovery ? " · Recovery" : ""}`) : "Training week"}</h2>
+              {mobileWeekDialog && <p className="mt-1 text-sm text-muted-foreground">{dateLabel(mobileWeekDialog.startDate, { month: "long", day: "numeric" })} – {dateLabel(mobileWeekDialog.endDate, { month: "long", day: "numeric", year: "numeric" })}</p>}
+            </div>
+          </div>
+          <div className="terms-metric-sheet-scroll" data-sheet-scroll key={mobileWeekDialogId}>
+            {mobileWeekDialog && <MobileWeekDetails
+              week={mobileWeekDialog}
+              completed={actuals.get(mobileWeekDialog.id)?.completedHours ?? null}
+              events={mobileWeekDialogEvents}
+              reportStartDate={mobileWeekDialogReport?.startDate || null}
+              onPhaseChange={(phase) => changePeriod(mobileWeekDialog.id, phase)}
+              onHoursChange={(hours) => changeWeek(mobileWeekDialog.id, { targetHours: hours, manual: true })}
+              onNotesChange={(notes) => changeWeek(mobileWeekDialog.id, { notes })}
+              onRace={(event) => { setRaceEditor({ week: mobileWeekDialog, event }); closeWeekSheet() }}
+            />}
+          </div>
+        </Sheet>
+      </>}
     </div>
   )
 }

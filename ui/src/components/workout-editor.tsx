@@ -26,6 +26,7 @@ import {
   ArrowDown,
   ArrowUp,
   Check,
+  ChevronDown,
   ChevronRight,
   Copy,
   Ellipsis,
@@ -42,6 +43,8 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { LiquidGlassLayer } from "@/components/ui/liquid-glass-layer"
+import "../../node_modules/framework7/components/range/range.css"
 import {
   MobileActionMenu,
   MobileSelect,
@@ -52,8 +55,8 @@ import {
   ActionsGroup,
   ActionsLabel,
   List,
-  ListInput,
   ListItem,
+  Range,
   Sheet,
 } from "framework7-react"
 import type { Sheet as Framework7Sheet } from "framework7/types"
@@ -977,29 +980,35 @@ function MobileTimeListInput({
     if (next !== null) onChange(next)
   }
   return (
-    <ListItem className="we-mobile-time-row">
-      <div className="we-mobile-time-field">
-        <span className="item-title item-label">{label}</span>
-        <input
-          aria-label={label}
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={text}
-          onFocus={(event) => {
-            editing.current = true
-            rawDigits.current = ""
-            event.currentTarget.select()
-          }}
-          onInput={update}
-          onBlur={() => {
-            editing.current = false
-            rawDigits.current = ""
-            setText(format(value))
-          }}
-        />
-      </div>
-    </ListItem>
+    <MobileOutlineField label={label}>
+      <input
+        aria-label={label}
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        value={text}
+        onFocus={(event) => {
+          editing.current = true
+          rawDigits.current = ""
+          event.currentTarget.select()
+        }}
+        onInput={update}
+        onBlur={() => {
+          editing.current = false
+          rawDigits.current = ""
+          setText(format(value))
+        }}
+      />
+    </MobileOutlineField>
+  )
+}
+
+function MobileOutlineField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="we-mobile-outline-field">
+      <span>{label}</span>
+      {children}
+    </label>
   )
 }
 
@@ -1036,24 +1045,21 @@ function MobileTargetFields({
     if (target.kind === "none") return null
     const value = target[key] ?? 0
     return paceFactors[target.unit] ? (
-      <List key={key} strongIos dividersIos className="we-mobile-form-list">
-        <MobileTimeListInput
-          slot="list"
-          label={`${label} (${target.unit.replace("secs", "min")})`}
-          value={value}
-          onChange={(next) => setValue(key, next)}
-        />
-      </List>
+      <MobileTimeListInput
+        key={key}
+        label={`${label} (${target.unit.replace("secs", "min")})`}
+        value={value}
+        onChange={(next) => setValue(key, next)}
+      />
     ) : (
-      <List key={key} strongIos dividersIos className="we-mobile-form-list">
-        <ListInput
-          label={`${label} (${target.unit})`}
+      <MobileOutlineField key={key} label={`${label} (${target.unit})`}>
+        <input
           type="number"
-          inputmode="decimal"
+          inputMode="decimal"
           min={target.unit.includes("zone") ? 1 : 0}
           step={target.unit.includes("zone") ? 1 : 0.1}
           value={value}
-          onInput={(event) =>
+          onChange={(event) =>
             setValue(
               key,
               event.currentTarget.value === ""
@@ -1062,7 +1068,7 @@ function MobileTargetFields({
             )
           }
         />
-      </List>
+      </MobileOutlineField>
     )
   }
   const fields: ReactNode[] = []
@@ -1070,33 +1076,32 @@ function MobileTargetFields({
   let zoneField: ReactNode = null
   if (target.kind !== "none") {
     fields.push(
-      <ListInput
-            key="target-mode"
-            label="Target mode"
-            type="select"
-            value={target.mode}
-            onChange={(event) => {
-              const mode = event.currentTarget.value as "single" | "range" | "ramp"
-              setTarget(
-                mode === "single"
-                  ? {
-                      ...target,
-                      mode,
-                      value: target.value ?? target.start ?? target.end ?? 0,
-                    }
-                  : {
-                      ...target,
-                      mode,
-                      start: target.start ?? target.value ?? 0,
-                      end: target.end ?? target.value ?? 0,
-                    }
-              )
-            }}
-          >
+      <MobileOutlineField key="target-mode" label="Target mode">
+        <select
+          value={target.mode}
+          onChange={(event) => {
+            const mode = event.currentTarget.value as "single" | "range" | "ramp"
+            setTarget(
+              mode === "single"
+                ? {
+                    ...target,
+                    mode,
+                    value: target.value ?? target.start ?? target.end ?? 0,
+                  }
+                : {
+                    ...target,
+                    mode,
+                    start: target.start ?? target.value ?? 0,
+                    end: target.end ?? target.value ?? 0,
+                  }
+            )
+          }}
+        >
             <option value="single">Single value</option>
             <option value="range">Range</option>
             {!target.unit.includes("zone") && <option value="ramp">Ramp</option>}
-      </ListInput>
+        </select>
+      </MobileOutlineField>
     )
     if (target.mode === "single") {
       const field = valueField("Target", "value")
@@ -1110,11 +1115,9 @@ function MobileTargetFields({
       if (start) valueFields.push(start)
       if (end) valueFields.push(end)
     }
-    zoneField = (
-      <List strongIos dividersIos className="we-mobile-form-list">
-        <ListInput
-          label="Training zone"
-          type="select"
+    zoneField = target.mode === "range" ? (
+      <MobileOutlineField label="Training zone">
+        <select
           value={selectedZone}
           onChange={(event) => {
             const zone = zones.find(
@@ -1129,17 +1132,17 @@ function MobileTargetFields({
               {zone.label}
             </option>
           ))}
-        </ListInput>
-      </List>
-    )
+        </select>
+      </MobileOutlineField>
+    ) : null
   }
   return (
     <>
-      <List strongIos dividersIos className="we-mobile-form-list">
+      <div className="we-mobile-form-fields">
         {fields}
-      </List>
-      {valueFields}
-      {zoneField}
+        {valueFields}
+        {zoneField}
+      </div>
     </>
   )
 }
@@ -1258,77 +1261,82 @@ function MobileIntervalSheet({
           </div>
         )}
         <div className="we-mobile-sheet-nav">
-          <Button
+          <button
             type="button"
-          variant="ghost"
-          size="icon-sm"
+            className="we-mobile-sheet-nav-action mobile-glass-action liquid-glass-button"
           aria-label="Close interval editor"
           onClick={() => void requestClose()}
           >
+            <LiquidGlassLayer />
             <X size={18} />
-          </Button>
+          </button>
           {desktop ? (
             <DialogTitle>Edit Interval</DialogTitle>
           ) : (
             <strong>Edit Interval</strong>
           )}
-          <Button type="button" size="sm" disabled={!draft} onClick={saveDraft}>
-            Done
-          </Button>
+          <button
+            type="button"
+            className="we-mobile-sheet-nav-action mobile-glass-action liquid-glass-button"
+            aria-label="Save interval"
+            disabled={!draft}
+            onClick={saveDraft}
+          >
+            <LiquidGlassLayer />
+            <Check size={18} />
+          </button>
         </div>
       </div>
       {draft && (
         <div className="we-mobile-sheet-scroll">
-          <List strongIos dividersIos className="we-mobile-form-list">
-            <ListInput
-              label="Interval type"
-              type="select"
-              value={draft.role}
-              onChange={(event) => {
-                const role = event.currentTarget.value as Role
-                setDraft({
-                  ...draft,
-                  role,
-                  label: roleNames[role],
-                  target:
-                    role === "rest"
-                      ? { kind: "none" }
-                      : draft.target.kind !== editorUnits(model.sport).kind
-                        ? defaultTarget(model.sport)
-                        : draft.target,
-                })
-              }}
-            >
+          <div className="we-mobile-form-fields">
+            <MobileOutlineField label="Interval type">
+              <select
+                value={draft.role}
+                onChange={(event) => {
+                  const role = event.currentTarget.value as Role
+                  setDraft({
+                    ...draft,
+                    role,
+                    label: roleNames[role],
+                    target:
+                      role === "rest"
+                        ? { kind: "none" }
+                        : draft.target.kind !== editorUnits(model.sport).kind
+                          ? defaultTarget(model.sport)
+                          : draft.target,
+                  })
+                }}
+              >
               {roles.map((role) => (
                 <option key={role} value={role}>
                   {roleNames[role as Role]}
                 </option>
               ))}
-            </ListInput>
-            <ListInput
-              label="Length mode"
-              type="select"
-              value={draft.end.kind === "distance" ? "distance" : "time"}
-              onChange={(event) =>
-                changeLengthMode(
-                  event.currentTarget.value as "time" | "distance"
-                )
-              }
-            >
+              </select>
+            </MobileOutlineField>
+            <MobileOutlineField label="Length mode">
+              <select
+                value={draft.end.kind === "distance" ? "distance" : "time"}
+                onChange={(event) =>
+                  changeLengthMode(
+                    event.currentTarget.value as "time" | "distance"
+                  )
+                }
+              >
               <option value="distance">Distance</option>
               <option value="time">Duration</option>
-            </ListInput>
-          </List>
-          <List strongIos dividersIos className="we-mobile-form-list">
+              </select>
+            </MobileOutlineField>
             {draft.end.kind === "distance" ? (
-              <ListInput
-                label={`Distance (${draft.end.unit})`}
-                type="number"
-                inputmode="decimal"
+              <MobileOutlineField label={`Distance (${draft.end.unit})`}>
+                <input
+                  type="number"
+                  inputMode="decimal"
                   min={0.001}
                   step={/swim/i.test(model.sport) ? 1 : 0.01}
                   value={draft.end.value}
-                  onInput={(event) =>
+                  onChange={(event) =>
                     setDraft({
                       ...draft,
                       end: {
@@ -1338,28 +1346,28 @@ function MobileIntervalSheet({
                             ? 0
                             : Number(event.currentTarget.value),
                       },
+                    })
+                  }
+                />
+              </MobileOutlineField>
+            ) : (
+              <MobileTimeListInput
+                label="Duration"
+                value={draft.end.value}
+                onChange={(value) =>
+                  setDraft({
+                    ...draft,
+                    end: { ...draft.end, value, unit: "s" },
                   })
                 }
               />
-            ) : (
-              <MobileTimeListInput
-                slot="list"
-                label="Duration"
-                    value={draft.end.value}
-                    onChange={(value) =>
-                      setDraft({
-                        ...draft,
-                        end: { ...draft.end, value, unit: "s" },
-                      })
-                    }
-                  />
-                )}
-          </List>
+            )}
+          </div>
           <MobileTargetFields step={draft} model={model} onChange={setDraft} />
           <Button
             type="button"
             variant="destructive"
-            className="we-mobile-delete"
+            className="we-mobile-delete rounded-full"
             onClick={() => {
               void onDelete(draft.id).then((deleted) => {
                 if (deleted) acceptClose()
@@ -1424,7 +1432,56 @@ function MobileIntervalSheet({
   )
 }
 
+function MobileRecoveryRow({ step, depth, model, onOpen, onBeginSort }: {
+  step: Step
+  depth: number
+  model: WorkoutModel
+  onOpen: (id: string) => void
+  onBeginSort: (event: PointerEvent | MouseEvent) => void
+}) {
+  return <ListItem
+    key={step.id}
+    sortable
+    noChevron
+    className="we-mobile-interval-row we-mobile-fixed-recovery"
+    style={{ "--we-depth": depth } as React.CSSProperties}
+    onClick={() => onOpen(step.id)}
+  >
+    <div className="we-mobile-row-content">
+      <button
+        type="button"
+        className="we-mobile-drag-handle"
+        aria-label={`Reorder ${mobileStepTitle(step)}`}
+        onPointerDown={(event) => onBeginSort(event.nativeEvent)}
+        onMouseDown={(event) => onBeginSort(event.nativeEvent)}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <GripVertical aria-hidden="true" />
+      </button>
+      <div className="we-mobile-row-label min-w-0 flex-1">
+        <div className="truncate font-medium">{mobileStepTitle(step)}</div>
+        <span className="we-mobile-row-summary">{mobileNodeLine(step, model)}</span>
+      </div>
+      <ChevronRight className="we-mobile-row-chevron" aria-hidden="true" />
+    </div>
+  </ListItem>
+}
+
 type MobileSortData = { from?: number; to?: number; el?: HTMLElement }
+type MobileSortCallback = (data: MobileSortData) => void
+type MobileSortDrag = {
+  list: HTMLElement
+  item: HTMLElement
+  rows: HTMLElement[]
+  rowCenters: Map<HTMLElement, number>
+  from: number
+  to: number
+  startY: number
+  currentY: number
+  input: "mouse" | "touch"
+  pointerId: number | null
+  onSort: MobileSortCallback
+}
 type MobileRowsProps = {
   nodes: WorkoutNode[]
   parent: string | null
@@ -1432,13 +1489,22 @@ type MobileRowsProps = {
   depth: number
   expanded: Set<string>
   setExpanded: (id: string) => void
-  open: (id: string) => void
+  expandedIteration: Record<string, string>
+  toggleIteration: (repeatId: string, iterationId: string) => void
+  openInterval: (id: string) => void
   openAdd: (parent: string) => void
   openActions: (id: string) => void
+  onBeginSort: (event: PointerEvent | MouseEvent) => void
+  registerSort: (nodes: WorkoutNode[], onSort: MobileSortCallback) => void
   onRepeatCount: (id: string, count: number) => void
   onSort: (
     nodes: WorkoutNode[],
     parent: string | null,
+    data: MobileSortData
+  ) => void
+  onSortRepeat: (
+    repeat: Repeat,
+    visibleNodes: WorkoutNode[],
     data: MobileSortData
   ) => void
 }
@@ -1453,29 +1519,35 @@ function mobileIntervalRows(props: MobileRowsProps): ReactNode[] {
         noChevron
         className={`we-mobile-interval-row ${node.kind === "repeat" ? "we-mobile-repeat-row" : ""}`}
         style={{ "--we-depth": props.depth } as React.CSSProperties}
+        aria-expanded={node.kind === "repeat" ? props.expanded.has(node.id) : undefined}
         onClick={() =>
           node.kind === "repeat"
             ? props.setExpanded(node.id)
-            : props.open(node.id)
+            : props.openInterval(node.id)
         }
       >
         <div className="we-mobile-row-content">
-          <span
-            className="we-mobile-role-mark"
-            style={{
-              background: node.kind === "step" ? tones[node.role] : tones.other,
-            }}
-            aria-hidden="true"
-          />
+          <button
+            type="button"
+            className="we-mobile-drag-handle"
+            aria-label={`Reorder ${node.kind === "repeat" ? `Repeat ${node.repetitions}` : mobileStepTitle(node)}`}
+            onPointerDown={(event) => props.onBeginSort(event.nativeEvent)}
+            onMouseDown={(event) => props.onBeginSort(event.nativeEvent)}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <GripVertical aria-hidden="true" />
+          </button>
           <div className="we-mobile-row-label min-w-0 flex-1">
-            <div className="truncate font-semibold">
+            <div className="truncate font-medium">
               {node.kind === "repeat"
                 ? `Repeat ${node.repetitions}×`
                 : mobileStepTitle(node)}
             </div>
-            <div className="truncate text-xs text-muted-foreground">
-              {mobileNodeLine(node, props.model)}
-            </div>
+            {node.kind === "step" && (
+              <span className="we-mobile-row-summary">
+                {mobileNodeLine(node, props.model)}
+              </span>
+            )}
           </div>
           {node.kind === "repeat" ? (
             <div className="we-mobile-repeat-actions">
@@ -1545,80 +1617,92 @@ function mobileIntervalRows(props: MobileRowsProps): ReactNode[] {
             </div>
           ) : (
             <>
-              <button
-                type="button"
-                className="we-mobile-row-action"
-                aria-label={`Actions for ${mobileStepTitle(node)}`}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  props.openActions(node.id)
-                }}
-              >
-                <Ellipsis aria-hidden="true" />
-              </button>
-              <ChevronRight
-                className="we-mobile-row-chevron"
-                aria-hidden="true"
-              />
+              {props.parent === null && (
+                <button
+                  type="button"
+                  className="we-mobile-row-action"
+                  aria-label={`Actions for ${mobileStepTitle(node)}`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    props.openActions(node.id)
+                  }}
+                >
+                  <Ellipsis aria-hidden="true" />
+                </button>
+              )}
+              <ChevronRight className="we-mobile-row-chevron" aria-hidden="true" />
             </>
           )}
         </div>
       </ListItem>
     )
-    if (node.kind !== "repeat" || !props.expanded.has(node.id)) return [row]
-    const fixedRecovery = [node.recovery, node.setRecovery].filter(
-      (step): step is Step => Boolean(step)
-    )
+    if (node.kind === "step") return [row]
+    if (!props.expanded.has(node.id)) return [row]
     const children = (
-      <li
-        key={`${node.id}:children`}
-        className="we-mobile-repeat-group disallow-sorting"
-      >
-        <List
-          sortable
-          sortableEnabled
-          sortableMoveElements={false}
-          dividersIos
-          className="we-mobile-interval-list we-mobile-nested-list"
-          onSortableSort={(data) => props.onSort(node.steps, node.id, data)}
-        >
-          {mobileIntervalRows({
-            ...props,
-            nodes: node.steps,
-            parent: node.id,
-            depth: props.depth + 1,
-          })}
-          {fixedRecovery.map((step) => (
-            <ListItem
-              key={step.id}
-              sortable={false}
-              noChevron
-              className="we-mobile-interval-row we-mobile-fixed-recovery"
-              style={{ "--we-depth": props.depth + 1 } as React.CSSProperties}
-              onClick={() => props.open(step.id)}
-            >
-              <div className="we-mobile-row-content">
-                <span
-                  className="we-mobile-role-mark"
-                  style={{ background: tones[step.role] }}
-                  aria-hidden="true"
-                />
-                <div className="we-mobile-row-label min-w-0 flex-1">
-                  <div className="truncate font-semibold">
-                    {mobileStepTitle(step)}
-                  </div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {mobileNodeLine(step, props.model)}
-                  </div>
-                </div>
-                <ChevronRight
-                  className="we-mobile-row-chevron"
-                  aria-hidden="true"
-                />
+      <li key={`${node.id}:iterations`} className="we-mobile-repeat-group disallow-sorting">
+        {Array.from({ length: node.sets }, (_, setIndex) =>
+          Array.from({ length: node.repetitions }, (_, repetitionIndex) => {
+            const iterationId = `${setIndex}:${repetitionIndex}`
+            const iterationOpen = props.expandedIteration[node.id] === iterationId
+            const hasRecovery = Boolean(
+              (node.recovery && (node.finalRecovery || repetitionIndex < node.repetitions - 1)) ||
+              (node.setRecovery && repetitionIndex === node.repetitions - 1 && setIndex < node.sets - 1)
+            )
+            const iterationNodes = [
+              ...node.steps,
+              ...(node.recovery && (node.finalRecovery || repetitionIndex < node.repetitions - 1)
+                ? [node.recovery]
+                : []),
+              ...(node.setRecovery && repetitionIndex === node.repetitions - 1 && setIndex < node.sets - 1
+                ? [node.setRecovery]
+                : []),
+            ]
+            if (iterationOpen)
+              props.registerSort(iterationNodes, (data) =>
+                props.onSortRepeat(node, iterationNodes, data)
+              )
+            return (
+              <div className="we-mobile-iteration" key={`${node.id}:${iterationId}`}>
+                <button
+                  type="button"
+                  className="we-mobile-iteration-heading"
+                  aria-expanded={iterationOpen}
+                  onClick={() => props.toggleIteration(node.id, iterationId)}
+                >
+                  <span>
+                    {node.sets > 1 && `Set ${setIndex + 1} · `}Repeat {repetitionIndex + 1}
+                  </span>
+                  <ChevronDown className={iterationOpen ? "" : "-rotate-90"} aria-hidden="true" />
+                </button>
+                {iterationOpen && (
+                  <List
+                    sortable
+                    sortableEnabled
+                    dividersIos
+                    className="we-mobile-interval-list we-mobile-nested-list"
+                    onSortableSort={(data) => props.onSortRepeat(node, iterationNodes, data)}
+                  >
+                    {mobileIntervalRows({
+                      ...props,
+                      nodes: node.steps,
+                      parent: node.id,
+                      depth: props.depth + 1,
+                    })}
+                    {node.recovery && (node.finalRecovery || repetitionIndex < node.repetitions - 1) && (
+                      <MobileRecoveryRow step={node.recovery} depth={props.depth + 1} model={props.model} onOpen={props.openInterval} onBeginSort={props.onBeginSort} />
+                    )}
+                    {node.setRecovery && repetitionIndex === node.repetitions - 1 && setIndex < node.sets - 1 && (
+                      <MobileRecoveryRow step={node.setRecovery} depth={props.depth + 1} model={props.model} onOpen={props.openInterval} onBeginSort={props.onBeginSort} />
+                    )}
+                  </List>
+                )}
+                {!iterationOpen && hasRecovery && (
+                  <span className="we-mobile-iteration-recovery">Includes recovery</span>
+                )}
               </div>
-            </ListItem>
-          ))}
-        </List>
+            )
+          })
+        )}
         <Button
           type="button"
           variant="ghost"
@@ -1667,21 +1751,16 @@ function MobileEditorBody({
     initialNode?.kind === "step" ? initialNode.id : null
   )
   const [actionId, setActionId] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState<Set<string>>(() => {
-    const ids = new Set<string>()
-    const visit = (nodes: WorkoutNode[]) =>
-      nodes.forEach((node) => {
-        if (node.kind === "repeat") {
-          ids.add(node.id)
-          visit(node.steps)
-        }
-      })
-    visit(model.steps)
-    return ids
-  })
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const [expandedIteration, setExpandedIteration] = useState<Record<string, string>>({})
+  const [repeatCountPreviews, setRepeatCountPreviews] = useState<Record<string, number>>({})
   const [addOpen, setAddOpen] = useState(false)
   const [addParent, setAddParent] = useState<string | null>(null)
+  const [addAfter, setAddAfter] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const sortDrag = useRef<MobileSortDrag | null>(null)
+  const sortCallbacks = useRef(new Map<string, MobileSortCallback>())
+  sortCallbacks.current.clear()
   const savedScrollTop = useRef(0)
   const appliedInitialFocus = useRef(false)
   const find = (id: string) => findNode(model.steps, id) || null
@@ -1694,10 +1773,6 @@ function MobileEditorBody({
     else if (focused.kind === "repeat")
       setExpanded((current) => new Set(current).add(focused.id))
   }, [initialFocusId, model.steps])
-  const open = (id: string) => {
-    savedScrollTop.current = scrollRef.current?.scrollTop || 0
-    setEditingId(id)
-  }
   const closeEditor = () => {
     setEditingId(null)
     requestAnimationFrame(() => {
@@ -1705,20 +1780,152 @@ function MobileEditorBody({
         scrollRef.current.scrollTop = savedScrollTop.current
     })
   }
-  const addAt = (kind: "interval" | "rest" | "repeat") => {
+  const registerSort: MobileRowsProps["registerSort"] = (nodes, onSort) => {
+    sortCallbacks.current.set(nodes.map((node) => node.id).join("|"), onSort)
+  }
+  const beginSort = (event: PointerEvent | MouseEvent) => {
+    const target = event.target
+    if (!(target instanceof Element)) return
+    const handle = target.closest(".we-mobile-drag-handle")
+    if (sortDrag.current) {
+      if (handle) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+      return
+    }
+    const item = handle?.closest<HTMLElement>("li")
+    const list = handle?.closest<HTMLElement>(".we-mobile-interval-list")
+    if (!handle || !item || !list) return
+    const items = Array.from(
+      list.querySelectorAll<HTMLElement>(":scope > ul > li:not(.disallow-sorting):not(.no-sorting)")
+    )
+    const from = items.indexOf(item)
+    if (from < 0) return
+    const onSort = sortCallbacks.current.get(items.map((row) => row.id.replace(/^mobile-step-/, "")).join("|"))
+    if (!onSort) return
+    const rowCenters = new Map(
+      items.map((row) => {
+        const rect = row.getBoundingClientRect()
+        return [row, rect.top + rect.height / 2] as const
+      })
+    )
+    const pointer = "pointerType" in event ? event : null
+    const input = pointer?.pointerType === "touch" ? "touch" : "mouse"
+    const startY = event.clientY
+    event.preventDefault()
+    event.stopPropagation()
+    sortDrag.current = {
+      list,
+      item,
+      rows: items,
+      rowCenters,
+      from,
+      to: from,
+      startY,
+      currentY: startY,
+      input,
+      pointerId: pointer?.pointerId ?? null,
+      onSort,
+    }
+    item.classList.add("we-manual-sort-dragging")
+  }
+  useEffect(() => {
+    const onMove = (event: PointerEvent | MouseEvent) => {
+      const drag = sortDrag.current
+      if (!drag) return
+      const isPointer = event.type.startsWith("pointer")
+      const pointer = isPointer ? (event as PointerEvent) : null
+      if (
+        (!isPointer && drag.input !== "mouse") ||
+        (pointer && drag.pointerId !== null && pointer.pointerId !== drag.pointerId) ||
+        (pointer && drag.input === "touch" && pointer.pointerType !== "touch") ||
+        (pointer && drag.input === "mouse" && pointer.pointerType === "touch")
+      ) return
+      const y = event.clientY
+      if (event.cancelable) event.preventDefault()
+      drag.currentY = y
+      drag.item.style.transform = `translate3d(0, ${y - drag.startY}px, 0)`
+      const remainingRows = drag.rows.filter((row) => row !== drag.item)
+      const insertionIndex = remainingRows.findIndex(
+        (row) => y < (drag.rowCenters.get(row) ?? Number.POSITIVE_INFINITY)
+      )
+      drag.to = insertionIndex < 0 ? remainingRows.length : insertionIndex
+      const itemHeight = drag.item.getBoundingClientRect().height
+      for (const [index, row] of drag.rows.entries()) {
+        if (row === drag.item) continue
+        const offset =
+          drag.to > drag.from && index > drag.from && index <= drag.to
+            ? -itemHeight
+            : drag.to < drag.from && index >= drag.to && index < drag.from
+              ? itemHeight
+              : 0
+        row.style.transform = offset ? `translate3d(0, ${offset}px, 0)` : ""
+        row.classList.toggle("we-manual-sort-preview", offset !== 0)
+        row.classList.remove("we-manual-sort-drop-before", "we-manual-sort-drop-after")
+      }
+      if (drag.to !== drag.from) {
+        const target = drag.rows[drag.to]
+        target?.classList.add(drag.to > drag.from ? "we-manual-sort-drop-after" : "we-manual-sort-drop-before")
+      }
+    }
+    const finish = (event: PointerEvent | MouseEvent) => {
+      const drag = sortDrag.current
+      if (!drag) return
+      const isPointer = event.type.startsWith("pointer")
+      const pointer = isPointer ? (event as PointerEvent) : null
+      if (
+        (!isPointer && drag.input !== "mouse") ||
+        (pointer && drag.pointerId !== null && pointer.pointerId !== drag.pointerId) ||
+        (pointer && drag.input === "touch" && pointer.pointerType !== "touch") ||
+        (pointer && drag.input === "mouse" && pointer.pointerType === "touch")
+      ) return
+      sortDrag.current = null
+      for (const row of drag.rows) {
+        row.classList.remove(
+          "we-manual-sort-dragging",
+          "we-manual-sort-preview",
+          "we-manual-sort-drop-before",
+          "we-manual-sort-drop-after"
+        )
+        row.style.transform = ""
+      }
+      if (drag.to !== drag.from) drag.onSort({ from: drag.from, to: drag.to, el: drag.item })
+    }
+    window.addEventListener("pointermove", onMove, { passive: false, capture: true })
+    window.addEventListener("pointerup", finish, true)
+    window.addEventListener("pointercancel", finish, true)
+    window.addEventListener("mousemove", onMove, { passive: false })
+    window.addEventListener("mouseup", finish)
+    return () => {
+      window.removeEventListener("pointermove", onMove, true)
+      window.removeEventListener("pointerup", finish, true)
+      window.removeEventListener("pointercancel", finish, true)
+      window.removeEventListener("mousemove", onMove)
+      window.removeEventListener("mouseup", finish)
+    }
+  }, [])
+  const addAt = (
+    kind: "interval" | "rest" | "repeat",
+    target = { parent: addParent, after: addAfter }
+  ) => {
     const node =
       kind === "repeat"
         ? newRepeat([newStep(model.sport)])
         : newStep(model.sport, kind === "rest" ? "rest" : "active")
-    const parent = addParent ? find(addParent) : null
-    const index =
-      parent?.kind === "repeat" ? parent.steps.length : model.steps.length
+    const parent = target.parent ? find(target.parent) : null
+    const siblings = parent?.kind === "repeat" ? parent.steps : model.steps
+    const afterIndex = target.after
+      ? siblings.findIndex((step) => step.id === target.after)
+      : -1
+    const index = afterIndex >= 0 ? afterIndex + 1 : siblings.length
     commit({
       ...model,
-      steps: insertNodes(model.steps, addParent, index, [node]),
+      steps: insertNodes(model.steps, target.parent, index, [node]),
     })
     setAddOpen(false)
     setAddParent(null)
+    setAddAfter(null)
     if (node.kind === "repeat") {
       setExpanded((current) => new Set(current).add(node.id))
       setEditingId(null)
@@ -1742,6 +1949,11 @@ function MobileEditorBody({
       else next.add(id)
       return next
     })
+  const toggleIteration = (repeatId: string, iterationId: string) =>
+    setExpandedIteration((current) => ({
+      ...current,
+      [repeatId]: current[repeatId] === iterationId ? "" : iterationId,
+    }))
   const sortNodes = (
     siblings: WorkoutNode[],
     parent: string | null,
@@ -1762,115 +1974,344 @@ function MobileEditorBody({
       steps: moveNode(model.steps, id, parent, insertionIndex),
     })
   }
+  const sortTopLevelGroup = (groupNodes: WorkoutNode[], data: MobileSortData) => {
+    const from = Number(data?.from)
+    const to = Number(data?.to)
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from === to) return
+    const rowId = data.el?.id
+    const id = (rowId?.startsWith("mobile-step-") ? rowId.slice("mobile-step-".length) : "") || groupNodes[from]?.id
+    const ids = groupNodes.map((node) => node.id)
+    const currentIndex = ids.indexOf(id)
+    if (currentIndex < 0 || to < 0 || to >= ids.length) return
+    const reorderedIds = [...ids]
+    const [movedId] = reorderedIds.splice(currentIndex, 1)
+    reorderedIds.splice(to, 0, movedId)
+    const nodesById = new Map(model.steps.map((node) => [node.id, node]))
+    let nextIndex = 0
+    const groupedIds = new Set(ids)
+    const steps = model.steps.map((node) =>
+      groupedIds.has(node.id) ? nodesById.get(reorderedIds[nextIndex++]) || node : node
+    )
+    commit({ ...model, steps })
+  }
+  const sortRepeatRows = (
+    repeat: Repeat,
+    visibleNodes: WorkoutNode[],
+    data: MobileSortData
+  ) => {
+    const from = Number(data?.from)
+    const to = Number(data?.to)
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from === to) return
+    const rowId = data.el?.id
+    const id = (rowId?.startsWith("mobile-step-") ? rowId.slice("mobile-step-".length) : "") || visibleNodes[from]?.id
+    const currentIndex = visibleNodes.findIndex((node) => node.id === id)
+    if (currentIndex < 0 || to < 0 || to >= visibleNodes.length) return
+    const reordered = [...visibleNodes]
+    const [moved] = reordered.splice(currentIndex, 1)
+    reordered.splice(to, 0, moved)
+    commit({
+      ...model,
+      steps: updateNodes(model.steps, [repeat.id], (node) =>
+        node.kind === "repeat"
+          ? { ...node, steps: reordered, recovery: null, setRecovery: null }
+          : node
+      ),
+    })
+  }
+  const stepGroups = [{ id: "main" as const, nodes: model.steps }]
   const actionNode = actionId ? find(actionId) : null
+  const openAddForAction = () => {
+    const selected = actionId ? find(actionId) : null
+    addAt("interval", {
+      parent: selected?.kind === "repeat" ? selected.id : null,
+      after: selected?.kind === "step" ? selected.id : null,
+    })
+    setActionId(null)
+  }
+  const repeatLooseSection = () => {
+    const selectedIndex = actionId
+      ? model.steps.findIndex((node) => node.id === actionId && node.kind === "step")
+      : -1
+    if (selectedIndex < 0) return
+    let start = selectedIndex
+    let end = selectedIndex
+    while (start > 0 && model.steps[start - 1].kind === "step") start -= 1
+    while (end < model.steps.length - 1 && model.steps[end + 1].kind === "step") end += 1
+    const repeat = { ...newRepeat(model.steps.slice(start, end + 1)), repetitions: 2 }
+    const steps = [
+      ...model.steps.slice(0, start),
+      repeat,
+      ...model.steps.slice(end + 1),
+    ]
+    commit({ ...model, steps })
+    setExpanded((current) => new Set(current).add(repeat.id))
+    setActionId(null)
+  }
   const totals = workoutTotals(model)
   return (
     <div className="we-mobile-editor">
-      <div ref={scrollRef} className="we-mobile-editor-scroll">
-        <Input
-          aria-label="Workout name"
-          className="we-mobile-workout-name"
-          value={model.name}
-          onChange={(event) => commit({ ...model, name: event.target.value })}
-        />
-        {desktop && (
-          <div className="we-desktop-compact-meta">
-            <Choice
-              label="Sport"
-              value={model.sport}
-              options={[
-                "Ride",
-                "VirtualRide",
-                "Run",
-                "VirtualRun",
-                "TrailRun",
-                "Swim",
-                "Other",
-              ].map((value) => ({
-                value,
-                label:
-                  value === "Swim"
-                    ? "Pool Swim"
-                    : value === "Ride"
-                      ? "Bike"
-                      : value,
-              }))}
-              onChange={(sport) => {
-                const setting = sportZoneSettings(zoneSettings, sport)
-                commit({
-                  ...model,
-                  sport,
-                  thresholds: {
-                    ftp: setting?.ftp || null,
-                    pace: setting?.threshold_pace || null,
-                  },
-                  poolLength:
-                    sport === "Swim"
-                      ? model.poolLength || "25y"
-                      : model.poolLength,
-                })
-              }}
-            />
-            <label className="we-field">
-              <span>Scheduled date</span>
-              <Input
-                type="date"
-                aria-label="Scheduled date"
-                value={model.date}
-                onChange={(event) =>
-                  commit({ ...model, date: event.target.value })
-                }
+      <div
+        ref={scrollRef}
+        className="we-mobile-editor-scroll"
+      >
+        <section className="we-mobile-details-section" aria-label="Workout details">
+          <div className="we-mobile-details-fields">
+            <MobileOutlineField label="Workout name">
+              <input
+                aria-label="Workout name"
+                value={model.name}
+                onChange={(event) => commit({ ...model, name: event.target.value })}
               />
-            </label>
+            </MobileOutlineField>
+            <div className="we-mobile-details-metrics">
+              <MobileOutlineField label="Duration">
+                <input
+                  aria-label="Duration"
+                  type="text"
+                  value={durationClock(totals.seconds)}
+                  readOnly
+                />
+              </MobileOutlineField>
+              <MobileOutlineField label="Distance">
+                <input
+                  aria-label="Distance"
+                  type="text"
+                  value={`${round(
+                    totals.distance / (model.sport === "Swim" ? 0.9144 : 1609.344),
+                    model.sport === "Swim" ? 0 : 2
+                  )} ${model.sport === "Swim" ? "yds" : "mi"}`}
+                  readOnly
+                />
+              </MobileOutlineField>
+            </div>
+            {desktop && (
+              <div className="we-mobile-details-desktop-fields">
+                <Choice
+                  label="Sport"
+                  value={model.sport}
+                  options={[
+                    "Ride",
+                    "VirtualRide",
+                    "Run",
+                    "VirtualRun",
+                    "TrailRun",
+                    "Swim",
+                    "Other",
+                  ].map((value) => ({
+                    value,
+                    label: value === "Swim" ? "Pool Swim" : value === "Ride" ? "Bike" : value,
+                  }))}
+                  onChange={(sport) => {
+                    const setting = sportZoneSettings(zoneSettings, sport)
+                    commit({
+                      ...model,
+                      sport,
+                      thresholds: {
+                        ftp: setting?.ftp || null,
+                        pace: setting?.threshold_pace || null,
+                      },
+                      poolLength: sport === "Swim" ? model.poolLength || "25y" : model.poolLength,
+                    })
+                  }}
+                />
+                <label className="we-field">
+                  <span>Scheduled date</span>
+                  <Input
+                    type="date"
+                    aria-label="Scheduled date"
+                    value={model.date}
+                    onChange={(event) => commit({ ...model, date: event.target.value })}
+                  />
+                </label>
+              </div>
+            )}
           </div>
-        )}
-        <div className="we-mobile-summary">
-          <strong>{durationClock(totals.seconds)}</strong>
-          <strong>
-            {round(
-              totals.distance / (model.sport === "Swim" ? 0.9144 : 1609.344),
-              model.sport === "Swim" ? 0 : 2
-            )}{" "}
-            <small>{model.sport === "Swim" ? "yds" : "mi"}</small>
-          </strong>
-        </div>
-        <List
-          sortable
-          sortableEnabled
-          sortableMoveElements={false}
-          strongIos
-          dividersIos
-          className="we-mobile-interval-list"
-          onSortableSort={(data) => sortNodes(model.steps, null, data)}
-        >
-          {mobileIntervalRows({
-            nodes: model.steps,
-            parent: null,
-            model,
-            depth: 0,
-            expanded,
-            setExpanded: toggleExpanded,
-            open,
-            openAdd: (parent) => {
-              setAddParent(parent)
-              setAddOpen(true)
-            },
-            openActions: setActionId,
-            onRepeatCount: changeRepeatCount,
-            onSort: sortNodes,
-          })}
-        </List>
-        <Button
-          type="button"
-          variant="outline"
-          className="we-mobile-add-button"
-          onClick={() => {
-            setAddParent(null)
-            setAddOpen(true)
-          }}
-        >
-          <Plus size={16} /> Add interval
-        </Button>
+        </section>
+        <div className="we-mobile-workout-outline">
+        {stepGroups.flatMap((group) => (
+          <section className="we-mobile-main-set-groups" key={group.id}>
+            {(() => {
+              const sections: ReactNode[] = []
+              let looseSteps: WorkoutNode[] = []
+              let buildNumber = 0
+              const pushLooseSteps = () => {
+                if (!looseSteps.length) return
+                const nodes = looseSteps
+                registerSort(nodes, (data) => sortTopLevelGroup(nodes, data))
+                sections.push(
+                  <section className="we-mobile-standalone-intervals" key={`loose-${nodes[0]?.id}`}>
+                    <List
+                      sortable
+                      sortableEnabled
+                      strongIos
+                      dividersIos
+                      className="we-mobile-interval-list"
+                      onSortableSort={(data) => sortTopLevelGroup(nodes, data)}
+                    >
+                      {mobileIntervalRows({
+                        nodes,
+                        parent: null,
+                        model,
+                        depth: 0,
+                        expanded,
+                        setExpanded: toggleExpanded,
+                        expandedIteration,
+                        toggleIteration,
+                        openInterval: setEditingId,
+                        openAdd: (parent) => {
+                          setAddParent(parent)
+                          setAddAfter(null)
+                          setAddOpen(true)
+                        },
+                        registerSort,
+                        openActions: setActionId,
+                        onBeginSort: beginSort,
+                        onRepeatCount: changeRepeatCount,
+                        onSort: sortNodes,
+                        onSortRepeat: sortRepeatRows,
+                      })}
+                    </List>
+                  </section>
+                )
+                looseSteps = []
+              }
+              group.nodes.forEach((node) => {
+                if (node.kind !== "repeat") {
+                  looseSteps.push(node)
+                  return
+                }
+                pushLooseSteps()
+                buildNumber += 1
+                const buildTitle = node.label && node.label !== "Repeats" ? node.label : `Repeat ${buildNumber}`
+                const repeatCount = Math.min(12, Math.max(2, node.repetitions))
+                const displayedRepeatCount = repeatCountPreviews[node.id] ?? repeatCount
+                const weekNodes = [
+                  ...node.steps,
+                  ...(node.recovery && (node.finalRecovery || node.repetitions > 1) ? [node.recovery] : []),
+                  ...(node.setRecovery && node.sets > 1 ? [node.setRecovery] : []),
+                ]
+                registerSort(weekNodes, (data) => sortRepeatRows(node, weekNodes, data))
+                sections.push(
+                  <section className="we-mobile-step-group we-mobile-build-group" key={node.id}>
+                    <div className="we-mobile-step-group-heading we-mobile-build-heading">
+                      <h3 className="we-mobile-build-title">{buildTitle}</h3>
+                      <div
+                        className="we-mobile-repeat-range-wrap"
+                        role="slider"
+                        tabIndex={0}
+                        aria-label={`${buildTitle} repeat count`}
+                        aria-valuemin={2}
+                        aria-valuemax={12}
+                        aria-valuenow={displayedRepeatCount}
+                        aria-valuetext={`${displayedRepeatCount} repetitions`}
+                        onKeyDown={(event) => {
+                          const next =
+                            event.key === "ArrowRight" || event.key === "ArrowUp"
+                              ? displayedRepeatCount + 1
+                              : event.key === "ArrowLeft" || event.key === "ArrowDown"
+                                ? displayedRepeatCount - 1
+                                : event.key === "Home"
+                                  ? 2
+                                  : event.key === "End"
+                                    ? 12
+                                    : null
+                          if (next === null) return
+                          event.preventDefault()
+                          const count = Math.min(12, Math.max(2, next))
+                          changeRepeatCount(node.id, count)
+                          setRepeatCountPreviews((current) => {
+                            const updated = { ...current }
+                            delete updated[node.id]
+                            return updated
+                          })
+                        }}
+                      >
+                        <Range
+                          className="we-mobile-repeat-range"
+                          min={2}
+                          max={12}
+                          step={1}
+                          value={displayedRepeatCount}
+                          label
+                          formatLabel={(value: number) => `${value}x`}
+                          draggableBar
+                          limitKnobPosition={false}
+                          onRangeChange={(value: number) =>
+                            setRepeatCountPreviews((current) => ({
+                              ...current,
+                              [node.id]: Math.min(12, Math.max(2, Math.round(Number(value)))),
+                            }))
+                          }
+                          onRangeChanged={(value: number) => {
+                            const count = Math.min(12, Math.max(2, Math.round(Number(value))))
+                            changeRepeatCount(node.id, count)
+                            setRepeatCountPreviews((current) => {
+                              const updated = { ...current }
+                              delete updated[node.id]
+                              return updated
+                            })
+                          }}
+                        />
+                      </div>
+                      <output className="we-mobile-repeat-count" aria-label={`${buildTitle}: ${displayedRepeatCount} repeats`}>
+                        {displayedRepeatCount}x
+                      </output>
+                      <button type="button" className="we-mobile-row-action" aria-label={`Actions for ${buildTitle}`} onClick={() => setActionId(node.id)}><Ellipsis aria-hidden="true" /></button>
+                    </div>
+                    <List
+                      sortable
+                      sortableEnabled
+                      strongIos
+                      dividersIos
+                      className="we-mobile-interval-list"
+                      onSortableSort={(data) => sortRepeatRows(node, weekNodes, data)}
+                    >
+                      {mobileIntervalRows({
+                        nodes: weekNodes,
+                        parent: node.id,
+                        model,
+                        depth: 0,
+                        expanded,
+                        setExpanded: toggleExpanded,
+                        expandedIteration,
+                        toggleIteration,
+                        openInterval: setEditingId,
+                        openAdd: (parent) => {
+                          setAddParent(parent)
+                          setAddAfter(null)
+                          setAddOpen(true)
+                        },
+                        registerSort,
+                        openActions: setActionId,
+                        onBeginSort: beginSort,
+                        onRepeatCount: changeRepeatCount,
+                        onSort: sortNodes,
+                        onSortRepeat: sortRepeatRows,
+                      })}
+                    </List>
+                  </section>
+                )
+              })
+              pushLooseSteps()
+              sections.push(
+                <Button
+                  key="add-main-interval"
+                  type="button"
+                  variant="outline"
+                  className="we-mobile-add-button h-11 rounded-full"
+                  onClick={() => {
+                    setAddParent(null)
+                    setAddAfter(null)
+                    setAddOpen(true)
+                  }}
+                >
+                  <Plus size={16} /> Add interval
+                </Button>
+              )
+              return sections
+            })()}
+          </section>
+        ))}
         {blockingIssues.length > 0 && (
           <div role="alert" className="we-notice text-destructive">
             <strong>This workout cannot be safely overwritten.</strong>
@@ -1896,6 +2337,7 @@ function MobileEditorBody({
             {validation.join(". ")}
           </p>
         )}
+        </div>
       </div>
       {desktop ? (
         <Dialog
@@ -1904,6 +2346,7 @@ function MobileEditorBody({
             if (!open) {
               setAddOpen(false)
               setAddParent(null)
+              setAddAfter(null)
             }
           }}
         >
@@ -1933,6 +2376,7 @@ function MobileEditorBody({
                 onClick={() => {
                   setAddOpen(false)
                   setAddParent(null)
+                  setAddAfter(null)
                 }}
               >
                 Cancel
@@ -1944,9 +2388,10 @@ function MobileEditorBody({
         <>
           <div
             className="sheet-backdrop we-mobile-add-backdrop"
-            onClick={() => {
+        onClick={() => {
           setAddOpen(false)
           setAddParent(null)
+          setAddAfter(null)
         }}
       />
       <Sheet
@@ -1961,6 +2406,7 @@ function MobileEditorBody({
         onSheetClose={() => {
           setAddOpen(false)
           setAddParent(null)
+          setAddAfter(null)
         }}
       >
         <div className="we-mobile-sheet-nav">
@@ -1970,6 +2416,7 @@ function MobileEditorBody({
             onClick={() => {
               setAddOpen(false)
               setAddParent(null)
+              setAddAfter(null)
             }}
           >
             Cancel
@@ -2010,6 +2457,14 @@ function MobileEditorBody({
               Choose an action for this workout step.
             </DialogDescription>
             <div className="we-desktop-action-list">
+              <Button variant="outline" onClick={openAddForAction}>
+                Add interval
+              </Button>
+              {actionNode?.kind === "step" && (
+                <Button variant="outline" onClick={repeatLooseSection}>
+                  Repeat section
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={() => {
@@ -2058,6 +2513,14 @@ function MobileEditorBody({
                 ? mobileStepTitle(actionNode)
                 : "Interval actions"}
               </ActionsLabel>
+              <ActionsButton close onClick={openAddForAction}>
+                Add interval
+              </ActionsButton>
+              {actionNode?.kind === "step" && (
+                <ActionsButton close onClick={repeatLooseSection}>
+                  Repeat section
+                </ActionsButton>
+              )}
               <ActionsButton
                 close
                 onClick={() => actionId && duplicate(actionId)}
@@ -2499,7 +2962,7 @@ export function WorkoutEditor({
         if (!controller.signal.aborted) setLoadError(e.message)
       })
     return () => controller.abort()
-  }, [editorUrl, reloadKey])
+  }, [editorUrl, reloadKey, workout])
   if (loaded)
     return (
       <EditorWorkspace
@@ -2522,8 +2985,19 @@ export function WorkoutEditor({
         if (!v) onClose()
       }}
     >
-      <DialogContent>
-        <DialogTitle>{workout ? "Edit Workout" : "Create Workout"}</DialogTitle>
+      <DialogContent showCloseButton={false}>
+        <div className="flex min-w-0 items-center justify-between gap-3 pr-8">
+          <DialogTitle>{workout ? "Edit Workout" : "Create Workout"}</DialogTitle>
+          <button
+            type="button"
+            aria-label="Close workout editor"
+            className="absolute right-2 top-2 flex size-7 shrink-0 items-center justify-center rounded-lg hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+            style={{ width: 28, minWidth: 28, maxWidth: 28, height: 28 }}
+            onClick={onClose}
+          >
+            <X aria-hidden="true" className="size-4" />
+          </button>
+        </div>
         <DialogDescription>
           {loadError ||
             (workout
@@ -3010,6 +3484,7 @@ function EditorWorkspace({
         new CustomEvent("workout-editor-saved", { detail: data.workout })
       )
       onSaved?.(data.workout)
+      onClose()
     } catch (e) {
       setStatus("failed")
       setError(
@@ -3114,10 +3589,11 @@ function EditorWorkspace({
               mobile ? (
                 <button
                   type="button"
-                  className="mobile-navbar-action"
+                  className="mobile-navbar-action liquid-glass-button"
                   aria-label="Cancel workout editing"
                   onClick={requestClose}
                 >
+                  <LiquidGlassLayer />
                   <X aria-hidden="true" />
                 </button>
               ) : undefined
@@ -3126,16 +3602,31 @@ function EditorWorkspace({
               mobile ? (
                 <button
                   type="button"
-                  className="mobile-navbar-action"
+                  className="mobile-navbar-action liquid-glass-button"
                   aria-label="Save workout"
                   disabled={!canSave || saving}
                   onClick={() => void save()}
                 >
-                  <Check aria-hidden="true" />
+                  <LiquidGlassLayer />
+                  {saving ? (
+                    <LoaderCircle className="animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Check aria-hidden="true" />
+                  )}
                 </button>
               ) : undefined
             }
           />
+          {mobile && saving && (
+            <p role="status" className="px-4 py-1 text-xs text-muted-foreground">
+              Saving and verifying with Intervals.icu…
+            </p>
+          )}
+          {mobile && status === "failed" && error && (
+            <p role="alert" className="px-4 py-1 text-xs text-destructive">
+              {error}
+            </p>
+          )}
           {useSharedEditor ? (
             <>
               {!mobile && (

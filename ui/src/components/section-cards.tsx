@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react"
 import { formatDuration } from "@/lib/duration"
 import { durationMinutes } from "@/lib/training-context"
 import { dailyWorkouts, dashboardToday, recoverySeries, todaysWorkout } from "@/lib/dashboard-metrics"
@@ -368,6 +369,14 @@ export function SectionCards({
   const todayWorkouts = dailyWorkouts(context, dashboardToday(context))
   const today = todayWorkouts[0] ?? todaysWorkout(context)
   const multipleToday = todayWorkouts.length > 1
+  const [activeTodayWorkout, setActiveTodayWorkout] = useState(0)
+  const todayWorkoutIds = todayWorkouts.map((workout) => workout.id).join("\u0000")
+  useEffect(() => {
+    setActiveTodayWorkout(0)
+  }, [todayWorkoutIds])
+  const visibleTodayWorkout = todayWorkouts[
+    Math.min(activeTodayWorkout, Math.max(todayWorkouts.length - 1, 0))
+  ] ?? today
   const fitness =
     context.metrics.fitness == null ? "—" : Math.round(context.metrics.fitness)
   const fatigue =
@@ -379,86 +388,69 @@ export function SectionCards({
     <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-12">
       <MobileDailySessions context={context} onWorkoutOpen={onWorkoutOpen} />
       <Card
-        role={onWorkoutOpen && !multipleToday ? "button" : undefined}
-        tabIndex={onWorkoutOpen && !multipleToday ? 0 : undefined}
-        aria-label={onWorkoutOpen && today && !multipleToday ? `Open ${today.title}` : undefined}
-        onClick={() => !multipleToday && today && onWorkoutOpen?.(today)}
+        role={onWorkoutOpen && visibleTodayWorkout ? "button" : undefined}
+        tabIndex={onWorkoutOpen && visibleTodayWorkout ? 0 : undefined}
+        aria-label={onWorkoutOpen && visibleTodayWorkout ? `Open ${visibleTodayWorkout.title}` : undefined}
+        onClick={() => visibleTodayWorkout && onWorkoutOpen?.(visibleTodayWorkout)}
         onKeyDown={(event) => {
-          if (multipleToday || !onWorkoutOpen || (event.key !== "Enter" && event.key !== " "))
+          if (!onWorkoutOpen || (event.key !== "Enter" && event.key !== " "))
             return
           event.preventDefault()
-          if (today) onWorkoutOpen(today)
+          if (visibleTodayWorkout) onWorkoutOpen(visibleTodayWorkout)
         }}
         className="col-span-2 hidden min-w-0 md:flex lg:col-span-6 lg:row-span-2"
       >
-        <CardHeader className="gap-3">
-          <CardDescription>
+        <CardHeader className="relative gap-3">
+          <CardDescription className={multipleToday ? "pr-16" : undefined}>
             Today&apos;s {multipleToday ? "workouts" : "workout"}
-            {!multipleToday && today?.status === "completed" && (
+            {visibleTodayWorkout?.status === "completed" && (
               <span className="ml-2 text-primary">Completed</span>
             )}
           </CardDescription>
-          {!multipleToday && (
-            <CardTitle>
-              <h1 className="text-2xl leading-tight font-semibold tracking-tight md:text-3xl">
-                {today?.title ?? "No workout scheduled"}
-              </h1>
-            </CardTitle>
+          {multipleToday && (
+            <button
+              type="button"
+              aria-label={`Show next workout, ${activeTodayWorkout + 1} of ${todayWorkouts.length}`}
+              className="absolute top-0 right-2 flex min-h-12 min-w-14 items-center justify-center rounded-full px-3 text-sm font-semibold tabular-nums transition-colors hover:bg-muted/70 focus-visible:outline-2 focus-visible:outline-ring"
+              onClick={(event) => {
+                event.stopPropagation()
+                setActiveTodayWorkout((index) => (index + 1) % todayWorkouts.length)
+              }}
+            >
+              {Math.min(activeTodayWorkout, todayWorkouts.length - 1) + 1} / {todayWorkouts.length}
+            </button>
           )}
+          <CardTitle className={multipleToday ? "pr-16" : undefined}>
+            <h1 className="line-clamp-2 min-h-[2.5rem] text-2xl leading-tight font-semibold tracking-tight md:min-h-[4rem] md:text-3xl">
+              {visibleTodayWorkout?.title ?? "No workout scheduled"}
+            </h1>
+          </CardTitle>
         </CardHeader>
-        {multipleToday ? (
-          <CardContent className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-            {todayWorkouts.map((session) => (
-              <div
-                key={session.id}
-                role={onWorkoutOpen ? "button" : undefined}
-                tabIndex={onWorkoutOpen ? 0 : undefined}
-                aria-label={onWorkoutOpen ? `Open ${session.title}` : undefined}
-                className="flex min-h-[115px] flex-1 cursor-pointer flex-col justify-between border-t py-2 first:border-t-0"
-                onClick={() => onWorkoutOpen?.(session)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return
-                  event.preventDefault()
-                  onWorkoutOpen?.(session)
-                }}
-              >
-                <div className="flex min-w-0 items-center justify-between gap-2">
-                  <h2 className="truncate font-semibold">{session.title}</h2>
-                  {session.status === "completed" && <span className="shrink-0 text-xs text-primary">Completed</span>}
-                </div>
-                <div className="h-12 overflow-hidden"><WorkoutProfile workout={session} compact /></div>
-                <div className="flex gap-4 text-xs text-muted-foreground">
-                  <span>{formatDuration(durationMinutes(session))}</span>
-                  <span>{Math.round(session.workout_summary?.completed?.tss ?? session.workout_summary?.planned?.tss ?? session.completed_data?.tss ?? session.planned?.tss ?? session.load ?? 0)} TSS</span>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        ) : (
         <CardContent className="flex flex-1 flex-col justify-end gap-3">
-          {hasWorkoutStructure(today?.structure) && (
-            <WorkoutProfile workout={today!} home />
-          )}
-          <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
-            {today?.goal ?? "Keep the day easy and protect recovery."}
+          <div className="h-28 shrink-0 overflow-hidden">
+            {hasWorkoutStructure(visibleTodayWorkout?.structure) && (
+              <WorkoutProfile workout={visibleTodayWorkout!} home />
+            )}
+          </div>
+          <p className="line-clamp-2 min-h-10 text-sm leading-5 text-muted-foreground">
+            {visibleTodayWorkout?.goal ?? "Keep the day easy and protect recovery."}
           </p>
           <div className="grid grid-cols-2 gap-4 border-t pt-4">
             <div>
               <p className="text-xs text-muted-foreground">Duration</p>
               <p className="mt-1 flex items-center gap-2 font-medium">
                 <Clock3 className="size-4" />{" "}
-                {today ? formatDuration(durationMinutes(today)) : "—"}
+                {visibleTodayWorkout ? formatDuration(durationMinutes(visibleTodayWorkout)) : "—"}
               </p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Training load</p>
               <p className="mt-1 font-medium tabular-nums">
-                {today?.load ?? 0} TSS
+                {visibleTodayWorkout?.load ?? 0} TSS
               </p>
             </div>
           </div>
         </CardContent>
-        )}
       </Card>
 
       <EventsCard context={context} />

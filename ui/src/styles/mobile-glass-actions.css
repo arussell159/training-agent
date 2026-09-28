@@ -1,26 +1,4 @@
 @media (width < 48rem) {
-  /* Leave the actual page visible behind the refractive header controls. */
-  .mobile-site-navbar-has-glass-back .navbar-bg {
-    -webkit-mask-image: radial-gradient(circle at 38px 28px, transparent 25px, #000 43px);
-    mask-image: radial-gradient(circle at 38px 28px, transparent 25px, #000 43px);
-  }
-
-  .mobile-site-navbar-has-glass-menu .navbar-bg {
-    -webkit-mask-image: radial-gradient(circle at calc(100% - 38px) 28px, transparent 25px, #000 43px);
-    mask-image: radial-gradient(circle at calc(100% - 38px) 28px, transparent 25px, #000 43px);
-  }
-
-  .mobile-site-navbar-has-glass-back.mobile-site-navbar-has-glass-menu .navbar-bg {
-    -webkit-mask-image:
-      radial-gradient(circle at 38px 28px, transparent 25px, #000 43px),
-      radial-gradient(circle at calc(100% - 38px) 28px, transparent 25px, #000 43px);
-    mask-image:
-      radial-gradient(circle at 38px 28px, transparent 25px, #000 43px),
-      radial-gradient(circle at calc(100% - 38px) 28px, transparent 25px, #000 43px);
-    -webkit-mask-composite: source-in;
-    mask-composite: intersect;
-  }
-
   /* This panel normally starts below the header, so it could never be sampled. */
   .mobile-site-navbar-over-scroll {
     margin-bottom: calc(-1 * var(--f7-navbar-height));
@@ -30,17 +8,26 @@
     padding-top: calc(1.25rem + var(--f7-navbar-height));
   }
 
+  /* Framework7 applies a glass shadow to nav slots on iOS; keep the icon
+     button as the only visible surface instead of shadowing its wrapper. */
+  .mobile-site-navbar .navbar .left,
+  .mobile-site-navbar .navbar .right {
+    background: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border-radius: 0;
+  }
+
   .mobile-site-navbar .mobile-navbar-action,
   .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action,
   .mobile-glass-action,
   .terms-metric-sheet-close {
     --glass-ink: var(--foreground);
-    --glass-edge: rgb(255 255 255 / 90%);
-    --glass-ring: rgb(255 255 255 / 78%);
-    --glass-fill: rgb(255 255 255 / 4%);
-    --glass-shadow:
-      0 0 0 1px var(--glass-ring),
-      0 3px 10px rgb(21 32 39 / 10%);
+    --glass-edge: rgb(15 23 42 / 9%);
+    --glass-ring: transparent;
+    --glass-fill: rgb(255 255 255 / 96%);
+    --glass-shadow: 0 1px 3px rgb(21 32 39 / 3%);
     position: relative;
     isolation: isolate;
     overflow: hidden;
@@ -49,8 +36,9 @@
     background: var(--glass-fill);
     color: var(--glass-ink);
     box-shadow: var(--glass-shadow);
-    -webkit-backdrop-filter: blur(12px) saturate(130%);
-    backdrop-filter: blur(12px) saturate(130%);
+    filter: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     text-shadow: none;
     transition:
       background 200ms ease,
@@ -65,6 +53,12 @@
     transform: translateY(-1px);
   }
 
+  .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action,
+  .terms-metric-sheet-close {
+    width: 44px;
+    height: 44px;
+  }
+
   .mobile-site-navbar .mobile-navbar-action::before,
   .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action::before,
   .mobile-glass-action::before,
@@ -73,11 +67,7 @@
   .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action::after,
   .mobile-glass-action::after,
   .terms-metric-sheet-close::after {
-    content: "";
-    position: absolute;
-    inset: 1px;
-    border-radius: 50%;
-    pointer-events: none;
+    content: none;
   }
 
   .mobile-site-navbar .mobile-navbar-action::before,
@@ -100,6 +90,14 @@
   .terms-metric-sheet-close svg {
     position: relative;
     z-index: 1;
+    width: 18px;
+    height: 18px;
+    filter: none;
+  }
+
+  .mobile-site-navbar .mobile-navbar-action > .liquid-glass-filter-layer,
+  .mobile-glass-action > .liquid-glass-filter-layer {
+    display: none;
   }
 
   .mobile-glass-action select {
@@ -110,18 +108,16 @@
   .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action:hover:not(:disabled),
   .mobile-glass-action:hover:not(:has(select:disabled)),
   .terms-metric-sheet-close:hover:not(:disabled) {
-    box-shadow:
-      0 0 0 1px var(--glass-ring),
-      0 4px 12px rgb(21 32 39 / 13%);
+    background: rgb(248 250 252 / 98%);
+    box-shadow: 0 1px 2px rgb(21 32 39 / 2%);
   }
 
   .mobile-site-navbar .mobile-navbar-action:active:not(:disabled),
   .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action:active:not(:disabled),
   .mobile-glass-action:active:not(:has(select:disabled)),
   .terms-metric-sheet-close:active:not(:disabled) {
-    box-shadow:
-      0 0 0 1px var(--glass-ring),
-      0 2px 6px rgb(21 32 39 / 10%);
+    background: rgb(241 245 249 / 98%);
+    box-shadow: 0 1px 2px rgb(21 32 39 / 3%);
   }
 
   .mobile-site-navbar .mobile-navbar-action:focus-visible,
@@ -138,12 +134,10 @@
   .dark .mobile-glass-action,
   .dark .terms-metric-sheet-close {
     --glass-ink: var(--foreground);
-    --glass-edge: rgb(255 255 255 / 32%);
-    --glass-ring: rgb(0 0 0 / 24%);
-    --glass-fill: rgb(255 255 255 / 4%);
-    --glass-shadow:
-      0 0 0 1px var(--glass-ring),
-      0 3px 10px rgb(0 0 0 / 20%);
+    --glass-edge: var(--border);
+    --glass-ring: transparent;
+    --glass-fill: var(--background);
+    --glass-shadow: 0 1px 3px rgb(0 0 0 / 7%);
   }
 
   .workout-map-navbar .mobile-navbar-action,
@@ -152,106 +146,25 @@
     --glass-edge: rgb(255 255 255 / 92%);
     --glass-ring: rgb(255 255 255 / 80%);
     --glass-fill: rgb(255 255 255 / 84%);
-    --glass-shadow:
-      0 0 0 1px var(--glass-ring),
-      0 3px 10px rgb(21 32 39 / 10%);
+    --glass-shadow: 0 1px 3px rgb(21 32 39 / 3%);
   }
 
   .mobile-site-navbar .liquid-glass-button,
   .dark .mobile-site-navbar .liquid-glass-button {
-    --glass-fill: rgb(255 255 255 / 10%);
+    --glass-fill: var(--background);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
 
-  .mobile-site-navbar .liquid-glass-filter-layer {
-    position: absolute;
-    z-index: 0;
-    inset: 0;
-    border-radius: inherit;
-    background: rgb(255 255 255 / 12%);
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 75%);
-    -webkit-backdrop-filter: blur(5px) saturate(180%);
-    backdrop-filter: blur(5px) saturate(180%);
-    pointer-events: none;
-  }
+  .mobile-site-navbar .liquid-glass-filter-layer { display: none; }
 
   .dark .mobile-site-navbar .liquid-glass-button {
-    --glass-fill: rgb(24 31 41 / 18%);
-  }
-
-  .dark .mobile-site-navbar .liquid-glass-filter-layer {
-    background: rgb(255 255 255 / 5%);
+    --glass-fill: var(--background);
   }
 
   .workout-map-navbar .liquid-glass-button,
   .dark .workout-map-navbar .liquid-glass-button {
     --glass-fill: rgb(255 255 255 / 18%);
-  }
-
-  .mobile-site-navbar .mobile-navbar-action.package-glass-action,
-  .mobile-glass-action.package-glass-action {
-    overflow: visible;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-
-  .mobile-site-navbar .mobile-navbar-action.package-glass-action::before,
-  .mobile-site-navbar .mobile-navbar-action.package-glass-action::after,
-  .mobile-glass-action.package-glass-action::before,
-  .mobile-glass-action.package-glass-action::after {
-    content: none;
-  }
-
-  .mobile-header-glass-wrap {
-    position: absolute;
-    z-index: 0;
-    inset: 0;
-    display: block;
-    border-radius: 50%;
-    pointer-events: none;
-  }
-
-  .mobile-header-glass-size {
-    display: block;
-    width: 43px;
-    height: 43px;
-  }
-
-  .mobile-header-glass {
-    width: 43px;
-    height: 43px;
-  }
-
-  .mobile-header-glass-wrap > span {
-    box-shadow:
-      inset 0 0 0 0.5px rgb(255 255 255 / 60%),
-      0 1px 3px rgb(21 32 39 / 8%) !important;
-  }
-
-  .mobile-header-glass .glass {
-    width: 43px;
-    height: 43px;
-    border: 1px solid rgb(255 255 255 / 86%);
-    background: rgb(255 255 255 / 10%);
-    box-shadow:
-      0 0 0 1px rgb(48 65 76 / 16%),
-      0 3px 10px rgb(21 32 39 / 10%) !important;
-  }
-
-  .mobile-header-glass .glass__warp {
-    opacity: 0.65;
-  }
-
-  .dark .mobile-header-glass .glass {
-    border-color: rgb(255 255 255 / 32%);
-    background: rgb(24 31 41 / 18%);
-    box-shadow:
-      0 0 0 1px rgb(0 0 0 / 24%),
-      0 3px 10px rgb(0 0 0 / 20%) !important;
   }
 
   .calendar-month-title-button:focus-visible {
@@ -274,6 +187,22 @@
     flex-direction: column;
     background: transparent;
     animation: none;
+  }
+
+  .annual-plan-chart-layer {
+    --calendar-picker-panel-height: 141px;
+  }
+
+  .annual-plan-chart-layer::after {
+    pointer-events: auto;
+  }
+
+  .annual-plan-chart-layer .mobile-calendar-picker-panel {
+    overflow: hidden;
+    border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+    border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+    border-radius: 0 0 20px 20px;
   }
 
   .mobile-calendar-picker-layer::before {

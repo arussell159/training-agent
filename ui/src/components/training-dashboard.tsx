@@ -78,9 +78,11 @@ export function TrainingDashboard({
   return (
     <div className="mobile-dashboard flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:gap-4 md:gap-6 md:p-6">
       <SectionCards context={context} onWorkoutOpen={openWorkout} />
-      <Suspense fallback={<div className="training-history-card min-h-[350px] rounded-2xl border bg-background md:min-h-[430px]" aria-label="Loading training history" />}>
-        <ChartAreaInteractive context={context} />
-      </Suspense>
+      <div className="grid w-full min-w-0 grid-cols-1 gap-3 sm:gap-4">
+        <Suspense fallback={<div className="training-history-card min-h-[350px] rounded-2xl border bg-background lg:min-h-[400px]" aria-label="Loading training history" />}>
+          <ChartAreaInteractive context={context} compactDesktop />
+        </Suspense>
+      </div>
       {selectedWorkout ? (
         <Suspense fallback={null}>
           <WorkoutDialog

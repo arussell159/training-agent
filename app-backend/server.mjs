@@ -119,6 +119,7 @@ const handleReports = createReportsHttp({
 });
 const uiDistPath = path.resolve(__dirname, '..', 'ui', 'dist');
 const intervalsCachePath = path.join(process.env.VERCEL ? '/tmp' : __dirname, 'intervals.cache');
+const localEditCacheFlagPath = path.join(__dirname, 'local-edit-cache.enabled');
 let completionConfirmation=null;
 try{completionConfirmation=await readDurableState('COMPLETION_CONFIRMATION',path.join(__dirname,'completion-confirmation.cache'),null);}catch(error){console.error('Completion confirmation unavailable:',error.message);}
 
@@ -130,6 +131,8 @@ const serverState = {
 
 let intervalsMemoryCache = null;
 const providerReads=createRequestCache({ttl:60000,maxEntries:32});
+let recentActivityStatsCache = null;
+let personalActivityStatsCache = null;
 function sendJson(req,res,value,cacheControl='no-store'){
  const payload=compressAsset(Buffer.from(JSON.stringify(value)),'.js',req.headers['accept-encoding']);
  res.writeHead(200,{'Content-Type':'application/json','Cache-Control':cacheControl,...payload.headers});res.end(payload.body);
@@ -589,6 +592,18 @@ async function readIntervalsCache() {
   }
 }
 
+async function localEditCacheEnabled(req) {
+  if (process.env.VERCEL) return false;
+  const host = String(req.headers.host || '').replace(/^\[|\]$/g, '').split(':')[0].toLowerCase();
+  if (!['localhost', '127.0.0.1', '::1'].includes(host)) return false;
+  try {
+    await fs.access(localEditCacheFlagPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function updateLogs(message) {
   serverState.logs.push(message);
   if (serverState.logs.length > 200) {
@@ -785,6 +800,22 @@ export async function handleRequest(req, res) {
       sendJson(req,res,await section11SyncService(config).progress(revision));return;
     }
     if(pathname==='/api/sync' && req.method==='POST') {
+      recentActivityStatsCache = null;
+      personalActivityStatsCache = null;
+      if (await localEditCacheEnabled(req)) {
+        const local = await readLocalContext();
+        const cached = await readIntervalsCache();
+        if (cached) {
+          sendJson(req, res, {
+            context:scopedTrainingContext({ ...local, ...cached, comments:local.comments, library:local.library, source:'local-edit-cache', sync_error:null, retention_days:90 }, 'week'),
+            queue:{ failed:0 }, sourceChanged:false, checked_at:new Date().toISOString(), localEditCache:true,
+          });
+          return;
+        }
+        res.writeHead(503, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
+        res.end(JSON.stringify({ error:'Local editing cache is enabled, but app-backend/intervals.cache is missing.' }));
+        return;
+      }
       const config=await readConfig();
       const syncId=requestUrl.searchParams.get('syncId') || '';
       const manualRefresh=requestUrl.searchParams.get('force')==='1';
@@ -832,6 +863,25 @@ export async function handleRequest(req, res) {
       return;
     }
     if(pathname==='/api/training-context' && req.method==='GET' && requestUrl.searchParams.get('refresh')!=='1') {
+      if (await localEditCacheEnabled(req)) {
+        const local = await readLocalContext();
+        const cached = await readIntervalsCache();
+        if (!cached) {
+          res.writeHead(503, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
+          res.end(JSON.stringify({ error:'Local editing cache is enabled, but app-backend/intervals.cache is missing.' }));
+          return;
+        }
+        const requestedScope = requestUrl.searchParams.get('scope') || 'week';
+        let scope = requestedScope === 'full' ? 'full' : 'week';
+        if (requestedScope === 'range') {
+          const start = validDate(requestUrl.searchParams.get('start'));
+          const end = validDate(requestUrl.searchParams.get('end'));
+          if (end < start || new Date(end) - new Date(start) > 31 * 86400000) throw new Error('Calendar range must be between 1 and 32 days.');
+          scope = { start, end };
+        }
+        sendJson(req, res, scopedTrainingContext({ ...local, ...cached, comments:local.comments, library:local.library, source:'local-edit-cache', sync_error:null, retention_days:90 }, scope));
+        return;
+      }
       const config=await readConfig(),store=createContextStore(config);
       const requestedScope=requestUrl.searchParams.get('scope') || 'week';
       let view=store.ready?await store.getSyncRecord(fastViewId(config,requestedScope)):null;
@@ -859,6 +909,111 @@ export async function handleRequest(req, res) {
         return;
       }
       sendJson(req,res,{weeks:buildTwelveWeekTrainingHistory(source),synced_at:source.synced_at});
+      return;
+    }
+    if(pathname==='/api/training-stats' && req.method==='GET') {
+      const cachedIntervals = await readIntervalsCache();
+      const timeZone = cachedIntervals?.athlete?.time_zone || 'America/Chicago';
+      const newest = athleteLocalDate(new Date(), timeZone);
+      const oldestDate = new Date(`${newest}T12:00:00Z`);
+      oldestDate.setUTCDate(oldestDate.getUTCDate() - 27);
+      const oldest = oldestDate.toISOString().slice(0,10);
+      if (await localEditCacheEnabled(req)) {
+        if (!cachedIntervals) throw Error('The local activity cache is unavailable.');
+        const records = (cachedIntervals.history || []).filter(item => item.completed && item.workout_date >= oldest && item.workout_date <= newest).map(item => {
+          const raw = item.raw_activity || {};
+          const summary = item.workout_summary?.completed || {};
+          return {
+            date: item.workout_date,
+            sport: raw.type || item.sport || 'Other',
+            name: raw.name || item.title || '',
+            subtype: raw.sub_type || '',
+            distance_meters: raw.distance ?? summary.distance_meters ?? item.distance_meters ?? 0,
+            duration_seconds: raw.moving_time ?? summary.duration_seconds ?? 0,
+            elevation_meters: raw.total_elevation_gain ?? summary.elevation_gain ?? 0,
+            achievements: Array.isArray(raw.icu_achievements) ? raw.icu_achievements : [],
+          };
+        });
+        sendJson(req,res,{records,source:'local-edit-cache',synced_at:cachedIntervals.synced_at || null});
+        return;
+      }
+      const config = await readConfig();
+      const account = createHash('sha256').update(config.INTERVALS_API_KEY || '').digest('hex');
+      if (recentActivityStatsCache?.account === account && recentActivityStatsCache.expiresAt > Date.now()) {
+        sendJson(req,res,recentActivityStatsCache.value,'private,max-age=300');
+        return;
+      }
+      const activities = await intervalsClient(config)(`/athlete/0/activities?oldest=${oldest}&newest=${newest}&fields=id,type,start_date_local,name,sub_type,distance,moving_time,total_elevation_gain,icu_achievements`);
+      const records = (Array.isArray(activities) ? activities : []).filter(item => item?.start_date_local && Number(item.moving_time) > 0).map(item => ({
+        date: String(item.start_date_local).slice(0,10),
+        sport: item.type || 'Other',
+        name: item.name || '',
+        subtype: item.sub_type || '',
+        distance_meters: Number(item.distance) || 0,
+        duration_seconds: Number(item.moving_time) || 0,
+        elevation_meters: Number(item.total_elevation_gain) || 0,
+        achievements: Array.isArray(item.icu_achievements) ? item.icu_achievements : [],
+      }));
+      const value = {records,source:'intervals',synced_at:new Date().toISOString()};
+      recentActivityStatsCache = {account,expiresAt:Date.now()+30*60_000,value};
+      sendJson(req,res,value,'private,max-age=300');
+      return;
+    }
+    if(pathname==='/api/personal-statistics' && req.method==='GET') {
+      const config = await readConfig();
+      const account = createHash('sha256').update(config.INTERVALS_API_KEY || '').digest('hex');
+      if (personalActivityStatsCache?.account === account && personalActivityStatsCache.expiresAt > Date.now()) {
+        sendJson(req,res,personalActivityStatsCache.value,'private,max-age=900');
+        return;
+      }
+      const cachedIntervals = await readIntervalsCache();
+      const timeZone = cachedIntervals?.athlete?.time_zone || 'America/Chicago';
+      const today = athleteLocalDate(new Date(), timeZone);
+      const firstYear = 2000;
+      const currentYear = Number(today.slice(0, 4));
+      const ranges = [];
+      for (let year = firstYear; year <= currentYear; year += 5) {
+        const startYear = year;
+        const endYear = Math.min(year + 4, currentYear);
+        ranges.push({
+          oldest: `${startYear}-01-01`,
+          newest: endYear === currentYear ? today : `${endYear}-12-31`,
+        });
+      }
+      const fields = 'id,type,start_date_local,name,sub_type,distance,moving_time,elapsed_time,total_elevation_gain,icu_achievements';
+      const request = intervalsClient(config);
+      const batches = [];
+      for (let index = 0; index < ranges.length; index += 3) {
+        batches.push(await Promise.all(ranges.slice(index, index + 3).map(({ oldest, newest }) =>
+          request(`/athlete/0/activities?oldest=${oldest}&newest=${newest}&fields=${fields}`)
+        )));
+      }
+      const activities = batches.flat(2);
+      const seen = new Set();
+      const records = activities.filter(item => {
+        const id = String(item?.id ?? '');
+        if (!id || seen.has(id) || !item?.start_date_local || !(Number(item.moving_time || item.elapsed_time) > 0)) return false;
+        seen.add(id);
+        return true;
+      }).map(item => ({
+        id: String(item.id),
+        date: String(item.start_date_local).slice(0, 10),
+        sport: item.type || 'Other',
+        name: item.name || '',
+        subtype: item.sub_type || '',
+        distance_meters: Number(item.distance) || 0,
+        duration_seconds: Number(item.moving_time || item.elapsed_time) || 0,
+        elevation_meters: Number(item.total_elevation_gain) || 0,
+        achievements: (Array.isArray(item.icu_achievements) ? item.icu_achievements : []).map(achievement => ({
+          type: achievement.type,
+          distance: achievement.distance,
+          secs: achievement.secs,
+          value: achievement.value,
+        })),
+      })).sort((a, b) => a.date.localeCompare(b.date));
+      const value = { records, today, source: 'intervals', synced_at: new Date().toISOString() };
+      personalActivityStatsCache = { account, expiresAt: Date.now() + 30 * 60_000, value };
+      sendJson(req,res,value,'private,max-age=900');
       return;
     }
     if (pathname === '/api/config') {
@@ -911,6 +1066,12 @@ export async function handleRequest(req, res) {
     }
 
     if (req.url === '/api/context/status') {
+      if (await localEditCacheEnabled(req)) {
+        const config = await readBootstrapConfig();
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ ready:Boolean(config.SUPABASE_URL && config.SUPABASE_SECRET_KEY), retentionDays:90, localEditCache:true }));
+        return;
+      }
       const config = await readConfig();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ready:Boolean(config.SUPABASE_URL && config.SUPABASE_SECRET_KEY), retentionDays:90, needsProjectUrl:Boolean(config.SUPABASE_SECRET_KEY && !config.SUPABASE_URL) }));
@@ -918,6 +1079,25 @@ export async function handleRequest(req, res) {
     }
 
     if (req.url?.startsWith('/api/training-context') && req.method === 'GET') {
+      if (await localEditCacheEnabled(req)) {
+        const local = await readLocalContext();
+        const requestUrl = new URL(req.url, 'http://localhost');
+        const cached = await readIntervalsCache();
+        if (cached) {
+          let scope = requestUrl.searchParams.get('scope') === 'full' ? 'full' : 'week';
+          if (requestUrl.searchParams.get('scope') === 'range') {
+            const start = validDate(requestUrl.searchParams.get('start'));
+            const end = validDate(requestUrl.searchParams.get('end'));
+            if (end < start || new Date(end) - new Date(start) > 31 * 86400000) throw new Error('Calendar range must be between 1 and 32 days.');
+            scope = { start, end };
+          }
+          sendJson(req, res, scopedTrainingContext({ ...local, ...cached, comments:local.comments, library:local.library, source:'local-edit-cache', sync_error:null, retention_days:90 }, scope));
+          return;
+        }
+        res.writeHead(503, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
+        res.end(JSON.stringify({ error:'Local editing cache is enabled, but app-backend/intervals.cache is missing.' }));
+        return;
+      }
       const config = await readConfig();
       const local = await readLocalContext();
       const timeZone = local.athlete?.time_zone || 'America/Chicago';

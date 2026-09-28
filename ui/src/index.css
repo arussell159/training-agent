@@ -113,7 +113,7 @@ html, body {
   .workout-map-navbar .mobile-navbar-action {
     background: rgb(255 255 255 / 92%);
     color: #111827;
-    box-shadow: 0 1px 5px rgb(0 0 0 / 18%);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 3%);
     text-shadow: none;
   }
 

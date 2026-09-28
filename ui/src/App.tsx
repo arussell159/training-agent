@@ -459,10 +459,10 @@ function AppWorkspace() {
               : (isCoachPage || activeItem === "Library") &&
                   !selectedWorkout &&
                   !selectedReport
-                ? "coach-app-shell h-dvh min-h-0 overflow-hidden"
+                  ? "coach-app-shell h-dvh min-h-0 overflow-hidden"
                 : (activeItem === "Settings" || activeItem === "Annual Plan") &&
                     !selectedWorkout
-                  ? "h-svh min-h-0 overflow-hidden"
+                  ? "mobile-content-under-nav-shell h-svh min-h-0 overflow-hidden"
                   : undefined
           }
         >
@@ -546,15 +546,20 @@ function AppWorkspace() {
                 : isCoachPage || activeItem === "Library"
                   ? "coach-page-main overflow-hidden md:pb-0"
                   : activeItem === "Settings"
-                    ? "overflow-hidden pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
+                    ? "overflow-hidden pb-0"
                     : activeItem === "Annual Plan"
-                      ? "w-full overflow-hidden pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
+                      ? "w-full overflow-hidden pb-0"
                       : "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
             }`}
           >
             <MobilePageTabs activeItem={activeItem}>
               <Suspense fallback={<RouteFallback />}>
                 <RouteScrollReset route={activeItem} />
+                {activeItem === "Settings" && !selectedReport && (
+                  <div className={selectedWorkout ? "hidden" : "flex min-h-0 w-full min-w-0 flex-1"}>
+                    <SettingsWorkspace onWorkoutOpen={openWorkout} />
+                  </div>
+                )}
                 {selectedReport ? (
                   <ReportReaderPage target={selectedReport} />
                 ) : selectedWorkout ? (
@@ -573,9 +578,7 @@ function AppWorkspace() {
                   />
                 ) : isCoachPage ? (
                   <CoachPage />
-                ) : activeItem === "Settings" ? (
-                  <SettingsWorkspace />
-                ) : activeItem === "Library" ? (
+                ) : activeItem === "Settings" ? null : activeItem === "Library" ? (
                   <TrainingLibrary onWorkoutOpen={openWorkout} />
                 ) : activeItem === "Annual Plan" ? (
                   <AnnualPlanCreator />

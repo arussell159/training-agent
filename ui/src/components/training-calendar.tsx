@@ -9,6 +9,7 @@ import {
 } from "@/lib/workout-completion"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { MobileActionMenu } from "@/components/ui/mobile-native-controls"
+import { LiquidGlassLayer } from "@/components/ui/liquid-glass-layer"
 import { WorkoutProfile } from "@/components/workout-profile"
 import { WorkoutSummary } from "@/components/workout-summary"
 import { canEditWorkout } from "@/lib/workout-permissions"
@@ -1541,10 +1542,11 @@ export function TrainingCalendar({
             datePickerOpen ? (
               <button
                 type="button"
-                className="mobile-navbar-action"
+                className="mobile-navbar-action liquid-glass-button"
                 aria-label="Previous month"
                 onClick={() => mobilePickerRef.current?.prevMonth(250)}
               >
+                <LiquidGlassLayer />
                 <ChevronLeft aria-hidden="true" />
               </button>
             ) : undefined
@@ -1553,10 +1555,11 @@ export function TrainingCalendar({
             datePickerOpen ? (
               <button
                 type="button"
-                className="mobile-navbar-action"
+                className="mobile-navbar-action liquid-glass-button"
                 aria-label="Next month"
                 onClick={() => mobilePickerRef.current?.nextMonth(250)}
               >
+                <LiquidGlassLayer />
                 <ChevronRight aria-hidden="true" />
               </button>
             ) : undefined

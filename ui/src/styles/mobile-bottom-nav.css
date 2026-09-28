@@ -1,4 +1,13 @@
 @media (width < 48rem) {
+  .framework7-root .mobile-content-under-nav-shell .mobile-navbar.toolbar {
+    --f7-toolbar-bg-color: transparent;
+    background: transparent;
+  }
+
+  .framework7-root .mobile-content-under-nav-shell .mobile-navbar.toolbar .toolbar-background {
+    background: transparent;
+  }
+
   .framework7-root .mobile-navbar.toolbar {
     --f7-tabbar-link-inactive-color: var(--foreground);
     --f7-tabbar-link-active-color: var(--foreground);
@@ -80,6 +89,22 @@
 
   .framework7-root .mobile-filter-toolbar.toolbar .tab-link-highlight {
     width: 25% !important;
+  }
+
+  .framework7-root .performance-sport-filter.toolbar .tab-link-highlight {
+    width: 33.333333% !important;
+  }
+
+  .framework7-root .performance-sport-filter.toolbar .tab-link {
+    flex-direction: row;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .framework7-root .performance-sport-filter.toolbar .tab-link svg {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
   }
 
   .mobile-filter-tabs-inline {
@@ -275,5 +300,42 @@
 
   .dark .framework7-root .mobile-navbar.toolbar .tab-link-highlight::after {
     border-top-color: rgb(255 255 255 / 42%);
+  }
+}
+
+@media (width >= 48rem) {
+  .performance-sport-tabs {
+    display: grid;
+    width: 100%;
+    height: 40px;
+    margin: 0 0 1rem;
+    padding: 3px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--muted);
+  }
+
+  .performance-sport-tabs .mobile-filter-tab-pill {
+    display: flex;
+    min-width: 0;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font: inherit;
+    font-size: 0.875rem;
+    white-space: nowrap;
+  }
+
+  .performance-sport-tabs .mobile-filter-tab-pill.is-active {
+    border-color: var(--border);
+    background: var(--background);
+    color: var(--foreground);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
   }
 }
