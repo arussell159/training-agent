@@ -14,11 +14,13 @@ export function WorkoutDescription({
   title = "Workout instructions",
   mobileCompact = false,
   collapsible = false,
+  hideTitle = false,
 }: {
   workout: PlannedWorkout
   title?: string
   mobileCompact?: boolean
   collapsible?: boolean
+  hideTitle?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const showContent = !collapsible || expanded
@@ -69,14 +71,16 @@ export function WorkoutDescription({
   }
   return (
     <section
-      className={`w-full min-w-0 ${mobileCompact ? "space-y-2" : "space-y-3"}`}
+      className={`w-full min-w-0 ${mobileCompact && !collapsible ? "space-y-0" : "space-y-2"}`}
       aria-label="Workout description"
     >
-      <div className="relative flex min-h-8 w-full min-w-0 items-center">
-        <h3
+      <div className={`relative flex w-full min-w-0 items-center ${hideTitle ? "h-0 justify-end" : mobileCompact && !collapsible ? "min-h-0" : "min-h-8 px-1"}`}>
+        {!hideTitle && <h3
           className={
-            mobileCompact
-              ? "min-w-0 whitespace-nowrap pr-10 text-base font-bold"
+            collapsible
+              ? "min-w-0 whitespace-nowrap pr-10 text-sm text-muted-foreground"
+              : mobileCompact
+              ? "min-w-0 whitespace-nowrap pr-10 text-[11px] leading-4 text-muted-foreground"
               : "min-w-0 whitespace-nowrap pr-10 text-sm font-semibold"
           }
         >
@@ -95,11 +99,11 @@ export function WorkoutDescription({
           ) : (
             title
           )}
-        </h3>
+        </h3>}
         {showContent && !editing && canEditWorkout(workout) && (
           <button
             type="button"
-            className={`absolute top-1/2 right-0 flex shrink-0 -translate-y-1/2 items-center justify-center rounded-lg text-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring ${mobileCompact ? "size-8" : "h-8 gap-1 px-2.5 text-sm"}`}
+            className={`absolute ${hideTitle ? "top-0 translate-y-0" : "top-1/2 -translate-y-1/2"} right-0 flex shrink-0 items-center justify-center rounded-lg text-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring ${mobileCompact ? "size-8" : "h-8 gap-1 px-2.5 text-sm"}`}
             style={mobileCompact ? { width: 32, minWidth: 32, maxWidth: 32, height: 32 } : undefined}
             onClick={() => {
               setDraft(saved)
@@ -146,7 +150,7 @@ export function WorkoutDescription({
           </>
         ) : (
           <p
-            className={`mobile-workout-description-chatgpt-type whitespace-pre-wrap text-foreground ${mobileCompact ? "text-base leading-6" : "text-[1.0625rem] leading-7 md:text-sm md:leading-6"}`}
+            className={`mobile-workout-description-chatgpt-type whitespace-pre-wrap text-foreground ${hideTitle ? "pr-10" : ""} ${mobileCompact ? "text-sm leading-5" : "text-[1.0625rem] leading-7 md:text-sm md:leading-6"}`}
           >
             {saved}
           </p>

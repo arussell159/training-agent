@@ -11,7 +11,6 @@ import {
 import { lazy, Suspense, useEffect, useState } from "react"
 import { formatDuration, formatPace } from "@/lib/duration"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
-import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
 import { WorkoutDetailSurface } from "@/components/workout-detail-surface"
 const WorkoutAnalysis = lazy(() =>
   import("@/components/workout-analysis").then((m) => ({
@@ -96,6 +95,50 @@ function formatWorkoutTime(workout: PlannedWorkout) {
   return Number.isNaN(date.getTime())
     ? null
     : date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+}
+
+function formatWorkoutBackDate(workout: PlannedWorkout) {
+  if (!workout.workout_date) return workout.date
+  const date = new Date(`${workout.workout_date}T12:00:00`)
+  return Number.isNaN(date.getTime())
+    ? workout.date
+    : date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
+function classifyPlannedWorkout(workout: PlannedWorkout) {
+  const text = `${workout.title} ${workout.goal} ${workout.details || ""}`.toLowerCase()
+  if (/strength|weights|gym|resistance/.test(text)) return "Strength"
+  if (/technique|drill|skills/.test(text)) return "Technique"
+  if (/recovery|regeneration|easy|warm\s?up|cool\s?down/.test(text)) return "Recovery"
+
+  let repeatedHardStep = false
+  const inspectSteps = (nodes: WorkoutNode[], inRepeat = false) => {
+    for (const node of nodes) {
+      if (node.kind === "repeat") {
+        inspectSteps(node.steps, inRepeat || node.repetitions > 1)
+        continue
+      }
+      if (!inRepeat || node.role !== "active") continue
+      const target = node.target
+      if (target.kind === "none") continue
+      const values = target.mode === "single" ? [target.value || 0] : [target.start || 0, target.end || 0]
+      const hard = target.unit.includes("zone")
+        ? values.some((value) => value >= 4)
+        : target.kind === "power"
+          ? values.some((value) => target.unit === "w"
+            ? value >= (workout.editor_model?.thresholds?.ftp || 250) * 0.9
+            : value >= 90)
+          : target.kind === "pace" && target.unit === "%pace"
+            ? values.some((value) => value >= 95)
+            : false
+      if (hard) repeatedHardStep = true
+    }
+  }
+  if (workout.editor_model) inspectSteps(workout.editor_model.steps)
+
+  if (repeatedHardStep || /threshold|tempo|vo2|speed|openers|surge|strong repeats|race effort|ftp/.test(text)) return "Workout"
+  if (/endurance|aerobic|long|steady/.test(text) || durationMinutes(workout) >= 60) return "Endurance"
+  return "Workout"
 }
 
 function structureDuration(seconds: number) {
@@ -371,7 +414,6 @@ export function WorkoutDetailPage({
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState("")
-  const [plannedTab, setPlannedTab] = useState<"summary" | "zones">("summary")
   const [athleteZones, setAthleteZones] = useState(
     cachedTrainingContext().athlete.zones
   )
@@ -501,12 +543,12 @@ export function WorkoutDetailPage({
             setEditorOpen(true)
           },
         },
-        {
+        ...(mobile && workout.status !== "completed" ? [] : [{
           value: "delete",
           label: "Delete workout",
           disabled: deleting,
           onSelect: () => setDeleteOpen(true),
-        },
+        }]),
       ]
       : []),
   ]
@@ -535,12 +577,13 @@ export function WorkoutDetailPage({
   }
 
   return (
-    <div className="min-h-svh w-full min-w-0 max-w-full overflow-x-clip bg-background">
+    <div className={`min-h-svh w-full min-w-0 max-w-full overflow-x-clip ${mobile && workout.status !== "completed" ? "planned-workout-mobile-page" : "bg-background"}`}>
       <MobileSiteNavbar
         fixed
-        className={workout.status === "completed" && !swim ? "workout-map-navbar" : undefined}
+        className={mobile && workout.status !== "completed" ? "planned-workout-navbar" : workout.status === "completed" && !swim ? "workout-map-navbar" : undefined}
         onBack={onBack}
-        title={
+        backText={mobile && workout.status !== "completed" ? formatWorkoutBackDate(workout) : undefined}
+        title={mobile && workout.status !== "completed" ? "" :
           swim
             ? "Swim"
             : bike
@@ -862,7 +905,7 @@ export function WorkoutDetailPage({
         <WorkoutDetailSurface
           completed={workout.status === "completed"}
           onClose={onBack}
-          className={`relative z-10 flex w-full min-w-0 transform-gpu flex-col gap-6 bg-background px-5 pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-[0_-12px_30px_rgba(0,0,0,0.08)] will-change-transform sm:px-7 md:px-0 md:pt-5 md:pb-10 md:shadow-none ${mobileMapAvailable && !swim ? "-mt-7 rounded-t-[28px] pt-3" : "pt-[76px]"}`}
+          className={`relative z-10 flex w-full min-w-0 transform-gpu flex-col ${workout.status === "completed" ? "gap-6 bg-background px-5 shadow-[0_-12px_30px_rgba(0,0,0,0.08)] sm:px-7" : "mobile-dashboard planned-workout-mobile-cards gap-4 bg-transparent px-4"} pb-[calc(2rem+env(safe-area-inset-bottom))] will-change-transform md:px-0 md:pt-5 md:pb-10 md:shadow-none ${mobileMapAvailable && !swim ? "-mt-7 rounded-t-[28px] pt-3" : "pt-[60px]"}`}
         >
           <section
             className={`pt-1 md:hidden ${workout.status === "completed" ? "space-y-5" : "hidden"}`}
@@ -893,64 +936,32 @@ export function WorkoutDetailPage({
           )}
 
           {workout.status !== "completed" && (
-            <section className="md:hidden" aria-label="Planned workout">
-              <div className="border-b pb-4">
-                <h1 className="truncate text-lg leading-tight font-bold">
-                  {workout.title}
-                </h1>
-                <div className="mt-3 flex items-center justify-between gap-4 text-center">
-                  <SportIcon sport={workout.sport} />
-                  <p className="flex-1 text-base font-semibold tabular-nums">
-                    {workout.planned_time_label ||
-                      formatDuration(durationMinutes(workout))}
-                  </p>
-                  {distanceLabel !== "—" && (
-                    <p className="flex-1 text-base font-semibold tabular-nums">
-                      {distanceLabel}
-                    </p>
-                  )}
-                  {load != null && (
-                    <p className="flex-1 text-base font-semibold tabular-nums">
-                      {numeric(load)}{" "}
-                      <span className="text-[11px] font-medium text-muted-foreground">
-                        TSS
-                      </span>
-                    </p>
-                  )}
-                </div>
-                <div className="mt-2">
-                  <WorkoutProfile
-                    workout={workout}
-                    mobilePlanned
-                    enableEditOnClick
-                  />
+            <section className="contents md:hidden" aria-label="Planned workout">
+              <div className="planned-workout-overview px-1 pt-2">
+                <h1 className="truncate text-xl leading-tight font-bold">{workout.title}</h1>
+                <p className="mt-2 text-sm text-muted-foreground">{workout.sport} · {classifyPlannedWorkout(workout)}</p>
+                <div className="flex items-center gap-4 text-sm font-normal text-muted-foreground tabular-nums">
+                  <span>{workout.planned_time_label || movingTime || formatDuration(durationMinutes(workout))}</span>
+                  {load != null && <span>{numeric(load)} TSS</span>}
                 </div>
               </div>
-              <MobileFilterTabs
-                label="Workout view"
-                items={[
-                  { value: "summary", label: "Workout" },
-                  { value: "zones", label: "Zones" },
-                ] as const}
-                value={plannedTab}
-                onChange={setPlannedTab}
-                className="workout-detail-view-tabs"
-                inline
-              />
-              {plannedTab === "summary" ? (
-                <div className="pt-1">
-                  <WorkoutDescription
-                    workout={workout}
-                    title="Workout Details"
-                    mobileCompact
-                  />
+
+              <section data-slot="card" className="overflow-hidden p-0" aria-label="Workout profile">
+                <WorkoutProfile workout={workout} mobilePlanned enableEditOnClick />
+              </section>
+
+              <section className="w-full" aria-label="Workout details">
+                <div className="space-y-3">
+                  <h2 className="mb-2 px-1 text-sm text-muted-foreground">Workout Details</h2>
+                  <div data-slot="card" className="p-4">
+                    <WorkoutDescription workout={workout} title="Workout Details" mobileCompact hideTitle />
+                  </div>
                 </div>
-              ) : (
-                <TrainingZonesDisplay
-                  sport={workout.sport}
-                  zones={athleteZones}
-                />
-              )}
+              </section>
+
+              <section className="w-full" aria-label="Training zones">
+                <TrainingZonesDisplay sport={workout.sport} zones={athleteZones} listStyle />
+              </section>
             </section>
           )}
           <div className="hidden items-start gap-5 md:grid lg:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)]">
@@ -974,11 +985,11 @@ export function WorkoutDetailPage({
               />
             </div>
           </div>
-          <Suspense
+          {(workout.status === "completed" || !mobile) && <Suspense
             fallback={<div className="h-44 animate-pulse border bg-muted/30" />}
           >
             <WorkoutAnalysis workout={workout} />
-          </Suspense>
+          </Suspense>}
           <div className="workout-detail-links md:contents">
           {workout.status === "completed" && (
             <div className="contents md:hidden">

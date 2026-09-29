@@ -23,23 +23,20 @@ export function SettingsListItem({
   label: string
   description?: string
   value?: ReactNode
-  onClick: (event: MouseEvent<HTMLButtonElement>) => void
+  onClick?: (event: MouseEvent<HTMLButtonElement>) => void
   expanded?: boolean
   className?: string
 }) {
-  return <Button
-    type="button"
-    variant="ghost"
-    aria-expanded={expanded}
-    className={cn("h-14 w-full justify-start rounded-none px-4 font-normal", description && !value && "h-auto min-h-14 py-3", className)}
-    onClick={onClick}
-  >
+  const content = <>
     {Icon && <Icon className="size-4 text-muted-foreground" aria-hidden="true" />}
     <span className={cn("min-w-0 flex-1 truncate text-left", description && !value && "whitespace-normal")}>
       <span className={cn("block truncate", description && !value && "text-sm font-medium")}>{label}</span>
       {description && <span className="mt-1 block truncate text-xs text-muted-foreground">{description}</span>}
     </span>
     {value && <span className="max-w-32 truncate text-xs text-muted-foreground">{value}</span>}
-    <ChevronRight className={cn("size-4 text-muted-foreground/70", expanded && "rotate-90")} aria-hidden="true" />
-  </Button>
+    {onClick && <ChevronRight className={cn("size-4 text-muted-foreground/70", expanded && "rotate-90")} aria-hidden="true" />}
+  </>
+  const classNames = cn("h-14 w-full justify-start rounded-none px-4 font-normal", description && !value && "h-auto min-h-14 py-3", className)
+  if (!onClick) return <div className={cn("flex items-center", classNames)} aria-expanded={expanded}>{content}</div>
+  return <Button type="button" variant="ghost" aria-expanded={expanded} className={classNames} onClick={onClick}>{content}</Button>
 }

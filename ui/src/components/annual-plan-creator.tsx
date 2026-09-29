@@ -287,12 +287,12 @@ function SeasonChart({ plan, actuals, selectedWeek, onSelect, glassBackground = 
 
   return (
     <TooltipProvider>
-      <div ref={scrollerRef} className={`w-full overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${glassBackground ? "rounded-b-[20px]" : ""}`} aria-label="Planned and completed training hours">
+      <div ref={scrollerRef} className={`w-full overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${glassBackground ? "rounded-b-[var(--calendar-picker-radius)]" : ""}`} aria-label="Planned and completed training hours">
         <div style={{ width: chartWidth }}>
           <div className="relative h-7 border-b border-r text-[10px] text-muted-foreground">
             {monthKeys.map((key, index) => <div key={key} className={`absolute inset-y-0 border-l border-border ${glassBackground ? (index % 2 ? "bg-white/5 dark:bg-white/5" : "bg-transparent") : index % 2 ? "bg-muted/45" : "bg-background"}`} style={{ left: index * equalMonthWidth, width: equalMonthWidth }}><span className="block px-1.5 pt-1.5">{dateLabel(`${key}-01`, { month: "long" })}</span></div>)}
           </div>
-          <div className={`relative h-28 border-b border-r md:h-48 ${glassBackground ? "overflow-hidden rounded-b-[20px] bg-transparent" : "bg-background"}`}>
+          <div className={`relative h-28 border-b border-r md:h-48 ${glassBackground ? "overflow-hidden rounded-b-[var(--calendar-picker-radius)] bg-transparent" : "bg-background"}`}>
             {monthKeys.map((key, index) => <span key={key} aria-hidden className={`absolute inset-y-0 border-l border-border ${glassBackground ? (index % 2 ? "bg-white/5 dark:bg-white/5" : "bg-transparent") : index % 2 ? "bg-muted/45" : "bg-background"}`} style={{ left: index * equalMonthWidth, width: equalMonthWidth }} />)}
             {plan.weeks.map((week, index) => {
               const completed = actuals.get(week.id)?.completedHours ?? null
@@ -524,7 +524,7 @@ export function AnnualPlanCreator() {
         if (!scroller || !card) return
         const scrollerTop = scroller.getBoundingClientRect().top
         const cardTop = card.getBoundingClientRect().top
-        scroller.scrollTo({ top: Math.max(0, scroller.scrollTop + cardTop - scrollerTop - 64), behavior })
+        scroller.scrollTo({ top: Math.max(0, scroller.scrollTop + cardTop - scrollerTop - 120), behavior })
         return
       }
       const scroller = tableScrollerRef.current
@@ -547,7 +547,10 @@ export function AnnualPlanCreator() {
       const centeringKey = `${isMobile ? "mobile" : "desktop"}:${plan.id}:${currentWeek.id}`
       centeredWeekRef.current = centeringKey
       setActiveWeekId(currentWeek.id)
-      centerTableWeek(currentWeek.id, "smooth")
+      setMobileChartOpen(false)
+      const scroll = () => centerTableWeek(currentWeek.id, "instant")
+      scroll()
+      requestAnimationFrame(() => requestAnimationFrame(scroll))
     }
     window.addEventListener("annual-plan-go-current-week", returnToCurrentWeek)
     return () => window.removeEventListener("annual-plan-go-current-week", returnToCurrentWeek)
@@ -727,7 +730,7 @@ export function AnnualPlanCreator() {
   return (
     <div id="annual-plan-week-layer" className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
       <MobileSiteNavbar
-        className={mobileChartOpen ? "calendar-picker-navbar-open" : undefined}
+        className={mobileChartOpen ? "annual-plan-navbar calendar-picker-navbar-open" : "annual-plan-navbar"}
         titleLabel="Annual Planner"
         title={<button
           type="button"
@@ -740,8 +743,6 @@ export function AnnualPlanCreator() {
           <span>Annual Planner</span>
           <ChevronDown aria-hidden="true" />
         </button>}
-        onBack={() => window.dispatchEvent(new CustomEvent("app-navigate", { detail: "Settings" }))}
-        backLabel="Back to settings"
         showMenu={!mobileChartOpen}
         actions={[
           ...(plan ? [{ value: "plan-settings", label: "Plan settings", onSelect: editPlan }] : []),
@@ -775,7 +776,7 @@ export function AnnualPlanCreator() {
           <SeasonChart key={plan.id} plan={plan} actuals={actuals} selectedWeek={activeWeekId} onSelect={selectWeek} />
         </section>
         }
-        {isMobile && <section ref={mobileScrollerRef} aria-label="Training plan blocks" className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
+        {isMobile && <section ref={mobileScrollerRef} aria-label="Training plan blocks" className="annual-plan-blocks-scroller min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
           {mobileBlocks.map(block => <section key={block.key} aria-label={block.phase}>
             <h2 className="mb-2 px-1 text-sm font-medium" style={{ color: PHASE_COLORS[block.phase] }}>{block.phase}</h2>
             <SettingsList>

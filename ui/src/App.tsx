@@ -199,11 +199,14 @@ function AppWorkspace() {
   const [calendarNavigationVersion, setCalendarNavigationVersion] = useState(0)
   const [selectedWorkout, setSelectedWorkout] =
     useState<PlannedWorkout | null>(null)
+  const [calendarReturnScroll, setCalendarReturnScroll] = useState<number | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const toastManager = useToastManager()
   const [intervalsDisconnected, setIntervalsDisconnected] = useState(false)
   const [termsOpen, setTermsOpen] = useState(false)
   const workoutReturnScroll = useRef(0)
+  const workoutReturnRoute = useRef<string | null>(null)
+  const clearCalendarReturnScroll = useCallback(() => setCalendarReturnScroll(null), [])
   const isCoachPage = activeItem === "Coach"
   const refreshIntervals = useCallback(async () => {
     if (isRefreshing) return
@@ -296,15 +299,19 @@ function AppWorkspace() {
 
   useEffect(() => {
     const handlePopState = () => {
+      const route = routeItem()
+      const restoredWorkout = restoreOpenWorkout([
+        ...cachedTrainingContext().planned,
+        ...cachedTrainingContext().history,
+      ])
+      if (!restoredWorkout && route === "Calendar" && workoutReturnRoute.current === "Calendar") {
+        setCalendarReturnScroll(workoutReturnScroll.current)
+        workoutReturnRoute.current = null
+      }
       setSelectedReport(restoreReportReader())
-      setSelectedWorkout(
-        restoreOpenWorkout([
-          ...cachedTrainingContext().planned,
-          ...cachedTrainingContext().history,
-        ])
-      )
-      setActiveItem(routeItem())
-      setNavigationItem(routeItem())
+      setSelectedWorkout(restoredWorkout)
+      setActiveItem(route)
+      setNavigationItem(route)
     }
     window.addEventListener("popstate", handlePopState)
     return () => window.removeEventListener("popstate", handlePopState)
@@ -384,7 +391,9 @@ function AppWorkspace() {
   }, [selectItem])
 
   const openWorkout = (workout: PlannedWorkout) => {
+    workoutReturnRoute.current = activeItem
     workoutReturnScroll.current = window.scrollY
+    setCalendarReturnScroll(null)
     rememberOpenWorkout(workout)
     setSelectedWorkout(workout)
     requestAnimationFrame(() => window.scrollTo({ top: 0 }))
@@ -392,9 +401,12 @@ function AppWorkspace() {
 
   const closeWorkout = () => {
     const returnTo = workoutReturnScroll.current
+    const returnToCalendar = workoutReturnRoute.current === "Calendar"
+    workoutReturnRoute.current = null
     forgetOpenWorkout()
     setSelectedWorkout(null)
-    requestAnimationFrame(() => window.scrollTo({ top: returnTo }))
+    if (returnToCalendar) setCalendarReturnScroll(returnTo)
+    else requestAnimationFrame(() => window.scrollTo({ top: returnTo }))
   }
 
   return (
@@ -454,7 +466,9 @@ function AppWorkspace() {
           inert={mobileTerms && termsOpen}
           aria-hidden={mobileTerms && termsOpen ? true : undefined}
           className={
-            activeItem === "Home" && !selectedWorkout && !selectedReport
+            selectedWorkout && selectedWorkout.status !== "completed"
+              ? "planned-workout-nav-shell"
+              : activeItem === "Home" && !selectedWorkout && !selectedReport
               ? "home-dashboard-shell"
               : (isCoachPage || activeItem === "Library") &&
                   !selectedWorkout &&
@@ -575,6 +589,8 @@ function AppWorkspace() {
                   <TrainingCalendar
                     key={calendarNavigationVersion}
                     onWorkoutOpen={openWorkout}
+                    restoreScrollTop={calendarReturnScroll}
+                    onScrollRestored={clearCalendarReturnScroll}
                   />
                 ) : isCoachPage ? (
                   <CoachPage />

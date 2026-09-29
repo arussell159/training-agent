@@ -1,4 +1,57 @@
 @media (width < 48rem) {
+  .planned-workout-mobile-page {
+    min-height: 100dvh;
+    background:
+      radial-gradient(110% 30% at 50% 0%, rgb(255 255 255 / 78%), transparent 76%),
+      linear-gradient(180deg, #f5f5f7 0%, var(--background) 56%, #f1f1f3 100%);
+  }
+
+  .planned-workout-navbar {
+    --f7-navbar-bg-color: transparent;
+  }
+
+  .planned-workout-navbar .navbar,
+  .planned-workout-navbar .navbar-bg {
+    background: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .planned-workout-mobile-cards {
+    background: transparent;
+  }
+
+  .planned-workout-mobile-cards [data-slot="card"] {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    border: 1px solid rgb(255 255 255 / 88%);
+    border-radius: 22px;
+    background-color: #fff;
+    background-image: none;
+    box-shadow:
+      0 1px 2px rgb(49 72 96 / 5%),
+      0 10px 28px rgb(69 104 143 / 9%),
+      inset 0 1px 0 rgb(255 255 255 / 76%);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-clip: padding-box;
+  }
+
+  .dark .planned-workout-mobile-page {
+    background:
+      radial-gradient(110% 30% at 50% 0%, rgb(255 255 255 / 5%), transparent 76%),
+      linear-gradient(180deg, #111318 0%, var(--background) 56%, #111318 100%);
+  }
+
+  .dark .planned-workout-mobile-cards [data-slot="card"] {
+    border-color: rgb(255 255 255 / 10%);
+    background-color: #1f232a;
+    background-image: none;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 20%), inset 0 1px 0 rgb(255 255 255 / 5%);
+  }
+
   .home-dashboard-shell {
     min-height: 100dvh;
     background:

@@ -53,6 +53,25 @@
     transform: translateY(-1px);
   }
 
+  .planned-workout-navbar .mobile-navbar-action-with-text,
+  .calendar-sticky-day-navbar .calendar-month-picker-button {
+    width: auto;
+    min-width: 0;
+    height: 43px;
+    padding: 0 12px 0 8px;
+    gap: 1px;
+    border-radius: 9999px;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .planned-workout-navbar .mobile-navbar-action-with-text svg,
+  .calendar-sticky-day-navbar .calendar-month-picker-button svg {
+    width: 17px;
+    height: 17px;
+  }
+
   .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action,
   .terms-metric-sheet-close {
     width: 44px;
@@ -181,16 +200,104 @@
     backdrop-filter: none;
   }
 
+  .calendar-picker-month-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   .mobile-calendar-picker-layer {
     --calendar-picker-panel-height: 286px;
+    --calendar-picker-radius: 20px;
     display: flex;
     flex-direction: column;
     background: transparent;
     animation: none;
   }
 
+  /* Let each incoming day heading take the sticky position below the site
+     navbar. Extend the navbar's existing blur surface behind that heading. */
+  .calendar-sticky-day-navbar:not(.calendar-picker-navbar-open) .navbar-bg {
+    height: calc(var(--f7-navbar-height) + 48px);
+  }
+
+  .calendar-sticky-day-navbar:not(.calendar-picker-navbar-open) .navbar-bg::before {
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 76%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 76%, transparent 100%);
+  }
+
+  /* Let ATP week rows pass under the header, as dashboard content does on Home. */
+  #annual-plan-week-layer > .annual-plan-navbar {
+    margin-bottom: calc(-1 * var(--f7-navbar-height));
+  }
+
+  #annual-plan-week-layer > .annual-plan-blocks-scroller {
+    padding-top: calc(56px + 1rem);
+  }
+
+  .annual-plan-navbar:not(.calendar-picker-navbar-open) {
+    --f7-navbar-bg-color: transparent;
+  }
+
+  .annual-plan-navbar:not(.calendar-picker-navbar-open) .navbar,
+  .annual-plan-navbar:not(.calendar-picker-navbar-open) .navbar-bg {
+    background: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* Place both report filter rows where Calendar's date heading begins and
+     continue the navbar's fading blur beneath the pills. */
+  .coach-report-navbar .mobile-filter-toolbar {
+    top: calc(var(--f7-navbar-height) - 8px);
+  }
+
+  .coach-report-navbar .navbar-bg {
+    height: calc(var(--f7-navbar-height) + 48px);
+  }
+
+  .coach-report-navbar .navbar-bg::before {
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 76%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 76%, transparent 100%);
+  }
+
+  .coach-report-page .coach-report-content {
+    padding-top: calc(var(--f7-navbar-height) + var(--f7-subnavbar-height) + 20px);
+  }
+
+  .mobile-calendar-day-heading {
+    position: sticky;
+    top: calc(var(--app-viewport-top, 0px) + 56px);
+    z-index: 49;
+    background: transparent;
+  }
+
+  .mobile-calendar-day-heading-active {
+    z-index: 51;
+  }
+
+  .mobile-calendar-day-heading-exiting {
+    filter: blur(calc(var(--calendar-day-exit-progress, 0) * 4px));
+    opacity: calc(1 - var(--calendar-day-exit-progress, 0));
+    pointer-events: none;
+  }
+
+  .mobile-calendar-day-divider {
+    border-bottom-color: rgb(91 117 147 / 16%);
+  }
+
+  .dark .mobile-calendar-day-divider {
+    border-bottom-color: rgb(255 255 255 / 10%);
+  }
+
   .annual-plan-chart-layer {
     --calendar-picker-panel-height: 141px;
+    --calendar-picker-radius: 20px;
   }
 
   .annual-plan-chart-layer::after {
@@ -202,18 +309,20 @@
     border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-    border-radius: 0 0 20px 20px;
+    border-radius: 0 0 var(--calendar-picker-radius) var(--calendar-picker-radius);
   }
 
   .mobile-calendar-picker-layer::before {
     content: "";
     position: absolute;
+    z-index: 1;
     top: -56px;
     right: 0;
     left: 0;
     height: calc(56px + var(--calendar-picker-panel-height));
-    border-radius: 0 0 20px 20px;
-    background: rgb(255 255 255 / 32%);
+    border-radius: 0 0 var(--calendar-picker-radius) var(--calendar-picker-radius);
+    clip-path: inset(0 round 0 0 var(--calendar-picker-radius) var(--calendar-picker-radius));
+    background: rgb(255 255 255 / 84%);
     box-shadow: 0 5px 18px rgb(21 32 39 / 15%);
     -webkit-backdrop-filter: blur(28px) saturate(110%);
     backdrop-filter: blur(28px) saturate(110%);
@@ -222,8 +331,9 @@
 
   .mobile-calendar-picker-layer::after {
     content: "";
-    flex: 1;
-    min-height: 0;
+    position: absolute;
+    z-index: 0;
+    inset: 0;
     background: rgb(0 0 0 / 12%);
     pointer-events: none;
     animation: calendar-picker-backdrop-in 180ms ease-out both;
@@ -231,16 +341,25 @@
 
   .mobile-calendar-picker-panel {
     position: relative;
-    z-index: 1;
+    z-index: 2;
+    overflow: hidden;
     border: 0;
+    border-radius: 0 0 var(--calendar-picker-radius) var(--calendar-picker-radius);
     background: transparent;
     box-shadow: none;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
 
+  .mobile-calendar-picker-layer:not(.annual-plan-chart-layer) .mobile-calendar-picker-panel {
+    transform-origin: top center;
+    animation: calendar-picker-drop-in 220ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+    will-change: transform, opacity;
+  }
+
   .mobile-calendar-picker-panel .calendar-jump-inline {
     --f7-calendar-height: var(--calendar-picker-panel-height);
+    --f7-calendar-week-header-bg-color: transparent;
     background: transparent;
   }
 
@@ -250,6 +369,11 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .mobile-calendar-picker-panel {
+      animation: none;
+      will-change: auto;
+    }
+
     .mobile-site-navbar .mobile-navbar-action,
     .terms-mobile-page.page .terms-mobile-navbar .navbar .mobile-navbar-action,
     .mobile-glass-action,

@@ -1,4 +1,5 @@
 import {Bike,Footprints,Waves} from 'lucide-react'
+import {SettingsList} from '@/components/ui/settings-list'
 
 export type AthleteZones={
   bike_ftp?:number|null
@@ -68,22 +69,33 @@ function powerZones(ftp:number){
  ]
 }
 
-export function TrainingZonesDisplay({sport,zones}:{sport:string;zones?:AthleteZones|null}){
+export function TrainingZonesDisplay({sport,zones,listStyle=false}:{sport:string;zones?:AthleteZones|null;listStyle?:boolean}){
  const bike=/bike|ride/i.test(sport),swim=/swim/i.test(sport)
  const paceValue=swim?displaySwimCss(zones?.swim_css):displayRunThreshold(zones?.run_threshold_pace)
  const threshold=bike?(zones?.bike_ftp?`${zones.bike_ftp} W FTP`:null):paceValue?`${paceValue} ${swim?'CSS':'threshold'}`:null
+ const thresholdValue=bike&&zones?.bike_ftp?`${zones.bike_ftp} W`:paceValue
  const rows=bike&&zones?.bike_ftp?powerZones(zones.bike_ftp):paceValue?paceZones(paceValue):[]
  if(!threshold||!rows.length)return <p className="py-5 text-sm text-muted-foreground">No threshold is available for this sport.</p>
+ if(listStyle)return <div className="space-y-3">
+  <h2 className="mb-2 px-1 text-sm text-muted-foreground">Zones - Threshold ({thresholdValue})</h2>
+  <SettingsList>
+   {rows.map((row,index)=><div key={row.name} className="flex h-14 items-center justify-between gap-3 px-4 text-sm">
+    <span>Z{index+1}</span>
+    <span className="shrink-0 text-right text-xs tabular-nums text-muted-foreground">{row.range}</span>
+   </div>)}
+  </SettingsList>
+ </div>
+ const zoneRows=<div className={`overflow-hidden border ${listStyle?'rounded-xl bg-background/70':'rounded-lg'}`}>
+   {rows.map((row,index)=><div key={row.name} className="grid grid-cols-[5px_2.25rem_1fr_auto] items-center gap-2 border-b pr-3 text-xs last:border-b-0">
+    <span className={`h-full min-h-11 ${colors[index]}`}/><span className="font-bold">Z{index+1}</span><span className="font-medium">{row.name}</span><span className="text-right tabular-nums text-muted-foreground">{row.range}</span>
+   </div>)}
+  </div>
  return <div className="space-y-3 py-2">
   <div className="flex items-center gap-2">
    {bike?<Bike className="size-4"/>:swim?<Waves className="size-4"/>:<Footprints className="size-4"/>}
    <div><p className="text-sm font-bold">{threshold}</p><p className="text-[11px] text-muted-foreground">Ranges relative to your saved threshold</p></div>
   </div>
-  <div className="overflow-hidden rounded-lg border">
-   {rows.map((row,index)=><div key={row.name} className="grid grid-cols-[5px_2.25rem_1fr_auto] items-center gap-2 border-b pr-3 text-xs last:border-b-0">
-    <span className={`h-full min-h-11 ${colors[index]}`}/><span className="font-bold">Z{index+1}</span><span className="font-medium">{row.name}</span><span className="text-right tabular-nums text-muted-foreground">{row.range}</span>
-   </div>)}
-  </div>
+  {zoneRows}
  </div>
 }
 

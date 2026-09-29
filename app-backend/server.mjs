@@ -34,7 +34,8 @@ import {createMutationQueue,validateMutation,pendingMutationContext} from './lib
 import {createRequestCache} from './lib/request-cache.mjs';
 import {compressAsset} from './lib/asset-compression.mjs';
 import {updateWorkoutDescription} from './lib/workout-description.mjs';
-import {loadWorkoutEditor,saveWorkoutEditor,loadNewWorkoutEditor,createWorkoutEditor} from './lib/workout-editor.mjs';
+import {loadWorkoutEditor,saveWorkoutEditor,loadNewWorkoutEditor,createWorkoutEditor,workoutRevision} from './lib/workout-editor.mjs';
+import {expandSteps,stepMetrics,workoutTotals,serializeWorkout,validateWorkout,distanceFactors} from './lib/workout-editor-model.mjs';
 import {applyCompletionConfirmation} from './lib/completion-confirmation.mjs';
 import {duplicateAnnualPlan,generateAnnualPlan,mergeRegeneratedPlan,recordPlanRevision,rollAnnualPlan} from './lib/annual-plan.mjs';
 import {
@@ -121,7 +122,11 @@ const uiDistPath = path.resolve(__dirname, '..', 'ui', 'dist');
 const intervalsCachePath = path.join(process.env.VERCEL ? '/tmp' : __dirname, 'intervals.cache');
 const localEditCacheFlagPath = path.join(__dirname, 'local-edit-cache.enabled');
 let completionConfirmation=null;
-try{completionConfirmation=await readDurableState('COMPLETION_CONFIRMATION',path.join(__dirname,'completion-confirmation.cache'),null);}catch(error){console.error('Completion confirmation unavailable:',error.message);}
+let localEditCacheOnDisk = false;
+try { await fs.access(localEditCacheFlagPath); localEditCacheOnDisk = !process.env.VERCEL; } catch {}
+if (!localEditCacheOnDisk) {
+  try{completionConfirmation=await readDurableState('COMPLETION_CONFIRMATION',path.join(__dirname,'completion-confirmation.cache'),null);}catch(error){console.error('Completion confirmation unavailable:',error.message);}
+}
 
 const serverState = {
   child: null,
@@ -604,6 +609,91 @@ async function localEditCacheEnabled(req) {
   }
 }
 
+function localWorkoutDoc(model) {
+  const expanded = expandSteps(model.steps);
+  const steps = expanded.map(({ step }) => {
+    const result = {};
+    const metrics = stepMetrics(step, model.thresholds);
+    if (step.end.kind === 'distance') {
+      result.distance = /swim/i.test(model.sport) && ['yd', 'm'].includes(step.end.unit)
+        ? step.end.value
+        : step.end.value * distanceFactors[step.end.unit];
+    } else {
+      result.duration = step.end.value;
+      if (step.end.kind === 'lap' || step.end.pressLap) result.press_lap = true;
+    }
+    const target = step.target;
+    if (target?.kind && target.kind !== 'none') {
+      const units = ['%ftp', '%hr', '%pace'].includes(target.unit) ? '%' :
+        /^(?:secs\/100y|secs\/100m)$/.test(target.unit) ? 'secs' : target.unit;
+      result[target.kind] = {
+        units,
+        ...(target.mode === 'single' ? { value: target.value } : { start: target.start, end: target.end }),
+      };
+      if (target.mode === 'ramp') result.ramp = true;
+    }
+    if (step.cadence) result.cadence = {
+      units: 'rpm',
+      ...(step.cadence.start === step.cadence.end
+        ? { value: step.cadence.start }
+        : { start: step.cadence.start, end: step.cadence.end }),
+    };
+    result.intensity = step.role === 'other' ? 'active' : step.role;
+    if (step.end.kind === 'distance' && metrics.seconds != null) result.duration = metrics.seconds;
+    return result;
+  });
+  const totals = workoutTotals(model);
+  return {
+    steps,
+    duration: totals.seconds,
+    distance: steps.reduce((sum, step) => sum + Number(step.distance || 0), 0),
+    options: { pool_length: model.poolLength || undefined },
+  };
+}
+
+function findCachedWorkout(context, id) {
+  const row = [...(context?.planned || []), ...(context?.history || [])].find(item => item.id === id);
+  return row?.raw && row.id.startsWith('event:') ? row : null;
+}
+
+async function saveLocalWorkoutMutation(mutation) {
+  const context = await readIntervalsCache();
+  const row = findCachedWorkout(context, mutation.id);
+  if (!row) throw Object.assign(new Error('Workout is not in the local cache. Refresh the local example data.'), { status: 404 });
+  const event = { ...row.raw };
+  if (mutation.type === 'description') {
+    event.description = mutation.description;
+    row.details = mutation.description;
+    row.goal = mutation.description;
+  } else {
+    const oldDate = String(event.start_date_local || '').slice(0, 10);
+    const time = String(event.start_date_local || '').slice(10);
+    event.start_date_local = mutation.date + time;
+    if (event.end_date_local) {
+      const endDate = String(event.end_date_local).slice(0, 10);
+      const dayDelta = (Date.parse(`${mutation.date}T00:00:00Z`) - Date.parse(`${oldDate}T00:00:00Z`)) / 86400000;
+      const shiftedEnd = new Date(Date.parse(`${endDate}T00:00:00Z`) + dayDelta * 86400000).toISOString().slice(0, 10);
+      event.end_date_local = shiftedEnd + String(event.end_date_local).slice(10);
+    }
+  }
+  event.updated = new Date().toISOString();
+  const mapped = mapIntervalsWorkout(event, athleteLocalDate(new Date(), context.athlete?.time_zone || 'America/Chicago'));
+  const sessions = new Map([...(context.history || []), ...(context.planned || [])].map(item => [item.id, item]));
+  sessions.set(mutation.id, { ...row, ...mapped, raw: event, source: 'local-edit-cache', sync_status: undefined, sync_operation: undefined, app_updated_at: event.updated });
+  const today = athleteLocalDate(new Date(), context.athlete?.time_zone || 'America/Chicago');
+  context.history = [...sessions.values()].filter(item => item.workout_date < today);
+  context.planned = [...sessions.values()].filter(item => item.workout_date >= today);
+  context.source = 'local-edit-cache';
+  await persistLocalEditCache(context);
+  return scopedTrainingContext({ ...context, sync_error: null, retention_days: 90 }, 'full');
+}
+
+async function persistLocalEditCache(context) {
+  const temporaryPath = `${intervalsCachePath}.tmp`;
+  await fs.writeFile(temporaryPath, JSON.stringify(context));
+  await fs.rename(temporaryPath, intervalsCachePath);
+}
+
 function updateLogs(message) {
   serverState.logs.push(message);
   if (serverState.logs.length > 200) {
@@ -774,7 +864,13 @@ export async function handleRequest(req, res) {
       res.writeHead(204,{'Cache-Control':'no-store'});res.end();return;
     }
     if(pathname==='/api/mutations' && req.method==='POST') {
-      const config=await readConfig(),mutation=validateMutation(await readBody(req));
+      const mutation=validateMutation(await readBody(req));
+      if (await localEditCacheEnabled(req)) {
+        const context = await saveLocalWorkoutMutation(mutation);
+        sendJson(req, res, { queued: false, verified: true, context, operationId: mutation.operationId, localEditCache: true });
+        return;
+      }
+      const config=await readConfig();
       const snapshot=await loadSupabaseTrainingSnapshot(config);
       if(!snapshot)throw Error('Load the saved calendar before editing');
       const pending=pendingMutationContext(snapshot,mutation);
@@ -1211,7 +1307,73 @@ export async function handleRequest(req, res) {
 
     const editorRoute=pathname.match(/^\/api\/workouts\/(event%3A\d+|event:\d+)\/editor$/i);
     if(editorRoute && (req.method==='GET'||req.method==='PUT')) {
-      const config=await readConfig(),id=decodeURIComponent(editorRoute[1]),request=createIntervalsClient(config);
+      const id=decodeURIComponent(editorRoute[1]);
+      if (await localEditCacheEnabled(req)) {
+        try {
+          const cache = await readIntervalsCache();
+          const row = findCachedWorkout(cache, id);
+          if (!row) throw Object.assign(new Error('Workout is not in the local cache.'), { status: 404 });
+          if (req.method === 'GET') {
+            const request = async (path) => {
+              if (path === '/athlete/0') return { sportSettings: cache.athlete?.sport_settings || [] };
+              if (path === `/athlete/0/events/${id.replace(/^event:/, '')}`) return structuredClone(row.raw);
+              throw Error('The local workout cache cannot make provider requests.');
+            };
+            sendJson(req, res, await loadWorkoutEditor(request, id));
+            return;
+          }
+
+          const { model, revision } = await readBody(req);
+          const errors = validateWorkout(model);
+          if (errors.length) throw Object.assign(new Error(errors.join('. ')), { status: 400, code: 'INVALID_WORKOUT' });
+          if (!revision || workoutRevision(row.raw) !== revision)
+            throw Object.assign(new Error('This local example changed after you opened it. Reload the editor before saving.'), { status: 409, code: 'CONFLICT' });
+          if (row.raw.category !== 'WORKOUT' || row.raw.read_only || row.raw.readonly || row.raw.editable === false || row.raw.athlete_cannot_edit || row.raw.structure_read_only)
+            throw Object.assign(new Error('Only editable planned workouts can be changed in local cache mode.'), { status: 403, code: 'READ_ONLY' });
+
+          const event = { ...row.raw };
+          const oldDate = String(event.start_date_local || '').slice(0, 10);
+          const oldTime = String(event.start_date_local || '').slice(10);
+          event.name = model.name.trim();
+          event.type = model.sport;
+          event.description = serializeWorkout(model);
+          event.start_date_local = model.date + oldTime;
+          if (event.end_date_local && model.date !== oldDate) {
+            const endDate = String(event.end_date_local).slice(0, 10);
+            const days = (Date.parse(`${model.date}T00:00:00Z`) - Date.parse(`${oldDate}T00:00:00Z`)) / 86400000;
+            event.end_date_local = new Date(Date.parse(`${endDate}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10) + String(event.end_date_local).slice(10);
+          }
+          event.workout_doc = localWorkoutDoc(model);
+          event.moving_time = event.workout_doc.duration;
+          event.distance = event.workout_doc.distance;
+          event.updated = new Date().toISOString();
+          const timeZone = cache.athlete?.time_zone || 'America/Chicago';
+          const today = athleteLocalDate(new Date(), timeZone);
+          const workout = mapIntervalsWorkout(event, today);
+          const sessions = new Map([...(cache.history || []), ...(cache.planned || [])].map(item => [item.id, item]));
+          sessions.set(id, { ...row, ...workout, raw: event, source: 'local-edit-cache', app_updated_at: event.updated });
+          cache.history = [...sessions.values()].filter(item => item.workout_date < today);
+          cache.planned = [...sessions.values()].filter(item => item.workout_date >= today);
+          cache.source = 'local-edit-cache';
+          cache.synced_at = event.updated;
+          await persistLocalEditCache(cache);
+          const context = scopedTrainingContext({ ...cache, sync_error: null, retention_days: 90 }, 'full');
+          sendJson(req, res, {
+            workoutId: id,
+            event,
+            revision: workoutRevision(event),
+            verified: true,
+            workout,
+            context,
+            localEditCache: true,
+          });
+        } catch(error) {
+          res.writeHead(error.status || 500, {'Content-Type':'application/json','Cache-Control':'no-store'});
+          res.end(JSON.stringify({error:error.message,code:error.code || 'LOCAL_EDIT_FAILED'}));
+        }
+        return;
+      }
+      const config=await readConfig(),request=createIntervalsClient(config);
       try {
         if(req.method==='GET'){sendJson(req,res,await loadWorkoutEditor(request,id));return;}
         const result=await saveWorkoutEditor(request,id,await readBody(req),providerConnection(config));

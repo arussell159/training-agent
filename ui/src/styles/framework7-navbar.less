@@ -97,6 +97,7 @@
   }
 
   .calendar-picker-navbar-open {
+    z-index: 101;
     --f7-navbar-bg-color: var(--background);
 
     .navbar,
@@ -149,7 +150,7 @@
 
   .mobile-calendar-picker-layer {
     position: fixed;
-    z-index: 49;
+    z-index: 100;
     inset: calc(var(--app-viewport-top, 0px) + 56px) 0 0;
     background: rgb(0 0 0 / 12%);
     animation: calendar-picker-backdrop-in 180ms ease-out both;
@@ -278,7 +279,7 @@
     --f7-tabbar-link-inactive-color: var(--foreground);
     --f7-tabbar-link-active-color: var(--primary);
     position: fixed;
-    z-index: 40;
+    z-index: 60;
     bottom: 0;
     pointer-events: none;
     // Keep one fixed-size indicator. Framework7 normally follows the finger and

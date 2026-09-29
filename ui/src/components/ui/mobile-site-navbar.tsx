@@ -13,6 +13,7 @@ export function MobileSiteNavbar({
   actions,
   onBack,
   backLabel = "Back",
+  backText,
   onEditWorkout,
   left,
   right,
@@ -26,6 +27,7 @@ export function MobileSiteNavbar({
   actions?: ComponentProps<typeof MobileActionMenu>["actions"]
   onBack?: () => void
   backLabel?: string
+  backText?: ReactNode
   onEditWorkout?: () => void
   left?: ReactNode
   right?: ReactNode
@@ -64,12 +66,16 @@ export function MobileSiteNavbar({
             {onBack && (
               <button
                 type="button"
-                className="mobile-navbar-action liquid-glass-button"
+                className={cn(
+                  "mobile-navbar-action liquid-glass-button",
+                  backText != null && "mobile-navbar-action-with-text"
+                )}
                 aria-label={backLabel}
                 onClick={onBack}
               >
                 <LiquidGlassLayer />
                 <ChevronLeft aria-hidden="true" />
+                {backText != null && <span aria-hidden="true">{backText}</span>}
               </button>
             )}
             {left}
