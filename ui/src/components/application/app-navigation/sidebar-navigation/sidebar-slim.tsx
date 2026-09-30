@@ -53,9 +53,9 @@ export function SidebarNavigationSlim({
             onClick={() => onNavigate("Home")}
           >
             <img
-              src="/ar-performance-favicon.png"
+              src="/ar-performance-mark.png"
               alt=""
-              className="size-8 object-contain"
+              className="h-5 w-10 object-contain"
             />
           </Button>
           {items.filter((item) => item.label !== "Settings").map(navButton)}
@@ -67,3 +67,4 @@ export function SidebarNavigationSlim({
     </div>
   )
 }
+
