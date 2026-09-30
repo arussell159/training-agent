@@ -4,7 +4,8 @@ import "mapbox-gl/dist/mapbox-gl.css"
 import { mapboxConfig } from "@/lib/mapbox-config"
 import {
   longitudeDelta,
-  replayBearing,
+  prepareReplayCamera,
+  replayCameraBearing,
   replayFrame,
   type ReplayRoute,
 } from "@/lib/route-replay"
@@ -14,6 +15,7 @@ const FOLLOW_PITCH = 74
 type Props = {
   route: ReplayRoute
   progress: number
+  speed: number
   threeD: boolean
   following: boolean
   onFollowingChange: (value: boolean) => void
@@ -31,6 +33,7 @@ const feature = (coordinates: number[][]) => ({
 export function RouteReplayMap({
   route,
   progress,
+  speed,
   threeD,
   following,
   onFollowingChange,
@@ -41,8 +44,8 @@ export function RouteReplayMap({
 }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const markerRef = useRef<mapboxgl.Marker | null>(null)
-  const latest = useRef({ progress, threeD, following })
-  latest.current = { progress, threeD, following }
+  const latest = useRef({ progress, speed, threeD, following })
+  latest.current = { progress, speed, threeD, following }
   const updateRef = useRef<() => void>(() => {})
   useEffect(() => {
     if (!container.current || !mapboxConfig || route.points.length < 2) return
@@ -135,10 +138,13 @@ export function RouteReplayMap({
     let previousProgress = -1,
       previousFollowing = true,
       previousThreeD = latest.current.threeD
-    let bearing = replayBearing(
-      route.points[0],
-      route.points[Math.min(route.points.length - 1, 10)]
+    const cameraHeadings = prepareReplayCamera(route)
+    let bearing = replayCameraBearing(
+      cameraHeadings,
+      latest.current.progress,
+      latest.current.speed
     )
+    let previousCameraTime = performance.now()
     const update = () => {
       if (!loaded || introducing) return
       const state = latest.current,
@@ -157,17 +163,30 @@ export function RouteReplayMap({
       )
       markerRef.current?.setLngLat(position)
       if (state.following) {
-        const ahead = replayFrame(route, Math.min(1, state.progress + 0.015))!
-        const moving =
-          Math.abs(ahead.latitude - frame.latitude) +
-            Math.abs(longitudeDelta(frame.longitude, ahead.longitude)) >
-          0.00001
-        const target = moving ? replayBearing(frame, ahead) : bearing
+        const target = replayCameraBearing(
+          cameraHeadings,
+          state.progress,
+          state.speed
+        )
         const jump =
           previousProgress < 0 ||
           Math.abs(state.progress - previousProgress) > 0.025 ||
           !previousFollowing
-        bearing += longitudeDelta(bearing, target) * (jump ? 1 : 0.035)
+        const now = performance.now()
+        const elapsed = Math.max(
+          0,
+          Math.min(0.1, (now - previousCameraTime) / 1000)
+        )
+        previousCameraTime = now
+        const turn = target - bearing
+        // Time-based easing and a rotation limit prevent abrupt spins even at 10×.
+        bearing = jump
+          ? target
+          : bearing +
+            Math.max(
+              -90 * elapsed,
+              Math.min(90 * elapsed, turn * (1 - Math.exp(-elapsed / 0.2)))
+            )
         map.jumpTo({
           center: position,
           zoom: 15.5,
@@ -334,11 +353,11 @@ export function RouteReplayMap({
         duration: 0,
       })
       const first = replayFrame(route, latest.current.progress)!
-      const ahead = replayFrame(
-        route,
-        Math.min(1, latest.current.progress + 0.015)
-      )!
-      bearing = replayBearing(first, ahead)
+      bearing = replayCameraBearing(
+        cameraHeadings,
+        latest.current.progress,
+        latest.current.speed
+      )
       introTimer = window.setTimeout(() => {
         map.once("moveend", finishIntro)
         map.flyTo({
@@ -396,7 +415,7 @@ export function RouteReplayMap({
   ])
   useEffect(() => {
     updateRef.current()
-  }, [progress, threeD, following])
+  }, [progress, speed, threeD, following])
   return (
     <div
       ref={container}

@@ -4,6 +4,8 @@ import {
   prepareReplayRoute,
   replayFrame,
   replayBearing,
+  prepareReplayCamera,
+  replayCameraBearing,
 } from "../src/lib/route-replay.ts"
 
 const point = (time, longitude, values = {}) => ({
@@ -88,4 +90,63 @@ test("stationary and reset-distance recordings remain finite", () => {
     true
   )
   assert.ok(replayFrame(reset, 1).distance > 900)
+})
+
+test("camera anticipates a sharp turnaround without reversing its pan", () => {
+  const route = prepareReplayRoute(
+    [point(0, -95), point(50, -94.99), point(100, -95)],
+    true
+  )
+  const camera = prepareReplayCamera(route)
+  const before = replayCameraBearing(camera, 0.46)
+  assert.ok(before > 91, "rotation should start before the turnaround")
+  assert.ok(replayCameraBearing(camera, 0.49) > 140)
+  let previous = replayCameraBearing(camera, 0.4)
+  for (let progress = 0.401; progress <= 0.6; progress += 0.001) {
+    const next = replayCameraBearing(camera, progress)
+    assert.ok(
+      next >= previous - 0.01,
+      "pan must not change direction at the reversal"
+    )
+    assert.ok(
+      Math.abs(next - previous) < 5,
+      "heading must not jump at the turn"
+    )
+    previous = next
+  }
+  assert.ok(Math.abs(previous - 270) < 1)
+  assert.equal(
+    replayFrame(route, 0.5).longitude,
+    -94.99,
+    "camera smoothing must not cut the recorded route corner"
+  )
+})
+
+test("camera keeps a continuous bearing across compass north and during stops", () => {
+  const route = prepareReplayRoute(
+    [
+      point(0, -95, { latitude: 30 }),
+      point(40, -95.0005, { latitude: 30.01 }),
+      point(60, -95.0005, { latitude: 30.01 }),
+      point(100, -95, { latitude: 30.02 }),
+    ],
+    true
+  )
+  const camera = prepareReplayCamera(route)
+  for (let i = 0; i <= 100; i++)
+    assert.ok(Math.abs(replayCameraBearing(camera, i / 100)) < 5)
+  const still = prepareReplayCamera(
+    prepareReplayRoute([point(0, -95), point(60, -95)], true)
+  )
+  assert.equal(replayCameraBearing(still, 0.5), 0)
+})
+
+test("faster playback previews a turnaround farther in advance", () => {
+  const route = prepareReplayRoute(
+    [point(0, -95), point(50, -94.99), point(100, -95)],
+    true
+  )
+  const camera = prepareReplayCamera(route)
+  assert.ok(Math.abs(replayCameraBearing(camera, 0.36, 1) - 90) < 1)
+  assert.ok(replayCameraBearing(camera, 0.36, 5) > 95)
 })

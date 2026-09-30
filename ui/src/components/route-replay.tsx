@@ -168,6 +168,7 @@ export function RouteReplay({
           key={attempt}
           route={route}
           progress={progress}
+          speed={speed}
           threeD={threeD}
           following={following}
           onFollowingChange={setFollowing}

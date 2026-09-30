@@ -135,3 +135,57 @@ export function replayBearing(
     Math.PI
   )
 }
+
+/** Unwrap route headings before smoothing: averaging compass vectors cancels at U-turns. */
+export function prepareReplayCamera(route: ReplayRoute) {
+  const headings: number[] = []
+  let anchor = replayFrame(route, 0)
+  if (!anchor) return [0]
+  let heading: number | null = null
+  let turnDirection = 1
+  for (let i = 0; i <= 1200; i++) {
+    const frame = replayFrame(route, i / 1200)!
+    if (metersBetween(anchor, frame) >= 3) {
+      const next = replayBearing(anchor, frame)
+      if (heading === null) {
+        heading = next
+        headings.fill(next)
+      } else {
+        let turn = longitudeDelta(heading, next)
+        // Exactly reversed tracks have no preferred side. Keep a consistent turn direction.
+        if (Math.abs(turn) > 179) turn = 180 * turnDirection
+        else if (Math.abs(turn) > 3) turnDirection = Math.sign(turn)
+        heading += turn
+      }
+      anchor = frame
+    }
+    headings.push(heading ?? 0)
+  }
+  return headings
+}
+
+/** Begin panning before a bend; widen the preview window at faster playback speeds. */
+export function replayCameraBearing(
+  headings: number[],
+  progress: number,
+  speed = 1
+) {
+  if (headings.length < 2) return headings[0] ?? 0
+  const pace = Math.max(1, Math.min(10, speed))
+  const radius = Math.min(0.18, 0.04 * pace)
+  const center =
+    Math.max(0, Math.min(1, progress)) + Math.min(0.07, 0.012 * pace)
+  const intervals = headings.length - 1
+  let sum = 0,
+    weights = 0
+  for (
+    let i = Math.floor((center - radius) * intervals);
+    i <= Math.ceil((center + radius) * intervals);
+    i++
+  ) {
+    const weight = Math.max(0, 1 - Math.abs(i / intervals - center) / radius)
+    sum += headings[Math.max(0, Math.min(intervals, i))] * weight
+    weights += weight
+  }
+  return weights ? sum / weights : headings[0]
+}
