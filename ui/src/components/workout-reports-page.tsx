@@ -58,6 +58,28 @@ type View = {
 }
 const viewKey = "workout-reports-view-v1"
 const preferenceKey = "workout_report_columns_v1"
+const desktopColumnDropPriority = [
+  "elevation_gain",
+  "elevation_loss",
+  "humidity_percent",
+  "temperature_c",
+  "calories",
+  "work_kj",
+  "min_speed",
+  "min_hr",
+  "min_cadence",
+  "min_power",
+  "max_speed",
+  "max_hr",
+  "max_cadence",
+  "max_power",
+  "average_speed",
+  "normalized_power",
+  "elapsed_pace",
+  "elapsed_time_seconds",
+  "intensity_factor",
+  "tss",
+]
 const initialView = (): View => {
   try {
     const saved = JSON.parse(
@@ -342,6 +364,7 @@ export function WorkoutReportsPage({
     [search, setSearch] = useState("")
   const [comparedWorkoutIds, setComparedWorkoutIds] = useState<string[]>([])
   const [comparing, setComparing] = useState(false)
+  const [reportTableWidth, setReportTableWidth] = useState(0)
   const tableRef = useRef<HTMLDivElement>(null),
     latestRequest = useRef(0),
     restored = useRef(false),
@@ -512,11 +535,43 @@ export function WorkoutReportsPage({
     matching,
     counts
   )
+  const visibleIds = useMemo(() => {
+    if (mobile || !selectedIds.length) return selectedIds
+    const capacity = Math.max(
+      1,
+      Math.floor(((reportTableWidth || 1280) - 220) / 112)
+    )
+    const visible = [...selectedIds]
+    while (visible.length > capacity) {
+      const removable = desktopColumnDropPriority.find(
+        (id) => visible.includes(id) && id !== view.sort.id
+      )
+      if (removable) {
+        visible.splice(visible.indexOf(removable), 1)
+        continue
+      }
+      let lastRemovable = visible.length - 1
+      while (lastRemovable >= 0 && visible[lastRemovable] === view.sort.id)
+        lastRemovable -= 1
+      if (lastRemovable < 0) break
+      visible.splice(lastRemovable, 1)
+    }
+    return visible
+  }, [mobile, reportTableWidth, selectedIds, view.sort.id])
   const ordered = useMemo(
     () => sortActivities(matching, view.sort.id, view.sort.direction),
     [matching, view.sort]
   )
   const sum = useMemo(() => totals(matching), [matching])
+  useEffect(() => {
+    const table = tableRef.current
+    if (mobile || !table) return
+    const observer = new ResizeObserver(([entry]) => {
+      setReportTableWidth(Math.floor(entry.contentRect.width))
+    })
+    observer.observe(table)
+    return () => observer.disconnect()
+  }, [mobile, loading, matching.length])
   const filterChips: { key: string; label: string; remove: () => void }[] = []
   if (view.filters.sport !== "all")
     filterChips.push({
@@ -676,6 +731,32 @@ export function WorkoutReportsPage({
           >
             <Columns3 /> Columns
           </Button>
+          {!mobile && !!filterChips.length && (
+            <div
+              className="col-span-2 flex min-w-0 flex-wrap items-center gap-1.5 border-l pl-3 sm:h-11"
+              aria-label="Active filters"
+            >
+              {filterChips.map((chip) => (
+                <Button
+                  key={chip.key}
+                  variant="secondary"
+                  className="h-9 gap-1 rounded-full px-3 text-xs"
+                  onClick={chip.remove}
+                  aria-label={`Remove ${chip.label} filter`}
+                >
+                  {chip.label}
+                  <X className="size-3" />
+                </Button>
+              ))}
+              <Button
+                variant="ghost"
+                className="h-9 px-2 text-xs"
+                onClick={() => patchView({ filters: { ...emptyFilters } })}
+              >
+                Clear filters
+              </Button>
+            </div>
+          )}
           {!mobile && comparedWorkoutIds.length > 0 && (
             <div className="col-span-2 flex min-w-0 items-center gap-2 sm:h-11" aria-label="Workout comparison selection">
               <p className="whitespace-nowrap text-sm font-medium">
@@ -689,34 +770,6 @@ export function WorkoutReportsPage({
             </div>
           )}
         </div>
-        {!mobile && !!filterChips.length && (
-          <div
-            className="mb-3 flex flex-wrap gap-2"
-            aria-label="Active filters"
-          >
-            {filterChips.map((chip) => (
-              <Button
-                key={chip.key}
-                variant="secondary"
-                className="h-9 gap-1 rounded-full text-xs"
-                onClick={chip.remove}
-                aria-label={`Remove ${chip.label} filter`}
-              >
-                {chip.label}
-                <X className="size-3" />
-              </Button>
-            ))}
-            <Button
-              variant="ghost"
-              className="h-9 text-xs"
-              onClick={() =>
-                patchView({ filters: { ...emptyFilters } })
-              }
-            >
-              Clear filters
-            </Button>
-          </div>
-        )}
         {Object.values(errors).length > 0 && (
           <p role="alert" className="mb-3 text-sm text-destructive">
             {Object.values(errors)[0]} Open Filters to correct it.
@@ -728,6 +781,11 @@ export function WorkoutReportsPage({
               ? "Loading workouts…"
               : `${matching.length.toLocaleString()} matching workout${matching.length === 1 ? "" : "s"}`}
             {refreshing && <span className="ml-2 text-xs font-normal text-muted-foreground">Updating…</span>}
+            {!mobile && visibleIds.length < selectedIds.length && (
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                Showing {visibleIds.length} of {selectedIds.length} columns to fit this screen
+              </span>
+            )}
           </p>
           <p className="text-muted-foreground">
             {sum.durationCount
@@ -764,11 +822,29 @@ export function WorkoutReportsPage({
         ) : (
           <div
             ref={tableRef}
-            className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border bg-card shadow-sm"
+            className={`max-w-full ${mobile ? "overflow-x-auto overscroll-x-contain" : "overflow-hidden"} rounded-xl border bg-card shadow-sm`}
             tabIndex={0}
-            aria-label="Workout report table, scroll horizontally for more columns"
+            aria-label="Workout report table"
           >
-            <table className="w-max min-w-full border-separate border-spacing-0 text-sm">
+            <table
+              className={`${mobile ? "w-max min-w-full" : "w-full table-fixed"} border-separate border-spacing-0 text-sm`}
+            >
+              {!mobile && (
+                <colgroup>
+                  <col style={{ width: 220 }} />
+                  {visibleIds.map((id) => (
+                    <col
+                      key={id}
+                      style={{
+                        width: Math.max(
+                          64,
+                          (reportTableWidth - 220) / Math.max(visibleIds.length, 1)
+                        ),
+                      }}
+                    />
+                  ))}
+                </colgroup>
+              )}
               <thead>
                 <tr className="bg-muted/60">
                   <th
@@ -785,7 +861,7 @@ export function WorkoutReportsPage({
                       {view.sort.id === "date" ? view.sort.direction === "asc" ? " ↑" : " ↓" : ""}
                     </button>
                   </th>
-                  {selectedIds.map((id) => {
+                  {visibleIds.map((id) => {
                     const c = columnById.get(id)
                     return (
                       c && (
@@ -793,7 +869,7 @@ export function WorkoutReportsPage({
                           key={id}
                           scope="col"
                           aria-sort={view.sort.id === id ? (view.sort.direction === "asc" ? "ascending" : "descending") : "none"}
-                          className="sticky top-0 z-10 min-w-[112px] border-b px-3 py-3 text-right font-semibold whitespace-nowrap"
+                          className={`sticky top-0 z-10 border-b px-3 py-3 text-right font-semibold ${mobile ? "min-w-[112px] whitespace-nowrap" : "min-w-0 whitespace-normal break-words"}`}
                         >
                           <button
                             className="rounded focus-visible:outline-2 focus-visible:outline-ring"
@@ -877,13 +953,13 @@ export function WorkoutReportsPage({
                       </a>
                       </div>
                     </th>
-                    {selectedIds.map((id) => {
+                    {visibleIds.map((id) => {
                       const c = columnById.get(id),
                         value = c?.value(w)
                       return (
                         <td
                           key={id}
-                          className="border-b px-3 py-3 text-right whitespace-nowrap tabular-nums"
+                          className={`border-b px-3 py-3 text-right tabular-nums ${mobile ? "whitespace-nowrap" : "overflow-hidden whitespace-nowrap"}`}
                         >
                           {value == null || !Number.isFinite(value)
                             ? "—"
@@ -1089,3 +1165,4 @@ export function WorkoutReportsPage({
     </section>
   )
 }
+
