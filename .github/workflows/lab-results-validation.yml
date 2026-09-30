@@ -1,0 +1,62 @@
+name: Lab Results validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app-backend/lib/lab-results*'
+      - 'app-backend/lib/coach-http.mjs'
+      - 'ui/src/App.tsx'
+      - 'ui/src/components/lab-results-page.tsx'
+      - 'ui/src/components/ui/navbars.tsx'
+      - 'ui/src/components/ui/mobile-header-menu.tsx'
+      - '.github/workflows/lab-results-validation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app-backend/lib/lab-results*'
+      - 'app-backend/lib/coach-http.mjs'
+      - 'ui/src/components/lab-results-page.tsx'
+      - '.github/workflows/lab-results-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  lab-results:
+    name: Private labs tests and full app build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: |
+          npm ci
+          npm ci --prefix ui --include=dev
+      - name: Laboratory privacy and source-integrity tests
+        run: node --test app-backend/lib/lab-results.test.mjs
+      - name: Full UI typecheck and production build
+        if: ${{ !cancelled() }}
+        run: npm run build
+      - name: Complete backend regression suite
+        if: ${{ !cancelled() }}
+        run: npm test
+      - name: Prepare source-only formatting review artifact
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p lab-validation
+          cp app-backend/lib/lab-results.mjs app-backend/lib/lab-results.test.mjs lab-validation/
+          npx --no-install prettier --write lab-validation/*.mjs
+          tar -czf lab-validation/prettier.tgz -C node_modules prettier
+          git rev-parse HEAD > lab-validation/validated-commit.txt
+      - name: Upload source-only validation artifact
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-results-source-validation
+          path: lab-validation/
+          retention-days: 1
