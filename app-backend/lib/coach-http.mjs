@@ -1,3 +1,4 @@
+import { createLabResultsHttp } from "./lab-results.mjs";
 import { CoachError, createGithubCoachSource } from "./github-coach-source.mjs";
 import { coachConfig, createCoach, validateMessages } from "./github-coach.mjs";
 
@@ -41,9 +42,11 @@ export function createCoachHttp({
   timeoutMs = 240000,
 } = {}) {
   const run = answer || createCoach({ source: createGithubCoachSource() });
+  const handleLabs = createLabResultsHttp({ env });
   let running = 0;
 
   return async function handleCoach(req, res, pathname) {
+    if (await handleLabs(req, res, pathname)) return true;
     const calendarRoute = pathname.match(
       /^\/api\/coach\/calendar(?:\/([a-f0-9-]{36})(\/(?:confirm|decline))?)?$/
     );
