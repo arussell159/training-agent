@@ -27,6 +27,7 @@ import {
 } from "lucide-react"
 import { useToastManager } from "@/components/ui/toast"
 import { RefreshProgressToast } from "@/components/refresh-progress-toast"
+import { MobileStartupSplash } from "@/components/mobile-startup-splash"
 
 import {
   DropdownMenu,
@@ -131,10 +132,13 @@ const WorkoutDetailPage = lazy(() =>
 
 function RouteFallback() {
   return (
-    <div
-      className="m-auto size-8 animate-pulse rounded-full bg-muted"
-      aria-label="Loading view"
-    />
+    <>
+      <MobileStartupSplash />
+      <div
+        className="m-auto hidden size-8 animate-pulse rounded-full bg-muted md:block"
+        aria-label="Loading view"
+      />
+    </>
   )
 }
 
@@ -662,3 +666,4 @@ export function App() {
 }
 
 export default App
+
