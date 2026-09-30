@@ -1,0 +1,16 @@
+.workout-report-editor div:has(> label > input[type="checkbox"]) {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.workout-report-editor div:has(> label > input[type="checkbox"]) > label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.workout-report-editor div:has(> label > input[type="checkbox"]) > button {
+  width: 44px !important;
+  min-width: 44px !important;
+  max-width: 44px !important;
+  flex: 0 0 44px !important;
+}

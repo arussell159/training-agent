@@ -185,7 +185,10 @@ test("weekly reports group by start month, newest month and week first", () => {
       ["2026-12-01", "December 2026"],
     ]
   );
-  assert.deepEqual(groups[0].reports.map((report) => report.id), ["jan-revised", "jan-new", "jan-old"]);
+  assert.deepEqual(
+    groups[0].reports.map((report) => report.id),
+    ["jan-revised", "jan-new", "jan-old"]
+  );
   assert.deepEqual(groupWeeklyReportsByMonth([]), []);
 });
 

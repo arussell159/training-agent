@@ -92,6 +92,7 @@ export interface TrainingContext {
   sync_error?: string | null
   context_scope?: "week" | "full" | "range"
   full_history_available?: boolean
+  retention_days?: number
 }
 
 

@@ -13,7 +13,10 @@ export const COACH_REPORT_KINDS = [
 const workoutReportKinds = new Set(["pre_workout", "post_workout"]);
 
 function normalizeReportKind(value) {
-  const kind = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const kind = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
   if (!/^[a-z][a-z0-9_]{0,63}$/.test(kind))
     throw new CoachError("Choose a valid report type name.", 400);
   return kind;
@@ -44,12 +47,7 @@ export function reportTitle(kind, sport, title) {
 }
 
 export function normalizeCoachReport(input, scope = "default", now = () => new Date()) {
-  if (
-    !input ||
-    typeof input !== "object" ||
-    Array.isArray(input) ||
-    typeof input.kind !== "string"
-  )
+  if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.kind !== "string")
     throw new CoachError("Choose a valid report type name.", 400);
   const kind = normalizeReportKind(input.kind);
   const isWorkoutReport = workoutReportKinds.has(kind);

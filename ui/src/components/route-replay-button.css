@@ -1,0 +1,47 @@
+/* Only the replay control is larger; shared back/menu controls keep their styling. */
+button.route-replay-trigger.mobile-glass-action {
+  position: absolute;
+  right: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  min-width: 52px;
+  padding: 0;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 92%);
+  border-radius: 50%;
+  background: rgb(255 255 255 / 84%);
+  color: #111827;
+  box-shadow:
+    0 5px 16px rgb(21 32 39 / 22%),
+    0 1px 3px rgb(21 32 39 / 12%);
+  backdrop-filter: blur(12px) saturate(130%);
+  -webkit-backdrop-filter: blur(12px) saturate(130%);
+}
+button.route-replay-trigger.mobile-glass-action:hover {
+  background: rgb(255 255 255 / 94%);
+  box-shadow:
+    0 6px 18px rgb(21 32 39 / 25%),
+    0 1px 3px rgb(21 32 39 / 12%);
+}
+button.route-replay-trigger.mobile-glass-action > svg {
+  width: 21px;
+  height: 21px;
+  margin-left: 3px;
+}
+button.route-replay-trigger:focus-visible {
+  outline: 2px solid #425b6a;
+  outline-offset: 3px;
+}
+button.route-replay-trigger > .liquid-glass-filter-layer {
+  display: none;
+}
+
+.workout-mobile-sheet[data-map-collapsed="true"]
+  > :not(.workout-swipe-handler):not([data-workout-sheet-title]) {
+  display: none;
+}

@@ -2,7 +2,7 @@ import { apiFetch } from "@/lib/api-client"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { useEffect, useState, type ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Activity, Bike, BookOpen, ChevronDown, ChevronRight, Footprints, Gauge, LoaderCircle, SunMoon, Trophy, Waves } from "lucide-react"
+import { Activity, Bike, BookOpen, ChevronDown, ChevronRight, Footprints, Gauge, LoaderCircle, SunMoon, TableProperties, Trophy, Waves } from "lucide-react"
 
 import { displayRunThreshold, displaySwimCss, ThresholdHistory } from "@/components/training-zones-display"
 import { Button } from "@/components/ui/button"
@@ -71,13 +71,10 @@ const RUN_PERSONAL_BESTS = [
   { meters: 42195, label: "Marathon" },
 ]
 const BIKE_PERSONAL_BESTS = [
-  { meters: 8046.72, label: "5 miles" }, { meters: 10000, label: "10 km" },
-  { meters: 16093.44, label: "10 miles" }, { meters: 20000, label: "20 km" },
-  { meters: 30000, label: "30 km" }, { meters: 40000, label: "40 km" },
-  { meters: 50000, label: "50 km" }, { meters: 90000, label: "90 km" },
-  { meters: 80467.2, label: "50 miles" }, { meters: 144840.96, label: "90 miles" },
-  { meters: 100000, label: "100 km" }, { meters: 160934.4, label: "100 miles" },
-  { meters: 180000, label: "180 km" },
+  { seconds: 5, label: "5 sec" }, { seconds: 10, label: "10 sec" },
+  { seconds: 30, label: "30 sec" }, { seconds: 60, label: "1 min" },
+  { seconds: 300, label: "5 min" }, { seconds: 600, label: "10 min" },
+  { seconds: 1200, label: "20 min" }, { seconds: 3600, label: "1 hour" },
 ]
 const SWIM_PERSONAL_BESTS = [
   { meters: 91.44, label: "100 yd" }, { meters: 182.88, label: "200 yd" },
@@ -85,9 +82,8 @@ const SWIM_PERSONAL_BESTS = [
   { meters: 731.52, label: "800 yd" }, { meters: 914.4, label: "1,000 yd" },
   { meters: 1931.2128, label: "1.2 miles" }, { meters: 3862.4256, label: "2.4 miles" },
 ]
-const effortSets: Record<PerformanceSport, typeof RUN_PERSONAL_BESTS> = {
+const effortSets: Partial<Record<PerformanceSport, typeof RUN_PERSONAL_BESTS>> = {
   Run: RUN_PERSONAL_BESTS,
-  Bike: BIKE_PERSONAL_BESTS,
   Swim: SWIM_PERSONAL_BESTS,
 }
 
@@ -154,9 +150,24 @@ function bestPaceEffort(records: PerformanceRecord[], meters: number) {
   return best
 }
 
+function bestPowerEffort(records: PerformanceRecord[], seconds: number) {
+  let best: { watts: number; record: PerformanceRecord } | null = null
+  for (const record of records) {
+    for (const achievement of record.achievements || []) {
+      const duration = Number(achievement.secs)
+      const watts = Number(achievement.watts ?? achievement.value)
+      if (achievement.type?.toUpperCase() !== "BEST_POWER" || !(duration > 0 && watts > 0)) continue
+      if (Math.abs(duration - seconds) > Math.max(2, seconds * 0.01)) continue
+      if (!best || watts > best.watts) best = { watts, record }
+    }
+  }
+  return best
+}
+
 function PerformanceEffortRows({ sport, records, onActivityOpen }: { sport: PerformanceSport; records: PerformanceRecord[]; onActivityOpen?: (workout: PlannedWorkout) => void }) {
   const sportRecords = records.filter(record => recordMatchesSport(record, sport))
-  const rows = effortSets[sport].map(effort => ({ ...effort, result: bestPaceEffort(sportRecords, effort.meters) }))
+  const bikeRows = BIKE_PERSONAL_BESTS.map(effort => ({ ...effort, result: bestPowerEffort(sportRecords, effort.seconds) }))
+  const paceRows = sport === "Bike" ? [] : effortSets[sport]!.map(effort => ({ ...effort, result: bestPaceEffort(sportRecords, effort.meters) }))
   return <div>
     {sport === "Bike" && (() => {
       const longestRide = sportRecords.reduce<PerformanceRecord | null>((best, record) => !best || record.distance_meters > best.distance_meters ? record : best, null)
@@ -168,7 +179,9 @@ function PerformanceEffortRows({ sport, records, onActivityOpen }: { sport: Perf
         <SettingRow label="All-time elevation gain" value={`${Math.round(totalElevation / 0.3048).toLocaleString("en-US")} ft`} />
       </>
     })()}
-    {rows.map(({ meters, label, result }) => result ? <SettingsListItem key={meters} icon={Trophy} label={label} description={`${result.record.name || "Activity"} · ${formatStatDate(result.record.date)}`} value={formatStatTime(result.seconds)} onClick={() => onActivityOpen?.(activityWorkout(result.record))} /> : <SettingRow key={meters} label={label} value="—" />)}
+    {sport === "Bike"
+      ? bikeRows.map(({ seconds, label, result }) => result ? <SettingsListItem key={seconds} icon={Trophy} label={label} description={`${result.record.name || "Activity"} · ${formatStatDate(result.record.date)}`} value={`${Math.round(result.watts).toLocaleString("en-US")} W`} onClick={() => onActivityOpen?.(activityWorkout(result.record))} /> : <SettingRow key={seconds} label={label} value="—" />)
+      : paceRows.map(({ meters, label, result }) => result ? <SettingsListItem key={meters} icon={Trophy} label={label} description={`${result.record.name || "Activity"} · ${formatStatDate(result.record.date)}`} value={formatStatTime(result.seconds)} onClick={() => onActivityOpen?.(activityWorkout(result.record))} /> : <SettingRow key={meters} label={label} value="—" />)}
   </div>
 }
 
@@ -487,7 +500,7 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
   return <div className="flex min-h-0 w-full flex-1 flex-col bg-background">
     {loadError && section !== "race" && <div role="alert" className="border-b px-4 py-3 text-sm text-destructive">{loadError}</div>}
     <div className={cn("flex min-h-0 flex-1 flex-col md:hidden", section === "performance" && "coach-report-page")}><MobileSiteNavbar className={section === "performance" ? "coach-report-navbar" : "mobile-site-navbar-over-scroll"} title={mobileItem?.label || "Settings"} backLabel="Back to settings" onBack={section ? () => { setSection(null); setFeedback("") } : undefined}>{mobile && section === "performance" && <MobileFilterTabs label="Filter performance by sport" items={performanceSports} value={performanceSport} onChange={setPerformanceSport} className="performance-sport-filter" />}</MobileSiteNavbar>
-      <div className={cn("min-h-0 flex-1 overflow-y-auto", section === "performance" ? "overscroll-contain" : "px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom))]")}>{section === "performance" ? <div className="coach-report-content mx-auto w-full max-w-4xl px-4 py-5">{renderPanel(section)}</div> : section ? renderPanel(section) : <div className="space-y-5">{groups.map(group => <section key={group.label}><h2 className="mb-2 px-1 text-sm text-muted-foreground">{group.label}</h2><SettingsList>{group.items.map(renderMobileItem)}</SettingsList></section>)}</div>}</div>
+      <div className={cn("min-h-0 flex-1 overflow-y-auto", section === "performance" ? "overscroll-contain" : "px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom))]")}>{section === "performance" ? <div className="coach-report-content mx-auto w-full max-w-4xl px-4 py-5">{renderPanel(section)}</div> : section ? renderPanel(section) : <div className="space-y-5">{groups.map(group => <section key={group.label}><h2 className="mb-2 px-1 text-sm text-muted-foreground">{group.label}</h2><SettingsList>{group.items.map(renderMobileItem)}{group.label === "Training" && <SettingsListItem icon={TableProperties} label="Workout Reports" value="Filter and compare completed workouts" onClick={() => window.dispatchEvent(new CustomEvent("app-navigate", { detail: "Workout Reports" }))} />}</SettingsList></section>)}</div>}</div>
     </div>
     <div className="hidden min-h-0 flex-1 overflow-y-auto md:block"><div className="mx-auto w-full max-w-4xl px-8 py-14 lg:py-16"><h1 className="text-2xl font-medium tracking-tight">Settings</h1><p className="mt-1 text-sm text-muted-foreground">Manage training, race goals, and app preferences.</p><div className="mt-10 space-y-12">{groups.map(group => <section key={group.label}><h2 className="mb-4 text-sm font-medium">{group.label}</h2><Card className="gap-0 divide-y py-0 shadow-none">{group.items.map(item => { const Icon = item.icon; return <div key={item.id} className="flex min-h-16 items-center gap-3 px-4 py-3"><Icon className="size-4 text-muted-foreground" /><div className="min-w-0 flex-1"><p className="text-sm font-medium">{item.label}</p><p className="text-xs text-muted-foreground">{item.description}</p></div><span className="mr-2 max-w-56 truncate text-xs text-muted-foreground">{summary(item.id)}</span><Button variant="outline" size="sm" onClick={() => { if (item.id === "library") { openLibrary(); return } setDialogSection(item.id); setFeedback("") }}> {item.id === "library" ? "Open" : "Manage"}</Button></div> })}</Card></section>)}</div></div></div>
     <Dialog open={Boolean(dialogSection)} onOpenChange={open => { if (!open) { setDialogSection(null); setFeedback("") } }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{dialogItem?.label}</DialogTitle><DialogDescription>{dialogItem?.description}</DialogDescription></DialogHeader>{dialogSection && renderPanel(dialogSection)}</DialogContent></Dialog>

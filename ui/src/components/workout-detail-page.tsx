@@ -421,6 +421,8 @@ export function WorkoutDetailPage({
     workout.status === "completed" &&
       Boolean(workout.activity_id || workout.id.startsWith("activity:"))
   )
+  const [mapReveal, setMapReveal] = useState(0)
+  useEffect(() => { setMapReveal(0) }, [workout.id])
   const completed = completedMinutes(workout)
   const values =
     workout.status === "completed"
@@ -577,7 +579,7 @@ export function WorkoutDetailPage({
   }
 
   return (
-    <div className={`min-h-svh w-full min-w-0 max-w-full overflow-x-clip ${mobile && workout.status !== "completed" ? "planned-workout-mobile-page" : "bg-background"}`}>
+    <div style={{overflowAnchor:"none"}} className={`min-h-svh w-full min-w-0 max-w-full overflow-x-clip ${mobile && workout.status !== "completed" ? "planned-workout-mobile-page" : "bg-background"}`}>
       <MobileSiteNavbar
         fixed
         className={mobile && workout.status !== "completed" ? "planned-workout-navbar" : workout.status === "completed" && !swim ? "workout-map-navbar" : undefined}
@@ -891,23 +893,28 @@ export function WorkoutDetailPage({
       )}
 
       {mobile && workout.status === "completed" && !swim && (
-        <div className="workout-mobile-map sticky top-0 z-0 transform-gpu will-change-transform md:hidden">
+        <div className="workout-mobile-map relative z-0 transform-gpu will-change-transform md:hidden">
           <WorkoutRouteMap
             workout={workout}
             onAvailable={setMobileMapAvailable}
             topPadding={56}
             bottomPadding={28}
+            revealOffset={mapReveal}
           />
         </div>
       )}
 
       {mobile && <div className="mx-auto w-full max-w-5xl px-0 md:hidden">
         <WorkoutDetailSurface
+          key={workout.id}
           completed={workout.status === "completed"}
           onClose={onBack}
-          className={`relative z-10 flex w-full min-w-0 transform-gpu flex-col ${workout.status === "completed" ? "gap-6 bg-background px-5 shadow-[0_-12px_30px_rgba(0,0,0,0.08)] sm:px-7" : "mobile-dashboard planned-workout-mobile-cards gap-4 bg-transparent px-4"} pb-[calc(2rem+env(safe-area-inset-bottom))] will-change-transform md:px-0 md:pt-5 md:pb-10 md:shadow-none ${mobileMapAvailable && !swim ? "-mt-7 rounded-t-[28px] pt-3" : "pt-[60px]"}`}
+          mapReveal={mapReveal}
+          onMapRevealChange={mobileMapAvailable && !swim ? setMapReveal : undefined}
+          className={`relative z-10 flex w-full min-w-0 transform-gpu flex-col ${workout.status === "completed" ? "gap-5 bg-background px-5 shadow-[0_-12px_30px_rgba(0,0,0,0.08)] sm:px-7" : "mobile-dashboard planned-workout-mobile-cards gap-4 bg-transparent px-4"} pb-[calc(2rem+env(safe-area-inset-bottom))] will-change-transform md:px-0 md:pt-5 md:pb-10 md:shadow-none ${mobileMapAvailable && !swim ? "-mt-7 rounded-t-[28px] pt-3" : "pt-[60px]"}`}
         >
           <section
+            data-workout-sheet-title
             className={`pt-1 md:hidden ${workout.status === "completed" ? "space-y-5" : "hidden"}`}
           >
             <div className="flex items-start gap-3">
@@ -920,14 +927,14 @@ export function WorkoutDetailPage({
           {workout.status === "completed" && (
             <section
               aria-label="Workout highlights"
-              className="grid grid-cols-2 gap-x-6 gap-y-7 py-3 text-center md:hidden"
+              className="grid grid-cols-2 gap-x-4 gap-y-5 py-2 text-center md:hidden"
             >
               {stats.map((stat) => (
                 <div key={stat.label}>
-                  <p className="text-xs text-muted-foreground sm:text-sm">
+                  <p className="text-[11px] text-muted-foreground sm:text-xs">
                     {stat.label}
                   </p>
-                  <p className="mt-1.5 text-lg font-bold tracking-tight tabular-nums sm:text-2xl">
+                  <p className="mt-1 text-[17px] font-bold tracking-tight tabular-nums sm:text-xl">
                     {stat.value}
                   </p>
                 </div>

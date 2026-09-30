@@ -57,7 +57,7 @@ The app's Intervals.icu sync runs the private repository's `sync.py` in a Vercel
 | Variable                      | Value                                                                                                  |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `TRAINING_DATA_GITHUB_TOKEN`  | Fine-grained token: Contents read/write and Actions read/write, restricted to your training repository |
-| `TRAINING_DATA_GITHUB_REPO`   | `arussell159/SECTION_11` (or your own `owner/repository`)                                        |
+| `TRAINING_DATA_GITHUB_REPO`   | `arussell159/SECTION_11` (or your own `owner/repository`)                                              |
 | `TRAINING_DATA_GITHUB_BRANCH` | `main`                                                                                                 |
 | `OPENAI_API_KEY`              | OpenAI project API key                                                                                 |
 | `APP_PASSWORD`                | Unique app password of at least 20 characters; existing `COACH_ACCESS_PASSWORD` is a fallback          |

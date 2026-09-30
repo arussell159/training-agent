@@ -23,6 +23,7 @@ import {
   RefreshCw,
   Settings,
   CalendarRange,
+  TableProperties,
 } from "lucide-react"
 import { useToastManager } from "@/components/ui/toast"
 import { RefreshProgressToast } from "@/components/refresh-progress-toast"
@@ -59,6 +60,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
   refreshRecentIntervals,
   cachedTrainingContext,
+  loadFullTrainingContext,
   type ManualRefreshProgress,
   type PlannedWorkout,
 } from "@/lib/training-context"
@@ -66,6 +68,7 @@ import {
   forgetOpenWorkout,
   rememberOpenWorkout,
   restoreOpenWorkout,
+  workoutRouteId,
 } from "@/lib/workout-navigation"
 
 const pageImports = {
@@ -75,6 +78,7 @@ const pageImports = {
   Home: () => import("@/components/training-dashboard"),
   Library: () => import("@/components/training-library"),
   "Annual Plan": () => import("@/components/annual-plan-creator"),
+  "Workout Reports": () => import("@/components/workout-reports-page"),
 }
 function preloadPage(item: string) {
   const load = pageImports[item as keyof typeof pageImports]
@@ -116,6 +120,9 @@ const AnnualPlanCreator = lazy(() =>
     default: module.AnnualPlanCreator,
   }))
 )
+const WorkoutReportsPage = lazy(() =>
+  pageImports["Workout Reports"]().then((module) => ({ default: module.WorkoutReportsPage }))
+)
 const WorkoutDetailPage = lazy(() =>
   import("@/components/workout-detail-page").then((module) => ({
     default: module.WorkoutDetailPage,
@@ -137,10 +144,12 @@ const navigation = [
   { label: "Coach", icon: MessageCircle },
   { label: "Library", icon: Library },
   { label: "Annual Plan", icon: CalendarRange },
+  { label: "Workout Reports", icon: TableProperties },
   { label: "Settings", icon: Settings },
 ]
 
 function routeItem() {
+  if (window.location.pathname === "/workout-reports") return "Workout Reports"
   if (window.location.pathname === "/coach") return "Coach"
   if (
     window.location.pathname === "/calendar" ||
@@ -162,6 +171,7 @@ function itemPath(item: string) {
         Calendar: "/calendar",
         Library: "/library",
         "Annual Plan": "/annual-plan",
+        "Workout Reports": "/workout-reports",
         Settings: "/settings",
       } as Record<string, string>
     )[item] || "/coach"
@@ -181,7 +191,7 @@ function AppWorkspace() {
   useEffect(() => {
     let active = true
     const warm = async () => {
-      for (const item of ["Home", "Calendar", "Coach", "Library", "Settings", "Annual Plan"]) {
+      for (const item of ["Home", "Calendar", "Coach", "Library", "Settings", "Annual Plan", "Workout Reports"]) {
         if (!active) return
         if (item !== routeItem()) await pageImports[item as keyof typeof pageImports]().catch(() => {})
       }
@@ -196,6 +206,7 @@ function AppWorkspace() {
   const [selectedReport, setSelectedReport] = useState(restoreReportReader)
   const [activeItem, setActiveItem] = useState(routeItem)
   const [navigationItem, setNavigationItem] = useState(routeItem)
+  const [annualPlanChartVisible, setAnnualPlanChartVisible] = useState(true)
   const [calendarNavigationVersion, setCalendarNavigationVersion] = useState(0)
   const [selectedWorkout, setSelectedWorkout] =
     useState<PlannedWorkout | null>(null)
@@ -204,6 +215,11 @@ function AppWorkspace() {
   const toastManager = useToastManager()
   const [intervalsDisconnected, setIntervalsDisconnected] = useState(false)
   const [termsOpen, setTermsOpen] = useState(false)
+  useEffect(() => {
+    const updateVisibility = (event: Event) => setAnnualPlanChartVisible(Boolean((event as CustomEvent<boolean>).detail))
+    window.addEventListener("annual-plan-chart-visibility", updateVisibility)
+    return () => window.removeEventListener("annual-plan-chart-visibility", updateVisibility)
+  }, [])
   const workoutReturnScroll = useRef(0)
   const workoutReturnRoute = useRef<string | null>(null)
   const clearCalendarReturnScroll = useCallback(() => setCalendarReturnScroll(null), [])
@@ -292,9 +308,15 @@ function AppWorkspace() {
   }, [])
 
   useEffect(() => {
-    // Workout dialogs are transient UI. A reload should return to the page
-    // underneath instead of restoring a dialog opened in an earlier session.
-    forgetOpenWorkout()
+    const id = workoutRouteId()
+    if (routeItem() !== "Workout Reports" || !id) { forgetOpenWorkout(); return }
+    let active = true
+    void loadFullTrainingContext().then(context => {
+      if (!active) return
+      const workout = [...context.history, ...context.planned].find(item => (item as PlannedWorkout).id === id)
+      if (workout) setSelectedWorkout(workout as PlannedWorkout)
+    })
+    return () => { active = false }
   }, [])
 
   useEffect(() => {
@@ -400,6 +422,11 @@ function AppWorkspace() {
   }
 
   const closeWorkout = () => {
+    if (workoutReturnRoute.current === "Workout Reports") {
+      workoutReturnRoute.current = null
+      window.history.back()
+      return
+    }
     const returnTo = workoutReturnScroll.current
     const returnToCalendar = workoutReturnRoute.current === "Calendar"
     workoutReturnRoute.current = null
@@ -486,7 +513,8 @@ function AppWorkspace() {
             activeItem !== "Annual Plan" &&
             activeItem !== "Settings" &&
             !isCoachPage &&
-            activeItem !== "Library" && (
+            activeItem !== "Library" &&
+            activeItem !== "Workout Reports" && (
               <MobileSiteNavbar
                 title={
                   activeItem === "Home" ? (
@@ -505,10 +533,10 @@ function AppWorkspace() {
                 variant="ghost"
                 onClick={closeWorkout}
                 className="mr-2 shrink-0 rounded-lg"
-                aria-label="Back to calendar"
+                aria-label={workoutReturnRoute.current === "Workout Reports" ? "Back to workout reports" : "Back to calendar"}
               >
                 <ArrowLeft className="size-4" />
-                Calendar
+                {workoutReturnRoute.current === "Workout Reports" ? "Workout Reports" : "Calendar"}
               </Button>
             )}
             <h1 className="min-w-0 truncate text-sm font-semibold">
@@ -534,6 +562,15 @@ function AppWorkspace() {
                 <Ellipsis className="size-5" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-max min-w-52">
+                {activeItem === "Annual Plan" && <>
+                  <DropdownMenuItem
+                    className="whitespace-nowrap"
+                    onClick={() => window.dispatchEvent(new Event("annual-plan-chart-toggle"))}
+                  >
+                    {annualPlanChartVisible ? "Hide chart" : "Show chart"}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>}
                 <DropdownMenuItem
                   disabled={isRefreshing}
                   className="whitespace-nowrap"
@@ -566,7 +603,7 @@ function AppWorkspace() {
                       : "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
             }`}
           >
-            <MobilePageTabs activeItem={activeItem}>
+            <MobilePageTabs activeItem={activeItem === "Workout Reports" ? "Settings" : activeItem}>
               <Suspense fallback={<RouteFallback />}>
                 <RouteScrollReset route={activeItem} />
                 {activeItem === "Settings" && !selectedReport && (
@@ -596,6 +633,8 @@ function AppWorkspace() {
                   <CoachPage />
                 ) : activeItem === "Settings" ? null : activeItem === "Library" ? (
                   <TrainingLibrary onWorkoutOpen={openWorkout} />
+                ) : activeItem === "Workout Reports" ? (
+                  <WorkoutReportsPage onWorkoutOpen={openWorkout} />
                 ) : activeItem === "Annual Plan" ? (
                   <AnnualPlanCreator />
                 ) : null}
@@ -604,7 +643,7 @@ function AppWorkspace() {
           </main>
 
           <MobileNavbar
-            activeItem={navigationItem}
+            activeItem={navigationItem === "Workout Reports" ? "Settings" : navigationItem}
             onNavigate={selectItem}
             onPrefetch={preloadPage}
           />

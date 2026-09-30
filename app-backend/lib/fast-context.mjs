@@ -90,6 +90,8 @@ export function projectTrainingContext(context, scope = "week", now = new Date()
     cached_ranges: context.cached_ranges || [],
     synced_at: context.synced_at,
     source: "supabase-cache",
+    context_scope: scope,
+    retention_days: context.retention_days,
     display_range:
       scope === "week"
         ? { start: shift(-14), end: shift(13) }

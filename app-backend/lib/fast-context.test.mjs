@@ -25,6 +25,12 @@ test("startup projection preserves data and strips unused provider payloads", ()
   assert.equal(view.wellness_history[0].unused, undefined);
   assert.equal(view.performance[0].huge, undefined);
 });
+test("full projection declares the complete retained window for report coverage", () => {
+  const view = projectTrainingContext(context, "full", new Date("2026-09-15T12:00:00Z"));
+  assert.equal(view.context_scope, "full");
+  assert.equal(view.retention_days, 90);
+  assert.equal(view.history.length, 1);
+});
 test("both startup and full views share a stable content version", async () => {
   let rows;
   const store = {

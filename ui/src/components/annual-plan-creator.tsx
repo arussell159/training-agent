@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react"
-import { CalendarDays, CalendarIcon, ChevronDown, LoaderCircle, Pencil, Plus, Settings, Trash2 } from "lucide-react"
+import { CalendarDays, CalendarIcon, ChevronDown, LoaderCircle, Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -287,12 +287,13 @@ function SeasonChart({ plan, actuals, selectedWeek, onSelect, glassBackground = 
 
   return (
     <TooltipProvider>
+      <div className="relative">
       <div ref={scrollerRef} className={`w-full overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${glassBackground ? "rounded-b-[var(--calendar-picker-radius)]" : ""}`} aria-label="Planned and completed training hours">
         <div style={{ width: chartWidth }}>
           <div className="relative h-7 border-b border-r text-[10px] text-muted-foreground">
             {monthKeys.map((key, index) => <div key={key} className={`absolute inset-y-0 border-l border-border ${glassBackground ? (index % 2 ? "bg-white/5 dark:bg-white/5" : "bg-transparent") : index % 2 ? "bg-muted/45" : "bg-background"}`} style={{ left: index * equalMonthWidth, width: equalMonthWidth }}><span className="block px-1.5 pt-1.5">{dateLabel(`${key}-01`, { month: "long" })}</span></div>)}
           </div>
-          <div className={`relative h-28 border-b border-r md:h-48 ${glassBackground ? "overflow-hidden rounded-b-[var(--calendar-picker-radius)] bg-transparent" : "bg-background"}`}>
+          <div className={`relative h-28 border-b border-r md:h-36 ${glassBackground ? "overflow-hidden rounded-b-[var(--calendar-picker-radius)] bg-transparent" : "bg-background"}`}>
             {monthKeys.map((key, index) => <span key={key} aria-hidden className={`absolute inset-y-0 border-l border-border ${glassBackground ? (index % 2 ? "bg-white/5 dark:bg-white/5" : "bg-transparent") : index % 2 ? "bg-muted/45" : "bg-background"}`} style={{ left: index * equalMonthWidth, width: equalMonthWidth }} />)}
             {plan.weeks.map((week, index) => {
               const completed = actuals.get(week.id)?.completedHours ?? null
@@ -311,7 +312,7 @@ function SeasonChart({ plan, actuals, selectedWeek, onSelect, glassBackground = 
               )
             })}
           </div>
-          <div className="relative hidden h-20 bg-background md:block">
+          <div className="relative hidden h-14 bg-background md:block">
             {groups.map((group) => {
               const left = boundaryX(group.startDate)
               const right = boundaryX(nextDay(group.endDate))
@@ -319,6 +320,7 @@ function SeasonChart({ plan, actuals, selectedWeek, onSelect, glassBackground = 
             })}
           </div>
         </div>
+      </div>
       </div>
     </TooltipProvider>
   )
@@ -440,6 +442,7 @@ export function AnnualPlanCreator() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [mobileChartOpen, setMobileChartOpen] = useState(false)
+  const [desktopChartOpen, setDesktopChartOpen] = useState(true)
   const [planDialogOpen, setPlanDialogOpen] = useState(false)
   const [planSubmitError, setPlanSubmitError] = useState<string | null>(null)
   const [planDialogInitial, setPlanDialogInitial] = useState<PlanSettings>(() => defaultSettings(context))
@@ -459,6 +462,14 @@ export function AnnualPlanCreator() {
   const mobileWeekRefs = useRef(new Map<string, HTMLElement>())
   const mobileScrollerRef = useRef<HTMLElement | null>(null)
   const centeredWeekRef = useRef<string | null>(null)
+  useEffect(() => {
+    const toggleChart = () => setDesktopChartOpen((open) => !open)
+    window.addEventListener("annual-plan-chart-toggle", toggleChart)
+    return () => window.removeEventListener("annual-plan-chart-toggle", toggleChart)
+  }, [])
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("annual-plan-chart-visibility", { detail: desktopChartOpen }))
+  }, [desktopChartOpen])
   useEffect(() => {
     const update = () => setContext(cachedTrainingContext())
     window.addEventListener('training-context-updated', update)
@@ -721,7 +732,6 @@ export function AnnualPlanCreator() {
     } finally { setBusy(false) }
   }
 
-  const planSelector = plans.length > 0 ? <MobileSelect aria-label="Training plan" className="max-w-64 border-0 bg-transparent px-1 font-semibold" value={plan?.id || ""} onValueChange={(id) => { const next = plans.find((item) => item.id === id); if (next) persistPlan(next) }} options={plans.map((item) => ({ value: item.id, label: item.name }))}><Select value={plan?.id || ""} onValueChange={(id) => { const next = plans.find((item) => item.id === id); if (next) persistPlan(next) }}><SelectTrigger className="h-9 w-auto min-w-52 border-0 bg-transparent px-1 text-base font-semibold shadow-none"><span className="max-w-72 truncate">{plan?.name || "Training plan"}</span></SelectTrigger><SelectContent>{plans.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent></Select></MobileSelect> : "Training Plan"
   const createPlan = () => { setPlanSubmitError(null); setPlanDialogInitial(defaultSettings(context)); setPlanDialogOpen(true) }
   const editPlan = () => { if (plan) { setPlanSubmitError(null); setPlanDialogInitial(settingsFromPlan(plan)); setPlanDialogOpen(true) } }
 
@@ -763,17 +773,11 @@ export function AnnualPlanCreator() {
           <SeasonChart key={plan.id} plan={plan} actuals={actuals} selectedWeek={activeWeekId} onSelect={selectWeek} glassBackground />
         </div>
       </div>}
-      <header className="hidden h-14 shrink-0 items-center gap-2 border-b px-4 md:flex">
-        <div className="min-w-0 text-base font-semibold">{planSelector}</div>
-        <Button type="button" size="icon-sm" variant="ghost" aria-label="Create new plan" onClick={createPlan}><Plus /></Button>
-        <Button type="button" size="icon-sm" variant="ghost" aria-label="Plan settings" disabled={!plan} onClick={editPlan}><Settings /></Button>
-        {plan && <p className="ml-auto hidden text-xs text-muted-foreground sm:block">{dateLabel(plan.startDate, { month: "short", day: "numeric", year: "numeric" })} – {dateLabel(plan.endDate, { month: "short", day: "numeric", year: "numeric" })}</p>}
-      </header>
-
       {plan ? <>
         {!isMobile && <section className="shrink-0 border-b">
-          <div className="hidden items-center justify-end gap-4 border-b px-4 py-1.5 text-[11px] text-muted-foreground md:flex"><span className="flex items-center gap-1.5"><span className="size-2.5 bg-slate-300 dark:bg-slate-600" /> Planned</span><span>Completed · period color</span></div>
-          <SeasonChart key={plan.id} plan={plan} actuals={actuals} selectedWeek={activeWeekId} onSelect={selectWeek} />
+          <div id="annual-plan-season-chart-desktop" hidden={!desktopChartOpen}>
+            <SeasonChart key={plan.id} plan={plan} actuals={actuals} selectedWeek={activeWeekId} onSelect={selectWeek} />
+          </div>
         </section>
         }
         {isMobile && <section ref={mobileScrollerRef} aria-label="Training plan blocks" className="annual-plan-blocks-scroller min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
@@ -800,9 +804,9 @@ export function AnnualPlanCreator() {
                 const nextHours = () => { const next = plan.weeks[index + 1]; if (next) { const input = hoursRefs.current.get(next.id); input?.focus(); input?.select() } }
                 const nextNotes = () => { const next = plan.weeks[index + 1]; if (next) notesRefs.current.get(next.id)?.focus() }
                 return [
-                  monthChanged ? <tr key={`${week.id}-month`} className="bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-300"><th colSpan={6} className="px-1 py-1 text-left font-semibold">{dateLabel(week.startDate, { month: "long", year: "numeric" })}</th></tr> : null,
+                  monthChanged ? <tr key={`${week.id}-month`} className="bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-300"><th colSpan={6} className="px-1 py-0.5 text-left font-semibold">{dateLabel(week.startDate, { month: "long", year: "numeric" })}</th></tr> : null,
                   <tr key={week.id} aria-current={currentWeek?.id === week.id ? "date" : undefined} ref={(element) => { if (element) rowRefs.current.set(week.id, element); else rowRefs.current.delete(week.id) }} className={`border-b transition-colors ${currentWeek?.id === week.id ? "bg-slate-300/90 font-medium ring-1 ring-inset ring-slate-400/70 hover:bg-slate-300/90 dark:bg-slate-700/90 dark:ring-slate-500/80 dark:hover:bg-slate-700/90" : activeWeekId === week.id ? "bg-primary/5 hover:bg-primary/10" : index % 2 ? "bg-slate-50/60 hover:bg-muted/40 dark:bg-muted/15" : "hover:bg-muted/40"}`}>
-                    <td className="px-2 py-1.5 tabular-nums">{weekRangeLabel(week.startDate, week.endDate)}</td>
+                    <td className="px-2 py-1 tabular-nums">{weekRangeLabel(week.startDate, week.endDate)}</td>
                     <td className="px-2 py-1"><div className="flex min-w-0 items-center gap-1 overflow-hidden">{events.length ? <div className="flex min-w-0 flex-1 gap-1 overflow-hidden">{events.map((event) => <Button key={event.id} type="button" variant="ghost" size="sm" className="h-7 min-w-0 gap-1 px-1.5" onClick={() => setRaceEditor({ week, event })}><RaceMarkerIcon priority={event.priority} /><span className="truncate">{event.name}</span><Pencil className="size-3" /></Button>)}</div> : <span className="min-w-0 flex-1" />}<Button type="button" variant="ghost" size="icon-sm" className="size-6 shrink-0" aria-label={`Add race during ${dateLabel(week.startDate)}`} onClick={() => setRaceEditor({ week })}><Plus className="size-3.5" /></Button></div></td>
                     <td className="p-0" style={{ backgroundColor: PHASE_COLORS[week.phase] }}><MobileSelect ref={(element)=>{if(element)phaseRefs.current.set(week.id,element);else phaseRefs.current.delete(week.id)}} aria-label={`Period for ${dateLabel(week.startDate)}`} className="h-10 w-full rounded-none border-0 bg-transparent px-2 font-semibold text-white" value={week.phase} options={PLAN_PHASES.map((phase)=>({ value: phase, label: phase === week.phase ? phaseLabel(week) : phase }))} onValueChange={(value)=>changePeriod(week.id,value as PlanPhase)} onKeyDown={(event)=>{if(event.key==='Tab'&&tabEditableCell(index,0,event.shiftKey))event.preventDefault()}}><Select value={week.phase} onValueChange={(value)=>changePeriod(week.id,value as PlanPhase)}><SelectTrigger ref={(element)=>{if(element)phaseRefs.current.set(week.id,element);else phaseRefs.current.delete(week.id)}} aria-label={`Period for ${dateLabel(week.startDate)}`} className="h-10 w-full rounded-none border-0 bg-transparent px-2 text-xs font-semibold text-white shadow-none hover:bg-white/10 focus-visible:border-white/80 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 dark:bg-transparent dark:hover:bg-white/10 [&_svg]:text-white" onKeyDown={(event)=>{if(event.key==='Tab'&&tabEditableCell(index,0,event.shiftKey))event.preventDefault()}}><SelectValue>{phaseLabel(week)}</SelectValue></SelectTrigger><SelectContent align="start">{PLAN_PHASES.map((phase)=><SelectItem key={phase} value={phase}>{phase}</SelectItem>)}</SelectContent></Select></MobileSelect></td>
                     <td className="p-0"><InlineHours value={week.targetHours} inputRef={(element) => { if (element) hoursRefs.current.set(week.id, element); else hoursRefs.current.delete(week.id) }} onCommit={(value) => changeWeek(week.id, { targetHours: value, manual: true })} onNext={nextHours} onTab={(backward)=>tabEditableCell(index,1,backward)} /></td>

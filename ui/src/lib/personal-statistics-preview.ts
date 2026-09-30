@@ -6,15 +6,16 @@ export type PerformanceRecord = {
   distance_meters: number
   duration_seconds: number
   elevation_meters: number
-  achievements?: Array<{ type?: string; distance?: number; secs?: number; value?: number }>
+  achievements?: Array<{ type?: string; distance?: number; secs?: number; watts?: number; pace?: number; value?: number }>
 }
 export type PerformanceData = { records: PerformanceRecord[]; today: string; source: string; synced_at: string }
 
-const previewStorageKey = "training-agent:performance-preview:v1"
+const previewStorageKey = "training-agent:performance-preview:v2"
 
 const runEfforts = [400, 804.672, 1000, 1609.344, 3218.688, 5000, 10000, 15000, 16093.44, 20000, 21097.5, 30000, 42195]
 const bikeEfforts = [8046.72, 10000, 16093.44, 20000, 30000, 40000, 50000, 90000, 80467.2, 144840.96, 100000, 160934.4, 180000]
 const swimEfforts = [91.44, 182.88, 365.76, 548.64, 731.52, 914.4, 1931.2128, 3862.4256]
+const bikeEffortSeconds = [5, 10, 30, 60, 300, 600, 1200, 3600]
 
 function localDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
@@ -53,11 +54,19 @@ function previewForToday(today: string): PerformanceData {
         distance_meters: distance,
         duration_seconds: distance / workout.speed,
         elevation_meters: elevation,
-        achievements: effortDistances.map(meters => ({
-          type: "BEST_PACE",
-          distance: meters,
-          secs: Math.round(meters / effortSpeed * improvement),
-        })),
+        achievements: [
+          ...effortDistances.map(meters => ({
+            type: "BEST_PACE",
+            distance: meters,
+            secs: Math.round(meters / effortSpeed * improvement),
+          })),
+          ...(workout.sport === "Bike" ? bikeEffortSeconds.map(secs => ({
+            type: "BEST_POWER",
+            secs,
+            watts: Math.round((950 - Math.log10(secs) * 210) * (1 - week * 0.001)),
+            value: Math.round((950 - Math.log10(secs) * 210) * (1 - week * 0.001)),
+          })) : []),
+        ],
       })
     }
   }

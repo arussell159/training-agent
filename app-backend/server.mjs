@@ -507,7 +507,7 @@ function scopedTrainingContext(context, scope, today = new Date()) {
     const trendStart = isoDate(shiftDate(new Date(`${scope.start}T12:00:00Z`),-29));
     return {...context,history:(context.history || []).filter(within),workouts:(context.workouts || context.history || []).filter(within),planned:(context.planned || []).filter(within),wellness_history:(context.wellness_history || []).filter(w => w.date >= trendStart && w.date <= scope.end),context_scope:'range',full_history_available:true};
   }
-  if (scope !== 'week') return context;
+  if (scope !== 'week') return {...context,context_scope:'full',full_history_available:true};
   const todayDate = isoDate(today);
   const monday = shiftDate(today, -((today.getUTCDay() + 6) % 7));
   const historyStart = isoDate(shiftDate(monday, -7));
@@ -1104,6 +1104,8 @@ export async function handleRequest(req, res) {
           type: achievement.type,
           distance: achievement.distance,
           secs: achievement.secs,
+          watts: achievement.watts,
+          pace: achievement.pace,
           value: achievement.value,
         })),
       })).sort((a, b) => a.date.localeCompare(b.date));

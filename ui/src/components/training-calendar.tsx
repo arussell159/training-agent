@@ -141,11 +141,17 @@ function SportIcon({ sport }: { sport: string }) {
 const gradeStyles: Record<CompletionGrade, string> = {
   planned: "border-border bg-card text-card-foreground hover:bg-accent/50",
   unknown: "border-border bg-card text-card-foreground hover:bg-accent/50",
-  good: "border-green-700/65 bg-green-200 text-green-950 hover:bg-green-300 dark:border-green-700/70 dark:bg-green-950/50 dark:text-green-100",
+  good: "border-green-700/35 bg-green-50 text-green-950 hover:bg-green-100 dark:border-green-700/70 dark:bg-green-950/50 dark:text-green-100",
   medium:
-    "border-orange-700/65 bg-orange-200 text-orange-950 hover:bg-orange-300 dark:border-orange-700/70 dark:bg-orange-950/50 dark:text-orange-100",
+    "border-amber-700/35 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-700/70 dark:bg-amber-950/50 dark:text-amber-100",
   failed:
-    "border-red-700/65 bg-red-200 text-red-950 hover:bg-red-300 dark:border-red-700/70 dark:bg-red-950/50 dark:text-red-100",
+    "border-red-700/35 bg-red-50 text-red-950 hover:bg-red-100 dark:border-red-700/70 dark:bg-red-950/50 dark:text-red-100",
+}
+
+const gradeAccent: Partial<Record<CompletionGrade, string>> = {
+  good: "bg-lime-500",
+  medium: "bg-amber-400",
+  failed: "bg-red-500",
 }
 
 const mobileGradeStyles: Record<CompletionGrade, string> = {
@@ -159,15 +165,19 @@ const mobileGradeStyles: Record<CompletionGrade, string> = {
 }
 
 function completionGrade(workout: PlannedWorkout): CompletionGrade {
-  if (workout.id.startsWith("activity:") && workout.status === "completed")
-    return "good"
+  const completedDataDuration = Number(workout.completed_data?.duration_minutes)
+  const actualDuration = Number.isFinite(workout.actualDurationMinutes)
+    ? Number(workout.actualDurationMinutes)
+    : Number.isFinite(completedDataDuration)
+      ? completedDataDuration
+      : 0
   return gradeWorkoutCompletion(
     workout.status,
     {
       duration_minutes:
         workout.planned?.duration_minutes ?? workout.plannedDurationMinutes,
     },
-    { duration_minutes: completedMinutes(workout) }
+    { duration_minutes: actualDuration }
   )
 }
 function WorkoutPreview({
@@ -369,6 +379,7 @@ export function WorkoutCard({
   disabled?: boolean
 }) {
   const grade = completionGrade(workout)
+  const completed = workout.status === "completed"
   const displayedMinutes =
     workout.status === "completed" && completedMinutes(workout) > 0
       ? completedMinutes(workout)
@@ -387,8 +398,14 @@ export function WorkoutCard({
           onClick()
         }
       }}
-      className={`group/workout w-full cursor-pointer gap-2 rounded-xl px-2.5 py-3 transition-colors ${gradeStyles[grade]}`}
+      className={`group/workout relative w-full cursor-pointer gap-2 rounded-lg px-2.5 ${completed ? "pt-5 pb-3" : "py-3"} shadow-[0_2px_6px_rgba(15,23,42,0.16)] transition-colors ${gradeStyles[grade]}`}
     >
+      {completed && gradeAccent[grade] && (
+        <span
+          aria-hidden="true"
+          className={`absolute inset-x-0 top-0 h-2.5 rounded-t-lg ${gradeAccent[grade]}`}
+        />
+      )}
       <div className="flex min-w-0 flex-col items-start gap-2">
         <div className="flex w-full items-center justify-between">
           <SportIcon sport={workout.sport} />
