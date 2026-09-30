@@ -23,6 +23,8 @@ const destinations = [
   { label: "Settings", displayLabel: "More", icon: Menu, id: "settings" },
 ]
 
+const pageDestinations = [...destinations, { label: "Lab Results", id: "labs" }]
+
 export function MobilePageTabs({
   activeItem,
   children,
@@ -34,7 +36,7 @@ export function MobilePageTabs({
   if (!mobile) return children
   return (
     <Tabs className="mobile-page-tabs">
-      {destinations.map(({ label, id }) => (
+      {pageDestinations.map(({ label, id }) => (
           <Tab
             key={id}
             id={`mobile-panel-${id}`}
@@ -61,6 +63,7 @@ export function MobileNavbar({
 }) {
   const mobile = useIsMobile()
   if (!mobile) return null
+  const selectedItem = activeItem === "Lab Results" ? "Settings" : activeItem
   return (
     <Toolbar
       bottom
@@ -77,18 +80,18 @@ export function MobileNavbar({
             key={id}
             type="button"
             data-tab={
-              activeItem === label ? undefined : `#mobile-panel-${id}`
+              selectedItem === label ? undefined : `#mobile-panel-${id}`
             }
             className={
-              activeItem === label ? "tab-link tab-link-active" : "tab-link"
+              selectedItem === label ? "tab-link tab-link-active" : "tab-link"
             }
             id={`mobile-tab-${id}`}
             role="tab"
             aria-label={displayLabel ?? label}
-            aria-selected={activeItem === label}
-            aria-controls={`mobile-panel-${id}`}
+            aria-selected={selectedItem === label}
+            aria-controls={activeItem === "Lab Results" && label === "Settings" ? "mobile-panel-labs" : `mobile-panel-${id}`}
             tabIndex={
-              activeItem === label ||
+              selectedItem === label ||
               (activeItem === "Annual Plan" && index === 0)
                 ? 0
                 : -1

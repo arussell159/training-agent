@@ -35,6 +35,11 @@ export function MobileHeaderMenu({
         className="mobile-navbar-action size-11 p-0"
         actions={[
           {
+            value: "lab-results",
+            label: "Lab Results",
+            onSelect: () => window.dispatchEvent(new CustomEvent("app-navigate", { detail: "Lab Results" })),
+          },
+          {
             value: "terms",
             label: "Definitions",
             onSelect: () => window.dispatchEvent(new Event("terms-open")),
@@ -56,7 +61,7 @@ export function MobileHeaderMenu({
             : []),
           ...actions.filter(
             (action) =>
-              !["terms", "definitions", "refresh"].includes(action.value)
+              !["terms", "definitions", "refresh", "lab-results"].includes(action.value)
           ),
         ]}
       />
