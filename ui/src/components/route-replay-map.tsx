@@ -218,27 +218,33 @@ export function RouteReplayMap({
       clearTimeout(timeout)
       for (const layer of map.getStyle().layers) {
         if (layer.type !== "symbol") continue
-        if (
-          /poi|transit|settlement-subdivision|settlement-minor|airport/.test(
-            layer.id
-          )
-        ) {
+        const isPointOfInterest = layer["source-layer"] === "poi_label"
+        const isCity = /^settlement-(major|minor)-label$/.test(layer.id)
+        const isNaturalLandmark = layer["source-layer"] === "natural_label"
+        if (!isPointOfInterest && !isCity && !isNaturalLandmark) {
           map.setLayoutProperty(layer.id, "visibility", "none")
-        } else if (
-          layer["source-layer"] === "road" ||
-          /road.*label|road.*shield/.test(layer.id)
-        ) {
-          const majorRoads: mapboxgl.FilterSpecification = [
-            "match",
-            ["get", "class"],
-            ["motorway", "trunk", "primary"],
-            true,
-            false,
+        } else if (isPointOfInterest) {
+          const landmarks: mapboxgl.FilterSpecification = [
+            "any",
+            [
+              "match",
+              ["get", "class"],
+              ["park_like", "landmark", "historic"],
+              true,
+              false,
+            ],
+            [
+              "match",
+              ["get", "maki"],
+              ["museum", "monument", "attraction", "viewpoint", "castle"],
+              true,
+              false,
+            ],
           ]
           const original = map.getFilter(layer.id)
           map.setFilter(
             layer.id,
-            original ? ["all", original, majorRoads] : majorRoads
+            original ? ["all", original, landmarks] : landmarks
           )
         }
       }
