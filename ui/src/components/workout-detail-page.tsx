@@ -893,7 +893,7 @@ export function WorkoutDetailPage({
       )}
 
       {mobile && workout.status === "completed" && !swim && (
-        <div className="workout-mobile-map relative z-0 transform-gpu will-change-transform md:hidden">
+        <div className="workout-mobile-map sticky z-0 transform-gpu will-change-transform md:hidden">
           <WorkoutRouteMap
             workout={workout}
             onAvailable={setMobileMapAvailable}

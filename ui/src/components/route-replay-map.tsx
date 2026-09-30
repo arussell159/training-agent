@@ -219,20 +219,46 @@ export function RouteReplayMap({
       for (const layer of map.getStyle().layers) {
         if (layer.type !== "symbol") continue
         const isPointOfInterest = layer["source-layer"] === "poi_label"
-        const isCity = /^settlement-(major|minor)-label$/.test(layer.id)
+        const isCity = /^settlement-(major|minor|subdivision)-label$/.test(
+          layer.id
+        )
         const isNaturalLandmark = layer["source-layer"] === "natural_label"
+        if (isCity) {
+          map.setLayerZoomRange(layer.id, layer.minzoom ?? 0, 24)
+          if (layer.id === "settlement-major-label") {
+            map.setFilter(layer.id, [
+              "all",
+              [
+                "match",
+                ["get", "class"],
+                ["settlement", "disputed_settlement"],
+                true,
+                false,
+              ],
+              ["match", ["get", "worldview"], ["all", "US"], true, false],
+              ["<=", ["get", "symbolrank"], 14],
+              ["<=", ["get", "filterrank"], 3],
+            ])
+          }
+        }
         if (!isPointOfInterest && !isCity && !isNaturalLandmark) {
           map.setLayoutProperty(layer.id, "visibility", "none")
         } else if (isPointOfInterest) {
           const landmarks: mapboxgl.FilterSpecification = [
             "any",
             [
-              "match",
-              ["get", "class"],
-              ["park_like", "landmark", "historic"],
-              true,
-              false,
+              "all",
+              ["==", ["get", "class"], "park_like"],
+              [
+                "match",
+                ["get", "maki"],
+                ["park", "national-park", "garden"],
+                true,
+                false,
+              ],
+              ["<=", ["coalesce", ["get", "sizerank"], 16], 6],
             ],
+            ["match", ["get", "class"], ["landmark", "historic"], true, false],
             [
               "match",
               ["get", "maki"],
