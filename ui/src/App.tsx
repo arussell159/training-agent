@@ -23,6 +23,7 @@ import {
   RefreshCw,
   Settings,
   CalendarRange,
+  FlaskConical,
 } from "lucide-react"
 import { useToastManager } from "@/components/ui/toast"
 import { RefreshProgressToast } from "@/components/refresh-progress-toast"
@@ -69,6 +70,7 @@ import {
 } from "@/lib/workout-navigation"
 
 const pageImports = {
+  "Lab Results": () => import("@/components/lab-results-page"),
   Settings: () => import("@/components/settings-workspace"),
   Calendar: () => import("@/components/training-calendar"),
   Coach: () => import("@/components/coach-page"),
@@ -116,6 +118,9 @@ const AnnualPlanCreator = lazy(() =>
     default: module.AnnualPlanCreator,
   }))
 )
+const LabResultsPage = lazy(() =>
+  pageImports["Lab Results"]().then((module) => ({ default: module.LabResultsPage }))
+)
 const WorkoutDetailPage = lazy(() =>
   import("@/components/workout-detail-page").then((module) => ({
     default: module.WorkoutDetailPage,
@@ -137,10 +142,12 @@ const navigation = [
   { label: "Coach", icon: MessageCircle },
   { label: "Library", icon: Library },
   { label: "Annual Plan", icon: CalendarRange },
+  { label: "Lab Results", icon: FlaskConical },
   { label: "Settings", icon: Settings },
 ]
 
 function routeItem() {
+  if (window.location.pathname === "/labs") return "Lab Results"
   if (window.location.pathname === "/coach") return "Coach"
   if (
     window.location.pathname === "/calendar" ||
@@ -163,6 +170,7 @@ function itemPath(item: string) {
         Library: "/library",
         "Annual Plan": "/annual-plan",
         Settings: "/settings",
+        "Lab Results": "/labs",
       } as Record<string, string>
     )[item] || "/coach"
   )
@@ -596,6 +604,8 @@ function AppWorkspace() {
                   <CoachPage />
                 ) : activeItem === "Settings" ? null : activeItem === "Library" ? (
                   <TrainingLibrary onWorkoutOpen={openWorkout} />
+                ) : activeItem === "Lab Results" ? (
+                  <LabResultsPage />
                 ) : activeItem === "Annual Plan" ? (
                   <AnnualPlanCreator />
                 ) : null}
