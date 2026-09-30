@@ -9,6 +9,8 @@ import {
   type ReplayRoute,
 } from "@/lib/route-replay"
 
+const FOLLOW_PITCH = 74
+
 type Props = {
   route: ReplayRoute
   progress: number
@@ -169,7 +171,7 @@ export function RouteReplayMap({
         map.jumpTo({
           center: position,
           zoom: 15.5,
-          pitch: state.threeD ? 82 : 0,
+          pitch: state.threeD ? FOLLOW_PITCH : 0,
           bearing: state.threeD ? bearing : 0,
           padding: followPadding(),
         })
@@ -310,7 +312,7 @@ export function RouteReplayMap({
         map.flyTo({
           center: [first.longitude, first.latitude],
           zoom: 15.5,
-          pitch: 82,
+          pitch: FOLLOW_PITCH,
           bearing,
           padding: followPadding(),
           duration: 2800,
