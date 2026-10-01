@@ -5,6 +5,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { createCoachHttp } from './lib/coach-http.mjs';
+import { createNutritionHttp } from './lib/nutrition-http.mjs';
+import { createNutritionStore } from './lib/nutrition-model.mjs';
+import { localNutritionRecords } from './lib/nutrition-local-store.mjs';
 import { createCoachCalendar } from './lib/coach-calendar.mjs';
 import { createEncryptedRecordStore } from './lib/app-auth-store.mjs';
 import { createAppAuth } from './lib/app-auth.mjs';
@@ -51,6 +54,14 @@ import { createIntervalsClient, fetchIntervalsContext, moveIntervalsEvent, chang
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const configPath = path.join(__dirname, 'config.json');
+const localNutrition = createNutritionStore(localNutritionRecords(path.join(__dirname, 'nutrition-preview')));
+const handleNutrition = createNutritionHttp({ getStore: async req => {
+  if (process.env.NUTRITION_LOCAL_PREVIEW === 'true' && !process.env.VERCEL) return localNutrition;
+  const bootstrap = await readBootstrapConfig();
+  return createNutritionStore((key, fresh) => createEncryptedRecordStore(bootstrap, `${req.headers.host}/nutrition/${key}`, {
+    namespace: 'nutrition', name: 'NUTRITION', fresh, timestampCas: true,
+  }));
+} });
 const handleCoach = createCoachHttp({ getCalendar: async (req, config) => createCoachCalendar({
   config,
   store: createEncryptedRecordStore(await readBootstrapConfig(), `${req.headers.host}/${config.repo}@${config.branch}`, {
@@ -724,6 +735,7 @@ export async function handleRequest(req, res) {
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     const pathname = requestUrl.pathname;
     if (await handleAuth(req, res, pathname)) return;
+    if (await handleNutrition(req, res, pathname)) return;
     if (await handleReports(req, res, pathname)) return;
     if (await handleCoach(req, res, pathname)) return;
     if(pathname==='/api/training-zones' && req.method==='POST') {

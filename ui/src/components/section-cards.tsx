@@ -1,3 +1,4 @@
+import { NutritionHomeCard } from "@/components/nutrition-summary"
 import { useEffect, useState } from "react"
 import { formatDuration } from "@/lib/duration"
 import { durationMinutes } from "@/lib/training-context"
@@ -456,6 +457,7 @@ export function SectionCards({
       <EventsCard context={context} />
       <RecoveryTrendCard context={context} metric="hrv" />
       <RecoveryTrendCard context={context} metric="resting_hr" />
+      <NutritionHomeCard date={dashboardToday(context)} />
       <div className="col-span-2 grid min-w-0 grid-cols-2 gap-3 sm:gap-4 lg:col-span-6 lg:col-start-7">
         <SleepCard context={context} />
         <Card className="min-w-0 [--card-spacing:--spacing(3)]">

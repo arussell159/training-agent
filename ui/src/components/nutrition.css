@@ -1,0 +1,550 @@
+/* Restore utility sizing beneath Framework7's unlayered button reset. */
+.nutrition-surface button {
+  width: revert-layer;
+}
+.nutrition-dashboard {
+  background: #f5f5f7;
+  min-height: 100dvh;
+}
+.nutrition-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  background: #f5f5f7;
+  color: var(--foreground);
+  padding-top: env(safe-area-inset-top);
+  outline: none;
+}
+.nutrition-screen-header {
+  display: grid;
+  grid-template-columns: 90px 1fr 90px;
+  align-items: center;
+  min-height: 64px;
+  gap: 8px;
+  padding: 8px 16px;
+  text-align: center;
+  background: rgb(245 245 247 / 94%);
+  flex-shrink: 0;
+}
+.nutrition-screen-header .mobile-navbar-action,
+.nutrition-date-header .mobile-navbar-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid rgb(0 0 0 / 5%);
+  background: rgb(255 255 255 / 80%);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 5%);
+}
+.nutrition-action-group {
+  display: flex;
+  align-items: center;
+  height: 42px;
+  border: 1px solid rgb(0 0 0 / 5%);
+  border-radius: 24px;
+  background: rgb(255 255 255 / 80%);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 5%);
+}
+.nutrition-action-group button {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+}
+.nutrition-action-group button + button {
+  border-left: 1px solid rgb(0 0 0 / 7%);
+}
+.nutrition-screen-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  flex: 1;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.nutrition-searchbar.searchbar {
+  margin: 0 0 16px;
+  height: 48px;
+  padding: 0;
+  box-shadow: none;
+  background: transparent;
+  --f7-searchbar-input-bg-color: #e8e8ed;
+  --f7-searchbar-bg-color: transparent;
+  --f7-searchbar-input-border-radius: 14px;
+}
+.nutrition-searchbar .searchbar-inner {
+  padding: 0;
+}
+.nutrition-searchbar .searchbar-input-wrap {
+  height: 44px;
+}
+.nutrition-searchbar .searchbar-inner {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 48px;
+}
+.nutrition-searchbar .searchbar-input-wrap {
+  position: relative;
+  flex: 1;
+}
+.nutrition-searchbar input[type="search"] {
+  display: block;
+  width: 100%;
+  height: 44px;
+  padding: 0 40px;
+  border: 0;
+  border-radius: 14px;
+  background: #e8e8ed;
+  font-size: 15px;
+  outline: none;
+}
+.nutrition-searchbar .searchbar-icon {
+  display: none;
+}
+.nutrition-searchbar input[type="search"]::-webkit-search-cancel-button {
+  display: none;
+}
+.nutrition-screen .mobile-filter-tabs-inline {
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 26px;
+  background: #eaeaed;
+}
+.nutrition-screen .mobile-filter-tab-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  gap: 5px;
+}
+.nutrition-screen .mobile-filter-tab-pill.is-active {
+  background: white;
+  color: var(--foreground);
+  box-shadow: 0 2px 5px rgb(0 0 0 / 8%);
+  font-weight: 600;
+}
+.nutrition-screen .mobile-filter-toolbar.toolbar {
+  position: relative;
+  inset: auto;
+  height: 48px;
+  margin: 0 0 12px;
+  background: transparent;
+}
+.nutrition-screen .mobile-filter-toolbar .toolbar-inner {
+  padding: 0;
+}
+.nutrition-search-icon {
+  z-index: 31;
+  pointer-events: none;
+  position: absolute;
+  left: 13px;
+  top: 13px;
+  width: 18px;
+  height: 18px;
+  color: var(--muted-foreground);
+}
+.nutrition-search-clear {
+  z-index: 31;
+  position: absolute;
+  right: 5px;
+  top: 4px;
+  display: grid;
+  place-items: center;
+  width: 36px !important;
+  height: 36px;
+  background: transparent;
+  border: 0;
+}
+.nutrition-field {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 17px;
+  background: var(--card);
+  padding: 7px 12px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.nutrition-field input,
+.nutrition-field select {
+  display: block;
+  width: 100%;
+  height: 28px;
+  padding: 0;
+  color: var(--foreground);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-size: 14px;
+  outline: none;
+}
+.nutrition-field:focus-within {
+  border-color: var(--ring);
+}
+.nutrition-textarea {
+  display: block;
+  width: 100%;
+  min-height: 160px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 16px;
+  background: var(--card);
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.nutrition-result-list {
+  overflow: hidden;
+  border-radius: 22px;
+  background: var(--card);
+  border: 1px solid rgb(0 0 0 / 4%);
+}
+.nutrition-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+}
+.nutrition-result + .nutrition-result {
+  border-top: 1px solid var(--border);
+}
+.nutrition-row-action {
+  display: inline-flex;
+  width: 36px !important;
+  height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+.nutrition-empty {
+  padding: 48px 16px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+.nutrition-photo-picker {
+  display: flex;
+  min-height: 270px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 28px;
+  border-radius: 26px;
+  background: var(--card);
+  border: 1px solid rgb(0 0 0 / 5%);
+  cursor: pointer;
+}
+.nutrition-save-bar {
+  position: sticky;
+  bottom: -1px;
+  padding: 16px 0;
+  background: rgb(245 245 247 / 96%);
+  backdrop-filter: blur(12px);
+  z-index: 2;
+}
+.nutrition-notice {
+  position: sticky;
+  bottom: 12px;
+  border-radius: 18px;
+  padding: 14px 18px;
+  margin-top: 16px;
+  background: #ecfdf5;
+  border: 1px solid #d1fae5;
+  color: #065f46;
+  font-size: 13px;
+  box-shadow: 0 4px 20px rgb(0 0 0 / 6%);
+}
+.nutrition-date-header {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  background: rgb(245 245 247 / 94%);
+}
+.nutrition-date-header .calendar-month-title-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.nutrition-date-header .calendar-month-title-button {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.nutrition-date-dismiss {
+  position: fixed;
+  inset: 64px 0 0;
+  z-index: 1;
+  background: rgb(0 0 0 / 8%);
+  width: 100% !important;
+}
+.nutrition-date-panel.mobile-calendar-picker-panel {
+  --calendar-picker-panel-height: 286px;
+  --calendar-picker-radius: 24px;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  max-width: 440px;
+  margin: auto;
+  background: rgb(255 255 255 / 96%);
+  border-radius: 0 0 24px 24px;
+  box-shadow: 0 18px 36px rgb(0 0 0 / 12%);
+}
+.nutrition-dashboard [data-slot="card"] {
+  box-shadow:
+    0 1px 2px rgb(49 72 96 / 5%),
+    0 10px 28px rgb(69 104 143 / 9%);
+  border-color: rgb(255 255 255 / 88%);
+}
+@media (min-width: 768px) {
+  .nutrition-screen-header {
+    padding-inline: 28px;
+    min-height: 72px;
+  }
+  .nutrition-date-panel.mobile-calendar-picker-panel {
+    margin-left: 16px;
+    max-width: 340px;
+  }
+}
+
+body.nutrition-flow-open .mobile-navbar {
+  display: none !important;
+}
+.nutrition-date-header {
+  background: transparent;
+}
+.nutrition-date-header > header {
+  position: relative;
+  z-index: 3;
+}
+.nutrition-date-dismiss {
+  inset: 56px 0 0;
+}
+.nutrition-date-panel.mobile-calendar-picker-panel {
+  padding-top: 8px;
+  animation: nutrition-calendar-in 200ms ease both;
+}
+.nutrition-date-panel.is-closing {
+  animation: nutrition-calendar-out 200ms ease both;
+  pointer-events: none;
+}
+.nutrition-title-transition {
+  position: relative;
+  display: inline-grid !important;
+  grid-template-columns: 1fr 16px;
+  min-width: 0;
+  width: 112px;
+  transition: width 180ms ease;
+}
+.nutrition-title-transition.is-open {
+  width: 176px;
+}
+.nutrition-title-transition span {
+  grid-area: 1 / 1;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+.nutrition-title-month {
+  opacity: 0;
+  transform: translateY(4px);
+}
+.nutrition-title-transition.is-open .nutrition-title-month {
+  opacity: 1;
+  transform: translateY(0);
+}
+.nutrition-title-transition.is-open .nutrition-title-default {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+.nutrition-title-transition svg {
+  grid-area: 1 / 2;
+  transition: transform 180ms ease;
+}
+.nutrition-title-transition.is-open svg {
+  transform: rotate(180deg);
+}
+.nutrition-control-fade {
+  animation: nutrition-control-in 200ms ease;
+}
+.nutrition-save-bar {
+  background: linear-gradient(to bottom, transparent, #f5f5f7 24px, #f5f5f7);
+  padding-top: 32px;
+  backdrop-filter: none;
+}
+.nutrition-field input[readonly] {
+  pointer-events: none;
+}
+.nutrition-field input:focus {
+  box-shadow: none;
+}
+.nutrition-field input[type="number"]::-webkit-inner-spin-button {
+  appearance: none;
+}
+.nutrition-field input[type="number"] {
+  appearance: textfield;
+}
+.nutrition-searchbar.searchbar {
+  overflow: visible;
+}
+.nutrition-searchbar .searchbar-input-wrap {
+  border-radius: 999px;
+}
+.nutrition-searchbar input[type="search"] {
+  border-radius: 999px;
+}
+.nutrition-screen .nutrition-searchbar .searchbar-input-wrap::before,
+.nutrition-screen .nutrition-searchbar .searchbar-input-wrap::after,
+.nutrition-screen .mobile-filter-toolbar::before,
+.nutrition-screen .mobile-filter-toolbar::after,
+.nutrition-screen .mobile-filter-toolbar .toolbar-background {
+  display: none;
+}
+.nutrition-screen .mobile-filter-toolbar {
+  overflow: visible;
+  box-shadow: none;
+  filter: none;
+}
+.nutrition-screen .mobile-filter-toolbar .toolbar-pane {
+  box-shadow: 0 1px 3px rgb(0 0 0 / 5%);
+}
+.nutrition-screen .nutrition-searchbar input[type="search"] {
+  box-shadow: 0 1px 3px rgb(0 0 0 / 5%);
+  background: #e8e8ed;
+}
+@keyframes nutrition-calendar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes nutrition-calendar-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+}
+@keyframes nutrition-control-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (width < 48rem) {
+  .nutrition-screen-header {
+    display: none;
+  }
+  .nutrition-dashboard {
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+  }
+  .nutrition-page-main {
+    background: #f5f5f7;
+  }
+  .nutrition-screen-scroll {
+    margin-top: -56px;
+    padding-top: 68px;
+  }
+  .nutrition-screen .mobile-site-navbar,
+  .nutrition-date-header .mobile-site-navbar {
+    height: 56px;
+    --f7-navbar-height: 56px;
+  }
+  .nutrition-screen .mobile-site-navbar .mobile-navbar-action,
+  .nutrition-date-header .mobile-site-navbar .mobile-navbar-action {
+    width: 43px;
+    height: 43px;
+  }
+  .nutrition-screen .mobile-site-navbar .navbar,
+  .nutrition-screen .mobile-site-navbar .navbar-bg,
+  .nutrition-date-header .mobile-site-navbar .navbar,
+  .nutrition-date-header .mobile-site-navbar .navbar-bg {
+    background: transparent;
+    box-shadow: none;
+  }
+  .nutrition-screen .mobile-site-navbar::before,
+  .nutrition-date-header::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 -24px;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      #f5f5f7 20%,
+      rgb(245 245 247 / 94%) 68%,
+      transparent
+    );
+  }
+  .nutrition-date-header.is-open::before {
+    bottom: 0;
+    background: #f5f5f7;
+  }
+  .nutrition-date-panel.mobile-calendar-picker-panel {
+    background: #f5f5f7;
+  }
+  .nutrition-action-group {
+    height: 43px;
+    border-radius: 999px;
+    transform: translateY(-1px);
+    background: rgb(255 255 255 / 96%);
+  }
+  .nutrition-action-group button {
+    width: 40px;
+    height: 43px;
+  }
+  .nutrition-action-group::before,
+  .nutrition-action-group::after {
+    content: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nutrition-date-panel.mobile-calendar-picker-panel,
+  .nutrition-control-fade {
+    animation: none;
+  }
+  .nutrition-title-transition span,
+  .nutrition-title-transition svg {
+    transition: none;
+  }
+}
+.nutrition-screen.framework7-root .mobile-filter-tabs-inline {
+  box-shadow: 0 1px 3px rgb(0 0 0 / 5%);
+  filter: none;
+  backdrop-filter: none;
+  background: #eaeaed;
+}
+.nutrition-screen.framework7-root .mobile-filter-tabs-inline::before,
+.nutrition-screen.framework7-root .mobile-filter-tabs-inline::after {
+  content: none;
+}
+@media (min-width: 768px) {
+  .nutrition-date-panel.mobile-calendar-picker-panel {
+    margin-left: auto;
+  }
+}

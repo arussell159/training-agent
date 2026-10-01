@@ -2,7 +2,7 @@ import { apiFetch } from "@/lib/api-client"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { useEffect, useState, type ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Activity, Bike, BookOpen, ChevronDown, ChevronRight, Footprints, Gauge, LoaderCircle, SunMoon, TableProperties, Trophy, Waves } from "lucide-react"
+import { Utensils, Activity, Bike, BookOpen, ChevronDown, ChevronRight, Footprints, Gauge, LoaderCircle, SunMoon, TableProperties, Trophy, Waves } from "lucide-react"
 
 import { displayRunThreshold, displaySwimCss, ThresholdHistory } from "@/components/training-zones-display"
 import { Button } from "@/components/ui/button"
@@ -18,7 +18,7 @@ import { useTheme } from "@/components/theme-provider"
 import { loadTrainingContext, rememberTrainingContext, fallbackTrainingContext, type PlannedWorkout, type TrainingContext } from "@/lib/training-context"
 import { cn } from "@/lib/utils"
 
-type SettingsSection = "zones" | "race" | "performance" | "library" | "appearance"
+type SettingsSection = "nutrition" | "zones" | "race" | "performance" | "library" | "appearance"
 type SettingsItem = { id: SettingsSection; label: string; description: string; icon: LucideIcon }
 type RaceEvent = { id: string; name: string; date: string; priority: string }
 type PerformanceSport = "Run" | "Bike" | "Swim"
@@ -37,6 +37,7 @@ const groups: Array<{ label: string; items: SettingsItem[] }> = [
   { label: "Planning", items: [
     { id: "library", label: "Library", description: "Browse your training library", icon: BookOpen },
   ] },
+  { label: "Nutrition", items: [{ id: "nutrition", label: "Food tracker", description: "Meals, calories, and daily macro targets", icon: Utensils }] },
   { label: "Preferences", items: [
     { id: "appearance", label: "Appearance", description: "Light, dark, or system", icon: SunMoon },
   ] },
@@ -354,6 +355,7 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
   const past = events.filter(event => event.date < today).reverse()
   const currentGoal = upcoming.find(event => event.priority === "A") || upcoming[0] || (context.athlete.race && context.athlete.race_date ? { id: "athlete-current-goal", name: context.athlete.race, date: context.athlete.race_date, priority: "A" } : undefined)
   function summary(id: SettingsSection) {
+    if (id === "nutrition") return "Meals, calories and macros"
     if (id === "zones") return context.athlete.zones?.bike_ftp ? `FTP ${context.athlete.zones.bike_ftp} W` : "Edit thresholds"
     if (id === "race") return currentGoal ? `${currentGoal.name} · ${compactDate(currentGoal.date)}` : "No upcoming races"
     if (id === "performance") return performanceData ? `${performanceData.records.length.toLocaleString("en-US")} activities` : "Activity stats and personal bests"
@@ -448,6 +450,7 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
         label={item.label}
         value={summary(item.id)}
         onClick={() => {
+          if (item.id === "nutrition") { window.dispatchEvent(new CustomEvent("app-navigate", {detail: "Nutrition"})); return }
           if (item.id === "library") {
             openLibrary()
             return
@@ -502,7 +505,7 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
     <div className={cn("flex min-h-0 flex-1 flex-col md:hidden", section === "performance" && "coach-report-page")}><MobileSiteNavbar className={section === "performance" ? "coach-report-navbar" : "mobile-site-navbar-over-scroll"} title={mobileItem?.label || "Settings"} backLabel="Back to settings" onBack={section ? () => { setSection(null); setFeedback("") } : undefined}>{mobile && section === "performance" && <MobileFilterTabs label="Filter performance by sport" items={performanceSports} value={performanceSport} onChange={setPerformanceSport} className="performance-sport-filter" />}</MobileSiteNavbar>
       <div className={cn("min-h-0 flex-1 overflow-y-auto", section === "performance" ? "overscroll-contain" : "px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom))]")}>{section === "performance" ? <div className="coach-report-content mx-auto w-full max-w-4xl px-4 py-5">{renderPanel(section)}</div> : section ? renderPanel(section) : <div className="space-y-5">{groups.map(group => <section key={group.label}><h2 className="mb-2 px-1 text-sm text-muted-foreground">{group.label}</h2><SettingsList>{group.items.map(renderMobileItem)}{group.label === "Training" && <SettingsListItem icon={TableProperties} label="Workout Reports" value="Filter and compare completed workouts" onClick={() => window.dispatchEvent(new CustomEvent("app-navigate", { detail: "Workout Reports" }))} />}</SettingsList></section>)}</div>}</div>
     </div>
-    <div className="hidden min-h-0 flex-1 overflow-y-auto md:block"><div className="mx-auto w-full max-w-4xl px-8 py-14 lg:py-16"><h1 className="text-2xl font-medium tracking-tight">Settings</h1><p className="mt-1 text-sm text-muted-foreground">Manage training, race goals, and app preferences.</p><div className="mt-10 space-y-12">{groups.map(group => <section key={group.label}><h2 className="mb-4 text-sm font-medium">{group.label}</h2><Card className="gap-0 divide-y py-0 shadow-none">{group.items.map(item => { const Icon = item.icon; return <div key={item.id} className="flex min-h-16 items-center gap-3 px-4 py-3"><Icon className="size-4 text-muted-foreground" /><div className="min-w-0 flex-1"><p className="text-sm font-medium">{item.label}</p><p className="text-xs text-muted-foreground">{item.description}</p></div><span className="mr-2 max-w-56 truncate text-xs text-muted-foreground">{summary(item.id)}</span><Button variant="outline" size="sm" onClick={() => { if (item.id === "library") { openLibrary(); return } setDialogSection(item.id); setFeedback("") }}> {item.id === "library" ? "Open" : "Manage"}</Button></div> })}</Card></section>)}</div></div></div>
+    <div className="hidden min-h-0 flex-1 overflow-y-auto md:block"><div className="mx-auto w-full max-w-4xl px-8 py-14 lg:py-16"><h1 className="text-2xl font-medium tracking-tight">Settings</h1><p className="mt-1 text-sm text-muted-foreground">Manage training, race goals, and app preferences.</p><div className="mt-10 space-y-12">{groups.map(group => <section key={group.label}><h2 className="mb-4 text-sm font-medium">{group.label}</h2><Card className="gap-0 divide-y py-0 shadow-none">{group.items.map(item => { const Icon = item.icon; return <div key={item.id} className="flex min-h-16 items-center gap-3 px-4 py-3"><Icon className="size-4 text-muted-foreground" /><div className="min-w-0 flex-1"><p className="text-sm font-medium">{item.label}</p><p className="text-xs text-muted-foreground">{item.description}</p></div><span className="mr-2 max-w-56 truncate text-xs text-muted-foreground">{summary(item.id)}</span><Button variant="outline" size="sm" onClick={() => { if (item.id === "nutrition") { window.dispatchEvent(new CustomEvent("app-navigate", {detail: "Nutrition"})); return } if (item.id === "library") { openLibrary(); return } setDialogSection(item.id); setFeedback("") }}> {item.id === "library" ? "Open" : "Manage"}</Button></div> })}</Card></section>)}</div></div></div>
     <Dialog open={Boolean(dialogSection)} onOpenChange={open => { if (!open) { setDialogSection(null); setFeedback("") } }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{dialogItem?.label}</DialogTitle><DialogDescription>{dialogItem?.description}</DialogDescription></DialogHeader>{dialogSection && renderPanel(dialogSection)}</DialogContent></Dialog>
   </div>
 }

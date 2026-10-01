@@ -73,6 +73,7 @@ import {
 } from "@/lib/workout-navigation"
 
 const pageImports = {
+  Nutrition: () => import("@/components/nutrition-page"),
   Settings: () => import("@/components/settings-workspace"),
   Calendar: () => import("@/components/training-calendar"),
   Coach: () => import("@/components/coach-page"),
@@ -91,6 +92,7 @@ const TermsReferenceDialog = lazy(() =>
   }))
 )
 
+const NutritionPage = lazy(() => pageImports.Nutrition().then(module => ({default: module.NutritionPage})))
 const SettingsWorkspace = lazy(() =>
   pageImports["Settings"]().then((module) => ({
     default: module.SettingsWorkspace,
@@ -152,6 +154,7 @@ const navigation = [
 ]
 
 function routeItem() {
+  if (window.location.pathname === "/nutrition") return "Nutrition"
   if (window.location.pathname === "/workout-reports") return "Workout Reports"
   if (window.location.pathname === "/coach") return "Coach"
   if (
@@ -169,6 +172,7 @@ function itemPath(item: string) {
   return (
     (
       {
+        Nutrition: "/nutrition",
         Home: "/",
         Coach: "/coach",
         Calendar: "/calendar",
@@ -493,7 +497,7 @@ function AppWorkspace() {
           className={
             selectedWorkout && selectedWorkout.status !== "completed"
               ? "planned-workout-nav-shell"
-              : activeItem === "Home" && !selectedWorkout && !selectedReport
+              : (activeItem === "Home" || activeItem === "Nutrition") && !selectedWorkout && !selectedReport
               ? "home-dashboard-shell"
               : (isCoachPage || activeItem === "Library") &&
                   !selectedWorkout &&
@@ -512,7 +516,8 @@ function AppWorkspace() {
             activeItem !== "Settings" &&
             !isCoachPage &&
             activeItem !== "Library" &&
-            activeItem !== "Workout Reports" && (
+            activeItem !== "Workout Reports" &&
+            activeItem !== "Nutrition" && (
               <MobileSiteNavbar
                 title={
                   activeItem === "Home" ? (
@@ -523,7 +528,7 @@ function AppWorkspace() {
                 }
               />
             )}
-          <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:flex">
+          {activeItem !== "Nutrition" && <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:flex">
             {selectedWorkout?.status === "completed" && (
               <Button
                 type="button"
@@ -587,7 +592,7 @@ function AppWorkspace() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </header>
+          </header>}
           <main
             className={`flex min-h-0 flex-1 ${
               selectedWorkout
@@ -596,6 +601,8 @@ function AppWorkspace() {
                   ? "coach-page-main overflow-hidden md:pb-0"
                   : activeItem === "Settings"
                     ? "overflow-hidden pb-0"
+                    : activeItem === "Nutrition"
+                      ? "nutrition-page-main pb-0"
                     : activeItem === "Annual Plan"
                       ? "w-full overflow-hidden pb-0"
                       : "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
@@ -603,7 +610,7 @@ function AppWorkspace() {
           >
             <PageErrorBoundary resetKey={`${activeItem}:${selectedWorkout?.id ?? ""}`}>
               <Suspense fallback={<RouteFallback />}>
-                <MobilePageTabs activeItem={["Workout Reports", "Library"].includes(activeItem) ? "Settings" : activeItem}>
+                <MobilePageTabs activeItem={["Workout Reports", "Library", "Nutrition"].includes(activeItem) ? "Settings" : activeItem}>
                 <RouteScrollReset route={`${activeItem}:${selectedWorkout?.id ?? ""}`} />
                 {activeItem === "Settings" && !selectedReport && (
                   <div className={selectedWorkout ? "hidden" : "flex min-h-0 w-full min-w-0 flex-1"}>
@@ -617,6 +624,8 @@ function AppWorkspace() {
                     workout={selectedWorkout}
                     onBack={closeWorkout}
                   />
+                ) : activeItem === "Nutrition" ? (
+                  <NutritionPage />
                 ) : activeItem === "Home" ? (
                   <TrainingDashboard
                     onWorkoutOpen={openWorkout}
@@ -643,7 +652,7 @@ function AppWorkspace() {
           </main>
 
           <MobileNavbar
-            activeItem={["Workout Reports", "Library"].includes(navigationItem) ? "Settings" : navigationItem}
+            activeItem={["Workout Reports", "Library", "Nutrition"].includes(navigationItem) ? "Settings" : navigationItem}
             onNavigate={selectItem}
             onPrefetch={preloadPage}
           />
