@@ -367,7 +367,8 @@ function AppWorkspace() {
     const open = () => {
       setSelectedReport(restoreReportReader())
       setSelectedWorkout(null)
-      }
+      requestAnimationFrame(() => window.scrollTo({ top: 0 }))
+    }
     window.addEventListener("section11-report-open", open)
     return () => window.removeEventListener("section11-report-open", open)
   }, [])
@@ -416,7 +417,6 @@ function AppWorkspace() {
     setCalendarReturnScroll(null)
     rememberOpenWorkout(workout)
     startTransition(() => setSelectedWorkout(workout))
-    requestAnimationFrame(() => window.scrollTo({ top: 0 }))
   }
 
   const closeWorkout = () => {
@@ -662,3 +662,4 @@ export function App() {
 }
 
 export default App
+
