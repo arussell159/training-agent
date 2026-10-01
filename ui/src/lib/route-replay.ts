@@ -168,11 +168,15 @@ export function prepareReplayCamera(route: ReplayRoute) {
 export function replayCameraBearing(
   headings: number[],
   progress: number,
-  speed = 1
+  speed = 1,
+  tourSeconds = 60
 ) {
   if (headings.length < 2) return headings[0] ?? 0
-  const pace = Math.max(1, Math.min(10, speed))
-  const radius = Math.min(0.18, 0.04 * pace)
+  const pace = Math.max(0.01, Math.min(10, (speed * 60) / tourSeconds))
+  const radius = Math.max(
+    1 / (headings.length - 1),
+    Math.min(0.18, 0.04 * pace)
+  )
   const center =
     Math.max(0, Math.min(1, progress)) + Math.min(0.07, 0.012 * pace)
   const intervals = headings.length - 1
@@ -188,4 +192,71 @@ export function replayCameraBearing(
     weights += weight
   }
   return weights ? sum / weights : headings[0]
+}
+
+/** Long rides need enough time for both the scenery and map tiles to keep up. */
+export function replayTourSeconds(route: ReplayRoute) {
+  return Math.max(
+    60,
+    route.timed ? route.duration / 24 : 0,
+    (route.distances.at(-1) ?? 0) / 150
+  )
+}
+
+/** One bounded, date-line-safe GPU route; no per-frame GeoJSON rebuilds. */
+export function replayGeometry(route: ReplayRoute) {
+  const stride = Math.max(1, Math.ceil((route.points.length - 1) / 6000))
+  const coordinates: number[][] = [],
+    indices: number[] = [],
+    lengths: number[] = []
+  const projectY = (lat: number) =>
+    (Math.log(Math.tan(Math.PI / 4 + radians(lat) / 2)) * 180) / Math.PI
+  let longitude = route.points[0]?.longitude ?? 0
+  let previousY = 0,
+    total = 0
+  for (let i = 0; i < route.points.length; i++) {
+    if (i)
+      longitude += longitudeDelta(
+        route.points[i - 1].longitude,
+        route.points[i].longitude
+      )
+    if (i % stride !== 0 && i !== route.points.length - 1) continue
+    const y = projectY(route.points[i].latitude)
+    if (coordinates.length)
+      total += Math.hypot(longitude - coordinates.at(-1)![0], y - previousY)
+    coordinates.push([longitude, route.points[i].latitude])
+    indices.push(i)
+    lengths.push(total)
+    previousY = y
+  }
+  return { coordinates, indices, lengths, total }
+}
+
+export function replayTrimProgress(
+  route: ReplayRoute,
+  geometry: ReturnType<typeof replayGeometry>,
+  frame: NonNullable<ReturnType<typeof replayFrame>>
+) {
+  let lo = 0,
+    hi = geometry.indices.length - 1
+  while (lo + 1 < hi) {
+    const mid = (lo + hi) >> 1
+    if (geometry.indices[mid] <= frame.index) lo = mid
+    else hi = mid
+  }
+  if (!geometry.total) return 0
+  const start = route.distances[geometry.indices[lo]],
+    end = route.distances[geometry.indices[hi]]
+  const fraction =
+    end > start
+      ? Math.max(
+          0,
+          Math.min(1, (frame.geometryDistance - start) / (end - start))
+        )
+      : 1
+  return (
+    (geometry.lengths[lo] +
+      (geometry.lengths[hi] - geometry.lengths[lo]) * fraction) /
+    geometry.total
+  )
 }

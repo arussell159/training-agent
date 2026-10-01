@@ -12,13 +12,14 @@ import { mapboxConfig } from "@/lib/mapbox-config"
 import type { PlannedWorkout } from "@/lib/training-context"
 import type { ReplayPoint } from "@/lib/route-replay"
 import { LiquidGlassLayer } from "@/components/ui/liquid-glass-layer"
+import { PageErrorBoundary } from "@/components/page-error-boundary"
 import "@/components/route-replay-button.css"
 
-const RouteReplay = lazy(() =>
+const loadReplay = () =>
   import("@/components/route-replay").then((module) => ({
     default: module.RouteReplay,
   }))
-)
+const RouteReplay = lazy(loadReplay)
 
 export function RouteReplayButton({
   workout,
@@ -39,6 +40,15 @@ export function RouteReplayButton({
         style={{ bottom }}
         aria-label="Replay route"
         title="Replay route"
+        onPointerEnter={() => {
+          void loadReplay().catch(() => {})
+        }}
+        onFocus={() => {
+          void loadReplay().catch(() => {})
+        }}
+        onTouchStart={() => {
+          void loadReplay().catch(() => {})
+        }}
         className="route-replay-trigger mobile-glass-action liquid-glass-button"
       >
         <LiquidGlassLayer />
@@ -57,31 +67,36 @@ export function RouteReplayButton({
           scrub through the route.
         </DialogDescription>
         {open && (
-          <Suspense
-            fallback={
-              <>
-                <DialogClose
-                  aria-label="Close route replay"
-                  className="absolute top-[max(1rem,env(safe-area-inset-top))] left-4 z-30 grid !size-11 place-items-center rounded-full bg-white !p-0 text-slate-900 shadow-md"
-                >
-                  <X className="size-5" />
-                </DialogClose>
-                <div
-                  role="status"
-                  className="grid h-full place-items-center text-sm text-slate-600"
-                >
-                  Preparing your replay…
-                </div>
-              </>
-            }
+          <PageErrorBoundary
+            resetKey={workout.id}
+            onClose={() => setOpen(false)}
           >
-            <RouteReplay
-              key={workout.id}
-              workout={workout}
-              points={points}
-              timed={timed}
-            />
-          </Suspense>
+            <Suspense
+              fallback={
+                <>
+                  <DialogClose
+                    aria-label="Close route replay"
+                    className="absolute top-[max(1rem,env(safe-area-inset-top))] left-4 z-30 grid !size-11 place-items-center rounded-full bg-white !p-0 text-slate-900 shadow-md"
+                  >
+                    <X className="size-5" />
+                  </DialogClose>
+                  <div
+                    role="status"
+                    className="grid h-full place-items-center text-sm text-slate-600"
+                  >
+                    Preparing your replay…
+                  </div>
+                </>
+              }
+            >
+              <RouteReplay
+                key={workout.id}
+                workout={workout}
+                points={points}
+                timed={timed}
+              />
+            </Suspense>
+          </PageErrorBoundary>
         )}
       </DialogContent>
     </Dialog>

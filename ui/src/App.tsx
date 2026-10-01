@@ -27,6 +27,7 @@ import {
 } from "lucide-react"
 import { useToastManager } from "@/components/ui/toast"
 import { RefreshProgressToast } from "@/components/refresh-progress-toast"
+import { PageErrorBoundary } from "@/components/page-error-boundary"
 
 import {
   DropdownMenu,
@@ -131,10 +132,12 @@ const WorkoutDetailPage = lazy(() =>
 
 function RouteFallback() {
   return (
-    <div
-      className="m-auto size-8 animate-pulse rounded-full bg-muted"
-      aria-label="Loading view"
-    />
+    <>
+      <div
+        className="m-auto size-6 animate-pulse rounded-full bg-muted"
+        aria-label="Loading view"
+      />
+    </>
   )
 }
 
@@ -191,16 +194,16 @@ function AppWorkspace() {
   useEffect(() => {
     let active = true
     const warm = async () => {
-      for (const item of ["Home", "Calendar", "Coach", "Library", "Settings", "Annual Plan", "Workout Reports"]) {
+      for (const item of [routeItem() === "Home" ? "Calendar" : "Home"]) {
         if (!active) return
         if (item !== routeItem()) await pageImports[item as keyof typeof pageImports]().catch(() => {})
       }
     }
     if ("requestIdleCallback" in window) {
-      const id = window.requestIdleCallback(() => void warm(), { timeout: 1500 })
+      const id = window.requestIdleCallback(() => void warm(), { timeout: 5000 })
       return () => { active = false; window.cancelIdleCallback(id) }
     }
-    const id = setTimeout(() => void warm(), 1000)
+    const id = setTimeout(() => void warm(), 3000)
     return () => { active = false; clearTimeout(id) }
   }, [])
   const [selectedReport, setSelectedReport] = useState(restoreReportReader)
@@ -330,9 +333,11 @@ function AppWorkspace() {
         setCalendarReturnScroll(workoutReturnScroll.current)
         workoutReturnRoute.current = null
       }
-      setSelectedReport(restoreReportReader())
-      setSelectedWorkout(restoredWorkout)
-      setActiveItem(route)
+      startTransition(() => {
+        setSelectedReport(restoreReportReader())
+        setSelectedWorkout(restoredWorkout)
+        setActiveItem(route)
+      })
       setNavigationItem(route)
     }
     window.addEventListener("popstate", handlePopState)
@@ -362,8 +367,7 @@ function AppWorkspace() {
     const open = () => {
       setSelectedReport(restoreReportReader())
       setSelectedWorkout(null)
-      requestAnimationFrame(() => window.scrollTo({ top: 0 }))
-    }
+      }
     window.addEventListener("section11-report-open", open)
     return () => window.removeEventListener("section11-report-open", open)
   }, [])
@@ -387,20 +391,14 @@ function AppWorkspace() {
     }
     setNavigationItem(item)
     preloadPage(item)
-    setSelectedReport(null)
-    setSelectedWorkout(null)
-    setActiveItem(item)
     startTransition(() => {
+      setSelectedReport(null)
+      setSelectedWorkout(null)
+      setActiveItem(item)
       if (item === "Calendar")
         setCalendarNavigationVersion((value) => value + 1)
     })
     window.history.pushState({}, "", itemPath(item))
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, left: 0, behavior: "auto" })
-      requestAnimationFrame(() =>
-        window.scrollTo({ top: 0, left: 0, behavior: "auto" })
-      )
-    })
   }
 
   useEffect(() => {
@@ -417,7 +415,7 @@ function AppWorkspace() {
     workoutReturnScroll.current = window.scrollY
     setCalendarReturnScroll(null)
     rememberOpenWorkout(workout)
-    setSelectedWorkout(workout)
+    startTransition(() => setSelectedWorkout(workout))
     requestAnimationFrame(() => window.scrollTo({ top: 0 }))
   }
 
@@ -603,9 +601,10 @@ function AppWorkspace() {
                       : "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
             }`}
           >
-            <MobilePageTabs activeItem={activeItem === "Workout Reports" ? "Settings" : activeItem}>
+            <PageErrorBoundary resetKey={`${activeItem}:${selectedWorkout?.id ?? ""}`}>
               <Suspense fallback={<RouteFallback />}>
-                <RouteScrollReset route={activeItem} />
+                <MobilePageTabs activeItem={["Workout Reports", "Library"].includes(activeItem) ? "Settings" : activeItem}>
+                <RouteScrollReset route={`${activeItem}:${selectedWorkout?.id ?? ""}`} />
                 {activeItem === "Settings" && !selectedReport && (
                   <div className={selectedWorkout ? "hidden" : "flex min-h-0 w-full min-w-0 flex-1"}>
                     <SettingsWorkspace onWorkoutOpen={openWorkout} />
@@ -638,12 +637,13 @@ function AppWorkspace() {
                 ) : activeItem === "Annual Plan" ? (
                   <AnnualPlanCreator />
                 ) : null}
+                </MobilePageTabs>
               </Suspense>
-            </MobilePageTabs>
+            </PageErrorBoundary>
           </main>
 
           <MobileNavbar
-            activeItem={navigationItem === "Workout Reports" ? "Settings" : navigationItem}
+            activeItem={["Workout Reports", "Library"].includes(navigationItem) ? "Settings" : navigationItem}
             onNavigate={selectItem}
             onPrefetch={preloadPage}
           />

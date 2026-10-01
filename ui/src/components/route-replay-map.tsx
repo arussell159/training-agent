@@ -7,6 +7,9 @@ import {
   prepareReplayCamera,
   replayCameraBearing,
   replayFrame,
+  replayGeometry,
+  replayTrimProgress,
+  replayTourSeconds,
   type ReplayRoute,
 } from "@/lib/route-replay"
 
@@ -23,6 +26,7 @@ type Props = {
   onIntroComplete: (value: boolean) => void
   onHorizonChange: (height: number) => void
   onError: (value: boolean) => void
+  onBuffering: (value: boolean) => void
 }
 const feature = (coordinates: number[][]) => ({
   type: "Feature" as const,
@@ -41,13 +45,16 @@ export function RouteReplayMap({
   onIntroComplete,
   onHorizonChange,
   onError,
+  onBuffering,
 }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const markerRef = useRef<mapboxgl.Marker | null>(null)
-  const latest = useRef({ progress, speed, threeD, following })
-  latest.current = { progress, speed, threeD, following }
+  const latest = useRef({ route, progress, speed, threeD, following })
+  latest.current = { route, progress, speed, threeD, following }
   const updateRef = useRef<() => void>(() => {})
+  const syncRouteRef = useRef<() => void>(() => {})
   useEffect(() => {
+    let route = latest.current.route
     if (!container.current || !mapboxConfig || route.points.length < 2) return
     onReady(false)
     onIntroComplete(false)
@@ -65,6 +72,8 @@ export function RouteReplayMap({
         attributionControl: false,
         logoPosition: "bottom-left",
         fadeDuration: 0,
+        projection: "mercator",
+        maxTileCacheSize: 128,
       })
       map.addControl(
         new mapboxgl.AttributionControl({ compact: true }),
@@ -117,32 +126,22 @@ export function RouteReplayMap({
       markers.push(marker)
       return marker
     }
-    // Keep source updates bounded even on long, second-by-second recordings.
-    const stride = Math.max(1, Math.ceil(route.points.length / 2000))
-    const coordinates: number[][] = []
-    let unwrapped = route.points[0].longitude
-    const longitudes = route.points.map((point, index) => {
-      if (index)
-        unwrapped += longitudeDelta(
-          route.points[index - 1].longitude,
-          point.longitude
-        )
-      return unwrapped
-    })
-    for (let i = 0; i < route.points.length; i += stride)
-      coordinates.push([longitudes[i], route.points[i].latitude])
-    coordinates.push([longitudes.at(-1)!, route.points.at(-1)!.latitude])
-    const bounds = new mapboxgl.LngLatBounds()
+    let geometry = replayGeometry(route)
+    let coordinates = geometry.coordinates
+    let bounds = new mapboxgl.LngLatBounds()
     for (const coordinate of coordinates)
       bounds.extend(coordinate as [number, number])
+    const followZoom = () =>
+      (route.distances.at(-1) ?? 0) > 30000 ? 14.5 : 15.5
     let previousProgress = -1,
       previousFollowing = true,
       previousThreeD = latest.current.threeD
-    const cameraHeadings = prepareReplayCamera(route)
+    let cameraHeadings = prepareReplayCamera(route)
     let bearing = replayCameraBearing(
       cameraHeadings,
       latest.current.progress,
-      latest.current.speed
+      latest.current.speed,
+      replayTourSeconds(route)
     )
     let previousCameraTime = performance.now()
     const update = () => {
@@ -151,22 +150,23 @@ export function RouteReplayMap({
         frame = replayFrame(route, state.progress)
       if (!frame) return
       const longitude =
-        longitudes[frame.index] +
-        longitudeDelta(route.points[frame.index].longitude, frame.longitude)
+        coordinates[0][0] + longitudeDelta(coordinates[0][0], frame.longitude)
       const position: [number, number] = [longitude, frame.latitude]
-      const traversed: number[][] = []
-      for (let i = 0; i <= frame.index; i += stride)
-        traversed.push([longitudes[i], route.points[i].latitude])
-      traversed.push(position)
-      ;(map.getSource("replay-trail") as mapboxgl.GeoJSONSource).setData(
-        feature(traversed)
-      )
+      if (state.progress !== previousProgress) {
+        const trim: [number, number] = [
+          replayTrimProgress(route, geometry, frame),
+          1,
+        ]
+        map.setPaintProperty("replay-casing", "line-trim-offset", trim)
+        map.setPaintProperty("replay-line", "line-trim-offset", trim)
+      }
       markerRef.current?.setLngLat(position)
       if (state.following) {
         const target = replayCameraBearing(
           cameraHeadings,
           state.progress,
-          state.speed
+          state.speed,
+          replayTourSeconds(route)
         )
         const jump =
           previousProgress < 0 ||
@@ -189,7 +189,7 @@ export function RouteReplayMap({
             )
         map.jumpTo({
           center: position,
-          zoom: 15.5,
+          zoom: followZoom(),
           pitch: state.threeD ? FOLLOW_PITCH : 0,
           bearing: state.threeD ? bearing : 0,
           padding: followPadding(),
@@ -211,6 +211,25 @@ export function RouteReplayMap({
       previousProgress = state.progress
       previousFollowing = state.following
       previousThreeD = state.threeD
+    }
+    syncRouteRef.current = () => {
+      if (route === latest.current.route) return
+      route = latest.current.route
+      geometry = replayGeometry(route)
+      coordinates = geometry.coordinates
+      bounds = new mapboxgl.LngLatBounds()
+      for (const coordinate of coordinates)
+        bounds.extend(coordinate as [number, number])
+      cameraHeadings = prepareReplayCamera(route)
+      previousProgress = -1
+      if (loaded) {
+        ;(map.getSource("replay-route") as mapboxgl.GeoJSONSource).setData(
+          feature(coordinates)
+        )
+        markers[0]?.setLngLat(coordinates[0] as [number, number])
+        markers[1]?.setLngLat(coordinates.at(-1)! as [number, number])
+        update()
+      }
     }
     const finishIntro = () => {
       if (!introducing) return
@@ -308,6 +327,7 @@ export function RouteReplayMap({
       })
       map.addSource("replay-route", {
         type: "geojson",
+        lineMetrics: true,
         data: feature(coordinates),
       })
       map.addLayer({
@@ -317,22 +337,26 @@ export function RouteReplayMap({
         paint: { "line-color": "#fff", "line-width": 3, "line-opacity": 0.2 },
         layout: { "line-cap": "round", "line-join": "round" },
       })
-      map.addSource("replay-trail", {
-        type: "geojson",
-        data: feature([coordinates[0], coordinates[0]]),
-      })
       map.addLayer({
         id: "replay-casing",
         type: "line",
-        source: "replay-trail",
-        paint: { "line-color": "#172029", "line-width": 10 },
+        source: "replay-route",
+        paint: {
+          "line-color": "#172029",
+          "line-width": 10,
+          "line-trim-offset": [0, 1],
+        },
         layout: { "line-cap": "round", "line-join": "round" },
       })
       map.addLayer({
         id: "replay-line",
         type: "line",
-        source: "replay-trail",
-        paint: { "line-color": "#ff641e", "line-width": 6 },
+        source: "replay-route",
+        paint: {
+          "line-color": "#ff641e",
+          "line-width": 6,
+          "line-trim-offset": [0, 1],
+        },
         layout: { "line-cap": "round", "line-join": "round" },
       })
       addMarker("#92d34e", 0, 16)
@@ -344,10 +368,15 @@ export function RouteReplayMap({
         finishIntro()
         return
       }
-      // Begin with the whole route overhead, then descend and tilt into follow view.
-      map.fitBounds(bounds, {
+      // A local entrance avoids downloading a whole long ride at several zoom levels.
+      const entrance = new mapboxgl.LngLatBounds()
+      for (let i = 0; i < coordinates.length; i++) {
+        entrance.extend(coordinates[i] as [number, number])
+        if (route.distances[geometry.indices[i]] > 1500) break
+      }
+      map.fitBounds(entrance, {
         padding: { top: 100, bottom: 140, left: 50, right: 50 },
-        maxZoom: 14,
+        maxZoom: 14.5,
         pitch: 0,
         bearing: 0,
         duration: 0,
@@ -356,13 +385,14 @@ export function RouteReplayMap({
       bearing = replayCameraBearing(
         cameraHeadings,
         latest.current.progress,
-        latest.current.speed
+        latest.current.speed,
+        replayTourSeconds(route)
       )
       introTimer = window.setTimeout(() => {
         map.once("moveend", finishIntro)
         map.flyTo({
           center: [first.longitude, first.latitude],
-          zoom: 15.5,
+          zoom: followZoom(),
           pitch: FOLLOW_PITCH,
           bearing,
           padding: followPadding(),
@@ -375,6 +405,32 @@ export function RouteReplayMap({
     map.on("error", () => {
       if (!loaded) onError(true)
     })
+    map.on("webglcontextlost", () => onError(true))
+    map.on("webglcontextrestored", () => {
+      onError(false)
+      update()
+    })
+    let missingSince = 0,
+      bufferingSince = 0
+    const imageryTimer = window.setInterval(() => {
+      if (!loaded || introducing) return
+      const now = performance.now()
+      if (map.areTilesLoaded() || !latest.current.following) {
+        missingSince = 0
+        if (bufferingSince) {
+          bufferingSince = 0
+          onBuffering(false)
+        }
+      } else if (bufferingSince && now - bufferingSince > 5000) {
+        bufferingSince = 0
+        missingSince = now
+        onBuffering(false)
+      } else if (!missingSince) missingSince = now
+      else if (!bufferingSince && now - missingSince > 750) {
+        bufferingSince = now
+        onBuffering(true)
+      }
+    }, 250)
     // Camera updates also emit rotation events; only a user gesture exits follow mode.
     map.on("dragstart", (event) => {
       if (event.originalEvent) {
@@ -399,20 +455,26 @@ export function RouteReplayMap({
     return () => {
       clearTimeout(timeout)
       clearTimeout(introTimer)
+      clearInterval(imageryTimer)
+      onBuffering(false)
       observer.disconnect()
       updateRef.current = () => {}
+      syncRouteRef.current = () => {}
       for (const marker of markers) marker.remove()
       map.remove()
       markerRef.current = null
     }
   }, [
-    route,
     onFollowingChange,
     onReady,
     onError,
     onIntroComplete,
     onHorizonChange,
+    onBuffering,
   ])
+  useEffect(() => {
+    syncRouteRef.current()
+  }, [route])
   useEffect(() => {
     updateRef.current()
   }, [progress, speed, threeD, following])

@@ -38,7 +38,9 @@ jobs:
         run: npm run typecheck
 
       - name: Test
-        run: npm test
+        run: |
+          npm test
+          npm run test:ui
 
       - name: Build deployable app
         run: npm run build

@@ -4,18 +4,18 @@
   "description": "A direct, practical triathlon coach connected to TrainingPeaks.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#050505",
-  "theme_color": "#050505",
+  "background_color": "#061a46",
+  "theme_color": "#061a46",
   "icons": [
     {
-      "src": "/ar-performance-background.png",
-      "sizes": "1254x1254",
+      "src": "/ar-performance-pwa-icon-v3.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/ar-performance-background.png",
-      "sizes": "1254x1254",
+      "src": "/ar-performance-pwa-icon-v3.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     }

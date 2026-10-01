@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { LocateFixed, Pause, Play, X } from "lucide-react"
 import { DialogClose } from "@/components/ui/dialog"
-import { apiFetch } from "@/lib/api-client"
+import {
+  cachedActivityAnalysis,
+  loadActivityAnalysis,
+} from "@/lib/activity-analysis"
 import {
   prepareReplayRoute,
   replayFrame,
+  replayTourSeconds,
   type ReplayPoint,
 } from "@/lib/route-replay"
 import type { PlannedWorkout } from "@/lib/training-context"
@@ -26,8 +30,21 @@ export function RouteReplay({
   points: ReplayPoint[]
   timed: boolean
 }) {
-  const [recorded, setRecorded] = useState<ReplayPoint[] | null>(null)
-  const [loading, setLoading] = useState(true)
+  const id =
+    workout.activity_id ||
+    (workout.id.startsWith("activity:") ? workout.id.slice(9) : null)
+  const revision =
+    (workout as PlannedWorkout & { activity_revision?: string })
+      .activity_revision || ""
+  const [recorded, setRecorded] = useState<ReplayPoint[] | null>(() =>
+    id
+      ? ((cachedActivityAnalysis(id, revision)?.points as ReplayPoint[]) ??
+        null)
+      : null
+  )
+  const [loading, setLoading] = useState(() =>
+    Boolean(id && !cachedActivityAnalysis(id, revision))
+  )
   const [progress, setProgress] = useState(0)
   const [playing, setPlaying] = useState(
     () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -41,16 +58,11 @@ export function RouteReplay({
   const [introComplete, setIntroComplete] = useState(false)
   const [horizonHeight, setHorizonHeight] = useState(0)
   const [mapError, setMapError] = useState(false)
+  const [buffering, setBuffering] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const [controlsVisible, setControlsVisible] = useState(true)
   const [interacting, setInteracting] = useState(false)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const id =
-    workout.activity_id ||
-    (workout.id.startsWith("activity:") ? workout.id.slice(9) : null)
-  const revision =
-    (workout as PlannedWorkout & { activity_revision?: string })
-      .activity_revision || ""
   useEffect(() => {
     if (!id) {
       setLoading(false)
@@ -59,18 +71,9 @@ export function RouteReplay({
     const controller = new AbortController()
     const timeout = window.setTimeout(() => controller.abort(), 15000)
     let active = true
-    void apiFetch(
-      `/api/activities/${encodeURIComponent(id)}/analysis?schema=8&v=${encodeURIComponent(revision)}`,
-      { signal: controller.signal }
-    )
-      .then(async (response) => {
-        if (!response.ok) throw Error()
-        return (await response.json()) as { points?: ReplayPoint[] }
-      })
+    void loadActivityAnalysis(id, revision, controller.signal)
       .then((data) => {
-        const route = prepareReplayRoute(data.points || [], true)
-        if (active && route.points.length > 1 && route.duration > 0)
-          setRecorded(data.points!)
+        if (active) setRecorded(data.points as ReplayPoint[])
       })
       .catch(() => {})
       .finally(() => {
@@ -83,11 +86,15 @@ export function RouteReplay({
       controller.abort()
     }
   }, [id, revision])
-  const route = useMemo(
-    () => prepareReplayRoute(recorded || points, recorded !== null || timed),
-    [recorded, points, timed]
-  )
+  const route = useMemo(() => {
+    if (recorded) {
+      const full = prepareReplayRoute(recorded, true)
+      if (full.points.length > 1 && full.duration > 0) return full
+    }
+    return prepareReplayRoute(points, timed)
+  }, [recorded, points, timed])
   const frame = replayFrame(route, progress)
+  const tourSeconds = replayTourSeconds(route)
   const ready =
     mapReady && introComplete && !mapError && !loading && route.duration > 0
   const clearHideTimer = () => {
@@ -109,9 +116,9 @@ export function RouteReplay({
       if (hideTimer.current !== null) clearTimeout(hideTimer.current)
     }
   }, [ready, playing, interacting])
-  // 1× is a one-minute tour; higher speeds shorten the tour, not the recorded data.
+  // Base duration scales with the recording and route length, including geometry-only routes.
   useEffect(() => {
-    if (!playing || !ready) return
+    if (!playing || !ready || buffering) return
     let request = 0,
       previous: number | null = null,
       lastPaint = 0
@@ -121,13 +128,15 @@ export function RouteReplay({
         const delta = Math.min(100, now - previous)
         previous = now
         lastPaint = now
-        setProgress((value) => Math.min(1, value + (delta * speed) / 60000))
+        setProgress((value) =>
+          Math.min(1, value + (delta * speed) / (tourSeconds * 1000))
+        )
       }
       request = requestAnimationFrame(tick)
     }
     request = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(request)
-  }, [playing, ready, speed])
+  }, [playing, ready, speed, tourSeconds, buffering])
   useEffect(() => {
     if (progress >= 1) setPlaying(false)
   }, [progress])
@@ -163,7 +172,7 @@ export function RouteReplay({
       onFocusCapture={revealControls}
       onKeyDownCapture={revealControls}
     >
-      {!loading && (
+      {
         <RouteReplayMap
           key={attempt}
           route={route}
@@ -176,8 +185,9 @@ export function RouteReplay({
           onIntroComplete={setIntroComplete}
           onHorizonChange={setHorizonHeight}
           onError={setMapError}
+          onBuffering={setBuffering}
         />
-      )}
+      }
       <div
         data-testid="replay-sky-gradient"
         aria-hidden="true"
@@ -189,6 +199,14 @@ export function RouteReplay({
             "linear-gradient(180deg, rgba(13,23,42,.88) 0%, rgba(22,36,62,.80) 48%, rgba(40,59,86,.66) 72%, rgba(40,59,86,.20) 90%, transparent 100%)",
         }}
       />
+      {buffering && !mapError && (
+        <div
+          role="status"
+          className="pointer-events-none absolute bottom-36 left-1/2 z-20 -translate-x-1/2 rounded-full bg-white/90 px-3 py-1 text-xs text-slate-700"
+        >
+          Loading map imagery…
+        </div>
+      )}
       <div
         data-testid="replay-metrics"
         className="pointer-events-none absolute inset-x-0 top-0 z-10 px-5 pt-[max(6rem,calc(env(safe-area-inset-top)+5rem))] pb-12 text-center text-white"
@@ -363,11 +381,11 @@ export function RouteReplay({
             <button
               type="button"
               aria-label={`Playback speed ${speed} times`}
-              title="1× completes the route in one minute"
+              title={`1× tour takes about ${Math.ceil(tourSeconds / 60)} minutes`}
               className={`${buttonClass} text-sm font-semibold tabular-nums`}
               onClick={() =>
                 setSpeed((value) => {
-                  const speeds = [1, 2, 5, 10]
+                  const speeds = [0.5, 1, 2, 5, 10]
                   return speeds[(speeds.indexOf(value) + 1) % speeds.length]
                 })
               }

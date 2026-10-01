@@ -6,11 +6,12 @@ let database: Promise<IDBDatabase | null> | undefined
 function openDatabase() {
   if (!database) database = new Promise(resolve => {
     if (typeof indexedDB === 'undefined') return resolve(null)
+    let finished = false
+    const timer = setTimeout(() => { finished = true; resolve(null) }, 1000)
     const request = indexedDB.open(DB_NAME, 1)
     request.onupgradeneeded = () => request.result.createObjectStore('records')
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => resolve(null)
-    request.onblocked = () => resolve(null)
+    request.onsuccess = () => { clearTimeout(timer); if(finished)request.result.close();else {finished=true;resolve(request.result)} }
+    request.onerror = request.onblocked = () => { clearTimeout(timer);finished=true;resolve(null) }
   })
   return database
 }
@@ -19,9 +20,10 @@ export async function readDeviceCache<T>(key: string): Promise<T | null> {
     const db = await openDatabase()
     if (!db) return null
     return await new Promise(resolve => {
+      const timer = setTimeout(() => resolve(null), 1000)
       const request = db.transaction('records').objectStore('records').get(key)
-      request.onsuccess = () => resolve(request.result?.value ?? null)
-      request.onerror = () => resolve(null)
+      request.onsuccess = () => { clearTimeout(timer);resolve(request.result?.value ?? null) }
+      request.onerror = () => { clearTimeout(timer);resolve(null) }
     })
   } catch { return null }
 }
@@ -50,5 +52,6 @@ export async function writeDeviceCache(key: string, value: unknown) {
   } catch { /* Device cache failure must never block the app or a durable save. */ }
 }
 export async function clearDeviceCache() {
+  window.dispatchEvent(new Event('device-cache-cleared'))
   try { const db=await openDatabase(); if(db)db.transaction('records','readwrite').objectStore('records').clear() } catch { /* Best effort. */ }
 }

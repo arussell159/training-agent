@@ -10,6 +10,7 @@ import {
 } from "react"
 import { Fingerprint, LoaderCircle, LockKeyhole, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { MobileStartupSplash } from "@/components/mobile-startup-splash"
 import {
   addPasskey,
   authError,
@@ -217,9 +218,12 @@ export function AppAuth({ children }: { children: ReactNode }) {
               Try again
             </Button>
           ) : (
-            <p role="status" className="text-sm text-muted-foreground">
-              Checking your session…
-            </p>
+            <>
+              <MobileStartupSplash />
+              <p role="status" className="hidden text-sm text-muted-foreground md:block">
+                Checking your session…
+              </p>
+            </>
           )
         ) : !session.configured ? (
           <p className="text-sm text-muted-foreground">

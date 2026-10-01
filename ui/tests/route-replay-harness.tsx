@@ -45,6 +45,8 @@ Framework7.use([
   Sortable,
 ])
 const fallback = new URLSearchParams(location.search).has("fallback")
+const longRide = new URLSearchParams(location.search).has("long")
+const slow = new URLSearchParams(location.search).has("slow")
 const today = new Date().toLocaleDateString("en-CA")
 const summary = {
   duration_seconds: 2880,
@@ -74,17 +76,33 @@ const workout: PlannedWorkout = {
   workout_summary: { planned: null, completed: summary },
   status: "completed",
 }
-const points = Array.from({ length: 481 }, (_, i) => {
-  const t = i / 480,
+if (longRide) {
+  Object.assign(summary, {
+    duration_seconds: 14400,
+    elapsed_time_seconds: 14400,
+    distance_meters: 160000,
+    average_speed: 160000 / 14400,
+  })
+  Object.assign(workout, {
+    title: "Long ride performance test",
+    sport: "Ride",
+    duration: "4h",
+    actualDurationMinutes: 240,
+    activity_revision: "long-v1",
+  })
+}
+const count = longRide ? 14401 : 481
+const points = Array.from({ length: count }, (_, i) => {
+  const t = i / (count - 1),
     out = t < 0.5 ? t * 2 : 2 - t * 2
   return {
-    time: i * 6,
+    time: t * summary.duration_seconds,
     latitude:
       29.7608 + Math.sin(out * Math.PI * 4) * 0.0015 + (t > 0.5 ? 0.0009 : 0),
-    longitude: -95.401 + out * 0.033,
-    distance: t * 8160,
+    longitude: -95.401 + out * (longRide ? 0.8 : 0.033),
+    distance: t * summary.distance_meters,
     elevation: 8 + Math.sin(t * Math.PI * 6) * 4,
-    speed: 2.8 + Math.sin(t * Math.PI * 8) * 0.4,
+    speed: (longRide ? 11 : 2.8) + Math.sin(t * Math.PI * 8) * 0.4,
     heartRate: Math.round(146 + Math.sin(t * Math.PI * 8) * 10),
     cadence: 170,
     power: null,
@@ -149,10 +167,17 @@ window.fetch = async (input, init) => {
   if (route.startsWith("sync")) return json({ context })
   if (route.includes("/route"))
     return json({ points: points.map((p) => [p.latitude, p.longitude]) })
-  if (route.includes("/analysis"))
+  if (route.includes("/analysis")) {
+    if (slow) await new Promise((resolve) => setTimeout(resolve, 6000))
     return fallback
       ? json({ error: "No recording" }, 404)
-      : json({ points, laps, intervals: laps, duration: 2880 })
+      : json({
+          points,
+          laps,
+          intervals: laps,
+          duration: summary.duration_seconds,
+        })
+  }
   if (route.includes("/summary")) return json(summary)
   if (route.includes("reports/status"))
     return json({

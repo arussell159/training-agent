@@ -6,6 +6,9 @@ import {
   replayBearing,
   prepareReplayCamera,
   replayCameraBearing,
+  replayTourSeconds,
+  replayGeometry,
+  replayTrimProgress,
 } from "../src/lib/route-replay.ts"
 
 const point = (time, longitude, values = {}) => ({
@@ -13,6 +16,73 @@ const point = (time, longitude, values = {}) => ({
   latitude: 30,
   longitude,
   ...values,
+})
+
+test("long rides scale the tour duration instead of being compressed into a minute", () => {
+  const route = prepareReplayRoute([point(0, -95), point(14400, -94)], true)
+  assert.ok(replayTourSeconds(route) >= 600)
+  assert.equal(
+    replayTourSeconds(
+      prepareReplayRoute([point(0, -95), point(60, -94.999)], true)
+    ),
+    60
+  )
+  assert.ok(
+    replayTourSeconds(
+      prepareReplayRoute([point(0, -95), point(1, -94)], false)
+    ) > 600
+  )
+})
+
+test("a 100,000-point recording has bounded geometry, exact endpoints and monotonic trim", () => {
+  const route = prepareReplayRoute(
+    Array.from({ length: 100000 }, (_, i) => point(i, -95 + i / 100000)),
+    true
+  )
+  const geometry = replayGeometry(route)
+  assert.ok(geometry.coordinates.length <= 6001)
+  assert.deepEqual(geometry.coordinates[0], [-95, 30])
+  assert.ok(
+    Math.abs(geometry.coordinates.at(-1)[0] - route.points.at(-1).longitude) <
+      1e-7
+  )
+  let previous = 0
+  for (let i = 0; i <= 1000; i++) {
+    const trim = replayTrimProgress(
+      route,
+      geometry,
+      replayFrame(route, i / 1000)
+    )
+    assert.ok(Number.isFinite(trim) && trim >= previous && trim <= 1)
+    previous = trim
+  }
+  assert.equal(previous, 1)
+})
+
+test("static geometry unwraps the date line and handles stationary recordings", () => {
+  const route = prepareReplayRoute([point(0, 179.9), point(60, -179.9)], true)
+  const geometry = replayGeometry(route)
+  assert.ok(Math.abs(geometry.coordinates[1][0] - 180.1) < 1e-8)
+  assert.ok(
+    Math.abs(
+      replayTrimProgress(route, geometry, replayFrame(route, 0.5)) - 0.5
+    ) < 0.001
+  )
+  const still = prepareReplayRoute([point(0, -95), point(60, -95)], true)
+  assert.equal(
+    replayTrimProgress(still, replayGeometry(still), replayFrame(still, 0.5)),
+    0
+  )
+})
+
+test("very long tours retain continuous headings between camera samples", () => {
+  const headings = Array.from({ length: 1201 }, (_, i) => (i / 1200) * 180)
+  let previous = 0
+  for (let i = 0; i <= 10000; i++) {
+    const next = replayCameraBearing(headings, i / 10000, 0.5, 100000)
+    assert.ok(next >= previous - 1e-9 && next - previous < 0.2)
+    previous = next
+  }
 })
 test("playback interpolates by recorded elapsed time, not sample index", () => {
   const route = prepareReplayRoute(

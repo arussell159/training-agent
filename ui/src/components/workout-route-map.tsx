@@ -1,25 +1,139 @@
-import {useEffect,useMemo,useState} from 'react'
+import { useEffect, useMemo, useState } from "react"
 
-import {MapboxRouteMap,type MapRoutePoint} from '@/components/mapbox-route-map'
-import {apiFetch} from '@/lib/api-client'
-import {RouteReplayButton} from '@/components/route-replay-button'
-import type {PlannedWorkout} from '@/lib/training-context'
+import {
+  MapboxRouteMap,
+  type MapRoutePoint,
+} from "@/components/mapbox-route-map"
+import { cachedActivityRoute, loadActivityRoute } from "@/lib/activity-analysis"
+import { RouteReplayButton } from "@/components/route-replay-button"
+import type { PlannedWorkout } from "@/lib/training-context"
 
-type Coordinate=[number,number]
-export type TimedRoutePoint=MapRoutePoint
+type Coordinate = [number, number]
+export type TimedRoutePoint = MapRoutePoint
 
-export function WorkoutRouteMap({workout,onAvailable,timedPoints,highlightRange,compact=false,topPadding=0,bottomPadding=0,revealOffset=0}:{workout:PlannedWorkout;onAvailable?:(available:boolean)=>void;timedPoints?:TimedRoutePoint[];highlightRange?:[number,number]|null;compact?:boolean;topPadding?:number;bottomPadding?:number;revealOffset?:number}){
- const id=workout.activity_id || (workout.id.startsWith('activity:')?workout.id.slice(9):null)
- const revision=(workout as PlannedWorkout & {activity_revision?:string}).activity_revision || ''
- const key=`${id}:${revision}`
- const [route,setRoute]=useState<{key:string;points:Coordinate[]}|null>(null)
- const fetched=useMemo(()=>route?.key===key?route.points:[],[route,key])
- const validTimedPoints=useMemo(()=>(timedPoints || []).filter(point=>Number.isFinite(point.time)&&Number.isFinite(point.latitude)&&Number.isFinite(point.longitude)&&Math.abs(point.latitude)<=85&&Math.abs(point.longitude)<=180),[timedPoints])
- const usesTimedRoute=validTimedPoints.length>1
- const points=useMemo<TimedRoutePoint[]>(()=>usesTimedRoute?validTimedPoints:fetched.map(([latitude,longitude],time)=>({time,latitude,longitude})),[usesTimedRoute,validTimedPoints,fetched])
- const available=points.length>1
- useEffect(()=>{if(usesTimedRoute||!id)return;const controller=new AbortController();void apiFetch(`/api/activities/${encodeURIComponent(id)}/route?v=${encodeURIComponent(revision)}`,{signal:controller.signal}).then(async response=>{if(!response.ok)throw Error();return await response.json() as {points:Coordinate[]}}).then(data=>{if(!controller.signal.aborted)setRoute({key,points:(data.points || []).filter(point=>Array.isArray(point)&&point.length===2&&point.every(Number.isFinite)&&Math.abs(point[0])<=85&&Math.abs(point[1])<=180)})}).catch(()=>{});return()=>controller.abort()},[id,revision,key,usesTimedRoute])
- useEffect(()=>{onAvailable?.(available)},[available,onAvailable])
- if(!available)return route==null&&!usesTimedRoute?<div className={`bg-[#d7edf4] ${compact?'h-[280px]':'h-[min(48svh,420px)] min-h-[300px] md:h-[390px]'}`} aria-hidden="true"/>:null
- return <div className="relative" style={{height:compact?'280px':`calc(max(300px, min(48svh, 420px)) + ${revealOffset}px)`}}><MapboxRouteMap points={points} highlightRange={highlightRange} interactive={false} topPadding={topPadding} bottomPadding={bottomPadding} className="relative h-full overflow-hidden bg-[#eef2ed]"/><RouteReplayButton workout={workout} points={points} timed={usesTimedRoute} bottom={bottomPadding+10}/></div>
+export function WorkoutRouteMap({
+  workout,
+  onAvailable,
+  timedPoints,
+  highlightRange,
+  compact = false,
+  topPadding = 0,
+  bottomPadding = 0,
+  revealOffset = 0,
+}: {
+  workout: PlannedWorkout
+  onAvailable?: (available: boolean) => void
+  timedPoints?: TimedRoutePoint[]
+  highlightRange?: [number, number] | null
+  compact?: boolean
+  topPadding?: number
+  bottomPadding?: number
+  revealOffset?: number
+}) {
+  const id =
+    workout.activity_id ||
+    (workout.id.startsWith("activity:") ? workout.id.slice(9) : null)
+  const revision =
+    (workout as PlannedWorkout & { activity_revision?: string })
+      .activity_revision || ""
+  const key = `${id}:${revision}`
+  const [route, setRoute] = useState<{
+    key: string
+    points: Coordinate[]
+  } | null>(() => {
+    const points = id ? cachedActivityRoute(id, revision) : null
+    return points ? { key, points } : null
+  })
+  const [error, setError] = useState(false),
+    [retry, setRetry] = useState(0)
+  const fetched = useMemo(
+    () => (route?.key === key ? route.points : []),
+    [route, key]
+  )
+  const validTimedPoints = useMemo(
+    () =>
+      (timedPoints || []).filter(
+        (point) =>
+          Number.isFinite(point.time) &&
+          Number.isFinite(point.latitude) &&
+          Number.isFinite(point.longitude) &&
+          Math.abs(point.latitude) <= 85 &&
+          Math.abs(point.longitude) <= 180
+      ),
+    [timedPoints]
+  )
+  const usesTimedRoute = validTimedPoints.length > 1
+  const points = useMemo<TimedRoutePoint[]>(
+    () =>
+      usesTimedRoute
+        ? validTimedPoints
+        : fetched.map(([latitude, longitude], time) => ({
+            time,
+            latitude,
+            longitude,
+          })),
+    [usesTimedRoute, validTimedPoints, fetched]
+  )
+  const available = points.length > 1
+  useEffect(() => {
+    if (usesTimedRoute || !id) return
+    const controller = new AbortController()
+    setError(false)
+    void loadActivityRoute(id, revision, controller.signal)
+      .then((points) => {
+        if (!controller.signal.aborted) setRoute({ key, points })
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setError(true)
+      })
+    return () => controller.abort()
+  }, [id, revision, key, usesTimedRoute, retry])
+  useEffect(() => {
+    onAvailable?.(available)
+  }, [available, onAvailable])
+  if (!available && error)
+    return (
+      <div className="flex min-h-[180px] items-center justify-center gap-3 bg-muted/20 text-sm">
+        <span>Map couldn’t load.</span>
+        <button
+          type="button"
+          className="rounded-full border px-3 py-2"
+          onClick={() => setRetry((value) => value + 1)}
+        >
+          Retry map
+        </button>
+      </div>
+    )
+  if (!available)
+    return route == null && !usesTimedRoute ? (
+      <div
+        className={`bg-[#d7edf4] ${compact ? "h-[280px]" : "h-[min(48svh,420px)] min-h-[300px] md:h-[390px]"}`}
+        aria-hidden="true"
+      />
+    ) : null
+  return (
+    <div
+      className="relative"
+      style={{
+        height: compact
+          ? "280px"
+          : `calc(max(300px, min(48svh, 420px)) + ${revealOffset}px)`,
+      }}
+    >
+      <MapboxRouteMap
+        points={points}
+        highlightRange={highlightRange}
+        interactive={false}
+        topPadding={topPadding}
+        bottomPadding={bottomPadding}
+        className="relative h-full overflow-hidden bg-[#eef2ed]"
+      />
+      <RouteReplayButton
+        workout={workout}
+        points={points}
+        timed={usesTimedRoute}
+        bottom={bottomPadding + 10}
+      />
+    </div>
+  )
 }

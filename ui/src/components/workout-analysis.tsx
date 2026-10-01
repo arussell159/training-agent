@@ -8,6 +8,8 @@ import { MobileWorkoutSignals } from "@/components/mobile-workout-signals"
 import { WorkoutMapSplits } from "@/components/workout-map-splits"
 import { Button } from "@/components/ui/button"
 import { apiFetch } from "@/lib/api-client"
+import { cachedActivityAnalysis, loadActivityAnalysis } from "@/lib/activity-analysis"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { distanceSplits } from "@/lib/distance-splits"
 import { formatDuration, formatPace } from "@/lib/duration"
 import { segmentStatistics, type RecordedPoint } from "@/lib/segment-statistics"
@@ -35,7 +37,6 @@ type Segment = { id:string; label:string; start:number; end:number; kind:"lap"|"
 type RangeStats = ReturnType<typeof rangeStatistics>
 type PeakEffort = Segment & { seconds:number; value:number; metric:"pace"|"power"; stats:RangeStats }
 
-const cache = new Map<string,Analysis>()
 const cypressCenter: [number, number] = [-95.69, 29.97]
 const noRoutePoints: {time:number;latitude:number;longitude:number}[] = []
 
@@ -92,8 +93,8 @@ function rangeStatistics(points:Point[],start:number,end:number){
     if(finite(point.power))work+=point.power*elapsed
     if(finite(point.elevation)&&finite(next.elevation)){const change=next.elevation-point.elevation;if(change>0)gain+=change;else loss-=change}
   }
-  const maximum=(key:keyof Point)=>{const entries=values(key);return entries.length?Math.max(...entries):null}
-  const minimum=(key:keyof Point)=>{const entries=values(key);return entries.length?Math.min(...entries):null}
+  const maximum=(key:keyof Point)=>{const entries=values(key);return entries.length?entries.reduce((a,b)=>Math.max(a,b),-Infinity):null}
+  const minimum=(key:keyof Point)=>{const entries=values(key);return entries.length?entries.reduce((a,b)=>Math.min(a,b),Infinity):null}
   const distance=finite(firstDistance)&&finite(lastDistance)?Math.max(0,lastDistance-firstDistance):null
   const elevationChange=elevations.length?elevations.at(-1)!-elevations[0]:null
   return {...averages,start,end,distance,maxPower:maximum("power"),minHeartRate:minimum("heartRate"),maxHeartRate:maximum("heartRate"),maxSpeed:maximum("speed"),maxCadence:maximum("cadence"),elevationAverage:elevations.length?elevations.reduce((sum,value)=>sum+value,0)/elevations.length:null,elevationGain:gain,elevationLoss:loss,elevationChange,grade:distance&&elevationChange!=null?elevationChange/distance*100:null,workKj:work/1000}
@@ -219,14 +220,15 @@ export function WorkoutAnalysis({workout,onLapSelection,analysisOverride,compari
 }
 
 function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverride,comparisonMode,onComparisonStats}:{id:string;revision:string;workout:PlannedWorkout;summary?:WorkoutSummaryValues|null;onLapSelection?:(range:[number,number]|null)=>void;analysisOverride?:Analysis;comparisonMode:boolean;onComparisonStats?:(id:string,stats:WorkoutComparisonStats|null)=>void}){
-  const sport=workout.sport,cacheKey=`${id}${revision}:analysis-8`
-  const [data,setData]=useState<Analysis|null>(analysisOverride||cache.get(cacheKey)||null),[error,setError]=useState(""),[retry,setRetry]=useState(0),[totals,setTotals]=useState<WorkoutSummaryValues|null>(summary||null)
+  const mobile = useIsMobile()
+  const sport=workout.sport
+  const [data,setData]=useState<Analysis|null>(analysisOverride||cachedActivityAnalysis(id,revision)||null),[error,setError]=useState(""),[retry,setRetry]=useState(0),[totals,setTotals]=useState<WorkoutSummaryValues|null>(summary||null)
   const [range,setRange]=useState<[number,number]|null>(null),[cursor,setCursor]=useState<number|null>(null),[selection,setSelection]=useState<[number,number]|null>(null),[selected,setSelected]=useState(""),[hovered,setHovered]=useState<Segment|null>(null)
   const [hiddenTracks,setHiddenTracks]=useState<string[]>([])
   const gesture=useRef<{x:number;time:number;range:[number,number];overview:boolean;pan:boolean}|null>(null)
   const draggedChart=useRef(false)
   useEffect(()=>{if(analysisOverride)return;const controller=new AbortController();void apiFetch(`/api/activities/${encodeURIComponent(id)}/summary?v=${encodeURIComponent(revision)}&schema=2`,{signal:controller.signal}).then(async response=>{if(!response.ok)throw Error();return await response.json() as WorkoutSummaryValues}).then(values=>{if(!controller.signal.aborted)setTotals({...summary,...values})}).catch(()=>{});return()=>controller.abort()},[id,revision,summary,analysisOverride])
-  useEffect(()=>{if(analysisOverride){setData(analysisOverride);return}if(cache.has(cacheKey)){setData(cache.get(cacheKey)!);return}const controller=new AbortController();setError("");void apiFetch(`/api/activities/${encodeURIComponent(id)}/analysis?schema=8&v=${encodeURIComponent(revision)}`,{signal:controller.signal}).then(async response=>{if(!response.ok)throw Error("The recording could not be loaded.");return await response.json() as Analysis}).then(value=>{cache.set(cacheKey,value);if(cache.size>20)cache.delete(cache.keys().next().value!);if(!controller.signal.aborted)setData(value)}).catch(reason=>{if(reason.name!=="AbortError")setError(reason.message)});return()=>controller.abort()},[id,retry,revision,cacheKey,analysisOverride])
+  useEffect(()=>{if(analysisOverride){setData(analysisOverride);return}const controller=new AbortController();setError("");void loadActivityAnalysis(id,revision,controller.signal).then(value=>{if(!controller.signal.aborted)setData(value)}).catch(reason=>{if(!controller.signal.aborted)setError(reason.message)});return()=>controller.abort()},[id,retry,revision,analysisOverride])
   const duration=data?.duration||1,view:[number,number]=range||[0,duration],swim=sport.toLowerCase().includes("swim"),run=sport.toLowerCase().includes("run"),bike=/bike|ride|cycl/i.test(sport)
   const available=useMemo(()=>({elevation:Boolean(data?.points.some(point=>point.elevation!=null)),power:Boolean(data?.points.some(point=>point.power!=null)),speed:Boolean(data?.points.some(point=>point.speed!=null)),heartRate:Boolean(data?.points.some(point=>point.heartRate!=null)),cadence:Boolean(data?.points.some(point=>point.cadence!=null))}),[data])
   const paceDistance=swim?METERS_PER_100_YARDS:1609.344
@@ -244,10 +246,10 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
   const effortMetric = run || swim ? "pace" : "power"
   const peaks = useMemo(
       () =>
-        peakEfforts(data?.points || [], duration, effortMetric, paceDistance),
-      [data, duration, effortMetric, paceDistance]
+        mobile ? [] : peakEfforts(data?.points || [], duration, effortMetric, paceDistance),
+      [mobile, data, duration, effortMetric, paceDistance]
     ),
-    terrain = useMemo(() => elevationSegments(data?.points || []), [data])
+    terrain = useMemo(() => mobile ? [] : elevationSegments(data?.points || []), [mobile, data])
   const plannedOverlay=useMemo(()=>plannedProfileOverlay(workout),[workout])
   const splitDistance=bike?8046.72:1609.344
   const splits=useMemo<Segment[]>(()=>swim?[]:distanceSplits(data?.points||[],splitDistance).map(split=>({id:`split-${split.number}`,label:bike?`${split.number*5} mi`:`${split.number} mi`,start:split.start,end:split.end,distance:split.distance,kind:"split",color:"#cbd5e1"})),[bike,data,splitDistance,swim])
@@ -280,6 +282,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
   if(error)return <div className="border p-4 text-sm">{error}<Button variant="outline" size="sm" className="ml-3" onClick={()=>setRetry(value=>value+1)}>Retry</Button></div>
   if(!data)return <div role="status" className="animate-pulse border bg-muted/30 p-8 text-center text-sm text-muted-foreground">Loading recorded signals and laps…</div>
   if(!data.points.length||(!allSignalTracks.length&&!data.dfa))return <div className="border border-dashed p-5 text-sm text-muted-foreground">No recorded signal stream is available for this activity.</div>
+  if(mobile)return <MobileWorkoutSignals points={data.points} laps={data.laps} duration={duration} sport={sport} summary={totals} dfa={data.dfa} onLapSelect={lap=>setSelected(lap?.id||"")} afterLaps={<WorkoutMapSplits workout={workout} analysis={data}/>}/>
   const selectionRange=selection?[Math.min(selection[0],selection[1]),Math.max(selection[0],selection[1])] as [number,number]:null
   const summaryRange=selectionRange||(hovered?[hovered.start,hovered.end]:range)
   const summaryStats=summaryRange?rangeStatistics(data.points,summaryRange[0],summaryRange[1]):activeStats
@@ -292,7 +295,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
     {title:"Heart rate & cadence",values:[["Avg HR",activeStats.heartRate!=null?`${Math.round(activeStats.heartRate)} bpm`:null],["Max HR",activeStats.maxHeartRate!=null?`${Math.round(activeStats.maxHeartRate)} bpm`:null],["Avg cadence",activeStats.cadence!=null?`${Math.round(activeStats.cadence)} ${unit("cadence")}`:null]]},
   ]
   const elevationProfile=data.points.map((point,index)=>{const nearby=data.points.slice(Math.max(0,index-3),index+4).map(entry=>value(entry,"elevation")).filter(finite);return {...point,smoothedElevation:nearby.length?nearby.reduce((sum,entry)=>sum+entry,0)/nearby.length:null}})
-  const elevationValues=elevationProfile.map(point=>point.smoothedElevation).filter(finite),elevationMin=Math.min(...elevationValues),elevationMax=Math.max(...elevationValues),elevationSpan=Math.max(1,elevationMax-elevationMin),elevationY=(entry:number)=>92-(entry-elevationMin)/elevationSpan*66
+  const elevationValues=elevationProfile.map(point=>point.smoothedElevation).filter(finite),elevationMin=elevationValues.reduce((a,b)=>Math.min(a,b),Infinity),elevationMax=elevationValues.reduce((a,b)=>Math.max(a,b),-Infinity),elevationSpan=Math.max(1,elevationMax-elevationMin),elevationY=(entry:number)=>92-(entry-elevationMin)/elevationSpan*66
   let fullElevationPath="",previousElevation=false
   for(const point of elevationProfile){if(point.smoothedElevation==null){previousElevation=false;continue}fullElevationPath+=`${previousElevation?"L":"M"}${x(point.time,true).toFixed(1)},${elevationY(point.smoothedElevation).toFixed(1)} `;previousElevation=true}
   const plannedProfilePath=plannedOverlay.map(point=>`${point.position===0?"M":"L"}${(plotLeft+point.position*plotWidth).toFixed(1)},${(92-(.12+point.intensity*.76)*66).toFixed(1)}`).join(" ")
@@ -328,13 +331,12 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
       : []
     const lapAveraged=intervalValues.length>0
     const values=lapAveraged?intervalValues:visible.map(point=>value(point,key)).filter((entry):entry is number=>entry!=null)
-    const rawMin=Math.min(...values),rawMax=Math.max(...values),padding=Math.max((rawMax-rawMin)*.08,key==="pace"?1:.5),min=rawMin-padding,max=rawMax+padding,span=Math.max(1,max-min),top=comparisonMode?12:lane*laneHeight+4,graphBottom=comparisonMode?height-12:top+58
+    const rawMin=values.reduce((a,b)=>Math.min(a,b),Infinity),rawMax=values.reduce((a,b)=>Math.max(a,b),-Infinity),padding=Math.max((rawMax-rawMin)*.08,key==="pace"?1:.5),min=rawMin-padding,max=rawMax+padding,span=Math.max(1,max-min),top=comparisonMode?12:lane*laneHeight+4,graphBottom=comparisonMode?height-12:top+58
     const average=key==="pace"?(activeStats.speed?paceDistance/activeStats.speed:null):key==="speed"?(activeStats.speed!=null?activeStats.speed*2.2369362920544:null):key==="power"?activeStats.power:key==="heartRate"?activeStats.heartRate:activeStats.cadence
     const livePoint=lapAveraged?swimIntervals.find(interval=>cursor!=null&&cursor>=interval.lap.start&&cursor<=interval.lap.end)?.point:nearest
     return {key,rawMin,rawMax,min,max,span,top,graphBottom,average,peak:key==="pace"?rawMin:rawMax,live:livePoint?value(livePoint,key):null,lapAveraged}
   })
   return <>
-    <div className="space-y-5 md:hidden"><MobileWorkoutSignals points={data.points} laps={data.laps} duration={duration} sport={sport} summary={totals} dfa={data.dfa} onLapSelect={lap=>setSelected(lap?.id||"")} afterLaps={<WorkoutMapSplits workout={workout} analysis={data}/>}/></div>
     <section aria-label="Recorded workout analysis" className="workout-analysis-desktop hidden min-w-0 space-y-3 md:block">
       {!comparisonMode&&<section className={`grid overflow-hidden rounded-xl border bg-card ${routePoints.length>1||swim?"lg:grid-cols-2":"grid-cols-1"}`} aria-label="Workout overview">
         {routePoints.length>1

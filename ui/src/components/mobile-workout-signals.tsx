@@ -221,8 +221,8 @@ export function MobileWorkoutSignals({
           .map((p) => value(p, key))
           .filter((v): v is number => v != null)
         if (!values.length) return null
-        const lo = key === "pace" ? Math.min(...values) * 0.85 : 0,
-          hi = Math.max(lo + 1, ...values) * 1.08
+        const lo = key === "pace" ? values.reduce((a, b) => Math.min(a, b), Infinity) * 0.85 : 0,
+          hi = values.reduce((a, b) => Math.max(a, b), lo + 1) * 1.08
         const y = (v: number) =>
           key === "pace"
             ? 40 + ((v - lo) / (hi - lo)) * 160
