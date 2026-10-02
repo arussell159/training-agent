@@ -1,4 +1,6 @@
 import type { PlannedWorkout } from "@/lib/training-context"
+import { durationMinutes } from "@/lib/training-context"
+import { formatDuration } from "@/lib/duration"
 
 export type WorkoutTss = { value: number; estimated: boolean } | null
 
@@ -37,4 +39,23 @@ export function formatWorkoutTss(workout: PlannedWorkout): string {
   if (!tss) return "—"
   const value = Math.round(tss.value).toLocaleString("en-US")
   return `${tss.estimated ? "~" : ""}${value} TSS`
+}
+
+export function workoutTime(workout: PlannedWorkout): { label: string; value: string } {
+  const recordedMinutes =
+    workout.workout_summary?.completed?.duration_seconds != null
+      ? workout.workout_summary.completed.duration_seconds / 60
+      : workout.actualDurationMinutes ?? workout.completed_data?.duration_minutes ?? 0
+  const hasRecordedTime = workout.status === "completed" && recordedMinutes > 0
+  const minutes = hasRecordedTime ? recordedMinutes : durationMinutes(workout)
+  const value =
+    !hasRecordedTime && workout.planned_time_label
+      ? workout.planned_time_label
+      : minutes > 0
+        ? formatDuration(minutes)
+        : "—"
+  return {
+    label: hasRecordedTime ? "Completed time" : "Est. time",
+    value,
+  }
 }

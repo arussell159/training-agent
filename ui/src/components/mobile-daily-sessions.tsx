@@ -11,7 +11,7 @@ import {
 import { dailyWorkouts, dashboardToday } from "@/lib/dashboard-metrics"
 import { WorkoutProfile } from "@/components/workout-profile"
 import { formatDuration } from "@/lib/duration"
-import { formatWorkoutTss } from "@/lib/workout-metrics"
+import { formatWorkoutTss, workoutTime } from "@/lib/workout-metrics"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
 import {
   durationMinutes,
@@ -56,6 +56,7 @@ function SessionCard({
   onMoveDay: (offset: number) => void
 }) {
   const completed = workout?.status === "completed"
+  const time = workout ? workoutTime(workout) : null
   return (
     <Card
       role={workout ? "button" : "group"}
@@ -108,10 +109,10 @@ function SessionCard({
         </div>
         <div className="grid grid-cols-3 gap-3 border-t pt-4">
           <div>
-            <p className="text-xs text-muted-foreground">Duration</p>
+            <p className="text-xs text-muted-foreground">{time?.label ?? "Est. time"}</p>
             <p className="mt-1 flex items-center gap-2 font-medium">
               <Clock3 className="size-4" />
-              {workout ? formatDuration(durationMinutes(workout)) : "—"}
+              {time?.value ?? "—"}
             </p>
           </div>
           <div>

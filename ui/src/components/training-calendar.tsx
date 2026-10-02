@@ -14,7 +14,7 @@ import { WorkoutProfile } from "@/components/workout-profile"
 import { WorkoutSummary } from "@/components/workout-summary"
 import { canEditWorkout } from "@/lib/workout-permissions"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
-import { formatWorkoutTss } from "@/lib/workout-metrics"
+import { formatWorkoutTss, workoutTime } from "@/lib/workout-metrics"
 import {
   forgetOpenWorkout,
   rememberOpenWorkout,
@@ -283,6 +283,7 @@ function MobileWorkoutRow({
       : durationMinutes(workout)
   const distance = estimatedDistance(workout)
   const tss = formatWorkoutTss(workout)
+  const time = workoutTime(workout)
   const showProfile = hasWorkoutProfileTargets(workout)
   const compact = !showProfile || isLongZoneTwoWorkout(workout, minutes)
   const completed = workout.status === "completed"
@@ -313,7 +314,7 @@ function MobileWorkoutRow({
             </span>
           </span>
           <span className="shrink-0 whitespace-nowrap text-[15px] leading-5 font-normal tabular-nums text-foreground">
-            {minutes > 0 ? formatDuration(minutes) : "—"}
+            {time.label.replace(" time", "")}: {time.value}
           </span>
         </span>
         {(distance || tss !== "—") && (
@@ -382,10 +383,6 @@ export function WorkoutCard({
 }) {
   const grade = completionGrade(workout)
   const completed = workout.status === "completed"
-  const displayedMinutes =
-    workout.status === "completed" && completedMinutes(workout) > 0
-      ? completedMinutes(workout)
-      : durationMinutes(workout)
   const tss = formatWorkoutTss(workout)
   return (
     <Card
@@ -489,10 +486,9 @@ export function WorkoutCard({
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-muted-foreground md:text-xs">
-        {(displayedMinutes > 0 || workout.planned_time_label) && (
+        {time.value !== "—" && (
           <span>
-            {(workout.status !== "completed" && workout.planned_time_label) ||
-              formatDuration(displayedMinutes)}
+            {time.label.replace(" time", "")}: {time.value}
           </span>
         )}
         {estimatedDistance(workout) && (

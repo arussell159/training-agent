@@ -36,7 +36,7 @@ import { WorkoutProfile } from "@/components/workout-profile"
 import { EventsCard } from "@/components/race-events"
 import { MobileDailySessions } from "@/components/mobile-daily-sessions"
 import { hasWorkoutStructure } from "@/lib/workout-structure"
-import { formatWorkoutTss } from "@/lib/workout-metrics"
+import { formatWorkoutTss, workoutTime } from "@/lib/workout-metrics"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
 
 const recoveryChartConfig = {
@@ -380,6 +380,7 @@ export function SectionCards({
   const visibleTodayWorkout = todayWorkouts[
     Math.min(activeTodayWorkout, Math.max(todayWorkouts.length - 1, 0))
   ] ?? today
+  const todayWorkoutTime = visibleTodayWorkout ? workoutTime(visibleTodayWorkout) : null
   const fitness =
     context.metrics.fitness == null ? "—" : Math.round(context.metrics.fitness)
   const fatigue =
@@ -440,10 +441,10 @@ export function SectionCards({
           </p>
           <div className="grid grid-cols-3 gap-4 border-t pt-4">
             <div>
-              <p className="text-xs text-muted-foreground">Duration</p>
+              <p className="text-xs text-muted-foreground">{todayWorkoutTime?.label ?? "Est. time"}</p>
               <p className="mt-1 flex items-center gap-2 font-medium">
                 <Clock3 className="size-4" />{" "}
-                {visibleTodayWorkout ? formatDuration(durationMinutes(visibleTodayWorkout)) : "—"}
+                {todayWorkoutTime?.value ?? "—"}
               </p>
             </div>
             <div>

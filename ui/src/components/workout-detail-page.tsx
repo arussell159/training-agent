@@ -22,7 +22,7 @@ import { WorkoutSummary } from "@/components/workout-summary"
 import { WorkoutRouteMap } from "@/components/workout-route-map"
 import { TrainingZonesDisplay } from "@/components/training-zones-display"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
-import { formatWorkoutTss } from "@/lib/workout-metrics"
+import { formatWorkoutTss, workoutTime } from "@/lib/workout-metrics"
 import {
   workoutStepLabel,
   type WorkoutStep,
@@ -517,6 +517,7 @@ export function WorkoutDetailPage({
         ? "Today"
         : "Planned"
   const load = formatWorkoutTss(workout)
+  const time = workoutTime(workout)
   const distanceLabel = plannedDistanceLabel(workout)
   const heroTone =
     workout.status === "completed"
@@ -678,12 +679,10 @@ export function WorkoutDetailPage({
                   <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                     <div>
                       <p className="text-[10px] font-medium tracking-wide uppercase opacity-65">
-                        Duration
+                        {time.label}
                       </p>
                       <p className="mt-1 text-xl font-bold tabular-nums">
-                        {workout.planned_time_label ||
-                          movingTime ||
-                          formatDuration(durationMinutes(workout))}
+                        {time.value}
                       </p>
                     </div>
                     <div>
@@ -830,9 +829,7 @@ export function WorkoutDetailPage({
               <div className="mt-3 flex flex-wrap items-center gap-x-7 gap-y-2">
                 <SportIcon sport={workout.sport} />
                 <span className="text-[1.4rem] leading-none font-semibold tabular-nums">
-                  {workout.planned_time_label ||
-                    movingTime ||
-                    formatDuration(durationMinutes(workout))}
+                  {time.value}
                 </span>
                 <span className="text-[1.4rem] leading-none font-semibold tabular-nums">
                   {plannedDistanceLabel(workout)}
@@ -949,7 +946,7 @@ export function WorkoutDetailPage({
                 <h1 className="truncate text-xl leading-tight font-bold">{workout.title}</h1>
                 <p className="mt-2 text-sm text-muted-foreground">{workout.sport} · {classifyPlannedWorkout(workout)}</p>
                 <div className="flex items-center gap-4 text-sm font-normal text-muted-foreground tabular-nums">
-                  <span>{workout.planned_time_label || movingTime || formatDuration(durationMinutes(workout))}</span>
+                  <span>{time.label}: {time.value}</span>
                   {load !== "—" && <span>{load}</span>}
                   <span>{plannedDistanceLabel(workout)}</span>
                 </div>
