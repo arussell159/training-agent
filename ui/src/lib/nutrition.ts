@@ -141,11 +141,59 @@ export const dateShift = (date: string, offset: number) => {
 export const foodTotals = (entries: FoodEntry[]) =>
   entries.reduce(
     (sum, entry) => {
-      for (const key of nutrientKeys) sum[key] += entry[key] ?? 0
+      for (const key of nutrientKeys) {
+        const value = Number(entry[key])
+        if (Number.isFinite(value)) sum[key] += value
+      }
       return sum
     },
     { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
   )
+
+type RecentFood = { entry: FoodEntry; loggedAt: number }
+const recentFoodsKey = () => `nutrition-search-recents:${deviceCacheScope()}`
+export function recentFoodsForMeal(meal: Meal): SavedFood[] {
+  try {
+    const rows = JSON.parse(localStorage.getItem(recentFoodsKey()) || "[]") as RecentFood[]
+    const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000
+    const seen = new Set<string>()
+    return rows
+      .filter((row) => row?.entry?.meal === meal && row.loggedAt >= cutoff)
+      .sort((a, b) => b.loggedAt - a.loggedAt)
+      .filter(({ entry }) => {
+        const key = `${entry.source}:${entry.foodId || entry.name.toLowerCase()}:${entry.servingId || entry.unit}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .slice(0, 12)
+      .map(({ entry }) => ({
+        id: `recent-${entry.id}`,
+        name: entry.name,
+        entries: [entry],
+        favorite: false,
+        custom: false,
+      }))
+  } catch {
+    return []
+  }
+}
+export function recordRecentFoods(entries: FoodEntry[]) {
+  try {
+    const rows = JSON.parse(localStorage.getItem(recentFoodsKey()) || "[]") as RecentFood[]
+    const loggedAt = Date.now()
+    const added = entries.map((entry) => ({ entry, loggedAt }))
+    const keys = new Set(
+      added.map(({ entry }) => `${entry.source}:${entry.foodId || entry.name.toLowerCase()}:${entry.servingId || entry.unit}`)
+    )
+    const retained = rows.filter(({ entry }) =>
+      !keys.has(`${entry.source}:${entry.foodId || entry.name.toLowerCase()}:${entry.servingId || entry.unit}`)
+    )
+    localStorage.setItem(recentFoodsKey(), JSON.stringify([...added, ...retained].slice(0, 60)))
+  } catch {
+    // Search suggestions are best-effort and never block saving food.
+  }
+}
 export const displayNutrient = (n: number | null | undefined) =>
   n == null ? "—" : Math.round(n).toLocaleString()
 export function blankFood(meal: Meal): FoodEntry {

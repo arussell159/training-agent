@@ -135,6 +135,7 @@ export function FoodEditor({
           step="any"
           inputMode="decimal"
           value={amount}
+          onFocus={(event) => event.currentTarget.select()}
           onChange={(e) => changeAmount(e.target.value)}
           onBlur={() => {
             if (!(Number(amount) > 0 && Number(amount) * factor <= 100000))

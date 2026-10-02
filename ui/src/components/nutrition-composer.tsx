@@ -8,12 +8,13 @@ import { FoodEditor } from "./nutrition-food-editor"
 import { FoodThumbnail } from "./food-thumbnail"
 import { portionLabel } from "@/lib/nutrition-math"
 import { NutritionScreen, nutritionSaveClass } from "./nutrition-screen"
-import { useIsMobile } from "@/hooks/use-mobile"
 import {
   blankFood,
   displayNutrient,
   foodFromProduct,
   foodTotals,
+  recentFoodsForMeal,
+  recordRecentFoods,
   nutritionRequest,
   titleCase,
   type FoodEntry,
@@ -49,7 +50,6 @@ export function NutritionComposer({
   onClose: () => void
   onSave: (entries: FoodEntry[], operationId: string) => Promise<void>
 }) {
-  const isMobile = useIsMobile()
   const [searchRetry, setSearchRetry] = useState(0)
   const [tab, setTab] = useState<Tab>(mode === "write" ? "type" : "all")
   const [pane, setPane] = useState<Pane>(
@@ -76,11 +76,17 @@ export function NutritionComposer({
     request = useRef<AbortController | null>(null),
     operation = useRef<string>(crypto.randomUUID())
   const searchHost = useRef<HTMLDivElement>(null)
+  const typeInput = useRef<HTMLTextAreaElement>(null)
   useEffect(() => {
-    if (pane === "browse" && tab !== "type")
-      searchHost.current
-        ?.querySelector<HTMLInputElement>('input[type="search"]')
-        ?.focus({ preventScroll: true })
+    const input = searchHost.current?.querySelector<HTMLInputElement>('input[type="search"]')
+    if (input) input.enterKeyHint = "search"
+  }, [pane, tab])
+  useEffect(() => {
+    if (pane !== "browse" || tab !== "type") return
+    const frame = requestAnimationFrame(() =>
+      typeInput.current?.focus({ preventScroll: true })
+    )
+    return () => cancelAnimationFrame(frame)
   }, [pane, tab])
   const quickOperations = useRef(
     new Map<string, { entries: FoodEntry[]; id: string }>()
@@ -221,6 +227,7 @@ export function NutritionComposer({
     setError("")
     try {
       await onSave(draft, operation.current)
+      if (!existing) recordRecentFoods(draft)
       onClose()
     } catch (e) {
       setError((e as Error).message)
@@ -246,6 +253,7 @@ export function NutritionComposer({
     }
     try {
       await onSave(pending.entries, pending.id)
+      recordRecentFoods(pending.entries)
       quickOperations.current.delete(key)
       setNotice(`Added ${name} to ${titleCase(meal)}.`)
     } catch (e) {
@@ -380,6 +388,7 @@ export function NutritionComposer({
       (tab === "favorites" ? item.favorite : item.custom) &&
       item.name.toLowerCase().includes(query.toLowerCase())
   )
+  const recentItems = recentFoodsForMeal(meal)
   function resultRow(item: SavedFood, p?: FoodProduct) {
     const saved = library?.items.find((i) => i.id === item.id),
       totals = foodTotals(item.entries)
@@ -546,14 +555,14 @@ export function NutritionComposer({
               <label className="block text-sm font-medium">
                 What did you eat?
                 <textarea
-                  autoFocus
+                  ref={typeInput}
                   aria-label="Meal description"
                   className="nutrition-textarea mt-3"
+                  enterKeyHint="send"
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   onKeyDown={(event) => {
                     if (
-                      isMobile ||
                       event.key !== "Enter" ||
                       event.shiftKey ||
                       event.nativeEvent.isComposing
@@ -594,7 +603,16 @@ export function NutritionComposer({
               )}
               {tab === "all" ? (
                 <>
-                  {busy ? (
+                  {query.trim().length < 2 && recentItems.length ? (
+                    <section aria-label={`Recent ${meal} foods`}>
+                      <h2 className="mb-3 text-sm font-semibold">
+                        Recent for {meal}
+                      </h2>
+                      <div className="nutrition-result-list">
+                        {recentItems.map((item) => resultRow(item))}
+                      </div>
+                    </section>
+                  ) : busy ? (
                     <p role="status" className="nutrition-empty">
                       <LoaderCircle className="mx-auto mb-2 size-5 animate-spin" />
                       Searching foods…

@@ -121,7 +121,11 @@ export function validateEntry(input) {
 }
 export function nutritionTotals(entries) {
   const result = Object.fromEntries(NUTRIENTS.map((key) => [key, 0]));
-  for (const entry of entries) for (const key of NUTRIENTS) result[key] += entry[key] ?? 0;
+  for (const entry of entries)
+    for (const key of NUTRIENTS) {
+      const value = Number(entry[key]);
+      if (Number.isFinite(value)) result[key] += value;
+    }
   return result;
 }
 
