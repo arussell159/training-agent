@@ -946,7 +946,7 @@ export function WorkoutDetailPage({
                 <h1 className="truncate text-xl leading-tight font-bold">{workout.title}</h1>
                 <p className="mt-2 text-sm text-muted-foreground">{workout.sport} · {classifyPlannedWorkout(workout)}</p>
                 <div className="flex items-center gap-4 text-sm font-normal text-muted-foreground tabular-nums">
-                  <span>{workout.planned_time_label || movingTime || formatDuration(durationMinutes(workout))}</span>
+                  <span>{time.label}: {time.value}</span>
                   {load !== "—" && <span>{load}</span>}
                   <span>{plannedDistanceLabel(workout)}</span>
                 </div>
