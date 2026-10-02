@@ -79,8 +79,17 @@ export function NutritionComposer({
   const typeInput = useRef<HTMLTextAreaElement>(null)
   useEffect(() => {
     const input = searchHost.current?.querySelector<HTMLInputElement>('input[type="search"]')
-    if (input) input.enterKeyHint = "search"
-  }, [pane, tab])
+    if (!input) return
+    input.enterKeyHint = "send"
+    const submit = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || !query.trim()) return
+      event.preventDefault()
+      setSearchRetry((value) => value + 1)
+      input.blur()
+    }
+    input.addEventListener("keydown", submit)
+    return () => input.removeEventListener("keydown", submit)
+  }, [pane, tab, query])
   useEffect(() => {
     if (pane !== "browse" || tab !== "type") return
     const frame = requestAnimationFrame(() =>
