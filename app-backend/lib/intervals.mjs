@@ -497,15 +497,35 @@ export function pairIntervalsWorkouts(events, activities) {
       used.add(String(activity.id));
     }
   }
-  const key = (item) => {
-    const title = String(item.name || "")
+  const titleKey = (item) =>
+    String(item.name || "")
       .trim()
       .toLowerCase()
       .replace(/\s+/g, " ");
-    const day = String(item.start_date_local || "").slice(0, 10);
+  const dayKey = (item) => String(item.start_date_local || "").slice(0, 10);
+  const key = (item) => {
+    const title = titleKey(item);
+    const day = dayKey(item);
     return title && /^\d{4}-\d{2}-\d{2}$/.test(day) && item.type
       ? `${day}|${sport(item.type)}|${title}`
       : null;
+  };
+  const canInferPair = (event, activity) => {
+    const eventKey = key(event);
+    const activityKey = key(activity);
+    if (eventKey && eventKey === activityKey) return true;
+
+    const title = titleKey(event);
+    return Boolean(
+      title &&
+        title === titleKey(activity) &&
+        title.includes("heat training") &&
+        dayKey(event) === dayKey(activity) &&
+        /^\d{4}-\d{2}-\d{2}$/.test(dayKey(event)) &&
+        event.type &&
+        activity.type &&
+        (sport(event.type) === "Other" || sport(activity.type) === "Other")
+    );
   };
   const availableEvents = events.filter(
     (e) => e.category === "WORKOUT" && e.paired_activity_id == null && !matches.has(String(e.id))
@@ -514,10 +534,18 @@ export function pairIntervalsWorkouts(events, activities) {
     (a) => a.paired_event_id == null && !used.has(String(a.id)) && !reserved.has(String(a.id))
   );
   for (const event of availableEvents) {
-    const signature = key(event);
-    if (!signature || availableEvents.filter((e) => key(e) === signature).length !== 1) continue;
-    const candidates = availableActivities.filter((a) => key(a) === signature);
-    if (candidates.length === 1) matches.set(String(event.id), candidates[0]);
+    const candidates = availableActivities.filter(
+      (activity) => !used.has(String(activity.id)) && canInferPair(event, activity)
+    );
+    if (candidates.length !== 1) continue;
+    const activity = candidates[0];
+    const competingEvents = availableEvents.filter(
+      (candidate) =>
+        !matches.has(String(candidate.id)) && canInferPair(candidate, activity)
+    );
+    if (competingEvents.length !== 1) continue;
+    matches.set(String(event.id), activity);
+    used.add(String(activity.id));
   }
   return matches;
 }
