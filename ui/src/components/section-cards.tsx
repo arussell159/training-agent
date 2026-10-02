@@ -36,6 +36,8 @@ import { WorkoutProfile } from "@/components/workout-profile"
 import { EventsCard } from "@/components/race-events"
 import { MobileDailySessions } from "@/components/mobile-daily-sessions"
 import { hasWorkoutStructure } from "@/lib/workout-structure"
+import { formatWorkoutTss } from "@/lib/workout-metrics"
+import { plannedDistanceLabel } from "@/lib/workout-distance"
 
 const recoveryChartConfig = {
   value: { label: "Daily value", color: "var(--primary)" },
@@ -436,7 +438,7 @@ export function SectionCards({
           <p className="line-clamp-2 min-h-10 text-sm leading-5 text-muted-foreground">
             {visibleTodayWorkout?.goal ?? "Keep the day easy and protect recovery."}
           </p>
-          <div className="grid grid-cols-2 gap-4 border-t pt-4">
+          <div className="grid grid-cols-3 gap-4 border-t pt-4">
             <div>
               <p className="text-xs text-muted-foreground">Duration</p>
               <p className="mt-1 flex items-center gap-2 font-medium">
@@ -445,9 +447,15 @@ export function SectionCards({
               </p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Training load</p>
+              <p className="text-xs text-muted-foreground">{visibleTodayWorkout?.status === "completed" ? "Completed TSS" : "Est. TSS"}</p>
               <p className="mt-1 font-medium tabular-nums">
-                {visibleTodayWorkout?.load ?? 0} TSS
+                {visibleTodayWorkout ? formatWorkoutTss(visibleTodayWorkout) : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">{visibleTodayWorkout?.status === "completed" ? "Distance" : "Est. distance"}</p>
+              <p className="mt-1 font-medium tabular-nums">
+                {visibleTodayWorkout ? plannedDistanceLabel(visibleTodayWorkout) : "—"}
               </p>
             </div>
           </div>

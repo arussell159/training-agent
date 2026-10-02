@@ -22,6 +22,7 @@ import { WorkoutSummary } from "@/components/workout-summary"
 import { WorkoutRouteMap } from "@/components/workout-route-map"
 import { TrainingZonesDisplay } from "@/components/training-zones-display"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
+import { formatWorkoutTss } from "@/lib/workout-metrics"
 import {
   workoutStepLabel,
   type WorkoutStep,
@@ -515,7 +516,7 @@ export function WorkoutDetailPage({
       : workout.status === "today"
         ? "Today"
         : "Planned"
-  const load = values?.tss ?? workout.load
+  const load = formatWorkoutTss(workout)
   const distanceLabel = plannedDistanceLabel(workout)
   const heroTone =
     workout.status === "completed"
@@ -693,13 +694,13 @@ export function WorkoutDetailPage({
                         {distanceLabel}
                       </p>
                     </div>
-                    {load != null && (
+                    {load !== "—" && (
                       <div>
                         <p className="text-[10px] font-medium tracking-wide uppercase opacity-65">
-                          Training load
+                          {workout.status === "completed" ? "Completed TSS" : "Est. TSS"}
                         </p>
                         <p className="mt-1 text-base font-semibold tabular-nums">
-                          {numeric(load)} TSS
+                          {load}
                         </p>
                       </div>
                     )}
@@ -838,7 +839,7 @@ export function WorkoutDetailPage({
                 </span>
                 {load != null && (
                   <span className="text-[1.4rem] leading-none font-semibold tabular-nums">
-                    {numeric(load)} <span className="text-xs">TSS</span>
+                    {load}
                   </span>
                 )}
               </div>
@@ -949,7 +950,8 @@ export function WorkoutDetailPage({
                 <p className="mt-2 text-sm text-muted-foreground">{workout.sport} · {classifyPlannedWorkout(workout)}</p>
                 <div className="flex items-center gap-4 text-sm font-normal text-muted-foreground tabular-nums">
                   <span>{workout.planned_time_label || movingTime || formatDuration(durationMinutes(workout))}</span>
-                  {load != null && <span>{numeric(load)} TSS</span>}
+                  {load !== "—" && <span>{load}</span>}
+                  <span>{plannedDistanceLabel(workout)}</span>
                 </div>
               </div>
 

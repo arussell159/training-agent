@@ -11,6 +11,8 @@ import {
 import { dailyWorkouts, dashboardToday } from "@/lib/dashboard-metrics"
 import { WorkoutProfile } from "@/components/workout-profile"
 import { formatDuration } from "@/lib/duration"
+import { formatWorkoutTss } from "@/lib/workout-metrics"
+import { plannedDistanceLabel } from "@/lib/workout-distance"
 import {
   durationMinutes,
   type PlannedWorkout,
@@ -34,17 +36,6 @@ function selectedDayLabel(day: string, today: string) {
   if (day === dateAt(today, -1)) return `Yesterday · ${label}`
   if (day === dateAt(today, 1)) return `Tomorrow · ${label}`
   return label
-}
-
-function trainingLoad(workout: PlannedWorkout) {
-  return Math.round(
-    workout.workout_summary?.completed?.tss ??
-      workout.workout_summary?.planned?.tss ??
-      workout.completed_data?.tss ??
-      workout.planned?.tss ??
-      workout.load ??
-      0
-  )
 }
 
 function SessionCard({
@@ -115,7 +106,7 @@ function SessionCard({
         <div className="h-20 shrink-0 overflow-hidden">
           {workout && <WorkoutProfile workout={workout} compact tall />}
         </div>
-        <div className="grid grid-cols-2 gap-4 border-t pt-4">
+        <div className="grid grid-cols-3 gap-3 border-t pt-4">
           <div>
             <p className="text-xs text-muted-foreground">Duration</p>
             <p className="mt-1 flex items-center gap-2 font-medium">
@@ -124,9 +115,15 @@ function SessionCard({
             </p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Training load</p>
+            <p className="text-xs text-muted-foreground">{completed ? "Completed TSS" : "Est. TSS"}</p>
             <p className="mt-1 font-medium tabular-nums">
-              {workout ? trainingLoad(workout) : 0} TSS
+              {workout ? formatWorkoutTss(workout) : "—"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">{completed ? "Distance" : "Est. distance"}</p>
+            <p className="mt-1 font-medium tabular-nums">
+              {workout ? plannedDistanceLabel(workout) : "—"}
             </p>
           </div>
         </div>
