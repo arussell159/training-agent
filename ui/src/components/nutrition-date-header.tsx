@@ -179,7 +179,7 @@ export function NutritionDateHeader({
           />
           <div
             id="nutrition-date-picker"
-            className={`mobile-calendar-picker-panel nutrition-date-panel ${closing ? "is-closing" : ""}`}
+            className={`mobile-calendar-picker-panel nutrition-date-panel ${mobile ? "nutrition-date-panel-mobile" : "nutrition-date-panel-desktop"} ${closing ? "is-closing" : ""}`}
             role="region"
             aria-label="Choose date"
           >

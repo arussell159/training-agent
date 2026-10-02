@@ -14,6 +14,7 @@ import {
 } from "react"
 import {
   ArrowLeft,
+  Apple,
   CalendarDays,
   BookOpen,
   Ellipsis,
@@ -147,6 +148,7 @@ const navigation = [
   { label: "Home", icon: Home },
   { label: "Calendar", icon: CalendarDays },
   { label: "Coach", icon: MessageCircle },
+  { label: "Nutrition", icon: Apple },
   { label: "Library", icon: Library },
   { label: "Annual Plan", icon: CalendarRange },
   { label: "Workout Reports", icon: TableProperties },

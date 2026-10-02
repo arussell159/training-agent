@@ -661,3 +661,30 @@ body.nutrition-flow-open .mobile-navbar {
   box-shadow: 0 1px 4px rgb(0 0 0 / 8%);
   border-color: rgb(48 65 76 / 15%);
 }
+
+@media (min-width: 768px) {
+  .nutrition-date-header.is-open {
+    position: relative;
+  }
+  .nutrition-date-dismiss {
+    display: none;
+  }
+  .nutrition-date-panel-desktop.mobile-calendar-picker-panel {
+    position: relative;
+    inset: auto;
+    z-index: 2;
+    width: min(340px, calc(100% - 32px));
+    max-width: 340px;
+    margin: 12px 28px 20px auto;
+    padding: 14px 16px 8px;
+    border: 1px solid rgb(15 23 42 / 9%);
+    border-radius: 20px;
+    background: #fff !important;
+    box-shadow: 0 16px 40px rgb(15 23 42 / 12%);
+  }
+  .nutrition-date-panel-desktop .calendar,
+  .nutrition-date-panel-desktop .calendar .calendar-months,
+  .nutrition-date-panel-desktop .calendar .calendar-month {
+    background: #fff;
+  }
+}
