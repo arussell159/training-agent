@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { previewConfig } from "./local-preview.mjs";
 import { fileURLToPath } from "node:url";
 
 const configPath = fileURLToPath(new URL("../config.json", import.meta.url));
@@ -13,7 +14,9 @@ async function bootstrap() {
       .filter((key) => process.env[key])
       .map((key) => [key, process.env[key]])
   );
-  return process.env.VERCEL ? { ...local, ...environment } : { ...environment, ...local };
+  return previewConfig(
+    process.env.VERCEL ? { ...local, ...environment } : { ...environment, ...local }
+  );
 }
 
 function stable(value) {

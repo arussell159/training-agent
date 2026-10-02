@@ -7,7 +7,7 @@ import {
   type Targets,
   type Nutrient,
 } from "@/lib/nutrition"
-import { calorieGoal } from "@/lib/nutrition-math"
+import { calorieGoal, dailyTargets } from "@/lib/nutrition-math"
 
 const colors = { protein: "#ed7d83", carbs: "#e6ae45", fat: "#7198e1" }
 export function MacroBars({
@@ -95,13 +95,15 @@ export function NutritionHomeCard({ date }: { date: string }) {
       <MacroBars
         totals={totals}
         targets={
-          data?.targets || {
-            calories: null,
-            protein: null,
-            carbs: null,
-            fat: null,
-            fiber: null,
-          }
+          data
+            ? dailyTargets(data.targets, exercise)
+            : {
+                calories: null,
+                protein: null,
+                carbs: null,
+                fat: null,
+                fiber: null,
+              }
         }
       />
     </button>

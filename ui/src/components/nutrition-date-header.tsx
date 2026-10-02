@@ -12,11 +12,15 @@ export function NutritionDateHeader({
   onSelect,
   onTargets,
   disabled,
+  onBack,
+  returnLabel,
 }: {
   date: string
   onSelect: (date: string) => void
   onTargets: () => void
   disabled: boolean
+  onBack: () => void
+  returnLabel: string
 }) {
   const mobile = useIsMobile()
   const [open, setOpen] = useState(false),
@@ -124,15 +128,9 @@ export function NutritionDateHeader({
   )
   const left = (
     <button
-      aria-label={open ? "Previous month" : "Back to More"}
+      aria-label={open ? "Previous month" : `Back to ${returnLabel}`}
       className="mobile-navbar-action liquid-glass-button"
-      onClick={() =>
-        open
-          ? shift(-1)
-          : window.dispatchEvent(
-              new CustomEvent("app-navigate", { detail: "Settings" })
-            )
-      }
+      onClick={() => (open ? shift(-1) : onBack())}
     >
       <ChevronLeft
         key={String(open)}

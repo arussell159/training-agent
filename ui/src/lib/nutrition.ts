@@ -15,7 +15,11 @@ export const nutrientKeys = [
   "fiber",
 ] as const
 export type Nutrient = (typeof nutrientKeys)[number]
-export type Targets = Record<Nutrient, number | null>
+export type Macro = "protein" | "carbs" | "fat"
+export type Targets = Record<Nutrient, number | null> & {
+  macroMode?: "grams" | "percent"
+  percentages?: Record<Macro, number | null>
+}
 export type FoodEntry = {
   id: string
   name: string
@@ -23,19 +27,38 @@ export type FoodEntry = {
   quantity: number
   unit: string
   gramsPerUnit?: number | null
+  millilitersPerUnit?: number | null
   servingQuantity?: number | null
   calories: number
   protein: number
   carbs: number
   fat: number
   fiber: number | null
-  source: "manual" | "ai" | "openfoodfacts"
+  source: "manual" | "ai" | "openfoodfacts" | "fatsecret"
+  foodId?: string
+  servingId?: string
   notes: string
   barcode: string | null
   imageUrl: string | null
   missingValues?: Nutrient[]
 }
+export type FatSecretServing = {
+  id: string
+  label: string
+  unit: string
+  units: number
+  metricAmount: number | null
+  metricUnit: string | null
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  fiber: number | null
+}
 export type FoodProduct = {
+  source?: "fatsecret"
+  servingId?: string
+  servings?: FatSecretServing[]
   code: string
   name: string
   brand: string
@@ -63,12 +86,23 @@ export type NutritionView = {
   targetsRevision: number
   aiAvailable: boolean
   localPreview: boolean
-  week: { date: string; logged: boolean; totals: Record<Nutrient, number> }[]
+  week: {
+    date: string
+    logged: boolean
+    totals: Record<Nutrient, number>
+    targets: Targets
+  }[]
 }
 export const titleCase = (value: string) =>
-  value[0].toUpperCase() + value.slice(1)
+  value.replace(
+    /(^|[\s(/-])([a-z])/g,
+    (_, prefix, c: string) => prefix + c.toUpperCase()
+  )
 export const nutritionToday = () => dashboardToday(cachedTrainingContext())
 export function useExerciseCalories(date: string) {
+  return useExerciseCaloriesForDates([date])[0]
+}
+export function useExerciseCaloriesForDates(dates: string[]) {
   const [context, setContext] = useState(cachedTrainingContext)
   useEffect(() => {
     const update = () => setContext(cachedTrainingContext())
@@ -79,7 +113,7 @@ export function useExerciseCalories(date: string) {
       window.removeEventListener("training-cache-reset", update)
     }
   }, [])
-  return completedWorkoutCalories(context, date)
+  return dates.map((date) => completedWorkoutCalories(context, date))
 }
 export function suggestedMeal(now = new Date()): Meal {
   const timeZone =
@@ -133,6 +167,35 @@ export function blankFood(meal: Meal): FoodEntry {
   }
 }
 export function foodFromProduct(product: FoodProduct, meal: Meal): FoodEntry {
+  if (product.source === "fatsecret") {
+    const serving = product.servings?.find((s) => s.id === product.servingId)
+    return {
+      ...blankFood(meal),
+      name: [product.name, product.brand]
+        .filter(Boolean)
+        .join(" · ")
+        .slice(0, 180),
+      source: "fatsecret",
+      foodId: product.code,
+      servingId: product.servingId,
+      quantity: 1,
+      unit: serving?.label.slice(0, 40) || product.servingSize.slice(0, 40),
+      servingQuantity: 1,
+      millilitersPerUnit:
+        serving?.metricUnit === "ml" ? serving.metricAmount : null,
+      gramsPerUnit:
+        serving?.metricUnit === "g"
+          ? serving.metricAmount
+          : serving?.metricUnit === "oz" && serving.metricAmount
+            ? serving.metricAmount * 28.349523125
+            : null,
+      calories: product.nutrients.calories || 0,
+      protein: product.nutrients.protein || 0,
+      carbs: product.nutrients.carbs || 0,
+      fat: product.nutrients.fat || 0,
+      fiber: product.nutrients.fiber,
+    }
+  }
   const portion =
     product.servingQuantity && product.servingQuantity > 0
       ? product.servingQuantity

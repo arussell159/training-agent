@@ -1,7 +1,5 @@
 import { NutritionHomeCard } from "@/components/nutrition-summary"
 import { useEffect, useState } from "react"
-import { formatDuration } from "@/lib/duration"
-import { durationMinutes } from "@/lib/training-context"
 import { dailyWorkouts, dashboardToday, recoverySeries, todaysWorkout } from "@/lib/dashboard-metrics"
 import {
   BedDouble,
@@ -36,6 +34,8 @@ import { WorkoutProfile } from "@/components/workout-profile"
 import { EventsCard } from "@/components/race-events"
 import { MobileDailySessions } from "@/components/mobile-daily-sessions"
 import { hasWorkoutStructure } from "@/lib/workout-structure"
+import { formatWorkoutTss, workoutTime } from "@/lib/workout-metrics"
+import { plannedDistanceLabel } from "@/lib/workout-distance"
 
 const recoveryChartConfig = {
   value: { label: "Daily value", color: "var(--primary)" },
@@ -378,6 +378,7 @@ export function SectionCards({
   const visibleTodayWorkout = todayWorkouts[
     Math.min(activeTodayWorkout, Math.max(todayWorkouts.length - 1, 0))
   ] ?? today
+  const todayWorkoutTime = visibleTodayWorkout ? workoutTime(visibleTodayWorkout) : null
   const fitness =
     context.metrics.fitness == null ? "—" : Math.round(context.metrics.fitness)
   const fatigue =
@@ -436,18 +437,24 @@ export function SectionCards({
           <p className="line-clamp-2 min-h-10 text-sm leading-5 text-muted-foreground">
             {visibleTodayWorkout?.goal ?? "Keep the day easy and protect recovery."}
           </p>
-          <div className="grid grid-cols-2 gap-4 border-t pt-4">
+          <div className="grid grid-cols-3 gap-4 border-t pt-4">
             <div>
-              <p className="text-xs text-muted-foreground">Duration</p>
+              <p className="text-xs text-muted-foreground">{todayWorkoutTime?.label ?? "Est. time"}</p>
               <p className="mt-1 flex items-center gap-2 font-medium">
                 <Clock3 className="size-4" />{" "}
-                {visibleTodayWorkout ? formatDuration(durationMinutes(visibleTodayWorkout)) : "—"}
+                {todayWorkoutTime?.value ?? "—"}
               </p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Training load</p>
+              <p className="text-xs text-muted-foreground">{visibleTodayWorkout?.status === "completed" ? "Completed TSS" : "Est. TSS"}</p>
               <p className="mt-1 font-medium tabular-nums">
-                {visibleTodayWorkout?.load ?? 0} TSS
+                {visibleTodayWorkout ? formatWorkoutTss(visibleTodayWorkout) : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">{visibleTodayWorkout?.status === "completed" ? "Distance" : "Est. distance"}</p>
+              <p className="mt-1 font-medium tabular-nums">
+                {visibleTodayWorkout ? plannedDistanceLabel(visibleTodayWorkout) : "—"}
               </p>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { previewConfig } from "./local-preview.mjs";
 import { fileURLToPath } from "node:url";
 import { createSupabaseSettingsStore } from "./settings-store.mjs";
 
@@ -14,7 +15,7 @@ async function store() {
       .map((k) => [k, process.env[k]])
   );
   return createSupabaseSettingsStore(
-    process.env.VERCEL ? { ...local, ...environment } : { ...environment, ...local }
+    previewConfig(process.env.VERCEL ? { ...local, ...environment } : { ...environment, ...local })
   );
 }
 // Files are migration inputs and read-through caches, never the durable save destination.

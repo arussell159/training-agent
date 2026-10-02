@@ -10,6 +10,7 @@ import {
   emptyTargets,
   nutritionDate,
   validateEntry,
+  validateTargets,
 } from "./nutrition-model.mjs";
 import { localNutritionRecords } from "./nutrition-local-store.mjs";
 import {
@@ -32,6 +33,37 @@ function memoryRecords() {
     },
   });
 }
+test("percentage macro targets validate and persist with effective dates", async () => {
+  const store = createNutritionStore(memoryRecords());
+  const targets = {
+    ...emptyTargets(),
+    calories: 2000,
+    macroMode: "percent",
+    percentages: { protein: 30, carbs: 45, fat: 25 },
+  };
+  await store.setTargets({ targets, revision: 0, effectiveDate: "2026-10-02" });
+  const saved = (await store.view("2026-10-03")).targets;
+  assert.equal(saved.protein, 150);
+  assert.equal(saved.carbs, 225);
+  assert.equal(saved.fat, 55.56);
+  assert.equal(saved.macroMode, "percent");
+  assert.deepEqual(saved.percentages, targets.percentages);
+  assert.equal((await store.view("2026-10-01")).targets.calories, null);
+  for (const invalid of [
+    { ...targets, calories: null },
+    { ...targets, percentages: { protein: 30, carbs: 30, fat: 30 } },
+    { ...targets, percentages: { protein: -1, carbs: 51, fat: 50 } },
+    { ...targets, percentages: { protein: null, carbs: 50, fat: 50 } },
+  ])
+    assert.throws(() => validateTargets(invalid));
+  await store.setTargets({
+    targets: { ...saved, macroMode: "grams", protein: 160 },
+    revision: 1,
+    effectiveDate: "2026-10-04",
+  });
+  assert.equal((await store.view("2026-10-05")).targets.protein, 160);
+  assert.equal((await store.view("2026-10-05")).targets.percentages, undefined);
+});
 const food = (patch = {}) => ({
   id: "test-food-123",
   name: "Cooked rice",
@@ -125,9 +157,12 @@ test("target changes preserve past days and apply to future days", async () => {
   await store.setTargets({ targets: next, revision: 1, effectiveDate: "2026-10-05" });
   assert.equal((await store.view("2026-09-30")).targets.calories, null);
   assert.equal((await store.view("2026-10-02")).targets.calories, 2400);
+  assert.equal((await store.view("2026-10-04")).targets.calories, 2400);
+  assert.equal((await store.view("2026-10-05")).targets.calories, 2600);
   assert.equal((await store.view("2026-10-06")).targets.calories, 2600);
   const week = (await store.view("2026-10-06")).week;
   assert.equal(week.find((d) => d.date === "2026-10-04").targets.calories, 2400);
+  assert.equal(week.find((d) => d.date === "2026-10-05").targets.calories, 2600);
 });
 
 test("favorite foods and reusable meals persist independently of the food log", async () => {

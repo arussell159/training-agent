@@ -9,6 +9,7 @@ import {
   type FoodProduct,
 } from "@/lib/nutrition"
 import { portionOptions, scaleFood } from "@/lib/nutrition-math"
+import { FoodThumbnail } from "./food-thumbnail"
 
 export function FoodEditor({
   entry,
@@ -36,7 +37,14 @@ export function FoodEditor({
     ? 1
     : options.find((option) => option.value === unit)?.factor || 1
   const [amount, setAmount] = useState(String(entry.quantity / factor))
-  const update = (patch: Partial<FoodEntry>) => onChange({ ...entry, ...patch })
+  const update = (patch: Partial<FoodEntry>) =>
+    onChange({
+      ...entry,
+      ...patch,
+      ...(editable
+        ? { source: "manual" as const, foodId: undefined, servingId: undefined }
+        : {}),
+    })
   const changeAmount = (value: string) => {
     setAmount(value)
     const q = Number(value) * factor
@@ -57,7 +65,15 @@ export function FoodEditor({
             />
           </label>
         ) : (
-          <h2 className="text-xl leading-tight font-bold">{entry.name}</h2>
+          <div className="flex items-center gap-3">
+            <FoodThumbnail
+              name={entry.name}
+              imageUrl={entry.imageUrl || product?.imageUrl}
+            />
+            <h2 className="text-xl leading-tight font-bold">
+              {titleCase(entry.name)}
+            </h2>
+          </div>
         )}
         {onRemove && (
           <Button

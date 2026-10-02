@@ -1,20 +1,12 @@
 import { useEffect, useRef, useState } from "react"
 import { Searchbar } from "framework7-react"
-import {
-  Camera,
-  ScanBarcode,
-  Search,
-  Star,
-  Plus,
-  LoaderCircle,
-  X,
-  Utensils,
-} from "lucide-react"
+import { Search, Star, Plus, LoaderCircle, X, Utensils } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
 import { FoodEditor } from "./nutrition-food-editor"
-import { NutritionScanner, prepareMealPhoto } from "./nutrition-scanner"
+import { FoodThumbnail } from "./food-thumbnail"
+import { portionLabel } from "@/lib/nutrition-math"
 import { NutritionScreen, nutritionSaveClass } from "./nutrition-screen"
 import {
   blankFood,
@@ -30,9 +22,9 @@ import {
   type FoodLibrary,
 } from "@/lib/nutrition"
 
-export type EntryMode = "write" | "search" | "scan" | "photo" | "manual"
+export type EntryMode = "write" | "search" | "manual"
 type Tab = "all" | "favorites" | "mine" | "type"
-type Pane = "browse" | "scan" | "photo" | "detail" | "custom"
+type Pane = "browse" | "detail" | "custom"
 const tabs: { value: Tab; label: string }[] = [
   { value: "all", label: "All" },
   { value: "favorites", label: "Favorites" },
@@ -45,7 +37,6 @@ export function NutritionComposer({
   existing,
   date,
   aiAvailable,
-  fixedMeal = false,
   onClose,
   onSave,
 }: {
@@ -54,26 +45,17 @@ export function NutritionComposer({
   existing?: FoodEntry
   date: string
   aiAvailable: boolean
-  fixedMeal?: boolean
   onClose: () => void
   onSave: (entries: FoodEntry[], operationId: string) => Promise<void>
 }) {
   const [searchRetry, setSearchRetry] = useState(0)
   const [tab, setTab] = useState<Tab>(mode === "write" ? "type" : "all")
   const [pane, setPane] = useState<Pane>(
-    existing
-      ? "detail"
-      : mode === "scan"
-        ? "scan"
-        : mode === "photo"
-          ? "photo"
-          : mode === "manual"
-            ? "custom"
-            : "browse"
+    existing ? "detail" : mode === "manual" ? "custom" : "browse"
   )
   const [query, setQuery] = useState(""),
-    [text, setText] = useState(""),
-    [photo, setPhoto] = useState<string | null>(null)
+    [text, setText] = useState("")
+
   const [products, setProducts] = useState<FoodProduct[] | null>(null),
     [library, setLibrary] = useState<FoodLibrary | null>(null)
   const [draft, setDraft] = useState<FoodEntry[]>(
@@ -82,6 +64,7 @@ export function NutritionComposer({
   const [product, setProduct] = useState<FoodProduct | null>(null),
     [customId, setCustomId] = useState<string | null>(null),
     [customName, setCustomName] = useState("")
+  const [ingredients, setIngredients] = useState<FoodEntry[] | null>(null)
   const [notes, setNotes] = useState(""),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -89,8 +72,14 @@ export function NutritionComposer({
     [saving, setSaving] = useState(false)
   const alive = useRef(true),
     request = useRef<AbortController | null>(null),
-    operation = useRef<string>(crypto.randomUUID()),
-    photoVersion = useRef(0)
+    operation = useRef<string>(crypto.randomUUID())
+  const searchHost = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (pane === "browse" && tab !== "type")
+      searchHost.current
+        ?.querySelector<HTMLInputElement>('input[type="search"]')
+        ?.focus({ preventScroll: true })
+  }, [pane, tab])
   const quickOperations = useRef(
     new Map<string, { entries: FoodEntry[]; id: string }>()
   )
@@ -111,7 +100,6 @@ export function NutritionComposer({
   const cancel = () => {
     request.current?.abort()
     request.current = null
-    photoVersion.current++
     setBusy(false)
     setError("")
     setNotice("")
@@ -182,36 +170,13 @@ export function NutritionComposer({
     setTab(next)
     setPane("browse")
   }
-  function selectPane(next: Pane) {
-    cancel()
-    setPane(next)
-  }
   function review(entries: FoodEntry[], p: FoodProduct | null = null) {
     cancel()
     changeDraft(entries)
     setProduct(p)
-    setCustomId(null)
+    if (!ingredients) setCustomId(null)
     setNotes("")
     setPane("detail")
-  }
-  function lookup(code: string) {
-    void run(
-      (signal) =>
-        nutritionRequest<{ product: FoodProduct }>(
-          `/product?barcode=${code}`,
-          undefined,
-          signal
-        ),
-      (result) => {
-        if (!result.product.complete) {
-          setError(
-            "This product has an incomplete nutrition label. Try another product or create it in My foods."
-          )
-          return
-        }
-        review([foodFromProduct(result.product, meal)], result.product)
-      }
-    )
   }
   const estimate = () =>
     run(
@@ -221,7 +186,6 @@ export function NutritionComposer({
           {
             text,
             meal,
-            ...(pane === "photo" && photo ? { image: photo } : {}),
           },
           signal
         ),
@@ -230,28 +194,10 @@ export function NutritionComposer({
           setError(result.notes || "No food found. Add more detail.")
           return
         }
-        review(
-          fixedMeal
-            ? result.entries.map((entry) => ({ ...entry, meal }))
-            : result.entries
-        )
+        review(result.entries)
         setNotes(result.notes)
       }
     )
-  async function photoFile(file: File) {
-    const version = ++photoVersion.current
-    setBusy(true)
-    setError("")
-    try {
-      const image = await prepareMealPhoto(file)
-      if (alive.current && version === photoVersion.current) setPhoto(image)
-    } catch (e) {
-      if (alive.current && version === photoVersion.current)
-        setError((e as Error).message)
-    } finally {
-      if (alive.current && version === photoVersion.current) setBusy(false)
-    }
-  }
   const valid = () =>
     !draft.some(
       (e) =>
@@ -263,6 +209,10 @@ export function NutritionComposer({
   async function save() {
     if (!valid()) {
       setError("Check the food names, portions and macros.")
+      return
+    }
+    if (ingredients) {
+      addIngredients(draft)
       return
     }
     setSaving(true)
@@ -278,6 +228,10 @@ export function NutritionComposer({
   }
   async function quickAdd(key: string, entries: FoodEntry[], name: string) {
     if (saving) return
+    if (ingredients) {
+      addIngredients(entries)
+      return
+    }
     setSaving(true)
     setError("")
     let pending = quickOperations.current.get(key)
@@ -323,14 +277,28 @@ export function NutritionComposer({
     }
   }
   async function saveCustom() {
-    if (!valid() || !customName.trim()) {
+    const entries = draft.map((entry) => ({
+      ...entry,
+      name: entry.name.trim() || (draft.length === 1 ? customName.trim() : ""),
+    }))
+    if (
+      !entries.length ||
+      entries.some(
+        (entry) =>
+          !entry.name ||
+          !entry.unit.trim() ||
+          entry.quantity <= 0 ||
+          entry.missingValues?.length
+      ) ||
+      !customName.trim()
+    ) {
       setError("Name your food or meal and enter its macros.")
       return
     }
     const saved = await saveLibrary({
       id: customId || crypto.randomUUID(),
       name: customName,
-      entries: draft,
+      entries,
       custom: true,
       favorite:
         library?.items.find((i) => i.id === customId)?.favorite || false,
@@ -341,6 +309,35 @@ export function NutritionComposer({
       setQuery("")
       setNotice("Saved to My foods.")
     }
+  }
+  function addIngredients(entries: FoodEntry[]) {
+    changeDraft([
+      ...(ingredients || []),
+      ...entries.map((entry) => ({ ...entry, id: crypto.randomUUID(), meal })),
+    ])
+    setIngredients(null)
+    setProduct(null)
+    setPane("custom")
+    setQuery("")
+    setNotes("")
+    cancel()
+  }
+  async function loadProduct(p: FoodProduct, addNow: boolean) {
+    await run(
+      (signal) =>
+        nutritionRequest<{ product: FoodProduct }>(
+          `/product?id=${encodeURIComponent(p.code)}`,
+          undefined,
+          signal
+        ),
+      (result) => {
+        if (!result.product.complete || !result.product.servingId)
+          throw Error("This food has no complete serving. Try another match.")
+        const entry = foodFromProduct(result.product, meal)
+        if (addNow) void quickAdd(`product-${p.code}`, [entry], p.name)
+        else review([entry], result.product)
+      }
+    )
   }
   const productItem = (p: FoodProduct): SavedFood => ({
     id: `product-${
@@ -357,6 +354,14 @@ export function NutritionComposer({
   })
   const back = () => {
     if (saving) return
+    if (pane === "browse" && ingredients) {
+      changeDraft(ingredients)
+      setIngredients(null)
+      setProduct(null)
+      setPane("custom")
+      cancel()
+      return
+    }
     if (pane === "detail" && existing) {
       onClose()
       return
@@ -379,8 +384,12 @@ export function NutritionComposer({
     return (
       <div key={item.id} className="nutrition-result">
         <button
-          className="min-w-0 flex-1 text-left"
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
           onClick={() => {
+            if (p) {
+              void loadProduct(p, false)
+              return
+            }
             if (item.custom) {
               review(
                 item.entries.map((e) => ({
@@ -403,21 +412,28 @@ export function NutritionComposer({
           }}
           aria-label={`Details for ${item.name}`}
         >
-          <span className="block text-sm font-medium">{item.name}</span>
-          <span className="mt-1 block text-xs text-muted-foreground">
-            {p?.brand ? `${p.brand} · ` : ""}
-            {p
-              ? p.servingQuantity
-                ? `1 serving · ${p.servingQuantity} ${p.unit}`
-                : `100 ${p.unit} · serving not listed`
-              : item.entries.length > 1
-                ? `${item.entries.length} foods`
-                : `${item.entries[0].quantity} ${item.entries[0].unit}`}
-          </span>
-          <span className="mt-1.5 block text-xs text-muted-foreground">
-            {displayNutrient(totals.calories)} kcal ·{" "}
-            {displayNutrient(totals.protein)} P ·{" "}
-            {displayNutrient(totals.carbs)} C · {displayNutrient(totals.fat)} F
+          <FoodThumbnail
+            name={item.name}
+            imageUrl={p?.imageUrl || item.entries[0]?.imageUrl}
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium">
+              {titleCase(item.name)}
+            </span>
+            <span className="mt-1 block text-xs text-muted-foreground">
+              {p?.brand ? `${p.brand} · ` : ""}
+              {p
+                ? p.servingSize || "1 serving"
+                : item.entries.length > 1
+                  ? `${item.entries.length} foods`
+                  : portionLabel(item.entries[0])}
+            </span>
+            <span className="mt-1.5 block text-xs text-muted-foreground">
+              {displayNutrient(totals.calories)} kcal ·{" "}
+              {displayNutrient(totals.protein)} P ·{" "}
+              {displayNutrient(totals.carbs)} C · {displayNutrient(totals.fat)}{" "}
+              F
+            </span>
           </span>
         </button>
         <button
@@ -426,7 +442,19 @@ export function NutritionComposer({
           aria-pressed={Boolean(saved?.favorite)}
           disabled={saving || !library}
           onClick={() =>
-            void saveLibrary({ ...(saved || item), favorite: !saved?.favorite })
+            void (p && !saved
+              ? run(
+                  (signal) =>
+                    nutritionRequest<{ product: FoodProduct }>(
+                      `/product?id=${encodeURIComponent(p.code)}`,
+                      undefined,
+                      signal
+                    ),
+                  (result) => {
+                    void saveLibrary(productItem(result.product))
+                  }
+                )
+              : saveLibrary({ ...(saved || item), favorite: !saved?.favorite }))
           }
         >
           <Star
@@ -436,8 +464,12 @@ export function NutritionComposer({
         <button
           className="nutrition-row-action bg-muted/70"
           aria-label={`Add one serving of ${item.name}`}
-          disabled={saving}
-          onClick={() => void quickAdd(item.id, item.entries, item.name)}
+          disabled={saving || busy}
+          onClick={() =>
+            void (p
+              ? loadProduct(p, true)
+              : quickAdd(item.id, item.entries, item.name))
+          }
         >
           <Plus className="size-5" />
         </button>
@@ -451,40 +483,16 @@ export function NutritionComposer({
           ? "Food details"
           : pane === "custom"
             ? "My food"
-            : pane === "scan"
-              ? "Scan barcode"
-              : pane === "photo"
-                ? "Meal photo"
-                : "Add food"
+            : ingredients
+              ? "Add ingredient"
+              : "Add food"
       }
       onBack={back}
       onExit={onClose}
-      right={
-        <div
-          className="nutrition-action-group liquid-glass-button"
-          role="group"
-          aria-label="Food scanners"
-        >
-          <button
-            aria-label="Scan barcode"
-            disabled={saving}
-            onClick={() => selectPane("scan")}
-          >
-            <ScanBarcode className="size-5" />
-          </button>
-          <button
-            aria-label="Take meal photo"
-            disabled={saving}
-            onClick={() => selectPane("photo")}
-          >
-            <Camera className="size-5" />
-          </button>
-        </div>
-      }
     >
       {pane === "browse" && (
         <>
-          {tab !== "type" && (
+          <div ref={searchHost} className="nutrition-search-host">
             <Searchbar
               className="nutrition-searchbar"
               form={false}
@@ -494,7 +502,10 @@ export function NutritionComposer({
               clearButton={false}
               value={query}
               placeholder="Search foods or brands"
-              onInput={(e) => setQuery(e.target.value)}
+              onInput={(e) => {
+                if (tab === "type") selectTab("all")
+                setQuery(e.target.value)
+              }}
               onSearchbarClear={() => setQuery("")}
             >
               <Search
@@ -512,14 +523,22 @@ export function NutritionComposer({
                 </button>
               )}
             </Searchbar>
-          )}
+          </div>
+
           <MobileFilterTabs
             label="Food library"
-            items={tabs}
+            items={
+              ingredients
+                ? tabs.filter(
+                    (item) => item.value === "all" || item.value === "favorites"
+                  )
+                : tabs
+            }
             value={tab}
             onChange={selectTab}
             inline
           />
+
           {tab === "type" ? (
             <div className="space-y-4 pt-6">
               <label className="block text-sm font-medium">
@@ -552,6 +571,8 @@ export function NutritionComposer({
                     setProduct(null)
                     setCustomId(null)
                     setCustomName("")
+                    setNotes("")
+                    setError("")
                     setPane("custom")
                   }}
                 >
@@ -575,7 +596,7 @@ export function NutritionComposer({
                       <Search className="mx-auto mb-3 size-7 opacity-40" />
                       {query.trim().length < 2
                         ? "Search for a food or brand."
-                        : "No complete matches found. Try a specific product, or use Type for an editable estimate."}
+                        : "No complete matches found. Try a more specific food or brand."}
                     </div>
                   )}
                 </>
@@ -583,88 +604,10 @@ export function NutritionComposer({
                 <div className="nutrition-result-list">
                   {filteredLibrary.map((item) => resultRow(item))}
                 </div>
-              ) : (
-                <p className="nutrition-empty">
-                  {tab === "favorites"
-                    ? "Star foods to keep them here."
-                    : "Save your own foods and meals here."}
-                </p>
-              )}
+              ) : null}
             </div>
           )}
         </>
-      )}
-      {pane === "scan" && (
-        <div className="space-y-5 pt-4">
-          <NutritionScanner onCode={lookup} />
-          {busy && (
-            <p
-              role="status"
-              className="flex items-center justify-center gap-2 text-sm"
-            >
-              <LoaderCircle className="size-4 animate-spin" />
-              Finding your food…
-            </p>
-          )}
-        </div>
-      )}
-      {pane === "photo" && (
-        <div className="space-y-4 pt-4">
-          {photo ? (
-            <div className="relative overflow-hidden rounded-3xl bg-white">
-              <img
-                src={photo}
-                alt="Meal to estimate"
-                className="max-h-80 w-full object-contain"
-              />
-              <button
-                className="nutrition-row-action absolute top-3 right-3 bg-white"
-                aria-label="Remove photo"
-                onClick={() => setPhoto(null)}
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-          ) : (
-            <label className="nutrition-photo-picker">
-              <Camera className="size-10 text-muted-foreground" />
-              <span className="font-medium">Take or choose a meal photo</span>
-              <span className="text-xs text-muted-foreground">
-                Include the whole plate for a better estimate
-              </span>
-              <input
-                aria-label="Meal photo"
-                type="file"
-                className="sr-only"
-                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-                disabled={busy}
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) void photoFile(file)
-                  e.target.value = ""
-                }}
-              />
-            </label>
-          )}
-          <textarea
-            aria-label="Photo details"
-            className="nutrition-textarea"
-            placeholder="Anything to add? Portions, ingredients, cooking oil…"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-          />
-          <Button
-            className={nutritionSaveClass}
-            disabled={busy || !photo || !aiAvailable}
-            onClick={() => void estimate()}
-          >
-            {busy && <LoaderCircle className="size-4 animate-spin" />}
-            {busy ? "Estimating…" : "Review food"}
-          </Button>
-          <p className="text-center text-xs text-muted-foreground">
-            Photo estimates use OpenAI. Review portions before saving.
-          </p>
-        </div>
       )}
       {(pane === "detail" || pane === "custom") && (
         <div className="space-y-4 pt-4">
@@ -679,34 +622,65 @@ export function NutritionComposer({
             </label>
           )}
           {draft.map((entry, index) => (
-            <FoodEditor
-              key={entry.id}
-              editable={pane === "custom"}
-              disabled={saving}
-              entry={entry}
-              product={index === 0 ? product : undefined}
-              onChange={(next) =>
-                changeDraft(draft.map((old, i) => (i === index ? next : old)))
-              }
-              onRemove={
-                draft.length > 1
-                  ? () => {
-                      changeDraft(draft.filter((_, i) => i !== index))
-                      setNotes("")
-                    }
-                  : undefined
-              }
-            />
+            <div key={entry.id} className="space-y-3">
+              {pane === "detail" && draft.length > 1 && (
+                <p className="text-xs font-semibold text-muted-foreground">
+                  {titleCase(entry.meal)}
+                </p>
+              )}
+              <FoodEditor
+                editable={pane === "custom" && entry.source !== "fatsecret"}
+                disabled={saving}
+                entry={entry}
+                product={index === 0 ? product : undefined}
+                onChange={(next) =>
+                  changeDraft(draft.map((old, i) => (i === index ? next : old)))
+                }
+                onRemove={
+                  draft.length > 1 || pane === "custom"
+                    ? () => {
+                        changeDraft(draft.filter((_, i) => i !== index))
+                        setNotes("")
+                      }
+                    : undefined
+                }
+              />
+            </div>
           ))}
           {pane === "custom" && (
-            <Button
-              variant="outline"
-              className="w-full rounded-full"
-              onClick={() => changeDraft([...draft, blankFood(meal)])}
-            >
-              <Plus className="size-4" />
-              Add another food to this meal
-            </Button>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Button
+                variant="outline"
+                className="w-full rounded-full"
+                onClick={() => {
+                  setIngredients(
+                    draft.filter(
+                      (entry) =>
+                        entry.name.trim() ||
+                        entry.calories ||
+                        entry.protein ||
+                        entry.carbs ||
+                        entry.fat
+                    )
+                  )
+                  setQuery("")
+                  setTab("all")
+                  setPane("browse")
+                  cancel()
+                }}
+              >
+                <Search className="size-4" />
+                Search ingredients
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full rounded-full"
+                onClick={() => changeDraft([...draft, blankFood(meal)])}
+              >
+                <Plus className="size-4" />
+                Add custom ingredient
+              </Button>
+            </div>
           )}
           {notes && (
             <p className="px-1 text-xs leading-relaxed text-muted-foreground">
@@ -722,13 +696,15 @@ export function NutritionComposer({
               {saving && <LoaderCircle className="size-4 animate-spin" />}
               {pane === "custom"
                 ? "Save to My foods"
-                : existing
-                  ? "Save changes"
-                  : draft.every((e) => e.meal === draft[0]?.meal)
-                    ? `Add to ${titleCase(draft[0]?.meal || meal)}`
-                    : "Add foods to log"}
+                : ingredients
+                  ? "Add to my meal"
+                  : existing
+                    ? "Save changes"
+                    : draft.every((e) => e.meal === draft[0]?.meal)
+                      ? `Add to ${titleCase(draft[0]?.meal || meal)}`
+                      : "Add foods to log"}
             </Button>
-            {pane === "detail" && !existing && (
+            {pane === "detail" && !existing && !ingredients && (
               <Button
                 variant="ghost"
                 className="mt-2 w-full rounded-full"
@@ -750,31 +726,9 @@ export function NutritionComposer({
               </Button>
             )}
           </div>
-          {draft.some((e) => e.source === "openfoodfacts") && (
-            <p className="text-center text-[11px] text-muted-foreground">
-              <a
-                href="https://world.openfoodfacts.org/"
-                target="_blank"
-                rel="noreferrer"
-                className="underline"
-              >
-                Open Food Facts
-              </a>{" "}
-              ·{" "}
-              <a
-                href="https://opendatacommons.org/licenses/odbl/1-0/"
-                target="_blank"
-                rel="noreferrer"
-                className="underline"
-              >
-                ODbL
-              </a>{" "}
-              · Product images CC BY-SA
-            </p>
-          )}
         </div>
       )}
-      {!aiAvailable && (tab === "type" || pane === "photo") && (
+      {!aiAvailable && tab === "type" && (
         <p className="mt-4 text-sm text-muted-foreground">
           AI food entry is unavailable. Search or add a custom food instead.
         </p>
@@ -800,6 +754,17 @@ export function NutritionComposer({
           )}
         </p>
       )}
+      {products?.length ||
+      draft.some((e) => e.source === "fatsecret") ||
+      filteredLibrary.some((i) =>
+        i.entries.some((e) => e.source === "fatsecret")
+      ) ? (
+        <p className="mt-5 text-center text-[11px] text-muted-foreground">
+          <a href="https://platform.fatsecret.com">
+            Powered by fatsecret Platform API
+          </a>
+        </p>
+      ) : null}
       <p className="sr-only">Logging for {date}</p>
     </NutritionScreen>
   )

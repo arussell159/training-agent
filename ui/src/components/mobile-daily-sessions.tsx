@@ -10,9 +10,9 @@ import {
 } from "@/components/ui/card"
 import { dailyWorkouts, dashboardToday } from "@/lib/dashboard-metrics"
 import { WorkoutProfile } from "@/components/workout-profile"
-import { formatDuration } from "@/lib/duration"
+import { formatWorkoutTss, workoutTime } from "@/lib/workout-metrics"
+import { plannedDistanceLabel } from "@/lib/workout-distance"
 import {
-  durationMinutes,
   type PlannedWorkout,
   type TrainingContext,
 } from "@/lib/training-context"
@@ -36,17 +36,6 @@ function selectedDayLabel(day: string, today: string) {
   return label
 }
 
-function trainingLoad(workout: PlannedWorkout) {
-  return Math.round(
-    workout.workout_summary?.completed?.tss ??
-      workout.workout_summary?.planned?.tss ??
-      workout.completed_data?.tss ??
-      workout.planned?.tss ??
-      workout.load ??
-      0
-  )
-}
-
 function SessionCard({
   workout,
   dayLabel,
@@ -65,6 +54,7 @@ function SessionCard({
   onMoveDay: (offset: number) => void
 }) {
   const completed = workout?.status === "completed"
+  const time = workout ? workoutTime(workout) : null
   return (
     <Card
       role={workout ? "button" : "group"}
@@ -115,18 +105,24 @@ function SessionCard({
         <div className="h-20 shrink-0 overflow-hidden">
           {workout && <WorkoutProfile workout={workout} compact tall />}
         </div>
-        <div className="grid grid-cols-2 gap-4 border-t pt-4">
+        <div className="grid grid-cols-3 gap-3 border-t pt-4">
           <div>
-            <p className="text-xs text-muted-foreground">Duration</p>
+            <p className="text-xs text-muted-foreground">{time?.label ?? "Est. time"}</p>
             <p className="mt-1 flex items-center gap-2 font-medium">
               <Clock3 className="size-4" />
-              {workout ? formatDuration(durationMinutes(workout)) : "—"}
+              {time?.value ?? "—"}
             </p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Training load</p>
+            <p className="text-xs text-muted-foreground">{completed ? "Completed TSS" : "Est. TSS"}</p>
             <p className="mt-1 font-medium tabular-nums">
-              {workout ? trainingLoad(workout) : 0} TSS
+              {workout ? formatWorkoutTss(workout) : "—"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">{completed ? "Distance" : "Est. distance"}</p>
+            <p className="mt-1 font-medium tabular-nums">
+              {workout ? plannedDistanceLabel(workout) : "—"}
             </p>
           </div>
         </div>

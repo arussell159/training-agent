@@ -8,6 +8,11 @@ export const MEALS = ["breakfast", "lunch", "dinner", "snacks"];
 export const NUTRIENTS = ["calories", "protein", "carbs", "fat", "fiber"];
 export const emptyTargets = () => Object.fromEntries(NUTRIENTS.map((key) => [key, null]));
 export const emptyDay = () => ({ revision: 0, entries: [], operations: [] });
+export const foodImageUrl = (value) =>
+  typeof value === "string" &&
+  /^https:\/\/(images\.openfoodfacts\.org|(?:www\.)?foodimagedb\.com)\//.test(value)
+    ? value.slice(0, 1000)
+    : null;
 export function nutritionDate(value) {
   if (
     typeof value !== "string" ||
@@ -36,12 +41,35 @@ function number(value, max, label, nullable = false) {
 }
 export function validateTargets(input) {
   if (!input || typeof input !== "object") throw new NutritionError("Enter your daily targets.");
-  return Object.fromEntries(
+  const targets = Object.fromEntries(
     NUTRIENTS.map((key) => [
       key,
-      number(input[key], key === "calories" ? 20000 : 3000, `${key} target`, true),
+      input.macroMode === "percent" && ["protein", "carbs", "fat"].includes(key)
+        ? null
+        : number(input[key], key === "calories" ? 20000 : 3000, `${key} target`, true),
     ])
   );
+  if (input.macroMode !== undefined && !["grams", "percent"].includes(input.macroMode))
+    throw new NutritionError("Choose grams or percentage for macro targets.");
+  if (input.macroMode === "percent") {
+    if (!(targets.calories > 0))
+      throw new NutritionError("Set a calorie target before using percentages.");
+    const percentages = Object.fromEntries(
+      ["protein", "carbs", "fat"].map((key) => [
+        key,
+        number(input.percentages?.[key], 100, `${key} percentage`),
+      ])
+    );
+    if (Math.abs(Object.values(percentages).reduce((sum, n) => sum + n, 0) - 100) > 0.01)
+      throw new NutritionError("Macro percentages must total 100%.");
+    for (const key of ["protein", "carbs", "fat"])
+      targets[key] =
+        Math.round(((targets.calories * percentages[key]) / 100 / (key === "fat" ? 9 : 4)) * 100) /
+        100;
+    targets.macroMode = "percent";
+    targets.percentages = percentages;
+  }
+  return targets;
 }
 export function validateEntry(input) {
   if (!input || typeof input !== "object") throw new NutritionError("Check the food entry.");
@@ -51,15 +79,31 @@ export function validateEntry(input) {
     throw new NutritionError("Choose breakfast, lunch, dinner, or snacks.");
   if (!/^[a-zA-Z0-9_-]{8,80}$/.test(input.id || ""))
     throw new NutritionError("The food identifier is invalid.");
-  const quantity = number(input.quantity, 100000, "quantity");
+  number(input.quantity, 100000, "quantity");
+  const quantity = Math.round(input.quantity * 10000) / 10000;
   if (quantity <= 0) throw new NutritionError("Quantity must be greater than zero.");
-  const source = ["openfoodfacts", "ai", "manual"].includes(input.source) ? input.source : "manual";
+  const source = ["fatsecret", "openfoodfacts", "ai", "manual"].includes(input.source)
+    ? input.source
+    : "manual";
   const entry = {
     id: input.id,
-    name: text(input.name, 180, "food name"),
+    ...(source === "fatsecret"
+      ? {
+          foodId: text(input.foodId, 20, "FatSecret food ID"),
+          servingId: text(input.servingId, 20, "FatSecret serving ID"),
+        }
+      : {}),
+    name: text(input.name, 180, "food name").replace(
+      /(^|[\s(/-])([a-z])/g,
+      (_, prefix, c) => prefix + c.toUpperCase()
+    ),
     meal: input.meal,
     quantity,
     unit: text(input.unit, 40, "portion unit"),
+    millilitersPerUnit:
+      input.millilitersPerUnit == null
+        ? null
+        : number(input.millilitersPerUnit, 100000, "unit volume"),
     gramsPerUnit:
       input.gramsPerUnit == null ? null : number(input.gramsPerUnit, 100000, "unit weight"),
     servingQuantity:
@@ -69,11 +113,7 @@ export function validateEntry(input) {
     source,
     notes: typeof input.notes === "string" ? input.notes.slice(0, 800) : "",
     barcode: /^\d{8,14}$/.test(input.barcode || "") ? input.barcode : null,
-    imageUrl:
-      typeof input.imageUrl === "string" &&
-      /^https:\/\/images\.openfoodfacts\.org\//.test(input.imageUrl)
-        ? input.imageUrl.slice(0, 1000)
-        : null,
+    imageUrl: foodImageUrl(input.imageUrl),
   };
   for (const key of NUTRIENTS)
     entry[key] = number(input[key], key === "calories" ? 30000 : 5000, key, key === "fiber");
@@ -85,12 +125,24 @@ export function nutritionTotals(entries) {
   return result;
 }
 
+// FatSecret permits indefinitely storing identifiers; resolve catalog values on read.
+export function storedNutritionEntry(entry) {
+  if (entry.source !== "fatsecret") return entry;
+  return {
+    id: entry.id,
+    source: entry.source,
+    foodId: entry.foodId,
+    servingId: entry.servingId,
+    quantity: entry.quantity,
+    meal: entry.meal,
+  };
+}
 export function createNutritionStore(record) {
   const preferences = () => record("preferences", () => ({ revision: 0, targets: emptyTargets() }));
   const month = (date) => record(date.slice(0, 7), () => ({ days: {} }));
   const library = () => record("library", () => ({ revision: 0, items: [] }));
   return {
-    async view(date) {
+    async view(date, resolve = async (entry) => entry) {
       nutritionDate(date);
       const dates = Array.from({ length: 7 }, (_, i) => shiftDate(date, i - 6));
       const months = [...new Set(dates.map((d) => d.slice(0, 7)))];
@@ -99,6 +151,12 @@ export function createNutritionStore(record) {
         ...months.map((m) => month(m).read()),
       ]);
       const days = Object.assign({}, ...records.map((r) => r.days));
+      await Promise.all(
+        dates.map(async (d) => {
+          if (days[d])
+            days[d] = { ...days[d], entries: await Promise.all(days[d].entries.map(resolve)) };
+        })
+      );
       const targetsAt = (day) =>
         [...(settings.targetHistory || [])]
           .filter((item) => item.date <= day)
@@ -138,8 +196,24 @@ export function createNutritionStore(record) {
         return { targets, revision: state.revision };
       });
     },
-    async library() {
-      return library().read();
+    async library(resolve = async (entry) => entry) {
+      const result = await library().read();
+      result.items = await Promise.all(
+        result.items.map(async (item) => {
+          const entries = await Promise.all(item.entries.map(resolve));
+          return {
+            ...item,
+            entries,
+            name:
+              item.name ||
+              entries
+                .map((e) => e.name)
+                .join(" + ")
+                .slice(0, 180),
+          };
+        })
+      );
+      return result;
     },
     async changeLibrary(payload) {
       if (!payload || !["save", "delete"].includes(payload.action))
@@ -157,12 +231,17 @@ export function createNutritionStore(record) {
           throw new NutritionError("Save a food or a meal with up to 30 foods.");
         item = {
           id: input.id,
-          name: text(input.name, 180, "food name"),
-          entries: input.entries.map(validateEntry),
+          name: text(input.name, 180, "food name").replace(
+            /(^|[\s(/-])([a-z])/g,
+            (_, prefix, c) => prefix + c.toUpperCase()
+          ),
+          entries: input.entries.map(validateEntry).map(storedNutritionEntry),
           favorite: input.favorite === true,
           custom: input.custom === true,
         };
       }
+      if (item && !item.custom && item.entries.some((e) => e.source === "fatsecret"))
+        item.name = "";
       return library().update((state) => {
         if (state.revision !== payload.revision)
           throw new NutritionError("Your food library changed. Reload and try again.", 409);
@@ -215,7 +294,7 @@ export function createNutritionStore(record) {
         if (next.length > 150)
           throw new NutritionError("This day has reached its limit of 150 foods.");
         state.days[date] = {
-          entries: next,
+          entries: next.map(storedNutritionEntry),
           revision: day.revision + 1,
           operations: [...day.operations, payload.operationId].slice(-100),
         };

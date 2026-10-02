@@ -212,6 +212,7 @@ function AppWorkspace() {
   }, [])
   const [selectedReport, setSelectedReport] = useState(restoreReportReader)
   const [activeItem, setActiveItem] = useState(routeItem)
+  const nutritionReturnRoute = useRef("Home")
   const [navigationItem, setNavigationItem] = useState(routeItem)
   const [annualPlanChartVisible, setAnnualPlanChartVisible] = useState(true)
   const [calendarNavigationVersion, setCalendarNavigationVersion] = useState(0)
@@ -384,6 +385,7 @@ function AppWorkspace() {
   }, [])
 
   const selectItem = (item: string) => {
+    if (item === "Nutrition" && activeItem !== "Nutrition") nutritionReturnRoute.current = activeItem
     if (
       item === "Calendar" &&
       activeItem === "Calendar" &&
@@ -625,7 +627,7 @@ function AppWorkspace() {
                     onBack={closeWorkout}
                   />
                 ) : activeItem === "Nutrition" ? (
-                  <NutritionPage />
+                  <NutritionPage onBack={() => selectItem(nutritionReturnRoute.current)} returnLabel={nutritionReturnRoute.current === "Settings" ? "More" : nutritionReturnRoute.current} />
                 ) : activeItem === "Home" ? (
                   <TrainingDashboard
                     onWorkoutOpen={openWorkout}

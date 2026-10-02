@@ -5,6 +5,7 @@
   "type": "module",
   "main": "app-backend/server.mjs",
   "scripts": {
+    "nutrition:preview": "node app-backend/nutrition-preview.mjs",
     "build": "npm --prefix ui run build",
     "build:ui": "npm run ui:build",
     "start": "node --env-file-if-exists=.env.local app-backend/server.mjs",

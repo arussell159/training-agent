@@ -108,3 +108,27 @@ With the UI dev server running, `/tests/sync-mobile-frame.html` previews the rea
 refresh flow at phone and desktop widths using mocked requests. Use its scenario
 selector to check success and errors; it never connects to the deployed app or
 training providers.
+
+## Local nutrition preview (FatSecret Basic)
+
+The local nutrition preview uses FatSecret's US database. Set `FATSECRET_CONSUMER_KEY` and `FATSECRET_CONSUMER_SECRET` (OAuth 1.0 Consumer Key and Shared Secret) in the ignored root `.env.local` for catalog search and diary storage. OAuth 2.0 `FATSECRET_CLIENT_ID` and `FATSECRET_CLIENT_SECRET` remain supported for catalog-only access and require an allowed public IP. Credentials stay on the backend. Restart the backend after editing the environment file.
+
+In PowerShell, start the preview API:
+
+```powershell
+npm run nutrition:preview
+```
+
+Then run `npm --prefix ui run dev -- --config tests/nutrition.vite.config.ts` and open `http://127.0.0.1:5190/nutrition`. Preview logs use ignored files under `app-backend/nutrition-preview`, separate from the live diary.
+
+This dedicated launcher reloads `.env.local`, binds the API to loopback port 4190, and disables Supabase configuration and outbound requests (including custom database domains). Home and Calendar use available local data; remote-only features cannot refresh in this mode. FatSecret and OpenAI remain available. Other local servers and production are unaffected. Restart this command after changing keys.
+
+Macro targets support fixed grams or percentages totaling 100%. Percentage targets convert to grams using the day's calorie target, including completed workout calories; fixed gram targets do not change with workouts. Saved choices apply from today onward.
+
+FatSecret Basic includes 5,000 API calls per day and US food search. Its NLP is a paid add-on, so typed logging uses the existing `OPENAI_API_KEY` only to interpret text and select from FatSecret candidates. Nutrition comes exclusively from the selected API serving. Unmatched foods are reported for manual searching; review is required before saving. Photos and barcode controls are removed.
+
+With OAuth 1.0 configured, new catalog entries in the local preview are saved to a dedicated FatSecret profile. Reads, edits, meal moves, deletes and undo use FatSecret. Custom foods, targets, favorites, existing entries and a retry journal remain in local preview files; Supabase is blocked. The profile ID defaults to a stable, opaque identifier derived from the Consumer Key, or can be fixed with `FATSECRET_DIARY_PROFILE_ID`. Profile secrets stay in backend memory and are retrieved securely after restart. This preview adapter is not enabled for hosted production.
+
+Basic catalog responses are not cached by the backend; concurrent identical requests share one lookup. Seven-day totals use monthly diary summaries rather than fetching every prior food. A local journal reconciles interrupted saves without blindly resubmitting them; multi-food saves can partially complete if the provider fails, so the diary must be checked before starting a new save.
+
+Food thumbnails appear in the diary, search results and details. Basic does not include FatSecret food photos, so food illustrations appear when no licensed image is available. No deployment is part of this local preview.

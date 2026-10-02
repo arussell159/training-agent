@@ -14,6 +14,7 @@ import { WorkoutProfile } from "@/components/workout-profile"
 import { WorkoutSummary } from "@/components/workout-summary"
 import { canEditWorkout } from "@/lib/workout-permissions"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
+import { formatWorkoutTss, workoutTime } from "@/lib/workout-metrics"
 import {
   forgetOpenWorkout,
   rememberOpenWorkout,
@@ -281,6 +282,8 @@ function MobileWorkoutRow({
       ? completedMinutes(workout)
       : durationMinutes(workout)
   const distance = estimatedDistance(workout)
+  const tss = formatWorkoutTss(workout)
+  const time = workoutTime(workout)
   const showProfile = hasWorkoutProfileTargets(workout)
   const compact = !showProfile || isLongZoneTwoWorkout(workout, minutes)
   const completed = workout.status === "completed"
@@ -311,12 +314,12 @@ function MobileWorkoutRow({
             </span>
           </span>
           <span className="shrink-0 whitespace-nowrap text-[15px] leading-5 font-normal tabular-nums text-foreground">
-            {minutes > 0 ? formatDuration(minutes) : "—"}
+            {time.label.replace(" time", "")}: {time.value}
           </span>
         </span>
-        {distance && (
+        {(distance || tss !== "—") && (
           <span className="mt-1 block text-right text-[15px] leading-5 tabular-nums text-muted-foreground">
-            {distance}
+            {[distance, tss !== "—" ? tss : ""].filter(Boolean).join(" · ")}
           </span>
         )}
         {showProfile && (
@@ -380,10 +383,8 @@ export function WorkoutCard({
 }) {
   const grade = completionGrade(workout)
   const completed = workout.status === "completed"
-  const displayedMinutes =
-    workout.status === "completed" && completedMinutes(workout) > 0
-      ? completedMinutes(workout)
-      : durationMinutes(workout)
+  const tss = formatWorkoutTss(workout)
+  const time = workoutTime(workout)
   return (
     <Card
       role="button"
@@ -486,15 +487,15 @@ export function WorkoutCard({
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-muted-foreground md:text-xs">
-        {(displayedMinutes > 0 || workout.planned_time_label) && (
+        {time.value !== "—" && (
           <span>
-            {(workout.status !== "completed" && workout.planned_time_label) ||
-              formatDuration(displayedMinutes)}
+            {time.label.replace(" time", "")}: {time.value}
           </span>
         )}
         {estimatedDistance(workout) && (
           <span>· {estimatedDistance(workout)}</span>
         )}
+        {tss !== "—" && <span>· {tss}</span>}
       </div>
       {(workout.details || workout.goal) && (
         <p className="line-clamp-6 text-xs leading-relaxed break-words whitespace-pre-line text-muted-foreground">

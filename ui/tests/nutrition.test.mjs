@@ -3,9 +3,37 @@ import assert from "node:assert/strict"
 import {
   completedWorkoutCalories,
   calorieGoal,
+  dailyTargets,
   portionOptions,
   scaleFood,
+  portionLabel,
+  calorieMovingAverage,
 } from "../src/lib/nutrition-math.ts"
+test("diary portions combine serving counts with catalog labels without confusing weight and volume", () => {
+  assert.equal(portionLabel({ quantity: 2, unit: "1 regular" }), "2 regular")
+  assert.equal(portionLabel({ quantity: 10, unit: "1 fl oz" }), "10 fl oz")
+  assert.equal(portionLabel({ quantity: 10, unit: "1 fluid ounce" }), "10 fl oz")
+  assert.equal(portionLabel({ quantity: 2, unit: "100 g" }), "200 g")
+  assert.equal(portionLabel({ quantity: 2, unit: "1/2 cup" }), "1 cup")
+  assert.equal(portionLabel({ quantity: 2, unit: "1 1/2 cups" }), "3 cups")
+  assert.equal(portionLabel({ quantity: 10, unit: "1 oz" }), "10 oz")
+  assert.equal(portionLabel({ quantity: 1.25, unit: "serving" }), "1.25 serving")
+})
+test("three-day calorie average leaves unlogged days empty and averages only recorded intake", () => {
+  const days = [1000, 2000, null, 3000, 1500].map((calories) => ({ logged: calories != null, totals: { calories: calories || 0 } }))
+  assert.deepEqual(calorieMovingAverage(days), [1000, 1500, null, 2500, 2250])
+})
+test("percentage macros follow workout-adjusted calories while gram targets remain fixed", () => {
+  const base = { calories: 2000, protein: 150, carbs: 225, fat: 55.56, fiber: null };
+  assert.deepEqual(dailyTargets(base, 400), { ...base, calories: 2400 });
+  const percent = { ...base, macroMode: "percent", percentages: { protein: 30, carbs: 45, fat: 25 } };
+  const result = dailyTargets(percent, 400);
+  assert.equal(result.protein, 180);
+  assert.equal(result.carbs, 270);
+  assert.equal(result.fat, 66.67);
+  assert.equal(percent.protein, 150);
+  assert.equal(dailyTargets({ ...percent, calories: null }, 400).protein, null);
+});
 const workout = (patch = {}) => ({
   id: "event:1",
   activity_id: "a1",
@@ -109,4 +137,28 @@ test("AI portions convert using their estimated gram weight; unknown weights sta
       .factor,
     29.5735295625
   )
+})
+test("FatSecret portions preserve catalog servings and support exact weight and volume units", () => {
+  const rice = {
+    ...food,
+    source: "fatsecret",
+    quantity: 1,
+    unit: "1 cup",
+    servingQuantity: 1,
+    gramsPerUnit: 158,
+    calories: 205,
+  }
+  const options = portionOptions(rice)
+  assert.equal(options[0].label, "1 cup")
+  assert.equal(options.find((o) => o.value === "g").factor, 1 / 158)
+  assert.equal(
+    scaleFood(rice, 158 * options.find((o) => o.value === "g").factor).calories,
+    205
+  )
+  const drink = { ...rice, gramsPerUnit: null, millilitersPerUnit: 240 }
+  assert.equal(
+    portionOptions(drink).find((o) => o.value === "ml").factor,
+    1 / 240
+  )
+  assert.equal(scaleFood(drink, 120 / 240).calories, 102.5)
 })

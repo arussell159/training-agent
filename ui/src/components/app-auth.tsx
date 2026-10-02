@@ -335,6 +335,7 @@ export function AppAuth({ children }: { children: ReactNode }) {
               )}
           </form>
         )}
+        <p className="mt-8 text-center text-[11px] text-muted-foreground"><a href="https://platform.fatsecret.com">Powered by fatsecret Platform API</a></p>
       </div>
     </main>
   )

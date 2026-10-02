@@ -1,4 +1,8 @@
 import { readWorkoutLibrary, saveLibraryWorkout } from "./lib/workout-library.mjs";
+import { previewConfig } from './lib/local-preview.mjs';
+import { createFatSecretDiary } from './lib/fatsecret-diary.mjs';
+import { createFatSecretDiaryStore } from './lib/fatsecret-diary-store.mjs';
+import { createFoodCatalog } from './lib/nutrition-fatsecret.mjs';
 import {athleteLocalDate} from './lib/athlete-date.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
@@ -55,8 +59,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const configPath = path.join(__dirname, 'config.json');
 const localNutrition = createNutritionStore(localNutritionRecords(path.join(__dirname, 'nutrition-preview')));
-const handleNutrition = createNutritionHttp({ getStore: async req => {
-  if (process.env.NUTRITION_LOCAL_PREVIEW === 'true' && !process.env.VERCEL) return localNutrition;
+const nutritionCatalog = createFoodCatalog();
+const fatSecretDiary = createFatSecretDiary({catalog:nutritionCatalog});
+const localFatSecretNutrition = createFatSecretDiaryStore({local:localNutrition,diary:fatSecretDiary,record:localNutritionRecords(path.join(__dirname,'nutrition-preview','fatsecret-sync'))});
+const handleNutrition = createNutritionHttp({ catalog:nutritionCatalog, getStore: async req => {
+  if (process.env.NUTRITION_LOCAL_PREVIEW === 'true' && !process.env.VERCEL) return fatSecretDiary.configured() ? localFatSecretNutrition : localNutrition;
   const bootstrap = await readBootstrapConfig();
   return createNutritionStore((key, fresh) => createEncryptedRecordStore(bootstrap, `${req.headers.host}/nutrition/${key}`, {
     namespace: 'nutrition', name: 'NUTRITION', fresh, timestampCas: true,
@@ -178,7 +185,7 @@ function mergeEnvironmentConfig(config = {}) {
   );
   // Local Settings edits must survive inherited stale environment credentials.
   // Hosted deployments still use their explicitly configured environment.
-  return process.env.VERCEL ? { ...config, ...environment } : { ...environment, ...config };
+  return previewConfig(process.env.VERCEL ? { ...config, ...environment } : { ...environment, ...config });
 }
 
 function stableUuid(value) {
