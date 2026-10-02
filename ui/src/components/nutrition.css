@@ -504,8 +504,40 @@ body.nutrition-flow-open .mobile-navbar {
   }
 }
 @media (min-width: 768px) {
+  .nutrition-date-header {
+    top: 3.5rem;
+  }
   .nutrition-date-panel.mobile-calendar-picker-panel {
     margin-left: auto;
+  }
+
+  .nutrition-date-header.is-open {
+    position: relative;
+  }
+  .nutrition-date-header > header {
+    border-bottom: 1px solid rgb(15 23 42 / 7%);
+    background: rgb(255 255 255 / 78%);
+  }
+  .nutrition-date-dismiss {
+    display: none;
+  }
+  .nutrition-date-panel-desktop.mobile-calendar-picker-panel {
+    position: relative;
+    inset: auto;
+    z-index: 2;
+    width: min(340px, calc(100% - 32px));
+    max-width: 340px;
+    margin: 12px 28px 20px auto;
+    padding: 14px 16px 8px;
+    border: 1px solid rgb(15 23 42 / 9%);
+    border-radius: 20px;
+    background: #fff !important;
+    box-shadow: 0 16px 40px rgb(15 23 42 / 12%);
+  }
+  .nutrition-date-panel-desktop .calendar,
+  .nutrition-date-panel-desktop .calendar .calendar-months,
+  .nutrition-date-panel-desktop .calendar .calendar-month {
+    background: #fff;
   }
 }
 
@@ -531,6 +563,10 @@ body.nutrition-flow-open .mobile-navbar {
 .nutrition-progress-line > span {
   min-width: 94px;
   text-align: right;
+}
+.nutrition-progress-card {
+  -webkit-user-select: none;
+  user-select: none;
 }
 .nutrition-meal-header {
   display: grid;

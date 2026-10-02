@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import "./nutrition.css"
 import {
   Ellipsis,
@@ -218,6 +218,11 @@ export function NutritionPage({
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     held = useRef(false),
     holdPoint = useRef({ x: 0, y: 0 })
+  const nutritionSwipe = useRef<{
+    pointerId: number
+    x: number
+    y: number
+  } | null>(null)
   const cancelHold = () => {
     if (holdTimer.current) clearTimeout(holdTimer.current)
     holdTimer.current = null
@@ -251,6 +256,11 @@ export function NutritionPage({
   const averages = calorieMovingAverage(data?.week || [])
   const totals = foodTotals(data?.day.entries || []),
     target = calorieGoal(data?.targets.calories, exercise)
+  const averageDaily = (key: keyof typeof totals) =>
+    data?.week.length
+      ? data.week.reduce((sum, day) => sum + day.totals[key], 0) /
+        data.week.length
+      : null
   const resolvedTargets = data ? dailyTargets(data.targets, exercise) : null
   const add = (mode: EntryMode, meal?: Meal) => {
     setMutationError("")
@@ -310,6 +320,30 @@ export function NutritionPage({
     setMutationError("")
     setDate(next)
   }
+  const startNutritionSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "touch" || !event.isPrimary) return
+    nutritionSwipe.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    }
+  }
+  const finishNutritionSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = nutritionSwipe.current
+    nutritionSwipe.current = null
+    if (!start || start.pointerId !== event.pointerId || mutating) return
+    const deltaX = event.clientX - start.x
+    const deltaY = event.clientY - start.y
+    if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.25)
+      return
+    const next = new Date(date + "T12:00:00")
+    next.setDate(next.getDate() + (deltaX < 0 ? 1 : -1))
+    selectDate([
+      next.getFullYear(),
+      String(next.getMonth() + 1).padStart(2, "0"),
+      String(next.getDate()).padStart(2, "0"),
+    ].join("-"))
+  }
   const maximum = Math.max(
     ...weekGoals.map((goal) => goal || 0),
     ...(data?.week.map((day) => day.totals.calories) || []),
@@ -351,7 +385,14 @@ export function NutritionPage({
         {data && (
           <>
             <div className="grid gap-5 lg:grid-cols-[1.15fr_1fr]">
-              <Card className="order-1 gap-5 p-5">
+              <Card
+                className="nutrition-progress-card order-1 gap-5 p-5 touch-pan-y md:touch-auto"
+                onPointerDown={startNutritionSwipe}
+                onPointerUp={finishNutritionSwipe}
+                onPointerCancel={() => {
+                  nutritionSwipe.current = null
+                }}
+              >
                 {progressMetrics.map(({ key, label, color }) => {
                   const goal = resolvedTargets![key]
                   const left = goal == null ? null : goal - totals[key]
@@ -483,6 +524,24 @@ export function NutritionPage({
                         )}
                       </span>
                     </button>
+                  ))}
+                </div>
+                <div
+                  className="grid grid-cols-2 gap-x-4 gap-y-3 border-t pt-4"
+                  aria-label="Average daily nutrition over the last 7 days"
+                >
+                  {[
+                    { key: "calories", label: "Avg daily calories", unit: "" },
+                    { key: "protein", label: "Avg daily protein", unit: " g" },
+                    { key: "fat", label: "Avg daily fat", unit: " g" },
+                    { key: "carbs", label: "Avg daily carbs", unit: " g" },
+                  ].map(({ key, label, unit }) => (
+                    <div key={key} className="min-w-0">
+                      <p className="font-semibold tabular-nums">
+                        {displayNutrient(averageDaily(key as keyof typeof totals))}{unit}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">{label}</p>
+                    </div>
                   ))}
                 </div>
               </Card>

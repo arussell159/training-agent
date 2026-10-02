@@ -33,6 +33,13 @@ export function NutritionDateHeader({
   select.current = onSelect
   selectedDate.current = date
   const visible = open || closing
+  const mobileHeading =
+    date === nutritionToday()
+      ? "Today"
+      : new Date(date + "T12:00:00").toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+        })
   const close = () => {
     setOpen(false)
     setClosing(true)
@@ -118,7 +125,7 @@ export function NutritionDateHeader({
       }}
     >
       <span className="nutrition-title-default" aria-hidden={open}>
-        Nutrition
+        {mobileHeading}
       </span>
       <span className="nutrition-title-month" aria-hidden={!open}>
         {month.toLocaleDateString("en-US", { month: "long", year: "numeric" })}

@@ -8,6 +8,7 @@ import { FoodEditor } from "./nutrition-food-editor"
 import { FoodThumbnail } from "./food-thumbnail"
 import { portionLabel } from "@/lib/nutrition-math"
 import { NutritionScreen, nutritionSaveClass } from "./nutrition-screen"
+import { useIsMobile } from "@/hooks/use-mobile"
 import {
   blankFood,
   displayNutrient,
@@ -48,6 +49,7 @@ export function NutritionComposer({
   onClose: () => void
   onSave: (entries: FoodEntry[], operationId: string) => Promise<void>
 }) {
+  const isMobile = useIsMobile()
   const [searchRetry, setSearchRetry] = useState(0)
   const [tab, setTab] = useState<Tab>(mode === "write" ? "type" : "all")
   const [pane, setPane] = useState<Pane>(
@@ -549,6 +551,16 @@ export function NutritionComposer({
                   className="nutrition-textarea mt-3"
                   value={text}
                   onChange={(e) => setText(e.target.value)}
+                  onKeyDown={(event) => {
+                    if (
+                      isMobile ||
+                      event.key !== "Enter" ||
+                      event.shiftKey ||
+                      event.nativeEvent.isComposing
+                    ) return
+                    event.preventDefault()
+                    if (!busy && aiAvailable && text.trim()) void estimate()
+                  }}
                   placeholder="Lunch was 200g white rice, 2 eggs and 3 scoops Tailwind. Dinner was 3 slices of Pizza Hut pizza."
                 />
               </label>
