@@ -1,3 +1,4 @@
+import { TableSkeleton } from "@/components/loading-layouts"
 import { METERS_PER_100_YARDS } from "../../../app-backend/lib/swim-units.mjs"
 import { useEffect, useMemo, useState } from "react"
 import { apiFetch } from "@/lib/api-client"
@@ -28,10 +29,13 @@ export function WorkoutMapSplits({
   const revision =
     (workout as PlannedWorkout & { activity_revision?: string })
       .activity_revision || ""
+  const [loadError, setLoadError] = useState(false)
   const [loaded, setLoaded] = useState<Analysis | null>(null)
   const analysis = suppliedAnalysis || loaded
   useEffect(() => {
     if (!id || suppliedAnalysis) return
+    setLoadError(false)
+    setLoaded(null)
     const controller = new AbortController()
     void apiFetch(
       `/api/activities/${encodeURIComponent(id)}/analysis?schema=8&v=${encodeURIComponent(revision)}`,
@@ -44,7 +48,7 @@ export function WorkoutMapSplits({
       .then((value) => {
         if (!controller.signal.aborted) setLoaded(value)
       })
-      .catch(() => {})
+      .catch(() => { if (!controller.signal.aborted) setLoadError(true) })
     return () => controller.abort()
   }, [id, revision, suppliedAnalysis])
   const swim = /swim/i.test(workout.sport),
@@ -83,7 +87,7 @@ export function WorkoutMapSplits({
     : swim
       ? "100 yards per split"
       : "1 mile per split"
-  const empty = (
+  const empty = loadError ? <p role="alert" className="py-4 text-xs text-muted-foreground">Splits could not be loaded. Reopen the workout to retry.</p> : !analysis ? <TableSkeleton rows={5} columns={3} /> : (
     <p className="py-4 text-xs text-muted-foreground">
       {analysis
         ? "Split data is not available for this recording."

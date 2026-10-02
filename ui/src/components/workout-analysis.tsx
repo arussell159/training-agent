@@ -1,3 +1,4 @@
+import { ChartSkeleton } from "@/components/loading-layouts"
 import { METERS_PER_100_YARDS, recordedSwimYards } from "../../../app-backend/lib/swim-units.mjs"
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react"
 import { Sun } from "lucide-react"
@@ -280,7 +281,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
   const down=(event:PointerEvent<SVGSVGElement>,overview=false)=>{if(event.button!==0)return;draggedChart.current=false;event.currentTarget.setPointerCapture(event.pointerId);const time=timeAt(event,overview),pan=overview&&Boolean(range)&&time>=view[0]&&time<=view[1];gesture.current={x:event.clientX,time,range:[view[0],view[1]],overview,pan};if(!pan)setSelection([time,time]);setSelected("")}
   const up=(event:PointerEvent<SVGSVGElement>)=>{const active=gesture.current;if(!active)return;const time=timeAt(event,active.overview),moved=Math.abs(event.clientX-active.x)>5;if(moved){draggedChart.current=true;window.setTimeout(()=>{draggedChart.current=false},0)}if(!active.pan&&moved&&Math.abs(time-active.time)>=2)setRange([Math.min(time,active.time),Math.max(time,active.time)]);gesture.current=null;setSelection(null);if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId)}
   if(error)return <div className="border p-4 text-sm">{error}<Button variant="outline" size="sm" className="ml-3" onClick={()=>setRetry(value=>value+1)}>Retry</Button></div>
-  if(!data)return <div role="status" className="animate-pulse border bg-muted/30 p-8 text-center text-sm text-muted-foreground">Loading recorded signals and laps…</div>
+  if(!data)return <ChartSkeleton className="border" />
   if(!data.points.length||(!allSignalTracks.length&&!data.dfa))return <div className="border border-dashed p-5 text-sm text-muted-foreground">No recorded signal stream is available for this activity.</div>
   if(mobile)return <MobileWorkoutSignals points={data.points} laps={data.laps} duration={duration} sport={sport} summary={totals} dfa={data.dfa} onLapSelect={lap=>setSelected(lap?.id||"")} afterLaps={<WorkoutMapSplits workout={workout} analysis={data}/>}/>
   const selectionRange=selection?[Math.min(selection[0],selection[1]),Math.max(selection[0],selection[1])] as [number,number]:null

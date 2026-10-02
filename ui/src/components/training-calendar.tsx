@@ -1,3 +1,5 @@
+import { fallbackTrainingContext } from "@/lib/training-context"
+import { CalendarSkeleton, ChartSkeleton } from "@/components/loading-layouts"
 import { SavedReportButton } from "@/components/saved-report-button"
 import { planReportBlocks } from "../../../app-backend/lib/report-blocks.mjs"
 import { WorkoutDescription } from "@/components/workout-description"
@@ -657,7 +659,7 @@ export function TrainingCalendar({
   onScrollRestored?: () => void
 }) {
   const [context, setContext] = useState(cachedTrainingContext)
-  const [calendarReady, setCalendarReady] = useState(false)
+  const [calendarReady, setCalendarReady] = useState(() => context !== fallbackTrainingContext)
   const [annualPlan, setAnnualPlan] = useState<AnnualPlan | null>(null)
   const [historyReady, setHistoryReady] = useState(false)
   const loadedWeeks = useRef(new Set<string>())
@@ -1658,12 +1660,7 @@ export function TrainingCalendar({
     setSelectedWorkout(workout)
   }
 
-  if (!calendarReady) return (
-    <div className="flex min-h-[calc(100svh-7rem)] w-full flex-col" aria-busy="true">
-      <MobileSiteNavbar title="Calendar" />
-      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">Loading calendar…</div>
-    </div>
-  )
+  if (!calendarReady) return <CalendarSkeleton />
 
   return (
     <DndContext
@@ -2291,7 +2288,7 @@ export function WorkoutDialog({
               <main className="min-w-0 space-y-4" aria-label="Workout analysis workspace">
                 <Suspense
                   fallback={
-                    <div className="h-44 animate-pulse rounded-xl border bg-muted/30" />
+                    <ChartSkeleton className="rounded-xl border" />
                   }
                 >
                   <WorkoutAnalysis workout={workout} />
@@ -2372,7 +2369,7 @@ export function WorkoutDialog({
           </div>
           <Suspense
             fallback={
-              <div className="h-44 animate-pulse rounded-xl bg-muted/30" />
+              <ChartSkeleton className="rounded-xl" />
             }
           >
             <WorkoutAnalysis workout={workout} />

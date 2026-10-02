@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { randomId } from "@/lib/random-id"
 import {
   f7ready,
   List,
@@ -71,7 +72,7 @@ export function MobileTermsPage({
         if (next.metricId || !next.open) setDisplayedMetricId(next.metricId)
         changed.current(next.open)
       },
-      crypto.randomUUID()
+      randomId()
     )
   )
   const filteredMetrics = useMemo(() => searchMetricDefinitions(query), [query])

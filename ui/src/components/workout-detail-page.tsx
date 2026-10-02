@@ -1,3 +1,4 @@
+import { ChartSkeleton } from "@/components/loading-layouts"
 import { DetailSheetRow } from "@/components/detail-sheet-row"
 import { canEditWorkout } from "@/lib/workout-permissions"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -729,7 +730,7 @@ export function WorkoutDetailPage({
               {workout.status === "completed" ? (
                 <section id="workout-analysis" className="scroll-mt-24">
                   <Suspense
-                    fallback={<div className="h-44 animate-pulse rounded-xl border bg-muted/30" />}
+                    fallback={<ChartSkeleton className="rounded-xl border" />}
                   >
                     <WorkoutAnalysis workout={workout} />
                   </Suspense>
@@ -992,7 +993,7 @@ export function WorkoutDetailPage({
             </div>
           </div>
           {(workout.status === "completed" || !mobile) && <Suspense
-            fallback={<div className="h-44 animate-pulse border bg-muted/30" />}
+            fallback={<ChartSkeleton className="border" />}
           >
             <WorkoutAnalysis workout={workout} />
           </Suspense>}

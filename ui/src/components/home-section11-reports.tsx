@@ -1,3 +1,4 @@
+import { ListSkeleton } from "@/components/loading-layouts"
 import { useEffect, useState } from "react"
 import { Section11Report } from "@/components/section11-report"
 import { coachRequest } from "@/lib/coach-client"
@@ -65,7 +66,7 @@ export function HomeSection11Reports() {
           </Button>
         </div>
       ) : !catalog ? (
-        <p className="text-sm text-muted-foreground">Loading reports…</p>
+        <ListSkeleton rows={2} />
       ) : (
         <>
           <PeriodReport title="Weekly report" periods={catalog.weeks} />

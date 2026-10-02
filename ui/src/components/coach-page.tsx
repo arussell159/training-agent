@@ -1,3 +1,5 @@
+import { readPageSnapshot, writePageSnapshot, pageSnapshotFresh, pageSnapshotRevision } from "@/lib/page-snapshots"
+import { ListSkeleton } from "@/components/loading-layouts"
 import {
   CatalogReportBody,
   periodLabel,
@@ -47,7 +49,7 @@ export function CoachPage() {
     window.addEventListener("popstate", pop, true)
     return () => window.removeEventListener("popstate", pop, true)
   }, [])
-  const [catalog, setCatalog] = useState<Catalog | null>(null)
+  const [catalog, setCatalog] = useState<Catalog | null>(() => readPageSnapshot<Catalog>("coach"))
   const [filter, setFilter] = useState<Filter>("pre_workout")
   const [query, setQuery] = useState("")
   const [displayedReportId, setDisplayedReportId] = useState<string | null>(
@@ -66,6 +68,7 @@ export function CoachPage() {
   useEffect(() => {
     const controller = new AbortController()
     async function load() {
+      const snapshotRevision = pageSnapshotRevision()
       try {
         const response = await coachRequest(
           "reports/catalog",
@@ -74,6 +77,7 @@ export function CoachPage() {
         )
         const value = (await response.json()) as Catalog
         if (!controller.signal.aborted) {
+          writePageSnapshot("coach", { reports: value.reports || [] }, snapshotRevision)
           setCatalog({ reports: value.reports || [] })
           setError("")
         }
@@ -86,7 +90,7 @@ export function CoachPage() {
           )
       }
     }
-    void load()
+    if (revision || !pageSnapshotFresh("coach")) void load()
     window.addEventListener("training-context-updated", load)
     return () => {
       controller.abort()
@@ -226,9 +230,7 @@ export function CoachPage() {
               </Button>
             </div>
           ) : !catalog ? (
-            <p className="text-sm text-muted-foreground">
-              Loading saved reports…
-            </p>
+            <ListSkeleton />
           ) : reports.length && (groupedWorkouts || groupedWeekly || groupedOthers) ? (
             reportSections
           ) : reports.length && !mobile ? (

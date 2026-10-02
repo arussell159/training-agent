@@ -4,6 +4,7 @@ import { deviceCacheScope } from "./device-cache"
 import { cachedTrainingContext } from "./training-context"
 import { dashboardToday } from "./dashboard-metrics"
 import { completedWorkoutCalories } from "./nutrition-math"
+import { randomId } from "./random-id"
 
 export const meals = ["breakfast", "lunch", "dinner", "snacks"] as const
 export type Meal = (typeof meals)[number]
@@ -198,7 +199,7 @@ export const displayNutrient = (n: number | null | undefined) =>
   n == null ? "—" : Math.round(n).toLocaleString()
 export function blankFood(meal: Meal): FoodEntry {
   return {
-    id: crypto.randomUUID(),
+    id: randomId(),
     name: "",
     meal,
     quantity: 1,
@@ -237,11 +238,11 @@ export function foodFromProduct(product: FoodProduct, meal: Meal): FoodEntry {
           : serving?.metricUnit === "oz" && serving.metricAmount
             ? serving.metricAmount * 28.349523125
             : null,
-      calories: product.nutrients.calories || 0,
-      protein: product.nutrients.protein || 0,
-      carbs: product.nutrients.carbs || 0,
-      fat: product.nutrients.fat || 0,
-      fiber: product.nutrients.fiber,
+      calories: serving?.calories ?? product.nutrients.calories ?? 0,
+      protein: serving?.protein ?? product.nutrients.protein ?? 0,
+      carbs: serving?.carbs ?? product.nutrients.carbs ?? 0,
+      fat: serving?.fat ?? product.nutrients.fat ?? 0,
+      fiber: serving?.fiber ?? product.nutrients.fiber,
     }
   }
   const portion =

@@ -1,3 +1,4 @@
+import { Skeleton } from "@/components/ui/skeleton"
 import { canEditWorkout } from "@/lib/workout-permissions"
 import {
   createContext,
@@ -2998,16 +2999,17 @@ export function WorkoutEditor({
             <X aria-hidden="true" className="size-4" />
           </button>
         </div>
-        <DialogDescription>
-          {loadError ||
-            (workout
-              ? "Loading the current workout from Intervals.icu…"
-              : "Opening a new workout…")}
+        <DialogDescription className={loadError ? undefined : "sr-only"}>
+          {loadError || "Loading workout editor"}
         </DialogDescription>
         {loadError ? (
           <Button onClick={() => setReloadKey((n) => n + 1)}>Retry</Button>
         ) : (
-          <LoaderCircle className="animate-spin" />
+          <div role="status" aria-label="Loading workout editor" className="space-y-4">
+            <Skeleton className="h-14 w-full rounded-2xl" />
+            <div className="grid grid-cols-2 gap-4"><Skeleton className="h-14 rounded-2xl" /><Skeleton className="h-14 rounded-2xl" /></div>
+            <Skeleton className="h-48 w-full rounded-2xl" /><Skeleton className="h-12 w-full rounded-full" />
+          </div>
         )}
       </DialogContent>
     </Dialog>

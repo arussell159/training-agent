@@ -1,3 +1,4 @@
+import { ChartSkeleton } from "@/components/loading-layouts"
 import { lazy, Suspense, useCallback, useEffect, useState } from "react"
 import { ArrowLeft, ExternalLink, RotateCw } from "lucide-react"
 
@@ -145,7 +146,7 @@ export function WorkoutReportCompare({ workouts, onBack, onWorkoutOpen }: {
         <p><strong>Preview data</strong> · Example traces are shown where recordings could not be loaded. Workout summaries are unchanged.</p>
         <Button variant="outline" size="sm" onClick={retryRecordings}><RotateCw /> Retry recordings</Button>
       </div>}
-      {loading && <p role="status" className="text-sm text-muted-foreground">Loading recordings…</p>}
+      {loading && !hasRecording && <Card><ChartSkeleton /></Card>}
       {!loading && !hasSamples && Object.keys(errors).length > 0 && <Button variant="outline" onClick={retryRecordings}><RotateCw /> Retry recordings</Button>}
 
       {hasRecording && <Card className="min-w-0 gap-0 py-0" aria-label="Selected workout graphs">
@@ -157,7 +158,7 @@ export function WorkoutReportCompare({ workouts, onBack, onWorkoutOpen }: {
           const highlight = highlights[workout.id]
           return <section key={workout.id} className="grid min-w-0 border-b last:border-b-0 lg:h-[250px] lg:grid-cols-[minmax(0,1fr)_240px]">
             <div className="min-w-0 py-1 lg:border-r">
-              <Suspense fallback={<p className="py-12 text-center text-sm text-muted-foreground">Loading workout graph…</p>}>
+              <Suspense fallback={<ChartSkeleton />}>
                 <WorkoutAnalysis workout={workout} analysisOverride={analysis!} comparisonMode onComparisonStats={onComparisonStats} />
               </Suspense>
             </div>

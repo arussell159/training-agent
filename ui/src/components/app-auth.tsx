@@ -10,7 +10,7 @@ import {
 } from "react"
 import { Fingerprint, LoaderCircle, LockKeyhole, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { MobileStartupSplash } from "@/components/mobile-startup-splash"
+import { AppStartupSkeleton } from "@/components/loading-layouts"
 import {
   addPasskey,
   authError,
@@ -174,6 +174,8 @@ export function AppAuth({ children }: { children: ReactNode }) {
       </AuthContext.Provider>
     )
 
+  if (!session && !error) return <AppStartupSkeleton />
+
   const preferPasskey =
     session?.hasPasskey &&
     session.passkeysSupported &&
@@ -218,12 +220,7 @@ export function AppAuth({ children }: { children: ReactNode }) {
               Try again
             </Button>
           ) : (
-            <>
-              <MobileStartupSplash />
-              <p role="status" className="hidden text-sm text-muted-foreground md:block">
-                Checking your session…
-              </p>
-            </>
+            <AppStartupSkeleton />
           )
         ) : !session.configured ? (
           <p className="text-sm text-muted-foreground">
@@ -335,7 +332,6 @@ export function AppAuth({ children }: { children: ReactNode }) {
               )}
           </form>
         )}
-        <p className="mt-8 text-center text-[11px] text-muted-foreground"><a href="https://platform.fatsecret.com">Powered by fatsecret Platform API</a></p>
       </div>
     </main>
   )
@@ -488,4 +484,3 @@ export function AccountSecurity() {
     </div>
   )
 }
-

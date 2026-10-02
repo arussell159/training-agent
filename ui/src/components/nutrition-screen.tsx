@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { ChevronLeft } from "lucide-react"
 import { LiquidGlassLayer } from "@/components/ui/liquid-glass-layer"
+import { randomId } from "@/lib/random-id"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 
 export const nutritionSaveClass =
@@ -23,7 +24,7 @@ export function NutritionScreen({
   const exit = useRef(onExit || onBack),
     back = useRef(onBack),
     mounted = useRef(false),
-    markerRef = useRef(crypto.randomUUID()),
+    markerRef = useRef(randomId()),
     screen = useRef<HTMLElement>(null)
   exit.current = onExit || onBack
   back.current = onBack

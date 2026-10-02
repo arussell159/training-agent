@@ -1,3 +1,6 @@
+import { readPageSnapshot, writePageSnapshot, pageSnapshotRevision, pageSnapshotFresh } from "@/lib/page-snapshots"
+import { ArticleSkeleton } from "@/components/loading-layouts"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   WeeklyReportBody,
   BlockReportBody,
@@ -129,15 +132,17 @@ function ReportPanel({
 }) {
   const isMobile = useIsMobile()
   const target = JSON.parse(signature) as ReportTarget
-  const [result, setResult] = useState<ReportResult | null>(null)
+  const [result, setResult] = useState<ReportResult | null>(() => readPageSnapshot<ReportResult>(`report:${signature}`))
+  const [snapshotRevision] = useState(pageSnapshotRevision)
   const [error, setError] = useState("")
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
-  const last = useRef<ReportResult | null>(null)
+  const last = useRef<ReportResult | null>(pageSnapshotFresh(`report:${signature}`) ? result : null)
   const alive = useRef(true)
   const active = useRef(false)
   const requests = useRef(new Set<AbortController>())
   const update = (value: ReportResult) => {
+    if (value.status === "complete") writePageSnapshot(`report:${signature}`, value, snapshotRevision)
     last.current = value
     setResult(value)
   }
@@ -287,7 +292,8 @@ function ReportPanel({
           )}
         </div>
       )}
-      {!complete && (
+      {!result && !error && (compact ? <Skeleton className="h-4 w-3/4" /> : <ArticleSkeleton />)}
+      {!complete && (result || error) && (
         <p
           className="text-xs leading-relaxed text-muted-foreground"
           role="status"

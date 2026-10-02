@@ -1,3 +1,4 @@
+import { Skeleton } from "@/components/ui/skeleton"
 import {lazy,Suspense,useMemo} from 'react'
 import {mapboxConfig} from '@/lib/mapbox-config'
 
@@ -17,7 +18,7 @@ export function MapboxRouteMap(props:MapCanvasProps){
  },[props.points])
  if(!mapboxConfig)return <div className={`${props.className} flex items-center justify-center bg-muted/25 text-xs text-muted-foreground`}>Mapbox is not configured.</div>
  if(!available&&!props.center)return <div className={props.className} aria-hidden="true"/>
- return <Suspense fallback={<div className={props.className} aria-label="Loading activity map"/>}><MapCanvas {...props}/></Suspense>
+ return <Suspense fallback={<Skeleton className={props.className} aria-label="Loading activity map"/>}><MapCanvas {...props}/></Suspense>
 }
 
 /* The implementation stays in its own deferred chunk so route-less workout

@@ -1,3 +1,4 @@
+import { TableSkeleton } from "@/components/loading-layouts"
 import { apiFetch } from "@/lib/api-client"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { useEffect, useState, type ReactNode } from "react"
@@ -197,7 +198,7 @@ function PerformanceStatsPanel({ data, loading, error, notice, sport, onSportCha
   onActivityOpen?: (workout: PlannedWorkout) => void
 }) {
   const mobile = useIsMobile()
-  if (loading) return <p className="py-6 text-sm text-muted-foreground">Loading activity statistics from Intervals.icu…</p>
+  if (loading) return <TableSkeleton />
   if (error) return <div role="alert" className="space-y-3 py-6"><p className="text-sm text-destructive">{error}</p><Button variant="outline" onClick={onRetry}>Try again</Button></div>
   if (!data) return null
   const records = data.records.filter(record => recordMatchesSport(record, sport))

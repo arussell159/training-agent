@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState } from "react"
+import { ListSkeleton } from "@/components/loading-layouts"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { flushSync } from "react-dom"
 import { Searchbar } from "framework7-react"
-import { Search, Star, Plus, LoaderCircle, X, Utensils } from "lucide-react"
+import { Search, Star, Plus, LoaderCircle, X, Utensils, ArrowUp, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
 import { FoodEditor } from "./nutrition-food-editor"
 import { FoodThumbnail } from "./food-thumbnail"
 import { portionLabel } from "@/lib/nutrition-math"
+import { randomId } from "@/lib/random-id"
 import { NutritionScreen, nutritionSaveClass } from "./nutrition-screen"
 import {
   blankFood,
@@ -17,6 +20,7 @@ import {
   recordRecentFoods,
   nutritionRequest,
   titleCase,
+  meals,
   type FoodEntry,
   type FoodProduct,
   type Meal,
@@ -41,6 +45,8 @@ export function NutritionComposer({
   aiAvailable,
   onClose,
   onSave,
+  onMoveExisting,
+  onDeleteExisting,
 }: {
   meal: Meal
   mode: EntryMode
@@ -49,6 +55,8 @@ export function NutritionComposer({
   aiAvailable: boolean
   onClose: () => void
   onSave: (entries: FoodEntry[], operationId: string) => Promise<void>
+  onMoveExisting?: (meal: Meal) => Promise<void>
+  onDeleteExisting?: () => Promise<void>
 }) {
   const [searchRetry, setSearchRetry] = useState(0)
   const [tab, setTab] = useState<Tab>(mode === "write" ? "type" : "all")
@@ -74,9 +82,17 @@ export function NutritionComposer({
     [saving, setSaving] = useState(false)
   const alive = useRef(true),
     request = useRef<AbortController | null>(null),
-    operation = useRef<string>(crypto.randomUUID())
+    operation = useRef<string>(randomId())
   const searchHost = useRef<HTMLDivElement>(null)
   const typeInput = useRef<HTMLTextAreaElement>(null)
+  const detailFatSecretFoodId =
+    pane === "detail"
+      ? draft.find((entry) => entry.source === "fatsecret")?.foodId
+      : undefined
+  const focusTypeInput = useCallback((input: HTMLTextAreaElement | null) => {
+    typeInput.current = input
+    input?.focus({ preventScroll: true })
+  }, [])
   useEffect(() => {
     const input = searchHost.current?.querySelector<HTMLInputElement>('input[type="search"]')
     if (!input) return
@@ -90,13 +106,6 @@ export function NutritionComposer({
     input.addEventListener("keydown", submit)
     return () => input.removeEventListener("keydown", submit)
   }, [pane, tab, query])
-  useEffect(() => {
-    if (pane !== "browse" || tab !== "type") return
-    const frame = requestAnimationFrame(() =>
-      typeInput.current?.focus({ preventScroll: true })
-    )
-    return () => cancelAnimationFrame(frame)
-  }, [pane, tab])
   const quickOperations = useRef(
     new Map<string, { entries: FoodEntry[]; id: string }>()
   )
@@ -110,8 +119,25 @@ export function NutritionComposer({
       request.current?.abort()
     }
   }, [])
+  useEffect(() => {
+    if (!detailFatSecretFoodId || product?.code === detailFatSecretFoodId) return
+    const controller = new AbortController()
+    void nutritionRequest<{ product: FoodProduct }>(
+      `/product?id=${encodeURIComponent(detailFatSecretFoodId)}`,
+      undefined,
+      controller.signal
+    )
+      .then((result) => {
+        if (!controller.signal.aborted) setProduct(result.product)
+    })
+      .catch((e) => {
+        if (!controller.signal.aborted && alive.current)
+          setError(e instanceof Error ? e.message : "Could not load servings.")
+      })
+    return () => controller.abort()
+  }, [detailFatSecretFoodId, product?.code])
   const changeDraft = (next: FoodEntry[]) => {
-    operation.current = crypto.randomUUID()
+    operation.current = randomId()
     setDraft(next)
   }
   const cancel = () => {
@@ -184,8 +210,16 @@ export function NutritionComposer({
   }, [query, tab, pane, searchRetry])
   function selectTab(next: Tab) {
     cancel()
-    setTab(next)
-    setPane("browse")
+    if (next === "type") {
+      flushSync(() => {
+        setTab(next)
+        setPane("browse")
+      })
+      typeInput.current?.focus({ preventScroll: true })
+    } else {
+      setTab(next)
+      setPane("browse")
+    }
   }
   function review(entries: FoodEntry[], p: FoodProduct | null = null) {
     cancel()
@@ -255,8 +289,8 @@ export function NutritionComposer({
     let pending = quickOperations.current.get(key)
     if (!pending) {
       pending = {
-        id: crypto.randomUUID(),
-        entries: entries.map((e) => ({ ...e, id: crypto.randomUUID(), meal })),
+        id: randomId(),
+        entries: entries.map((e) => ({ ...e, id: randomId(), meal })),
       }
       quickOperations.current.set(key, pending)
     }
@@ -315,7 +349,7 @@ export function NutritionComposer({
       return
     }
     const saved = await saveLibrary({
-      id: customId || crypto.randomUUID(),
+      id: customId || randomId(),
       name: customName,
       entries,
       custom: true,
@@ -332,7 +366,7 @@ export function NutritionComposer({
   function addIngredients(entries: FoodEntry[]) {
     changeDraft([
       ...(ingredients || []),
-      ...entries.map((entry) => ({ ...entry, id: crypto.randomUUID(), meal })),
+      ...entries.map((entry) => ({ ...entry, id: randomId(), meal })),
     ])
     setIngredients(null)
     setProduct(null)
@@ -397,6 +431,55 @@ export function NutritionComposer({
       (tab === "favorites" ? item.favorite : item.custom) &&
       item.name.toLowerCase().includes(query.toLowerCase())
   )
+  const existingFavorite = existing
+    ? library?.items.find((item) => {
+        if (item.entries.length !== 1) return false
+        const savedEntry = item.entries[0]
+        return existing.foodId
+          ? savedEntry.foodId === existing.foodId
+          : savedEntry.name.trim().toLowerCase() ===
+              existing.name.trim().toLowerCase() &&
+              savedEntry.unit === existing.unit
+      })
+    : undefined
+  async function moveExistingFood(nextMeal: Meal) {
+    if (!onMoveExisting || nextMeal === existing?.meal) return
+    setSaving(true)
+    setError("")
+    try {
+      await onMoveExisting(nextMeal)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      if (alive.current) setSaving(false)
+    }
+  }
+  async function deleteExistingFood() {
+    if (!onDeleteExisting) return
+    setSaving(true)
+    setError("")
+    try {
+      await onDeleteExisting()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      if (alive.current) setSaving(false)
+    }
+  }
+  async function toggleExistingFavorite() {
+    if (!existing) return
+    await saveLibrary(
+      existingFavorite
+        ? { ...existingFavorite, favorite: !existingFavorite.favorite }
+        : {
+            id: `diary-${existing.foodId || existing.name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 60)}`,
+            name: existing.name,
+            entries: [existing],
+            favorite: true,
+            custom: false,
+          }
+    )
+  }
   const recentItems = recentFoodsForMeal(meal)
   function resultRow(item: SavedFood, p?: FoodProduct) {
     const saved = library?.items.find((i) => i.id === item.id),
@@ -414,7 +497,7 @@ export function NutritionComposer({
               review(
                 item.entries.map((e) => ({
                   ...e,
-                  id: crypto.randomUUID(),
+                  id: randomId(),
                   meal,
                 }))
               )
@@ -424,7 +507,7 @@ export function NutritionComposer({
               review(
                 item.entries.map((e) => ({
                   ...e,
-                  id: crypto.randomUUID(),
+                  id: randomId(),
                   meal,
                 })),
                 p || null
@@ -440,7 +523,7 @@ export function NutritionComposer({
             <span className="block text-sm font-medium">
               {titleCase(item.name)}
             </span>
-            <span className="mt-1 block text-xs text-muted-foreground">
+            <span className="mt-1 block text-[13px] text-muted-foreground">
               {p?.brand ? `${p.brand} · ` : ""}
               {p
                 ? p.servingSize || "1 serving"
@@ -448,7 +531,7 @@ export function NutritionComposer({
                   ? `${item.entries.length} foods`
                   : portionLabel(item.entries[0])}
             </span>
-            <span className="mt-1.5 block text-xs text-muted-foreground">
+            <span className="mt-1.5 block text-[13px] text-muted-foreground tabular-nums">
               {displayNutrient(totals.calories)} kcal ·{" "}
               {displayNutrient(totals.protein)} P ·{" "}
               {displayNutrient(totals.carbs)} C · {displayNutrient(totals.fat)}{" "}
@@ -512,84 +595,108 @@ export function NutritionComposer({
     >
       {pane === "browse" && (
         <>
-          <div ref={searchHost} className="nutrition-search-host">
-            <Searchbar
-              className="nutrition-searchbar"
-              form={false}
-              customSearch
-              backdrop={false}
-              disableButton={false}
-              clearButton={false}
-              value={query}
-              placeholder="Search foods or brands"
-              onInput={(e) => {
-                if (tab === "type") selectTab("all")
-                setQuery(e.target.value)
-              }}
-              onSearchbarClear={() => setQuery("")}
-            >
-              <Search
-                slot="input-wrap-start"
-                className="nutrition-search-icon"
-              />
-              {query && (
-                <button
-                  slot="input-wrap-end"
-                  className="nutrition-search-clear"
-                  aria-label="Clear food search"
-                  onClick={() => setQuery("")}
-                >
-                  <X className="size-4" />
-                </button>
-              )}
-            </Searchbar>
+          <div className="nutrition-search-controls">
+            <div ref={searchHost} className="nutrition-search-host">
+              <Searchbar
+                className="nutrition-searchbar"
+                form={false}
+                customSearch
+                backdrop={false}
+                disableButton={false}
+                clearButton={false}
+                value={query}
+                placeholder="Search foods or brands"
+                onInput={(e) => {
+                  if (tab === "type") selectTab("all")
+                  setQuery(e.target.value)
+                }}
+                onSearchbarClear={() => setQuery("")}
+              >
+                <Search
+                  slot="input-wrap-start"
+                  className="nutrition-search-icon"
+                />
+                {query && (
+                  <button
+                    slot="input-wrap-end"
+                    className="nutrition-search-clear"
+                    aria-label="Clear food search"
+                    onClick={() => setQuery("")}
+                  >
+                    <X className="size-4" />
+                  </button>
+                )}
+              </Searchbar>
+            </div>
+
+            <MobileFilterTabs
+              label="Food library"
+              items={
+                ingredients
+                  ? tabs.filter(
+                      (item) => item.value === "all" || item.value === "favorites"
+                    )
+                  : tabs
+              }
+              value={tab}
+              onChange={selectTab}
+              inline
+            />
           </div>
 
-          <MobileFilterTabs
-            label="Food library"
-            items={
-              ingredients
-                ? tabs.filter(
-                    (item) => item.value === "all" || item.value === "favorites"
-                  )
-                : tabs
-            }
-            value={tab}
-            onChange={selectTab}
-            inline
-          />
-
           {tab === "type" ? (
-            <div className="space-y-4 pt-6">
-              <label className="block text-sm font-medium">
-                What did you eat?
-                <textarea
-                  ref={typeInput}
-                  aria-label="Meal description"
-                  className="nutrition-textarea mt-3"
-                  enterKeyHint="send"
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key !== "Enter" ||
-                      event.shiftKey ||
-                      event.nativeEvent.isComposing
-                    ) return
-                    event.preventDefault()
-                    if (!busy && aiAvailable && text.trim()) void estimate()
-                  }}
-                  placeholder="Lunch was 200g white rice, 2 eggs and 3 scoops Tailwind. Dinner was 3 slices of Pizza Hut pizza."
-                />
-              </label>
-              <Button
-                className={nutritionSaveClass}
-                disabled={busy || !text.trim() || !aiAvailable}
-                onClick={() => void estimate()}
-              >
-                {busy && <LoaderCircle className="size-4 animate-spin" />}
-                {busy ? "Searching…" : "Search"}
-              </Button>
+            <div className="nutrition-type-entry space-y-4 pt-6">
+              <div>
+                <label
+                  htmlFor="nutrition-meal-description"
+                  className="block text-sm font-medium"
+                >
+                  What did you eat?
+                </label>
+                <div className="relative mt-3">
+                  <textarea
+                    ref={focusTypeInput}
+                    id="nutrition-meal-description"
+                    className="nutrition-textarea nutrition-textarea-with-submit"
+                    enterKeyHint="send"
+                    onPointerDown={(event) => {
+                      const input = event.currentTarget
+                      if (document.activeElement === input) return
+                      // iOS normally scrolls the page when a blurred textarea is
+                      // tapped to reopen the keyboard. Focus it during the tap,
+                      // before the browser's default scroll-into-view behavior.
+                      input.focus({ preventScroll: true })
+                      event.preventDefault()
+                    }}
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key !== "Enter" ||
+                        event.shiftKey ||
+                        event.nativeEvent.isComposing
+                      ) return
+                      event.preventDefault()
+                      if (!busy && aiAvailable && text.trim()) void estimate()
+                    }}
+                    placeholder="Lunch was 200g white rice, 2 eggs and 3 scoops Tailwind. Dinner was 3 slices of Pizza Hut pizza."
+                  />
+                  <button
+                    type="button"
+                    className="nutrition-type-submit"
+                    aria-label={busy ? "Searching foods" : "Search foods"}
+                    title={busy ? "Searching…" : "Search"}
+                    disabled={busy || !text.trim() || !aiAvailable}
+                    onClick={() => void estimate()}
+                  >
+                    {busy ? (
+                      <LoaderCircle className="size-4 animate-spin" />
+                    ) : (
+                      <ArrowUp className="size-5" strokeWidth={2.25} />
+                    )}
+                  </button>
+                </div>
+              </div>
             </div>
           ) : (
             <div className="pt-5">
@@ -622,10 +729,7 @@ export function NutritionComposer({
                       </div>
                     </section>
                   ) : busy ? (
-                    <p role="status" className="nutrition-empty">
-                      <LoaderCircle className="mx-auto mb-2 size-5 animate-spin" />
-                      Searching foods…
-                    </p>
+                    <ListSkeleton food />
                   ) : products?.length ? (
                     <div className="nutrition-result-list">
                       {products.map((p) => resultRow(productItem(p), p))}
@@ -686,6 +790,49 @@ export function NutritionComposer({
               />
             </div>
           ))}
+          {existing && pane === "detail" && (
+            <div className="space-y-3 rounded-2xl border bg-card p-4">
+              <Button
+                variant="outline"
+                className="w-full rounded-full"
+                disabled={saving || !library}
+                onClick={() => void toggleExistingFavorite()}
+              >
+                <Star
+                  className={`size-4 ${existingFavorite?.favorite ? "fill-amber-400 text-amber-500" : ""}`}
+                />
+                {existingFavorite?.favorite
+                  ? "Remove from favorites"
+                  : "Add to favorites"}
+              </Button>
+              <label className="nutrition-field">
+                Move to meal
+                <select
+                  aria-label="Move to meal"
+                  value={existing.meal}
+                  disabled={saving}
+                  onChange={(event) =>
+                    void moveExistingFood(event.target.value as Meal)
+                  }
+                >
+                  {meals.map((nextMeal) => (
+                    <option key={nextMeal} value={nextMeal}>
+                      {titleCase(nextMeal)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button
+                variant="outline"
+                className="w-full rounded-full text-destructive"
+                disabled={saving}
+                onClick={() => void deleteExistingFood()}
+              >
+                <Trash2 className="size-4" />
+                Delete food
+              </Button>
+            </div>
+          )}
           {pane === "custom" && (
             <div className="grid gap-3 sm:grid-cols-2">
               <Button
@@ -793,17 +940,6 @@ export function NutritionComposer({
           )}
         </p>
       )}
-      {products?.length ||
-      draft.some((e) => e.source === "fatsecret") ||
-      filteredLibrary.some((i) =>
-        i.entries.some((e) => e.source === "fatsecret")
-      ) ? (
-        <p className="mt-5 text-center text-[11px] text-muted-foreground">
-          <a href="https://platform.fatsecret.com">
-            Powered by fatsecret Platform API
-          </a>
-        </p>
-      ) : null}
       <p className="sr-only">Logging for {date}</p>
     </NutritionScreen>
   )

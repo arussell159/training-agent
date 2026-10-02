@@ -1,3 +1,5 @@
+import { readPageSnapshot, writePageSnapshot, pageSnapshotFresh, pageSnapshotRevision } from "@/lib/page-snapshots"
+import { AnnualPlanSkeleton } from "@/components/loading-layouts"
 import { SavedReportButton } from "@/components/saved-report-button"
 import { planReportBlocks } from "../../../app-backend/lib/report-blocks.mjs"
 import { rollingPlanWindow } from "../../../app-backend/lib/rolling-plan-window.mjs"
@@ -437,9 +439,11 @@ function InlineNotes({ value, inputRef, onCommit, onNext, onTab }: {
 export function AnnualPlanCreator() {
   const isMobile = useIsMobile()
   const [context, setContext] = useState<TrainingContext>(() => cachedTrainingContext())
-  const [plans, setPlans] = useState<AnnualPlan[]>([])
-  const [plan, setPlan] = useState<AnnualPlan | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [savedSnapshot] = useState(() => readPageSnapshot<{ plans: AnnualPlan[]; plan: AnnualPlan | null }>("annual-plan"))
+  const [snapshotRevision] = useState(pageSnapshotRevision)
+  const [plans, setPlans] = useState<AnnualPlan[]>(savedSnapshot?.plans || [])
+  const [plan, setPlan] = useState<AnnualPlan | null>(savedSnapshot?.plan || null)
+  const [loading, setLoading] = useState(!savedSnapshot)
   const [busy, setBusy] = useState(false)
   const [mobileChartOpen, setMobileChartOpen] = useState(false)
   const [desktopChartOpen, setDesktopChartOpen] = useState(true)
@@ -452,7 +456,7 @@ export function AnnualPlanCreator() {
   const [weekSheetExpanded, setWeekSheetExpanded] = useState(false)
   const weekSheetHistory = useRef(false)
   const weekSheetTrigger = useRef<HTMLElement | null>(null)
-  const planRef = useRef<AnnualPlan | null>(null)
+  const planRef = useRef<AnnualPlan | null>(savedSnapshot?.plan || null)
   const saveQueue = useRef<Promise<void>>(Promise.resolve())
   const phaseRefs = useRef(new Map<string, HTMLButtonElement | HTMLSelectElement>())
   const hoursRefs = useRef(new Map<string, HTMLInputElement>())
@@ -487,6 +491,7 @@ export function AnnualPlanCreator() {
 
   useEffect(() => {
     let active = true
+    if (pageSnapshotFresh("annual-plan")) return
     Promise.all([
       loadTrainingContext(false, "full").catch(() => cachedTrainingContext()),
       apiFetch("/api/annual-plans").then(async (response) => {
@@ -507,6 +512,12 @@ export function AnnualPlanCreator() {
     }).catch((error) => toast.error(error instanceof Error ? error.message : "Unable to load the training plan")).finally(() => active && setLoading(false))
     return () => { active = false }
   }, [])
+
+  useEffect(() => {
+    if (!loading && (plan || plans.length) &&
+        (!savedSnapshot || savedSnapshot.plan !== plan || savedSnapshot.plans !== plans))
+      writePageSnapshot("annual-plan", { plans, plan }, snapshotRevision)
+  }, [plans, plan, loading, snapshotRevision, savedSnapshot])
 
   const reportBlocks = useMemo(() => planReportBlocks(plan), [plan])
   const actuals = useMemo(() => calendarActuals(context, plan), [context, plan])
@@ -735,7 +746,7 @@ export function AnnualPlanCreator() {
   const createPlan = () => { setPlanSubmitError(null); setPlanDialogInitial(defaultSettings(context)); setPlanDialogOpen(true) }
   const editPlan = () => { if (plan) { setPlanSubmitError(null); setPlanDialogInitial(settingsFromPlan(plan)); setPlanDialogOpen(true) } }
 
-  if (loading) return <div className="flex h-full w-full items-center justify-center"><LoaderCircle className="size-6 animate-spin text-muted-foreground" /></div>
+  if (loading) return <AnnualPlanSkeleton />
 
   return (
     <div id="annual-plan-week-layer" className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-background">

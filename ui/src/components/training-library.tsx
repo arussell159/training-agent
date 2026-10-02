@@ -1,3 +1,5 @@
+import { readPageSnapshot, writePageSnapshot, pageSnapshotFresh, pageSnapshotRevision } from "@/lib/page-snapshots"
+import { ListSkeleton, WorkoutGridSkeleton } from "@/components/loading-layouts"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
 import { apiFetch } from "@/lib/api-client"
@@ -26,9 +28,9 @@ export function TrainingLibrary({
   onWorkoutOpen?: (workout: PlannedWorkout) => void
 }) {
   const mobile = useIsMobile()
-  const [workouts, setWorkouts] = useState<PlannedWorkout[]>([])
+  const [workouts, setWorkouts] = useState<PlannedWorkout[]>(() => readPageSnapshot<PlannedWorkout[]>("library") || [])
   const [error, setError] = useState("")
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => !readPageSnapshot("library"))
   const [discipline, setDiscipline] =
     useState<(typeof disciplines)[number]>("All")
   const [query, setQuery] = useState("")
@@ -36,6 +38,7 @@ export function TrainingLibrary({
   useEffect(() => {
     const controller = new AbortController()
     const load = async () => {
+      const snapshotRevision = pageSnapshotRevision()
       try {
         const response = await apiFetch("/api/workout-library", {
           signal: controller.signal,
@@ -43,6 +46,8 @@ export function TrainingLibrary({
         const value = await response.json()
         if (!response.ok)
           throw new Error(value.error || "Unable to load saved workouts.")
+        if (controller.signal.aborted) return
+        writePageSnapshot("library", value.workouts || [], snapshotRevision)
         setWorkouts(value.workouts || [])
         setError("")
       } catch (error) {
@@ -56,7 +61,7 @@ export function TrainingLibrary({
         if (!controller.signal.aborted) setLoading(false)
       }
     }
-    void load()
+    if (!pageSnapshotFresh("library")) void load()
     window.addEventListener("training-context-updated", load)
     return () => {
       controller.abort()
@@ -95,7 +100,7 @@ export function TrainingLibrary({
             {error ? (
               <p role="alert">{error}</p>
             ) : loading ? (
-              <p>Loading saved workouts…</p>
+              <ListSkeleton />
             ) : (
               <SettingsList>
                 {filtered.map(workout => <SettingsListItem key={workout.id} icon={workoutIcon(workout.sport)} label={workout.title} description={`${workout.sport} · ${workout.duration}`} onClick={() => onWorkoutOpen?.(workout)} />)}
@@ -150,7 +155,7 @@ export function TrainingLibrary({
       </Card>
 
       {error && <p role="alert" className="rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive">{error}</p>}
-      {filtered.length ? (
+      {loading ? <WorkoutGridSkeleton /> : filtered.length ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((workout) => (
             <WorkoutCard

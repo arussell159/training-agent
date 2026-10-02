@@ -1,3 +1,5 @@
+import { TableSkeleton } from "@/components/loading-layouts"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   ArrowDown,
@@ -776,9 +778,9 @@ export function WorkoutReportsPage({
           </p>
         )}
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-          <p aria-live="polite" className="font-medium">
+          <div aria-live="polite" className="font-medium">
             {loading
-              ? "Loading workouts…"
+              ? <Skeleton className="h-5 w-40" />
               : `${matching.length.toLocaleString()} matching workout${matching.length === 1 ? "" : "s"}`}
             {refreshing && <span className="ml-2 text-xs font-normal text-muted-foreground">Updating…</span>}
             {!mobile && visibleIds.length < selectedIds.length && (
@@ -786,7 +788,7 @@ export function WorkoutReportsPage({
                 Showing {visibleIds.length} of {selectedIds.length} columns to fit this screen
               </span>
             )}
-          </p>
+          </div>
           <p className="text-muted-foreground">
             {sum.durationCount
               ? `${(sum.duration / 3600).toFixed(1)} h moving`
@@ -813,7 +815,7 @@ export function WorkoutReportsPage({
             {preferenceError}
           </p>
         )}
-        {!loading && !matching.length ? (
+        {loading && !context ? <TableSkeleton columns={visibleIds.length || 5} /> : !loading && !matching.length ? (
           <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
             {loadError && !context
               ? "Workout history is unavailable."

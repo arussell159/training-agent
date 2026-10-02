@@ -1,3 +1,4 @@
+import { Skeleton } from "@/components/ui/skeleton"
 import {useEffect,useMemo,useState} from 'react'
 
 import {MapboxRouteMap} from '@/components/mapbox-route-map'
@@ -12,6 +13,7 @@ export function DesktopWorkoutRouteMap({workout,timedPoints,compact=false}:{work
  const id=workout.activity_id || (workout.id.startsWith('activity:')?workout.id.slice(9):null)
  const revision=(workout as PlannedWorkout & {activity_revision?:string}).activity_revision || ''
  const key=`${id}:${revision}`
+ const [failed,setFailed]=useState('')
  const [loaded,setLoaded]=useState<{key:string;points:Coordinate[]}|null>(null)
  const fallback=useMemo(()=>loaded?.key===key?loaded.points:[],[loaded,key])
  const validTimed=useMemo(()=>(timedPoints || []).filter(point=>Number.isFinite(point.time)&&Number.isFinite(point.latitude)&&Number.isFinite(point.longitude)&&Math.abs(point.latitude)<=85&&Math.abs(point.longitude)<=180),[timedPoints])
@@ -21,10 +23,11 @@ export function DesktopWorkoutRouteMap({workout,timedPoints,compact=false}:{work
   void apiFetch(`/api/activities/${encodeURIComponent(id)}/route?v=${encodeURIComponent(revision)}`,{signal:controller.signal})
    .then(async response=>{if(!response.ok)throw Error();return await response.json() as {points:Coordinate[]}})
    .then(data=>{if(!controller.signal.aborted)setLoaded({key,points:(data.points || []).filter(point=>Array.isArray(point)&&point.length===2&&point.every(Number.isFinite)&&Math.abs(point[0])<=85&&Math.abs(point[1])<=180)})})
-   .catch(()=>{})
+   .catch(()=>{if(!controller.signal.aborted)setFailed(key)})
   return()=>controller.abort()
  },[id,revision,key,validTimed.length])
  const route=useMemo(()=>validTimed.length>1?validTimed:fallback.map(([latitude,longitude],time)=>({time,latitude,longitude})),[validTimed,fallback])
- if(route.length<2)return <div className={`flex items-center justify-center bg-muted/25 text-xs text-muted-foreground ${compact?'h-[300px] lg:h-full lg:min-h-[300px]':'h-[320px]'}`}>Loading route…</div>
+ if(route.length<2 && (!id || loaded?.key===key || failed===key))return <div className={`flex items-center justify-center bg-muted/25 text-sm text-muted-foreground ${compact?'h-[300px] lg:h-full lg:min-h-[300px]':'h-[320px]'}`}>{failed===key?'Route could not be loaded.':'No GPS route is available.'}</div>
+ if(route.length<2)return <Skeleton aria-label="Loading route" className={compact?'h-[300px] lg:h-full lg:min-h-[300px]':'h-[320px]'} />
  return <div className={`relative min-w-0 ${compact?'h-[300px] lg:h-full lg:min-h-[300px]':'h-[320px]'}`}><MapboxRouteMap points={route} className="relative isolate z-0 h-full min-w-0 overflow-hidden bg-[#eef2ed]"/><RouteReplayButton workout={workout} points={route} timed={validTimed.length>1} bottom={36}/></div>
 }

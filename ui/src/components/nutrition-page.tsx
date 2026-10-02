@@ -1,15 +1,15 @@
+import { NutritionDashboardSkeleton } from "@/components/loading-layouts"
+import { useFirstReveal } from "@/hooks/use-first-reveal"
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import "./nutrition.css"
 import {
-  Ellipsis,
   LoaderCircle,
   Pencil,
   Plus,
-  Search,
-  Trash2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { randomId } from "@/lib/random-id"
 import { Card } from "@/components/ui/card"
 import { NutritionScreen, nutritionSaveClass } from "./nutrition-screen"
 import { NutritionDateHeader } from "./nutrition-date-header"
@@ -210,30 +210,17 @@ function TargetEditor({
 export function NutritionPage({
   onBack,
   returnLabel,
+  quickAddRequest = 0,
 }: {
   onBack: () => void
   returnLabel: string
+  quickAddRequest?: number
 }) {
-  const [foodActions, setFoodActions] = useState<FoodEntry | null>(null)
-  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    held = useRef(false),
-    holdPoint = useRef({ x: 0, y: 0 })
   const nutritionSwipe = useRef<{
     pointerId: number
     x: number
     y: number
   } | null>(null)
-  const cancelHold = () => {
-    if (holdTimer.current) clearTimeout(holdTimer.current)
-    holdTimer.current = null
-  }
-  useEffect(
-    () => () => {
-      if (holdTimer.current) clearTimeout(holdTimer.current)
-    },
-    []
-  )
-
   const [date, setDate] = useState(nutritionToday),
     { data, error, loading, reload, setData } = useNutrition(date)
   const [composer, setComposer] = useState<{
@@ -269,11 +256,16 @@ export function NutritionPage({
       meal: meal || suggestedMeal(),
     })
   }
+  useEffect(() => {
+    if (quickAddRequest <= 0) return
+    setMutationError("")
+    setComposer({ mode: "write", meal: suggestedMeal() })
+  }, [quickAddRequest])
   async function change(
     action: "add" | "update" | "delete",
     entries?: FoodEntry[],
     id?: string,
-    operationId: string = crypto.randomUUID()
+    operationId: string = randomId()
   ) {
     if (!data) throw Error("Wait for your food log to load.")
     setMutating(true)
@@ -306,13 +298,8 @@ export function NutritionPage({
     }
   }
   async function remove(entry: FoodEntry) {
-    try {
-      await change("delete", undefined, entry.id)
-      setDeleted(entry)
-      setFoodActions(null)
-    } catch (e) {
-      setMutationError((e as Error).message)
-    }
+    await change("delete", undefined, entry.id)
+    setDeleted(entry)
   }
   const selectDate = (next: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(next)) return
@@ -344,6 +331,7 @@ export function NutritionPage({
       String(next.getDate()).padStart(2, "0"),
     ].join("-"))
   }
+  const reveal = useFirstReveal("Nutrition", Boolean(data))
   const maximum = Math.max(
     ...weekGoals.map((goal) => goal || 0),
     ...(data?.week.map((day) => day.totals.calories) || []),
@@ -359,7 +347,7 @@ export function NutritionPage({
         disabled={mutating}
         onTargets={() => setTargetsOpen(true)}
       />
-      <div className="mobile-dashboard mx-auto max-w-5xl space-y-5 px-4 pt-4 pb-8 md:px-8">
+      <div className={`mobile-dashboard mx-auto max-w-5xl space-y-5 px-4 pt-4 pb-8 md:px-8 ${reveal}`}>
         {error && (
           <div
             role="alert"
@@ -371,17 +359,7 @@ export function NutritionPage({
             </Button>
           </div>
         )}
-        {!data && !error && (
-          <div
-            role="status"
-            className="grid min-h-60 place-items-center rounded-3xl border bg-card text-sm text-muted-foreground"
-          >
-            <span className="flex items-center gap-2">
-              <LoaderCircle className="size-4 animate-spin" />
-              Loading your food log…
-            </span>
-          </div>
-        )}
+        {!data && !error && <NutritionDashboardSkeleton />}
         {data && (
           <>
             <div className="grid gap-5 lg:grid-cols-[1.15fr_1fr]">
@@ -396,9 +374,13 @@ export function NutritionPage({
                 {progressMetrics.map(({ key, label, color }) => {
                   const goal = resolvedTargets![key]
                   const left = goal == null ? null : goal - totals[key]
+                  const overGoal = goal != null && goal > 0 && totals[key] > goal
+                  const goalPosition = overGoal
+                    ? (goal / totals[key]) * 100
+                    : Math.min(100, goal ? (totals[key] / goal) * 100 : 0)
                   return (
                     <div key={key} className="nutrition-progress-row">
-                      <div className="flex items-baseline gap-2 text-sm">
+                      <div className="flex items-baseline gap-2 text-[15px]">
                         <span className="font-semibold">{label}</span>
                         <span className="text-xs text-muted-foreground">
                           {left == null
@@ -419,13 +401,30 @@ export function NutritionPage({
                           style={{ background: `${color}18` }}
                         >
                           <span
+                            className={`nutrition-progress-fill ${overGoal ? "nutrition-progress-fill-before-goal" : ""}`}
                             style={{
-                              width: `${goal ? Math.min(100, (totals[key] / goal) * 100) : 0}%`,
+                              width: `${goalPosition}%`,
                               background: color,
                             }}
                           />
+                          {overGoal && (
+                            <>
+                              <span
+                                className="nutrition-progress-overfill"
+                                style={{
+                                  left: `${goalPosition}%`,
+                                  background: `color-mix(in srgb, ${color} 78%, #000 22%)`,
+                                }}
+                              />
+                              <i
+                                className="nutrition-progress-goal-marker"
+                                style={{ left: `${goalPosition}%` }}
+                                aria-hidden="true"
+                              />
+                            </>
+                          )}
                         </div>
-                        <span className="text-xs tabular-nums">
+                        <span className="text-[14px] tabular-nums">
                           {displayNutrient(totals[key])} /{" "}
                           {displayNutrient(goal)}
                           {key === "calories" ? "" : " g"}
@@ -545,26 +544,6 @@ export function NutritionPage({
                   ))}
                 </div>
               </Card>
-              <section
-                className="order-2 grid grid-cols-2 gap-3 lg:order-3 lg:col-span-2"
-                aria-label="Add food"
-              >
-                {[
-                  { mode: "write", label: "Add food", icon: Plus },
-                  { mode: "search", label: "Search food", icon: Search },
-                ].map(({ mode, label, icon: Icon }) => (
-                  <Card key={mode} className="gap-0 p-0">
-                    <button
-                      type="button"
-                      onClick={() => add(mode as EntryMode)}
-                      className="flex min-h-20 w-full items-center justify-center gap-2 p-4 text-sm font-semibold"
-                    >
-                      <Icon className="size-5" />
-                      {label}
-                    </button>
-                  </Card>
-                ))}
-              </section>
             </div>
             <section className="space-y-3" aria-label="Daily meals">
               <div className="pt-1">
@@ -579,7 +558,7 @@ export function NutritionPage({
                     className="gap-0 overflow-hidden rounded-2xl py-0 shadow-sm"
                   >
                     <div className="nutrition-meal-header p-4">
-                      <h3 className="text-sm font-semibold">
+                      <h3 className="text-lg font-semibold">
                         {titleCase(meal)}
                       </h3>
                       <div
@@ -609,16 +588,12 @@ export function NutritionPage({
                         {entries.map((entry) => (
                           <div
                             key={entry.id}
-                            className="flex items-center gap-3 px-4 py-3"
+                            className="flex items-center gap-3 px-4 py-4"
                           >
                             <button
                               type="button"
                               className="flex min-w-0 flex-1 items-center gap-3 text-left"
                               onClick={() => {
-                                if (held.current) {
-                                  held.current = false
-                                  return
-                                }
                                 setComposer({
                                   mode: "manual",
                                   meal: entry.meal,
@@ -627,77 +602,40 @@ export function NutritionPage({
                               }}
                               disabled={mutating}
                               aria-label={`Edit ${titleCase(entry.name)}`}
-                              onPointerDown={(event) => {
-                                if (event.button !== 0) return
-                                held.current = false
-                                cancelHold()
-                                holdPoint.current = {
-                                  x: event.clientX,
-                                  y: event.clientY,
-                                }
-                                holdTimer.current = setTimeout(() => {
-                                  held.current = true
-                                  setFoodActions(entry)
-                                }, 550)
-                              }}
-                              onPointerMove={(event) => {
-                                if (
-                                  Math.hypot(
-                                    event.clientX - holdPoint.current.x,
-                                    event.clientY - holdPoint.current.y
-                                  ) > 8
-                                )
-                                  cancelHold()
-                              }}
-                              onPointerUp={cancelHold}
-                              onPointerCancel={cancelHold}
-                              onContextMenu={(event) => {
-                                event.preventDefault()
-                                cancelHold()
-                                setFoodActions(entry)
-                              }}
                             >
                               <FoodThumbnail
                                 name={entry.name}
                                 imageUrl={entry.imageUrl}
                               />
                               <span className="min-w-0 flex-1">
-                                <span className="block text-sm font-medium">
+                                <span className="block truncate text-base font-medium">
                                   {titleCase(entry.name)}
                                 </span>
-                                <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                                <span className="mt-0.5 block truncate text-[13px] text-muted-foreground">
                                   {portionLabel(entry)}
                                   {entry.source === "ai" ? " · estimated" : ""}
                                 </span>
-                                <span className="mt-1 flex gap-4 text-xs tabular-nums">
-                                  <span className="text-rose-600">
+                                <span className="mt-1 flex min-w-0 max-w-full flex-nowrap items-center gap-x-2 overflow-hidden whitespace-nowrap text-[13px] tabular-nums text-muted-foreground">
+                                  <span className="inline-flex shrink-0 items-center gap-1.5">
+                                    <span className="size-2 rounded-full bg-[#3896f6]" aria-hidden="true" />
+                                    {displayNutrient(entry.calories)} Cal
+                                  </span>
+                                  <span className="inline-flex shrink-0 items-center gap-1.5">
+                                    <span aria-hidden="true" className="size-2 rounded-full bg-rose-500" />
                                     {displayNutrient(entry.protein)} P
                                   </span>
-                                  <span className="text-amber-700">
+                                  <span className="inline-flex shrink-0 items-center gap-1.5">
+                                    <span aria-hidden="true" className="size-2 rounded-full bg-amber-500" />
                                     {displayNutrient(entry.carbs)} C
                                   </span>
-                                  <span className="text-blue-600">
+                                  <span className="inline-flex shrink-0 items-center gap-1.5">
+                                    <span aria-hidden="true" className="size-2 rounded-full bg-blue-500" />
                                     {displayNutrient(entry.fat)} F
                                   </span>
                                 </span>
                               </span>
-                              <span className="text-right text-sm font-semibold tabular-nums">
-                                {displayNutrient(entry.calories)}
-                                <span className="block text-[10px] font-normal text-muted-foreground">
-                                  kcal
-                                </span>
-                              </span>
                               <Pencil className="hidden size-3 text-muted-foreground sm:block" />
                             </button>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={`Actions for ${titleCase(entry.name)}`}
-                              disabled={mutating}
-                              onClick={() => setFoodActions(entry)}
-                            >
-                              <Ellipsis className="size-4 text-muted-foreground" />
-                            </Button>
                           </div>
                         ))}
                       </div>
@@ -715,13 +653,6 @@ export function NutritionPage({
                 )
               })}
             </section>
-            {data.day.entries.some((entry) => entry.source === "fatsecret") && (
-              <p className="text-center text-[11px] text-muted-foreground">
-                <a href="https://platform.fatsecret.com">
-                  Powered by fatsecret Platform API
-                </a>
-              </p>
-            )}
             {deleted && (
               <div
                 role="status"
@@ -767,6 +698,16 @@ export function NutritionPage({
               operationId
             )
           }
+          onMoveExisting={async (nextMeal) => {
+            if (!composer.existing) return
+            await change("update", [{ ...composer.existing, meal: nextMeal }])
+            setComposer(null)
+          }}
+          onDeleteExisting={async () => {
+            if (!composer.existing) return
+            await remove(composer.existing)
+            setComposer(null)
+          }}
         />
       )}
       {targetsOpen && data && (
@@ -775,51 +716,6 @@ export function NutritionPage({
           onClose={() => setTargetsOpen(false)}
           onSaved={nutritionChanged}
         />
-      )}
-      {foodActions && (
-        <NutritionScreen
-          title={foodActions.name}
-          onBack={() => setFoodActions(null)}
-        >
-          <div className="space-y-4 pt-5">
-            <p className="text-sm text-muted-foreground">Move to meal</p>
-            <div className="nutrition-result-list">
-              {meals.map((meal) => (
-                <button
-                  key={meal}
-                  className="flex w-full items-center justify-between border-b p-4 text-left text-sm last:border-b-0"
-                  disabled={mutating}
-                  onClick={() =>
-                    void change("update", [{ ...foodActions, meal }])
-                      .then(() => setFoodActions(null))
-                      .catch((e) => setMutationError(e.message))
-                  }
-                >
-                  {titleCase(meal)}
-                  {meal === foodActions.meal && (
-                    <span className="text-xs text-muted-foreground">
-                      Current
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-            <Button
-              variant="outline"
-              className="h-12 w-full rounded-full text-destructive"
-              disabled={mutating}
-              onClick={() => void remove(foodActions)}
-            >
-              <Trash2 className="size-4" />
-              Delete food
-            </Button>
-            {mutationError && (
-              <p role="alert" className="text-sm text-destructive">
-                {mutationError}
-              </p>
-            )}
-          </div>
-        </NutritionScreen>
       )}
     </div>
   )

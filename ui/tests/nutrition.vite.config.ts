@@ -8,7 +8,16 @@ export default mergeConfig(
       host: "127.0.0.1",
       strictPort: true,
       proxy: {
-        "/api": { target: "http://127.0.0.1:4190", changeOrigin: false },
+        "/api": {
+          target: "http://127.0.0.1:4190",
+          changeOrigin: false,
+          configure: (proxy) => {
+            proxy.on("proxyReq", (request) => {
+              request.setHeader("host", "127.0.0.1:5190")
+              request.setHeader("origin", "http://127.0.0.1:5190")
+            })
+          },
+        },
       },
     },
   })

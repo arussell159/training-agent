@@ -1,3 +1,4 @@
+import { PageSkeleton } from "@/components/loading-layouts"
 import { restoreReportReader } from "@/lib/report-navigation"
 import { ReportReaderPage } from "@/components/report-reader-page"
 import { BackgroundSync } from "@/components/background-sync"
@@ -133,17 +134,6 @@ const WorkoutDetailPage = lazy(() =>
   }))
 )
 
-function RouteFallback() {
-  return (
-    <>
-      <div
-        className="m-auto size-6 animate-pulse rounded-full bg-muted"
-        aria-label="Loading view"
-      />
-    </>
-  )
-}
-
 const navigation = [
   { label: "Home", icon: Home },
   { label: "Calendar", icon: CalendarDays },
@@ -215,6 +205,7 @@ function AppWorkspace() {
   const [selectedReport, setSelectedReport] = useState(restoreReportReader)
   const [activeItem, setActiveItem] = useState(routeItem)
   const nutritionReturnRoute = useRef("Home")
+  const [nutritionQuickAddRequest, setNutritionQuickAddRequest] = useState(0)
   const [navigationItem, setNavigationItem] = useState(routeItem)
   const [annualPlanChartVisible, setAnnualPlanChartVisible] = useState(true)
   const [calendarNavigationVersion, setCalendarNavigationVersion] = useState(0)
@@ -386,7 +377,8 @@ function AppWorkspace() {
     return () => window.removeEventListener("terms-open", openTerms)
   }, [])
 
-  const selectItem = (item: string) => {
+  const selectItem = (item: string, quickAdd = false) => {
+    setNutritionQuickAddRequest((request) => quickAdd ? request + 1 : 0)
     if (item === "Nutrition" && activeItem !== "Nutrition") nutritionReturnRoute.current = activeItem
     if (
       item === "Calendar" &&
@@ -412,8 +404,18 @@ function AppWorkspace() {
 
   useEffect(() => {
     const navigate = (event: Event) => {
-      const item = (event as CustomEvent<string>).detail
-      if (typeof item === "string" && item) selectItem(item)
+      const detail = (
+        event as CustomEvent<
+          string | { item?: string; quickAdd?: "type" }
+        >
+      ).detail
+      if (typeof detail === "string") {
+        if (detail) selectItem(detail)
+        return
+      }
+      if (detail?.item) {
+        selectItem(detail.item, detail.quickAdd === "type")
+      }
     }
     window.addEventListener("app-navigate", navigate)
     return () => window.removeEventListener("app-navigate", navigate)
@@ -613,7 +615,7 @@ function AppWorkspace() {
             }`}
           >
             <PageErrorBoundary resetKey={`${activeItem}:${selectedWorkout?.id ?? ""}`}>
-              <Suspense fallback={<RouteFallback />}>
+              <Suspense fallback={<PageSkeleton page={selectedReport ? "Report" : selectedWorkout ? "Workout" : activeItem} />}>
                 <MobilePageTabs activeItem={["Workout Reports", "Library", "Nutrition"].includes(activeItem) ? "Settings" : activeItem}>
                 <RouteScrollReset route={`${activeItem}:${selectedWorkout?.id ?? ""}`} />
                 {activeItem === "Settings" && !selectedReport && (
@@ -629,7 +631,11 @@ function AppWorkspace() {
                     onBack={closeWorkout}
                   />
                 ) : activeItem === "Nutrition" ? (
-                  <NutritionPage onBack={() => selectItem(nutritionReturnRoute.current)} returnLabel={nutritionReturnRoute.current === "Settings" ? "More" : nutritionReturnRoute.current} />
+                  <NutritionPage
+                    onBack={() => selectItem(nutritionReturnRoute.current)}
+                    returnLabel={nutritionReturnRoute.current === "Settings" ? "More" : nutritionReturnRoute.current}
+                    quickAddRequest={nutritionQuickAddRequest}
+                  />
                 ) : activeItem === "Home" ? (
                   <TrainingDashboard
                     onWorkoutOpen={openWorkout}
@@ -675,4 +681,3 @@ export function App() {
 }
 
 export default App
-

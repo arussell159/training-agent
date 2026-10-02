@@ -1,6 +1,7 @@
 import { apiFetch } from "@/lib/api-client"
 import { markSection11ExportPending, syncSection11Export, waitForSection11Export, type Section11Sync } from "@/lib/section11-export"
 import {readDeviceCache,writeDeviceCache,clearDeviceCache} from './device-cache'
+import { randomId } from "@/lib/random-id"
 export interface TrainingHistoryItem {
   workout_date: string
   planned?: { duration_minutes?: number; tss?: number }
@@ -191,7 +192,7 @@ export type ManualRefreshProgress = {
 export async function refreshRecentIntervals(onProgress?: (progress: ManualRefreshProgress) => void) {
   contextRevision++
   mutationsInFlight++
-  const syncId=crypto.randomUUID()
+  const syncId=randomId()
   let progressId:string=syncId
   const report=(progress:ManualRefreshProgress)=>onProgress?.(progress)
   report({phase:"starting",label:"Starting manual refresh",completed:0,total:1})
@@ -244,7 +245,7 @@ export async function moveWorkoutDate(id: string, date: string) {
 export async function queueWorkoutMutation(input:{type:'move'|'description';id:string;date?:string;description?:string}) {
   contextRevision++;mutationsInFlight++
   try{
-    const response=await apiFetch('/api/mutations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...input,operationId:crypto.randomUUID()})})
+    const response=await apiFetch('/api/mutations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...input,operationId:randomId()})})
     const result=await response.json() as {queued?:boolean;verified?:boolean;error?:string;context?:TrainingContext|null}
     if(!response.ok || !result.context || !(result.queued || result.verified))throw Error(result.error || 'The change could not be saved in Supabase.')
     rememberTrainingContext(result.context,'full')

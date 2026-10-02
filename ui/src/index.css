@@ -17,6 +17,11 @@ html, body {
   touch-action: pan-x pan-y;
 }
 
+html, body, #root {
+  min-height: 100%;
+  background: var(--background);
+}
+
 @keyframes sync-progress {
   0% { transform: translateX(-110%); }
   100% { transform: translateX(410%); }
@@ -318,3 +323,12 @@ html, body {
 @custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
 
 @custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
+
+/* Quiet loading states: opacity only, no layout movement or delayed data. */
+@keyframes skeleton-breathe { 0%, 100% { opacity: .85; } 50% { opacity: .45; } }
+@keyframes dashboard-reveal { from { opacity: .78; } to { opacity: 1; } }
+.skeleton-placeholder { animation: skeleton-breathe 1.6s ease-in-out infinite; }
+.dashboard-first-reveal { animation: dashboard-reveal 180ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-placeholder, .dashboard-first-reveal { animation: none; }
+}

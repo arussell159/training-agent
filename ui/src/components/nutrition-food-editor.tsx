@@ -1,8 +1,9 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Trash2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import {
+  foodFromProduct,
   nutrientKeys,
   titleCase,
   type FoodEntry,
@@ -27,12 +28,35 @@ export function FoodEditor({
   disabled?: boolean
 }) {
   // Scale from the original values so repeated unit changes never accumulate rounding.
-  const [baseline] = useState(entry)
-  const options = portionOptions(
-    baseline,
-    product?.servingQuantity || baseline.servingQuantity
+  const fatSecretServings =
+    product?.source === "fatsecret" ? (product.servings || []) : []
+  const options = fatSecretServings.length
+    ? fatSecretServings.map((serving) => ({
+        value: serving.id,
+        label: serving.label,
+        factor: 1,
+      }))
+    : entry.source === "fatsecret"
+      ? [{ value: entry.servingId || "current", label: entry.unit, factor: 1 }]
+      : portionOptions(entry, product?.servingQuantity || entry.servingQuantity)
+  const [unit, setUnit] = useState(
+    entry.servingId && options.some((option) => option.value === entry.servingId)
+      ? entry.servingId
+      : options[0].value
   )
-  const [unit, setUnit] = useState(options[0].value)
+  const [baseline] = useState(entry)
+  useEffect(() => {
+    if (!product?.servings?.length) return
+    const selected = product.servings.some((serving) => serving.id === entry.servingId)
+      ? entry.servingId!
+      : product.servingId || product.servings[0].id
+    setUnit(selected)
+    setAmount(String(entry.quantity))
+  }, [product, entry.servingId, entry.quantity])
+  const selectedBaseline =
+    fatSecretServings.length && product
+      ? foodFromProduct({ ...product, servingId: unit }, entry.meal)
+      : baseline
   const factor = editable
     ? 1
     : options.find((option) => option.value === unit)?.factor || 1
@@ -48,8 +72,10 @@ export function FoodEditor({
   const changeAmount = (value: string) => {
     setAmount(value)
     const q = Number(value) * factor
-    if (q > 0 && q <= 100000)
-      onChange(scaleFood(editable ? entry : baseline, q))
+    if (q > 0 && q <= 100000) {
+      const scaled = scaleFood(editable ? entry : selectedBaseline, q)
+      onChange({ ...entry, ...scaled, id: entry.id, meal: entry.meal })
+    }
   }
   return (
     <fieldset disabled={disabled} className="min-w-0 space-y-4 border-0 p-0">
@@ -112,9 +138,20 @@ export function FoodEditor({
                 (option) => option.value === e.target.value
               )!
               setUnit(next.value)
-              setAmount(
-                String(Number((entry.quantity / next.factor).toFixed(4)))
-              )
+              const quantity = Number((entry.quantity / next.factor).toFixed(4))
+              setAmount(String(quantity))
+              if (fatSecretServings.length && product) {
+                const nextEntry = foodFromProduct(
+                  { ...product, servingId: next.value },
+                  entry.meal
+                )
+                onChange({
+                  ...entry,
+                  ...scaleFood(nextEntry, entry.quantity),
+                  id: entry.id,
+                  meal: entry.meal,
+                })
+              }
             }}
           >
             {options.map((option) => (
