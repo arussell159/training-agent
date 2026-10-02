@@ -126,6 +126,34 @@ export function NutritionDateHeader({
       <ChevronDown className="size-4" />
     </button>
   )
+  const desktopTitle = (
+    <button
+      type="button"
+      className="calendar-month-title-button justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold hover:bg-muted/70"
+      aria-label={open ? "Close nutrition calendar" : "Choose nutrition date"}
+      aria-expanded={open}
+      aria-controls="nutrition-date-picker"
+      disabled={disabled}
+      onClick={() => {
+        if (open) close()
+        else {
+          setMonth(new Date(`${date}T12:00:00`))
+          setClosing(false)
+          setOpen(true)
+        }
+      }}
+    >
+      {open
+        ? month.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+        : new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
+      <ChevronDown className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} />
+    </button>
+  )
   const left = (
     <button
       aria-label={open ? "Previous month" : `Back to ${returnLabel}`}
@@ -166,7 +194,7 @@ export function NutritionDateHeader({
       />
       <header className="hidden h-14 grid-cols-[44px_1fr_44px] items-center gap-3 px-4 md:grid">
         <div>{left}</div>
-        <div className="text-center">{title}</div>
+        <div className="text-center">{desktopTitle}</div>
         {right}
       </header>
       {visible && (

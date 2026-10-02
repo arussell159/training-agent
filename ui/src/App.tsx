@@ -532,7 +532,7 @@ function AppWorkspace() {
                 }
               />
             )}
-          {activeItem !== "Nutrition" && <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:flex">
+          <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:flex">
             {selectedWorkout?.status === "completed" && (
               <Button
                 type="button"
@@ -596,7 +596,7 @@ function AppWorkspace() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </header>}
+          </header>
           <main
             className={`flex min-h-0 flex-1 ${
               selectedWorkout

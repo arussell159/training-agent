@@ -688,3 +688,13 @@ body.nutrition-flow-open .mobile-navbar {
     background: #fff;
   }
 }
+
+@media (min-width: 768px) {
+  .nutrition-date-header {
+    top: 3.5rem;
+  }
+  .nutrition-date-header > header {
+    border-bottom: 1px solid rgb(15 23 42 / 7%);
+    background: rgb(255 255 255 / 78%);
+  }
+}
