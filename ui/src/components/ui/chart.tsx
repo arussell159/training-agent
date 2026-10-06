@@ -45,6 +45,7 @@ function ChartContainer({
   children,
   config,
   initialDimension = INITIAL_DIMENSION,
+  ref,
   ...props
 }: React.ComponentProps<"div"> & {
   config: ChartConfig
@@ -59,6 +60,32 @@ function ChartContainer({
   const uniqueId = React.useId()
   const chartId = `chart-${id ?? uniqueId.replace(/:/g, "")}`
   const [tooltipPressed, setTooltipPressed] = React.useState(false)
+  const container = React.useRef<HTMLDivElement>(null)
+  const [dimensions, setDimensions] = React.useState(initialDimension)
+  React.useImperativeHandle(ref, () => container.current!, [])
+  React.useLayoutEffect(() => {
+    const element = container.current
+    if (!element) return
+    const measure = (width: number, height: number) => {
+      // Framework7 can hide the outgoing tab before React unmounts its chart.
+      // Keep its last visible size instead of feeding zero into Recharts.
+      if (width <= 0 || height <= 0) return
+      const next = { width: Math.round(width), height: Math.round(height) }
+      setDimensions((previous) =>
+        previous.width === next.width && previous.height === next.height
+          ? previous
+          : next
+      )
+    }
+    const bounds = element.getBoundingClientRect()
+    measure(bounds.width, bounds.height)
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) measure(entry.contentRect.width, entry.contentRect.height)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   React.useEffect(() => {
     if (!tooltipPressed) return
@@ -81,6 +108,7 @@ function ChartContainer({
           className
         )}
         {...props}
+        ref={container}
         onPointerDownCapture={(event) => {
           setTooltipPressed(true)
           props.onPointerDownCapture?.(event)
@@ -94,7 +122,8 @@ function ChartContainer({
       >
         <ChartStyle id={chartId} config={config} />
         <RechartsPrimitive.ResponsiveContainer
-          initialDimension={initialDimension}
+          width={dimensions.width}
+          height={dimensions.height}
         >
           {children}
         </RechartsPrimitive.ResponsiveContainer>

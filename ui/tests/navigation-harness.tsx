@@ -1,6 +1,7 @@
 // Isolated navigation regression fixture. No API request reaches a live account.
 // Delayed replies intentionally ignore aborts to exercise stale-response guards.
 import { createRoot } from "react-dom/client"
+import { StrictMode } from "react"
 import Framework7 from "framework7/lite"
 import Searchbar from "framework7/components/searchbar"
 import Calendar from "framework7/components/calendar"
@@ -10,6 +11,7 @@ import Accordion from "framework7/components/accordion"
 import Framework7React, { App as Framework7App } from "framework7-react"
 import App from "../src/App"
 import { AppToastProvider } from "../src/components/ui/toast"
+import { ThemeProvider } from "../src/components/theme-provider"
 import { TooltipProvider } from "../src/components/ui/tooltip"
 import { setApiAuthenticated } from "../src/lib/api-client"
 import { nutritionChanged } from "../src/lib/nutrition"
@@ -84,7 +86,7 @@ const context = {
   },
   metrics: { fitness: 50, form: 10, fatigue: 40 },
   wellness: {},
-  wellness_history: [],
+  wellness_history: [{ date: today, hrv: 55, restingHR: 48, sleepSecs: 28800 }],
   planned: [planned, completed, second],
   history: [completed, second],
   source: "intervals.icu",
@@ -101,12 +103,12 @@ const originalFetch = window.fetch.bind(window)
 window.fetch = async (input, init) => {
   const url = new URL(
     input instanceof Request ? input.url : String(input),
-    location.href,
+    location.href
   )
   if (!url.pathname.startsWith("/api/")) return originalFetch(input, init)
   apiCalls++
   const route = decodeURIComponent(
-    url.searchParams.get("__api_route") || url.pathname.replace(/^\/api\//, ""),
+    url.searchParams.get("__api_route") || url.pathname.replace(/^\/api\//, "")
   )
   if (init?.method && init.method !== "GET")
     return new Response('{"error":"Fixture writes are disabled"}', {
@@ -161,7 +163,7 @@ window.fetch = async (input, init) => {
 const errors: string[] = []
 window.addEventListener("error", (event) => errors.push(event.message))
 window.addEventListener("unhandledrejection", (event) =>
-  errors.push(String(event.reason)),
+  errors.push(String(event.reason))
 )
 let shifts = 0,
   canvases = 0
@@ -233,11 +235,11 @@ panel.querySelector("#cold")!.addEventListener("click", () => {
     {
       ...inspect(),
       logStillLoading: Boolean(
-        document.querySelector('[aria-label="Loading nutrition"]'),
+        document.querySelector('[aria-label="Loading nutrition"]')
       ),
     },
     null,
-    2,
+    2
   )
 })
 panel.querySelector("#cold-workout")!.addEventListener("click", async () => {
@@ -245,14 +247,14 @@ panel.querySelector("#cold-workout")!.addEventListener("click", async () => {
   const baseline = canvases
   document
     .querySelector<HTMLButtonElement>(
-      '[aria-label="Open Completed run fixture"]',
+      '[aria-label="Open Completed run fixture"]'
     )
     ?.click()
   await pause(1100)
   const early = {
     addedCanvases: canvases - baseline,
     signalChartsReady: Boolean(
-      document.querySelector('[aria-label="Recorded signal graphs"]'),
+      document.querySelector('[aria-label="Recorded signal graphs"]')
     ),
     mapReady: Boolean(document.querySelector(".mapboxgl-canvas")),
   }
@@ -263,13 +265,13 @@ panel.querySelector("#cold-workout")!.addEventListener("click", async () => {
       late: {
         addedCanvases: canvases - baseline,
         signalChartsReady: Boolean(
-          document.querySelector('[aria-label="Recorded signal graphs"]'),
+          document.querySelector('[aria-label="Recorded signal graphs"]')
         ),
       },
       errors,
     },
     null,
-    2,
+    2
   )
 })
 const navigate = (item: string) =>
@@ -283,7 +285,7 @@ panel.querySelector("#stress")!.addEventListener("click", async () => {
   const closeWorkout = async () => {
     for (let attempt = 0; attempt < 25; attempt++) {
       const close = document.querySelector<HTMLButtonElement>(
-        '[aria-label="Close workout details"], [aria-label="Back to workouts"], [aria-label="Back"]',
+        '[aria-label="Close workout details"], [aria-label="Back to workouts"], [aria-label="Back"]'
       )
       if (close) {
         close.click()
@@ -295,13 +297,21 @@ panel.querySelector("#stress")!.addEventListener("click", async () => {
   }
   try {
     for (let cycle = 0; cycle < 12; cycle++) {
-      for (const item of ["Home", "Calendar", "Nutrition", "Coach", "Home"]) {
+      for (const item of [
+        "Home",
+        "Calendar",
+        "Nutrition",
+        "Coach",
+        "Annual Plan",
+        "Settings",
+        "Home",
+      ]) {
         navigate(item)
         transitions++
         await pause(30)
       }
       const completedButton = document.querySelector<HTMLButtonElement>(
-        '[aria-label="Open Completed run fixture"]',
+        '[aria-label="Open Completed run fixture"]'
       )
       if (completedButton) {
         completedButton.click()
@@ -313,13 +323,13 @@ panel.querySelector("#stress")!.addEventListener("click", async () => {
       window.dispatchEvent(
         new CustomEvent("app-navigate", {
           detail: { item: "Nutrition", quickAdd: "type" },
-        }),
+        })
       )
       transitions++
       await pause(20)
       document
         .querySelector<HTMLButtonElement>(
-          '.nutrition-screen button[aria-label="Back"]',
+          '.nutrition-screen button[aria-label="Back"]'
         )
         ?.click()
       await pause(20)
@@ -333,12 +343,12 @@ panel.querySelector("#stress")!.addEventListener("click", async () => {
       }
       const workout =
         document.querySelector<HTMLElement>(
-          '[aria-label="Open Planned run fixture"]',
+          '[aria-label="Open Planned run fixture"]'
         ) ||
         Array.from(
           document.querySelectorAll<HTMLElement>(
-            '[data-slot="card"][role="button"]',
-          ),
+            '[data-slot="card"][role="button"]'
+          )
         ).find((b) => b.textContent?.includes("Planned run fixture"))
       if (workout) {
         workout.click()
@@ -353,7 +363,7 @@ panel.querySelector("#stress")!.addEventListener("click", async () => {
     result.textContent = JSON.stringify(
       { transitions, workoutOpens, workoutCloses, ...inspect() },
       null,
-      2,
+      2
     )
   } catch (error) {
     errors.push(String(error))
@@ -365,11 +375,15 @@ panel.querySelector("#stress")!.addEventListener("click", async () => {
 setApiAuthenticated(true)
 rememberTrainingContext(context, "full")
 createRoot(document.getElementById("root")!).render(
-  <Framework7App name="Verification" theme="ios">
-    <TooltipProvider>
-      <AppToastProvider>
-        <App />
-      </AppToastProvider>
-    </TooltipProvider>
-  </Framework7App>,
+  <StrictMode>
+    <Framework7App name="Verification" theme="ios">
+      <ThemeProvider>
+        <TooltipProvider>
+          <AppToastProvider>
+            <App />
+          </AppToastProvider>
+        </TooltipProvider>
+      </ThemeProvider>
+    </Framework7App>
+  </StrictMode>
 )
