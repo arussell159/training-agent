@@ -1,7 +1,8 @@
 import { ChartSkeleton } from "@/components/loading-layouts"
 import { METERS_PER_100_YARDS, recordedSwimYards } from "../../../app-backend/lib/swim-units.mjs"
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react"
-import { Sun } from "lucide-react"
+import { Sun, Watch } from "lucide-react"
+import "./workout-analysis.css"
 
 import { DesktopWorkoutRouteMap } from "@/components/desktop-workout-route-map"
 import { MapboxRouteMap } from "@/components/mapbox-route-map"
@@ -14,6 +15,7 @@ import { distanceSplits } from "@/lib/distance-splits"
 import { formatDuration, formatPace } from "@/lib/duration"
 import { segmentStatistics, type RecordedPoint } from "@/lib/segment-statistics"
 import { intervalSignals } from "@/lib/interval-signals"
+import { createRouteCursorIndex, nearestRouteCursorPoint } from "@/lib/route-cursor"
 import type { PlannedWorkout, WorkoutSummaryValues } from "@/lib/training-context"
 import { structuredWorkoutProfile } from "@/lib/workout-structure"
 import { chartSegments } from "../../../app-backend/lib/workout-editor-model.mjs"
@@ -199,19 +201,34 @@ function elevationSegments(points:Point[]):Segment[]{
 
 function TimelineRow({label,segments,duration,selected,onSelect,onHover}:{label:string;segments:Segment[];duration:number;selected:string;onSelect:(segment:Segment)=>void;onHover:(segment:Segment|null)=>void}){
   if(!segments.length)return null
-  return <div className="grid grid-cols-[12.6%_75.2%_12.2%] items-center"><span className="pr-3 text-right text-[11px] text-muted-foreground">{label}</span><div className="relative h-5 overflow-hidden rounded-sm bg-muted/40">{segments.map(segment=><button key={segment.id} type="button" aria-label={`Show ${segment.label}`} aria-pressed={selected===segment.id} title={`${segment.label} · ${clock(segment.start)}–${clock(segment.end)}`} className={`absolute inset-y-0.5 min-w-1 rounded-[2px] border border-background/80 transition hover:brightness-90 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-ring ${selected===segment.id?"z-10 ring-2 ring-foreground/50 ring-inset":""}`} style={{left:`${segment.start/duration*100}%`,width:`${Math.max(.35,(segment.end-segment.start)/duration*100)}%`,backgroundColor:segment.color||"#cbd5e1"}} onMouseEnter={()=>onHover(segment)} onMouseLeave={()=>onHover(null)} onFocus={()=>onHover(segment)} onBlur={()=>onHover(null)} onClick={()=>onSelect(segment)}/>)}</div><span aria-hidden="true"/></div>
+  return <div className="analysis-timeline-row grid grid-cols-[12.6%_75.2%_12.2%] items-center"><span className="analysis-timeline-label pr-3 text-right text-[11px] text-muted-foreground">{label}</span><div className="analysis-timeline-track relative h-5 overflow-hidden rounded-sm bg-muted/40">{segments.map(segment=><button key={segment.id} type="button" aria-label={`Show ${segment.label}`} aria-pressed={selected===segment.id} title={`${segment.label} · ${clock(segment.start)}–${clock(segment.end)}`} className={`analysis-timeline-segment absolute inset-y-0.5 min-w-1 rounded-[2px] border border-background/80 transition hover:brightness-90 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-ring ${selected===segment.id?"z-10 ring-2 ring-foreground/50 ring-inset":""}`} style={{left:`${segment.start/duration*100}%`,width:`${Math.max(.35,(segment.end-segment.start)/duration*100)}%`,backgroundColor:segment.color||"#cbd5e1"}} onMouseEnter={()=>onHover(segment)} onMouseLeave={()=>onHover(null)} onFocus={()=>onHover(segment)} onBlur={()=>onHover(null)} onClick={()=>onSelect(segment)}>{(segment.end-segment.start)/duration>.035&&<span aria-hidden="true">{segment.kind==="lap"?segment.label.replace(/^Lap\s+/i,""):segment.kind==="split"?segment.label:null}</span>}</button>)}</div><span aria-hidden="true"/></div>
 }
 
 function DistanceAxis({labels,fullWidth=false}:{labels:string[];fullWidth?:boolean}){
   return fullWidth
     ? <div className="flex h-5 justify-between px-3 pt-0.5 text-[10px] font-normal leading-none tabular-nums text-muted-foreground">{labels.map((label,index)=><span key={`${label}-${index}`}>{label}</span>)}</div>
-    : <div className="grid h-5 grid-cols-[12.6%_75.2%_12.2%] items-start"><span aria-hidden="true"/><div className="flex justify-between pt-0.5 text-[10px] font-normal leading-none tabular-nums text-muted-foreground">{labels.map((label,index)=><span key={`${label}-${index}`}>{label}</span>)}</div><span aria-hidden="true"/></div>
+    : <div className="analysis-distance-axis grid h-5 grid-cols-[12.6%_75.2%_12.2%] items-start"><span aria-hidden="true"/><div className="flex justify-between pt-0.5 text-[10px] font-normal leading-none tabular-nums text-muted-foreground">{labels.map((label,index)=><span key={`${label}-${index}`}>{label}</span>)}</div><span aria-hidden="true"/></div>
 }
 
-function SummaryGroup({title,values}:{title:string;values:Array<[string,string|null]>}){
-  const visible=values.filter((entry):entry is [string,string]=>Boolean(entry[1]))
-  if(!visible.length)return null
-  return <div className="min-w-0 px-4 py-3"><h3 className="text-xs font-semibold">{title}</h3><dl className="mt-1.5 space-y-1 text-[11px]">{visible.map(([label,value])=><div key={label} className="flex justify-between gap-3"><dt className="text-muted-foreground">{label}</dt><dd className="font-medium tabular-nums">{value}</dd></div>)}</dl></div>
+type OverviewMetric = { label: string; value: string | null }
+
+function OverviewSummary({workout,primary,details=[],conditions=[]}:{workout:PlannedWorkout;primary:OverviewMetric[];details?:OverviewMetric[];conditions?:OverviewMetric[]}){
+  return <div className="analysis-overview-content">
+    <div className="analysis-overview-heading">
+      <div className="analysis-overview-eyebrow"><span className="analysis-status"><span aria-hidden="true"/>Completed</span><span>{workout.sport}</span></div>
+      <h2>{workout.title}</h2>
+      <p className="analysis-overview-date">{workoutDate(workout)}{workoutTime(workout)&&<><span aria-hidden="true"> · </span><span className="tabular-nums">{workoutTime(workout)}</span></>}</p>
+    </div>
+    <dl className="analysis-primary-metrics">{primary.map(metric=>{
+      const match=metric.value?.match(/^(.*?)\s+(mi|yd|mph|\/mi|\/100 yd)$/)
+      return <div key={metric.label}><dt>{metric.label}</dt><dd>{match?<>{match[1]}<span className="analysis-metric-unit"> {match[2]}</span></>:metric.value??"—"}{metric.label==="Training load"&&metric.value!=="—"&&<span className="analysis-metric-unit"> TSS</span>}</dd></div>
+    })}</dl>
+    {details.length>0&&<dl className="analysis-overview-details">{details.map(metric=><div key={metric.label}><dt>{metric.label}</dt><dd>{metric.value??"—"}{metric.label==="Calories"&&metric.value&&<span className="analysis-detail-unit"> kcal</span>}</dd></div>)}</dl>}
+    {(conditions.length>0||workout.device_name)&&<div className="analysis-recording-meta">
+      {conditions.length>0&&<div className="analysis-conditions"><Sun aria-hidden="true"/><dl aria-label="Recorded conditions">{conditions.map(metric=><div key={metric.label}><dt>{metric.label}</dt><dd>{metric.value}</dd></div>)}</dl></div>}
+      {workout.device_name&&<div className="analysis-device"><Watch aria-hidden="true"/><span>{workout.device_name}</span></div>}
+    </div>}
+  </div>
 }
 
 export function WorkoutAnalysis({workout,onLapSelection,analysisOverride,comparisonMode=false,onComparisonStats}:{workout:PlannedWorkout;onLapSelection?:(range:[number,number]|null)=>void;analysisOverride?:Analysis;comparisonMode?:boolean;onComparisonStats?:(id:string,stats:WorkoutComparisonStats|null)=>void}){
@@ -255,7 +272,8 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
   const splits=useMemo<Segment[]>(()=>swim?[]:distanceSplits(data?.points||[],splitDistance).map(split=>({id:`split-${split.number}`,label:bike?`${split.number*5} mi`:`${split.number} mi`,start:split.start,end:split.end,distance:split.distance,kind:"split",color:"#cbd5e1"})),[bike,data,splitDistance,swim])
   const laps:Segment[]=(data?.laps||[]).map(lap=>({...lap,kind:"lap",color:"#94a3b8"}))
   const swimIntervals=useMemo(()=>swim?intervalSignals(data?.points||[],data?.laps||[]):[],[data,swim])
-  const routePoints=useMemo(()=>(data?.points||[]).flatMap(point=>point.latitude!=null&&point.longitude!=null?[{time:point.time,latitude:point.latitude,longitude:point.longitude}]:[]),[data])
+  const routePoints=useMemo(()=>createRouteCursorIndex(data?.points||[]),[data])
+  const routeCursorPoint=nearestRouteCursorPoint(routePoints,cursor)
   const selectedSegment=[...laps,...splits,...terrain,...peaks].find(segment=>segment.id===selected)
   const highlight=selection?{start:Math.min(...selection),end:Math.max(...selection)}:hovered||selectedSegment||(range?{start:range[0],end:range[1]}:null)
   const graphHover=hovered&&hovered.end>viewStart&&hovered.start<viewEnd?{start:Math.max(viewStart,hovered.start),end:Math.min(viewEnd,hovered.end)}:null
@@ -283,26 +301,21 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
   if(!data){
     if(mobile||comparisonMode)return <ChartSkeleton className="border" />
     return <><section aria-label="Recorded workout analysis" className="workout-analysis-desktop hidden min-w-0 space-y-3 md:block">
-      <section className="grid overflow-hidden rounded-xl border bg-card lg:grid-cols-2" aria-label="Workout overview">
-        <div className="min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} compact/></div>
-        <div className="flex min-h-[300px] min-w-0 flex-col justify-center p-4"><h2 className="text-base font-semibold">{workout.title}</h2><p className="mt-2 text-sm text-muted-foreground">{workout.sport} · Completed</p><dl className="mt-5 grid grid-cols-3 gap-4 text-sm"><div><dt className="text-xs text-muted-foreground">Moving time</dt><dd className="mt-1">{totals?.duration_seconds!=null?durationClock(totals.duration_seconds):"—"}</dd></div><div><dt className="text-xs text-muted-foreground">Distance</dt><dd className="mt-1">{totals?.distance_meters!=null?`${(totals.distance_meters/1609.344).toFixed(2)} mi`:"—"}</dd></div><div><dt className="text-xs text-muted-foreground">Training load</dt><dd className="mt-1">{totals?.tss??"—"}</dd></div></dl></div>
+      <section className="analysis-overview analysis-overview-with-map grid lg:grid-cols-2" aria-label="Workout overview">
+        <div className="analysis-route min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} compact/></div>
+        <OverviewSummary workout={workout} primary={[
+          {label:"Distance",value:totals?.distance_meters!=null?swim?`${Math.round(recordedSwimYards(totals.distance_meters)).toLocaleString()} yd`:`${(totals.distance_meters/1609.344).toFixed(2)} mi`:"—"},
+          {label:"Moving time",value:totals?.duration_seconds!=null?durationClock(totals.duration_seconds):"—"},
+          {label:run||swim?"Pace":"Avg speed",value:totals?.average_speed?run||swim?`${pace(paceDistance/totals.average_speed)} ${unit("pace")}`:`${(totals.average_speed*2.236936).toFixed(1)} mph`:"—"},
+          {label:"Training load",value:totals?.tss!=null?String(Math.round(totals.tss)):"—"},
+        ]}/>
       </section>
       <ChartSkeleton className="rounded-xl border"/>
     </section></>
   }
   if(!data.points.length||(!allSignalTracks.length&&!data.dfa))return <div className="border border-dashed p-5 text-sm text-muted-foreground">No recorded signal stream is available for this activity.</div>
   if(mobile)return <MobileWorkoutSignals points={data.points} laps={data.laps} duration={duration} sport={sport} summary={totals} dfa={data.dfa} onLapSelect={lap=>setSelected(lap?.id||"")} afterLaps={<WorkoutMapSplits workout={workout} analysis={data}/>}/>
-  const selectionRange=selection?[Math.min(selection[0],selection[1]),Math.max(selection[0],selection[1])] as [number,number]:null
-  const summaryRange=selectionRange||(hovered?[hovered.start,hovered.end]:range)
-  const summaryStats=summaryRange?rangeStatistics(data.points,summaryRange[0],summaryRange[1]):activeStats
-  const laneHeight=70,height=comparisonMode?176:signalTracks.length*laneHeight+8,graphHeight=comparisonMode?142:48,activeDuration=summaryRange?summaryRange[1]-summaryRange[0]:totals?.duration_seconds??viewEnd-viewStart,activeDistance=summaryStats.distance,activeElevation=activeStats.elevationChange
-  const summaryGroups:Array<{title:string;values:Array<[string,string|null]>}>=[
-    {title:"Active",values:[["Time",durationClock(activeDuration)],["Distance",activeDistance!=null?(swim?`${Math.round(recordedSwimYards(activeDistance)).toLocaleString()} yd`:`${(activeDistance/1609.344).toFixed(2)} mi`):!summaryRange&&totals?.distance_meters!=null?`${(totals.distance_meters/1609.344).toFixed(2)} mi`:null],[run||swim?"Avg pace":"Avg speed",summaryStats.speed!=null&&summaryStats.speed>0?(run||swim?`${pace(paceDistance/summaryStats.speed)} ${unit("pace")}`:`${(summaryStats.speed*2.236936).toFixed(1)} mph`):null]]},
-    {title:"Power",values:[["Average",activeStats.power!=null?`${Math.round(activeStats.power)} W`:null],["Normalized",!range&&totals?.normalized_power!=null?`${Math.round(totals.normalized_power)} W`:null],["Maximum",activeStats.maxPower!=null?`${Math.round(activeStats.maxPower)} W`:null]]},
-    {title:"Load & energy",values:[["Work",`${Math.round(range?activeStats.workKj:totals?.work_kj??activeStats.workKj)} kJ`],["Training load",!range&&totals?.tss!=null?`${Math.round(totals.tss)} TSS`:null],["Intensity",!range&&totals?.intensity_factor!=null?`${Math.round(totals.intensity_factor*100)}%`:null]]},
-    {title:"Elevation",values:[["Gain",`${Math.round((range?activeStats.elevationGain:totals?.elevation_gain??activeStats.elevationGain)/.3048)} ft`],["Loss",`${Math.round((range?activeStats.elevationLoss:totals?.elevation_loss??activeStats.elevationLoss)/.3048)} ft`],["Net",activeElevation!=null?`${activeElevation>=0?"+":""}${Math.round(activeElevation/.3048)} ft`:null]]},
-    {title:"Heart rate & cadence",values:[["Avg HR",activeStats.heartRate!=null?`${Math.round(activeStats.heartRate)} bpm`:null],["Max HR",activeStats.maxHeartRate!=null?`${Math.round(activeStats.maxHeartRate)} bpm`:null],["Avg cadence",activeStats.cadence!=null?`${Math.round(activeStats.cadence)} ${unit("cadence")}`:null]]},
-  ]
+  const laneHeight=92,height=comparisonMode?176:signalTracks.length*laneHeight+8,graphHeight=comparisonMode?142:58
   const elevationProfile=data.points.map((point,index)=>{const nearby=data.points.slice(Math.max(0,index-3),index+4).map(entry=>value(entry,"elevation")).filter(finite);return {...point,smoothedElevation:nearby.length?nearby.reduce((sum,entry)=>sum+entry,0)/nearby.length:null}})
   const elevationValues=elevationProfile.map(point=>point.smoothedElevation).filter(finite),elevationMin=elevationValues.reduce((a,b)=>Math.min(a,b),Infinity),elevationMax=elevationValues.reduce((a,b)=>Math.max(a,b),-Infinity),elevationSpan=Math.max(1,elevationMax-elevationMin),elevationY=(entry:number)=>92-(entry-elevationMin)/elevationSpan*66
   let fullElevationPath="",previousElevation=false
@@ -325,7 +338,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
     {label:"Training load",value:totals?.tss!=null?String(Math.round(totals.tss)):"—"},
   ]
   const overviewDetails=[
-    {label:"Elevation",value:`${Math.round((totals?.elevation_gain??wholeStats.elevationGain)/.3048).toLocaleString()} ft`},
+    {label:"Elevation gain",value:`${Math.round((totals?.elevation_gain??wholeStats.elevationGain)/.3048).toLocaleString()} ft`},
     {label:"Calories",value:totals?.calories!=null?Math.round(totals.calories).toLocaleString():null},
     {label:"Elapsed time",value:totals?.elapsed_time_seconds!=null?durationClock(totals.elapsed_time_seconds):null},
     ...((run||swim)?[{label:"Elapsed pace",value:totals?.elapsed_speed!=null&&totals.elapsed_speed>0?`${pace(paceDistance/totals.elapsed_speed)} ${unit("pace")}`:null}]:[]),
@@ -340,54 +353,43 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
       : []
     const lapAveraged=intervalValues.length>0
     const values=lapAveraged?intervalValues:visible.map(point=>value(point,key)).filter((entry):entry is number=>entry!=null)
-    const rawMin=values.reduce((a,b)=>Math.min(a,b),Infinity),rawMax=values.reduce((a,b)=>Math.max(a,b),-Infinity),padding=Math.max((rawMax-rawMin)*.08,key==="pace"?1:.5),min=rawMin-padding,max=rawMax+padding,span=Math.max(1,max-min),top=comparisonMode?12:lane*laneHeight+4,graphBottom=comparisonMode?height-12:top+58
+    const rawMin=values.reduce((a,b)=>Math.min(a,b),Infinity),rawMax=values.reduce((a,b)=>Math.max(a,b),-Infinity),padding=Math.max((rawMax-rawMin)*.08,key==="pace"?1:.5),min=rawMin-padding,max=rawMax+padding,span=Math.max(1,max-min),top=comparisonMode?12:lane*laneHeight+8,graphBottom=comparisonMode?height-12:top+72
     const average=key==="pace"?(activeStats.speed?paceDistance/activeStats.speed:null):key==="speed"?(activeStats.speed!=null?activeStats.speed*2.2369362920544:null):key==="power"?activeStats.power:key==="heartRate"?activeStats.heartRate:activeStats.cadence
     const livePoint=lapAveraged?swimIntervals.find(interval=>cursor!=null&&cursor>=interval.lap.start&&cursor<=interval.lap.end)?.point:nearest
     return {key,rawMin,rawMax,min,max,span,top,graphBottom,average,peak:key==="pace"?rawMin:rawMax,live:livePoint?value(livePoint,key):null,lapAveraged}
   })
   return <>
-    <section aria-label="Recorded workout analysis" className="workout-analysis-desktop hidden min-w-0 space-y-3 md:block">
-      {!comparisonMode&&<section className={`grid overflow-hidden rounded-xl border bg-card ${routePoints.length>1||swim?"lg:grid-cols-2":"grid-cols-1"}`} aria-label="Workout overview">
+    <section aria-label="Recorded workout analysis" className={`workout-analysis-desktop hidden min-w-0 space-y-3 md:block ${comparisonMode?"workout-analysis-comparison":""}`}>
+      {!comparisonMode&&<section className={`analysis-overview grid ${routePoints.length>1||swim?"analysis-overview-with-map lg:grid-cols-2":"grid-cols-1"}`} aria-label="Workout overview">
         {routePoints.length>1
-          ? <div className="min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} timedPoints={routePoints} highlightRange={highlight?[highlight.start,highlight.end]:null} compact/></div>
+          ? <div className="analysis-route min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} timedPoints={routePoints} highlightRange={highlight?[highlight.start,highlight.end]:null} cursorPoint={routeCursorPoint} compact/></div>
           : swim
-            ? <div className="relative min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Approximate pool workout area"><MapboxRouteMap points={noRoutePoints} center={cypressCenter} interactive={false} className="relative min-h-[300px] w-full bg-muted/25 lg:h-full"/><span className="pointer-events-none absolute top-3 left-3 rounded-md border bg-background/90 px-2.5 py-1.5 text-xs font-medium shadow-sm">Cypress, Texas · approximate area</span></div>
+            ? <div className="analysis-route relative min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Approximate pool workout area"><MapboxRouteMap points={noRoutePoints} center={cypressCenter} interactive={false} className="relative min-h-[300px] w-full bg-muted/25 lg:h-full"/><span className="pointer-events-none absolute top-3 left-3 rounded-md border bg-background/90 px-2.5 py-1.5 text-xs font-medium shadow-sm">Cypress, Texas · approximate area</span></div>
             : null}
-        <div className="flex min-h-[300px] min-w-0 flex-col justify-center p-4">
-          <div className="mx-auto w-full max-w-2xl">
-          <div className="border-b pb-3">
-            <h2 className="truncate text-base font-semibold">{workout.title}</h2>
-            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-              <span>{workout.sport}</span><span aria-hidden="true">·</span><span>Completed</span><span aria-hidden="true">·</span><span>{workoutDate(workout)}</span>{workoutTime(workout)&&<><span aria-hidden="true">·</span><span className="tabular-nums">{workoutTime(workout)}</span></>}
-            </div>
-          </div>
-          <div className="grid grid-cols-4 border-b py-3">{overviewPrimary.map(metric=><div key={metric.label} className="min-w-0 pr-3 last:pr-0"><p className="truncate text-2xl font-normal leading-none tabular-nums">{metric.value}</p><p className="mt-1 truncate text-[10px] font-normal text-muted-foreground">{metric.label}</p></div>)}</div>
-          <dl className="grid grid-cols-2 gap-x-8 border-b py-2.5 text-xs">{overviewDetails.map(metric=><div key={metric.label} className="flex min-w-0 items-center justify-between gap-3 py-0.5"><dt>{metric.label}</dt><dd className="truncate font-medium tabular-nums">{metric.value??"—"}</dd></div>)}</dl>
-          {overviewConditions.length>0&&<div className="grid grid-cols-[36px_minmax(0,1fr)] items-center gap-2 border-b py-2.5"><Sun className="size-7 stroke-[1.5]" aria-hidden="true"/><div><p className="text-xs">Recorded conditions</p><dl className="mt-0.5 grid grid-cols-2 gap-x-8 text-xs">{overviewConditions.map(metric=><div key={metric.label} className="flex justify-between gap-3"><dt>{metric.label}</dt><dd className="tabular-nums">{metric.value}</dd></div>)}</dl></div></div>}
-          {workout.device_name&&<div className="mt-3 text-xs">{workout.device_name}</div>}
-          </div>
-        </div>
+        <OverviewSummary workout={workout} primary={overviewPrimary} details={overviewDetails} conditions={overviewConditions}/>
       </section>}
-      <div className={`grid min-w-0 gap-4 ${!comparisonMode&&peaks.length?"grid-cols-[210px_minmax(0,1fr)]":"grid-cols-1"}`}>
-        {!comparisonMode&&peaks.length>0&&<aside className="sticky top-20 min-w-0 self-start rounded-xl border bg-card" aria-label={`Peak ${effortMetric} efforts`}>
+      <div className={comparisonMode?"min-w-0":"analysis-area min-w-0"}>
+      <div className={`analysis-workspace grid min-w-0 gap-4 ${!comparisonMode&&peaks.length?"analysis-workspace-with-sidebar grid-cols-[168px_minmax(0,1fr)]":"grid-cols-1"}`}>
+        {!comparisonMode&&peaks.length>0&&<aside className="analysis-sidebar relative min-w-0" aria-label={`Peak ${effortMetric} efforts`}><div className="analysis-sidebar-scroll">
+          <div className="analysis-peaks min-w-0">
           <div className="border-b px-4 py-3"><h2 className="text-sm font-medium">Peak {effortMetric}</h2><p className="mt-0.5 text-[10px] text-muted-foreground">Hover to preview · click to zoom</p></div>
-          <div className="py-1">{peaks.map(effort=><button key={effort.id} type="button" onPointerEnter={()=>setHovered(effort)} onPointerLeave={()=>setHovered(current=>current?.id===effort.id?null:current)} onFocus={()=>setHovered(effort)} onBlur={()=>setHovered(current=>current?.id===effort.id?null:current)} onClick={()=>selectSegment(effort)} className={`flex min-h-9 w-full items-center justify-between gap-3 px-4 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${selected===effort.id?"bg-muted":""}`}><span>{effort.label}</span><span className="tabular-nums">{effort.metric==="pace"?`${pace(effort.value)} ${unit("pace")}`:`${Math.round(effort.value)} W`}</span></button>)}</div>
-        </aside>}
+          <div className="py-1">{peaks.map(effort=><button key={effort.id} type="button" aria-pressed={selected===effort.id} onPointerEnter={()=>setHovered(effort)} onPointerLeave={()=>setHovered(current=>current?.id===effort.id?null:current)} onFocus={()=>setHovered(effort)} onBlur={()=>setHovered(current=>current?.id===effort.id?null:current)} onClick={()=>selectSegment(effort)} className={`flex min-h-9 w-full items-center justify-between gap-3 px-4 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${selected===effort.id?"bg-muted":""}`}><span>{effort.label}</span><span className="tabular-nums">{effort.metric==="pace"?`${pace(effort.value)} ${unit("pace")}`:`${Math.round(effort.value)} W`}</span></button>)}</div>
+        </div>
+        </div></aside>}
         <div className="min-w-0">
-          <section className={comparisonMode?"min-w-0":"overflow-hidden rounded-xl border bg-card"} aria-label="Workout charts and selected-range summary">
-          {!comparisonMode&&<div className="flex h-9 items-center gap-3 border-b bg-muted/15 px-3 text-[10px]"><span className="min-w-0 truncate">{range?<><span className="font-medium">{selectedSegment?.label||"Selected range"}</span><span className="text-muted-foreground"> · {clock(viewStart)}–{clock(viewEnd)}</span></>:<span className="text-muted-foreground">Full workout</span>}</span></div>}
+          <section className={comparisonMode?"min-w-0":"analysis-charts min-w-0"} aria-label="Workout charts and selected-range summary">
+          {!comparisonMode&&<div className="analysis-chart-heading"><p className={range?"analysis-range-active":""}>{range?<><span>{selectedSegment?.label||"Selected range"}</span><span> · {clock(viewStart)}–{clock(viewEnd)}</span></>:<>Full workout <span aria-hidden="true">·</span> {clock(duration)}</>}</p><p className="analysis-chart-help">Hover to inspect <span aria-hidden="true">·</span> Drag to zoom <span aria-hidden="true">·</span> Click to reset</p></div>}
           {comparisonMode&&<div className="flex flex-wrap gap-2 border-b px-3 py-2" aria-label="Show or hide recorded signals">{allSignalTracks.map(key=><Button key={key} variant={hiddenTracks.includes(key)?"ghost":"outline"} size="sm" aria-pressed={!hiddenTracks.includes(key)} onClick={()=>setHiddenTracks(current=>current.includes(key)?current.filter(item=>item!==key):[...current,key])} className="gap-2"><span className="size-2.5 rounded-full" style={{backgroundColor:colors[key]}}/>{label(key)}{cursor!=null&&!hiddenTracks.includes(key)&&<span className="tabular-nums text-muted-foreground">{format(trackMetrics.find(metric=>metric.key===key)?.live,key)}</span>}</Button>)}</div>}
           {!comparisonMode&&available.elevation&&<><div className="relative border-b" aria-label="Elevation, laps and splits">
-            <div className="relative"><div className="pointer-events-none absolute inset-y-0 left-0 z-10 flex w-[12.6%] flex-col justify-center px-3 text-[11px] font-normal"><span>Elevation</span><span className="mt-2 text-[9px] font-normal text-muted-foreground">Max <span className="ml-1 text-[11px] font-normal text-foreground">{Math.round(elevationMax)} ft</span></span><span className="mt-1 text-[9px] font-normal text-muted-foreground">Min <span className="ml-1 text-[11px] font-normal text-foreground">{Math.round(elevationMin)} ft</span></span></div><svg viewBox="0 0 1080 100" preserveAspectRatio="none" className="block h-24 w-full cursor-crosshair touch-none select-none" role="img" aria-label="Smoothed full workout elevation profile. Click to reset zoom." onClick={resetFromChartClick} onPointerDown={event=>down(event,true)} onPointerMove={event=>move(event,true)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}} onPointerLeave={()=>{if(!gesture.current)setCursor(null)}}><rect x={plotLeft} y="14" width={plotWidth} height="78" fill="#cbd5e1" fillOpacity=".08"/>{[0,.5,1].map(fraction=><line key={fraction} x1={plotLeft} x2={plotRight} y1={92-fraction*66} y2={92-fraction*66} stroke="currentColor" opacity=".07"/>)}{fullElevationPath&&<path d={`${fullElevationPath}L${plotRight},92 L${plotLeft},92 Z`} fill="#cbd5e1" fillOpacity="1"/>}{highlight&&<rect x={x(highlight.start,true)} y="14" width={Math.max(2,x(highlight.end,true)-x(highlight.start,true))} height="78" fill="#64748b" fillOpacity=".2"/>}{selection&&<rect x={Math.min(x(selection[0],true),x(selection[1],true))} y="14" width={Math.abs(x(selection[1],true)-x(selection[0],true))} height="78" fill="#64748b" fillOpacity=".14"/>}</svg></div>
+            <div className="relative"><div className="pointer-events-none absolute inset-y-0 left-0 z-10 flex w-[12.6%] flex-col justify-center px-3 text-[11px] font-normal"><span>Elevation</span><span className="mt-2 text-[9px] font-normal text-muted-foreground">Max <span className="ml-1 text-[11px] font-normal text-foreground">{Math.round(elevationMax)} ft</span></span><span className="mt-1 text-[9px] font-normal text-muted-foreground">Min <span className="ml-1 text-[11px] font-normal text-foreground">{Math.round(elevationMin)} ft</span></span></div><svg viewBox="0 0 1080 100" preserveAspectRatio="none" className="block h-24 w-full cursor-crosshair touch-none select-none" role="img" aria-label="Smoothed full workout elevation profile. Click to reset zoom." onClick={resetFromChartClick} onPointerDown={event=>down(event,true)} onPointerMove={event=>move(event,true)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}} onPointerLeave={()=>{if(!gesture.current)setCursor(null)}}><rect x={plotLeft} y="14" width={plotWidth} height="78" fill="#cbd5e1" fillOpacity=".08"/>{[0,.5,1].map(fraction=><line key={fraction} x1={plotLeft} x2={plotRight} y1={92-fraction*66} y2={92-fraction*66} stroke="currentColor" opacity=".07"/>)}{fullElevationPath&&<path d={`${fullElevationPath}L${plotRight},92 L${plotLeft},92 Z`} fill="#94a3b8" fillOpacity=".5" stroke="#64748b" strokeWidth="1.5" strokeLinejoin="round"/>}{highlight&&<rect x={x(highlight.start,true)} y="14" width={Math.max(2,x(highlight.end,true)-x(highlight.start,true))} height="78" fill="#64748b" fillOpacity=".2"/>}{selection&&<rect x={Math.min(x(selection[0],true),x(selection[1],true))} y="14" width={Math.abs(x(selection[1],true)-x(selection[0],true))} height="78" fill="#64748b" fillOpacity=".14"/>}</svg></div>
             {plannedProfilePath&&<svg viewBox="0 0 1080 100" preserveAspectRatio="none" className="pointer-events-none absolute inset-x-0 top-0 z-10 block h-24 w-full" aria-hidden="true"><path d={plannedProfileFill} fill="#38bdf8" fillOpacity=".035"/><path d={plannedProfilePath} fill="none" stroke="#0284c7" strokeWidth="2.5" strokeOpacity=".3" strokeLinejoin="round"/></svg>}
             <DistanceAxis labels={overviewDistanceLabels}/>
-            <div className="mt-2 space-y-1.5 pb-2 pt-3"><TimelineRow label="Laps" segments={laps} duration={duration} selected={selected} onSelect={selectSegment} onHover={setHovered}/><TimelineRow label="Splits" segments={splits} duration={duration} selected={selected} onSelect={selectSegment} onHover={setHovered}/><TimelineRow label="Terrain" segments={terrain} duration={duration} selected={selected} onSelect={selectSegment} onHover={setHovered}/></div></div></>}
-          {!comparisonMode&&<div className="grid divide-x border-b md:grid-cols-3 xl:grid-cols-5" aria-label="Selected-range summary">{summaryGroups.map(group=><SummaryGroup key={group.title} title={group.title} values={group.values}/>)}</div>}
+            <div className="analysis-timelines mt-2 space-y-1.5 pb-2 pt-3"><TimelineRow label="Laps" segments={laps} duration={duration} selected={selected} onSelect={selectSegment} onHover={setHovered}/><TimelineRow label="Splits" segments={splits} duration={duration} selected={selected} onSelect={selectSegment} onHover={setHovered}/><TimelineRow label="Terrain" segments={terrain} duration={duration} selected={selected} onSelect={selectSegment} onHover={setHovered}/>{terrain.length>0&&<div className="analysis-terrain-key" aria-label="Terrain legend"><span><i aria-hidden="true" style={{backgroundColor:"#ea580c"}}/>Climb</span><span><i aria-hidden="true" style={{backgroundColor:"#0284c7"}}/>Descent</span></div>}</div></div></>}
           {comparisonMode&&allSignalTracks.length>0&&!signalTracks.length&&<p className="p-6 text-center text-sm text-muted-foreground">Select a signal above to show its graph.</p>}
           {!!signalTracks.length&&<div aria-label="Recorded signal graphs">
             <DistanceAxis labels={viewDistanceLabels} fullWidth={comparisonMode}/>
-            <div className="relative">
-              <svg viewBox={`0 0 1080 ${height}`} preserveAspectRatio="none" className="block w-full cursor-crosshair touch-none select-none" style={{height}} role="img" aria-label="Recorded signals. Hover for live values, drag to zoom, click to reset, or use arrow keys to pan." tabIndex={0} onClick={resetFromChartClick} onKeyDown={event=>{if(!range||!["ArrowLeft","ArrowRight"].includes(event.key))return;event.preventDefault();const width=range[1]-range[0],start=Math.max(0,Math.min(duration-width,range[0]+width*.1*(event.key==="ArrowRight"?1:-1)));setRange([start,start+width])}} onPointerDown={event=>down(event)} onPointerMove={event=>move(event)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}} onPointerLeave={()=>{if(!gesture.current)setCursor(null)}}>
+            <div className={comparisonMode?"relative":"analysis-signal-plot relative"}>
+              <svg viewBox={`0 0 1080 ${height}`} preserveAspectRatio="none" className={`block w-full cursor-crosshair touch-none select-none ${comparisonMode?"":"analysis-signal-svg"}`} style={{height}} role="img" aria-label="Recorded signals. Hover for live values, drag to zoom, click to reset, or use arrow keys to pan." tabIndex={0} onClick={resetFromChartClick} onKeyDown={event=>{if(!range||!["ArrowLeft","ArrowRight"].includes(event.key))return;event.preventDefault();const width=range[1]-range[0],start=Math.max(0,Math.min(duration-width,range[0]+width*.1*(event.key==="ArrowRight"?1:-1)));setRange([start,start+width])}} onPointerDown={event=>down(event)} onPointerMove={event=>move(event)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}} onPointerLeave={()=>{if(!gesture.current)setCursor(null)}}>
                 {trackMetrics.map(metric=>{
                   const {key,top,graphBottom,min,max,span}=metric
                   const y=(entry:number)=>graphBottom-(key==="pace"?max-entry:entry-min)/span*graphHeight
@@ -408,16 +410,17 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
                       previous=true
                     }
                   }
-                  return <g key={key}>{!comparisonMode&&<rect x={plotLeft} y={top} width={plotWidth} height="62" fill={colors[key]} fillOpacity=".022"/>}{(!comparisonMode||metric===trackMetrics[0])&&[0,.5,1].map(fraction=><line key={fraction} x1={plotLeft} x2={plotRight} y1={graphBottom-fraction*graphHeight} y2={graphBottom-fraction*graphHeight} stroke="currentColor" opacity=".07"/>)}{(!comparisonMode||metric===trackMetrics[0])&&laps.filter(lap=>lap.start>=view[0]&&lap.start<=view[1]).map(lap=><line key={lap.id} x1={x(lap.start)} x2={x(lap.start)} y1={top} y2={comparisonMode?height-12:top+62} stroke="currentColor" opacity=".1" strokeDasharray="3 3"/>)}<path d={path} fill="none" stroke={colors[key]} strokeWidth={comparisonMode?2:1.5} strokeLinejoin="round"/></g>
+                  return <g key={key}>{!comparisonMode&&<rect x={plotLeft} y={top} width={plotWidth} height="76" fill={colors[key]} fillOpacity=".022"/>}{(!comparisonMode||metric===trackMetrics[0])&&[0,.5,1].map(fraction=><line key={fraction} x1={plotLeft} x2={plotRight} y1={graphBottom-fraction*graphHeight} y2={graphBottom-fraction*graphHeight} stroke="currentColor" opacity=".07"/>)}{(!comparisonMode||metric===trackMetrics[0])&&laps.filter(lap=>lap.start>=view[0]&&lap.start<=view[1]).map(lap=><line key={lap.id} x1={x(lap.start)} x2={x(lap.start)} y1={top} y2={comparisonMode?height-12:top+76} stroke="currentColor" opacity=".1" strokeDasharray="3 3"/>)}<path d={path} fill="none" stroke={colors[key]} strokeWidth={comparisonMode?2:1.85} strokeLinejoin="round"/></g>
                 })}
                 {graphHover&&<rect x={x(graphHover.start)} y="0" width={Math.max(2,x(graphHover.end)-x(graphHover.start))} height={height} fill="#64748b" fillOpacity=".14"/>}{selection&&<rect x={Math.min(x(selection[0]),x(selection[1]))} y="0" width={Math.abs(x(selection[1])-x(selection[0]))} height={height} fill="currentColor" fillOpacity=".055"/>}{nearest&&<line x1={x(nearest.time)} x2={x(nearest.time)} y1="0" y2={height} stroke="currentColor" opacity=".4" strokeDasharray="3 3"/>}
               </svg>
-              {!comparisonMode&&<div className="pointer-events-none absolute inset-0" aria-hidden="true">{trackMetrics.map(metric=><div key={metric.key} className="absolute inset-x-0 grid grid-cols-[12.6%_75.2%_12.2%] font-normal" style={{top:metric.top,height:62}}><div className="flex flex-col justify-center px-3 text-[11px]"><span className="text-xs font-normal">{label(metric.key)}</span><span className="mt-1 text-muted-foreground">Avg <span className="ml-1 text-foreground tabular-nums">{format(metric.average,metric.key)}</span></span><span className="text-muted-foreground">Max <span className="ml-1 text-foreground tabular-nums">{format(metric.peak,metric.key)}</span></span></div><span/><div className="flex flex-col items-center justify-center font-normal"><span className="text-base font-normal tabular-nums">{format(metric.live,metric.key)}</span><span className="text-[9px] font-normal text-muted-foreground">{unit(metric.key)}</span></div></div>)}</div>}
+              {!comparisonMode&&<div className="pointer-events-none absolute inset-0" aria-hidden="true">{trackMetrics.map(metric=><div key={metric.key} className="absolute inset-x-0 grid grid-cols-[12.6%_75.2%_12.2%] font-normal" style={{top:`${metric.top/height*100}%`,height:`${76/height*100}%`}}><div className="analysis-signal-label flex flex-col justify-center px-3 text-[11px]" style={{borderLeftColor:colors[metric.key]}}><span className="text-xs font-normal">{label(metric.key)}</span><span className="analysis-signal-summary"><span>Avg <span className="analysis-signal-value">{format(metric.average,metric.key)}</span></span><span>Max <span className="analysis-signal-value">{format(metric.peak,metric.key)}</span></span></span></div><span/><div className="analysis-signal-readout flex flex-col items-center justify-center font-normal"><span className="analysis-cursor-label">At cursor</span><span className="analysis-live-value tabular-nums">{format(metric.live,metric.key)}<span className="analysis-live-unit"> {unit(metric.key)}</span></span></div></div>)}</div>}
             </div>
             {!comparisonMode&&range&&<div className="border-t px-4 py-1" aria-label="Pan selected chart range"><svg viewBox="0 0 1080 22" preserveAspectRatio="none" className="block h-6 w-full cursor-grab touch-none active:cursor-grabbing" role="slider" aria-label="Click to reset zoom or drag the selected range to pan" aria-valuemin={0} aria-valuemax={Math.round(duration)} aria-valuenow={Math.round(view[0])} aria-valuetext={`${clock(view[0])} to ${clock(view[1])}`} onClick={resetFromChartClick} onPointerDown={event=>down(event,true)} onPointerMove={event=>move(event,true)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}}><rect x={plotLeft} y="8" width={plotWidth} height="6" rx="3" fill="currentColor" opacity=".08"/><rect x={x(view[0],true)} y="5" width={Math.max(8,x(view[1],true)-x(view[0],true))} height="12" rx="3" fill="#64748b" fillOpacity=".35" stroke="#475569" strokeWidth="1"/></svg></div>}
           </div>}
           </section>
         </div>
+      </div>
       </div>
     </section>
   </>

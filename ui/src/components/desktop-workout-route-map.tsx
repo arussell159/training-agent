@@ -13,11 +13,13 @@ export function DesktopWorkoutRouteMap({
   workout,
   timedPoints,
   highlightRange,
+  cursorPoint,
   compact = false,
 }: {
   workout: PlannedWorkout
   timedPoints?: TimedRoutePoint[]
   highlightRange?: [number, number] | null
+  cursorPoint?: TimedRoutePoint | null
   compact?: boolean
 }) {
   const id =
@@ -100,6 +102,7 @@ export function DesktopWorkoutRouteMap({
       <MapboxRouteMap
         points={route}
         highlightRange={validTimed.length > 1 ? highlightRange : null}
+        cursorPoint={validTimed.length > 1 ? cursorPoint : null}
         className="relative isolate z-0 h-full min-w-0 overflow-hidden bg-[#eef2ed]"
       />
       <RouteReplayButton

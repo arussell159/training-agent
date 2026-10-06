@@ -4,7 +4,7 @@ import {mapboxConfig} from '@/lib/mapbox-config'
 
 export type MapRoutePoint={time:number;latitude:number;longitude:number}
 
-type MapCanvasProps={points:MapRoutePoint[];center?:[number,number];highlightRange?:[number,number]|null;className:string;interactive?:boolean;topPadding?:number;bottomPadding?:number}
+type MapCanvasProps={points:MapRoutePoint[];center?:[number,number];highlightRange?:[number,number]|null;cursorPoint?:MapRoutePoint|null;className:string;interactive?:boolean;topPadding?:number;bottomPadding?:number}
 
 const MapCanvas=lazy(()=>import('@/components/mapbox-route-map-canvas').then(module=>({default:module.MapboxRouteMapCanvas})))
 

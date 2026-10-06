@@ -1,0 +1,526 @@
+/* Desktop presentation only. Chart coordinates and interaction handlers stay
+   in WorkoutAnalysis; the mobile and comparison workspaces retain their layout. */
+@media (min-width: 768px) {
+  .workout-analysis-desktop:not(.workout-analysis-comparison) {
+    --analysis-subtle: color-mix(in oklab, var(--muted) 30%, var(--background));
+    --analysis-outline: color-mix(in oklab, var(--border) 90%, transparent);
+    display: grid;
+    gap: 16px;
+  }
+
+  .workout-analysis-desktop:not(.workout-analysis-comparison) > * {
+    margin-block: 0;
+  }
+
+  .analysis-overview {
+    align-items: center;
+    gap: 28px;
+  }
+
+  .analysis-route {
+    overflow: hidden;
+    border: 0;
+    border-radius: 6px;
+  }
+
+  .analysis-area {
+    border-top: 1px solid var(--analysis-outline);
+    padding-top: 12px;
+  }
+
+  .analysis-overview-content {
+    display: flex;
+    min-width: 0;
+    min-height: 210px;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .analysis-overview-heading h2 {
+    margin-top: 6px;
+    overflow-wrap: anywhere;
+    font-size: clamp(23px, 1.8vw, 28px);
+    font-weight: 650;
+    line-height: 1.2;
+    letter-spacing: -0.035em;
+  }
+
+  .analysis-overview-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--muted-foreground);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .analysis-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 20px;
+    background: color-mix(in oklab, #10b981 10%, var(--card));
+    padding: 3px 8px;
+    color: #047857;
+    font-size: 11px;
+    line-height: 1.3;
+  }
+
+  .analysis-status > span {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #10b981;
+  }
+
+  .dark .analysis-status {
+    color: #6ee7b7;
+  }
+
+  .analysis-overview-date {
+    margin-top: 4px;
+    color: var(--muted-foreground);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .analysis-primary-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 12px;
+    border-top: 1px solid var(--analysis-outline);
+    border-bottom: 1px solid var(--analysis-outline);
+    padding-block: 10px;
+  }
+
+  .analysis-primary-metrics dt {
+    color: var(--muted-foreground);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  .analysis-primary-metrics dd {
+    margin-top: 5px;
+    white-space: nowrap;
+    font-size: clamp(21px, 1.7vw, 27px);
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: -0.045em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .analysis-metric-unit {
+    margin-left: 4px;
+    color: var(--muted-foreground);
+    font-size: 0.52em;
+    font-weight: 450;
+    letter-spacing: 0;
+  }
+
+  .analysis-overview-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px 18px;
+    padding-block: 10px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .analysis-overview-details > div {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  .analysis-overview-details dt {
+    color: var(--muted-foreground);
+  }
+  .analysis-overview-details dd {
+    font-weight: 550;
+    font-variant-numeric: tabular-nums;
+  }
+  .analysis-detail-unit {
+    color: var(--muted-foreground);
+    font-size: 10px;
+    font-weight: 400;
+  }
+
+  .analysis-recording-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 18px;
+    border-top: 1px solid var(--analysis-outline);
+    padding-top: 8px;
+    color: var(--muted-foreground);
+    font-size: 11px;
+  }
+
+  .analysis-conditions,
+  .analysis-device,
+  .analysis-conditions dl,
+  .analysis-conditions dl > div {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .analysis-conditions dl {
+    gap: 14px;
+  }
+  .analysis-conditions dt {
+    font-size: 10px;
+  }
+  .analysis-conditions dd {
+    color: var(--foreground);
+    font-weight: 500;
+  }
+  .analysis-recording-meta svg {
+    width: 15px;
+    height: 15px;
+    stroke-width: 1.6;
+  }
+
+  .analysis-route > div {
+    min-height: 210px;
+    height: 210px;
+  }
+  .analysis-workspace {
+    gap: 0;
+  }
+  .analysis-workspace-with-sidebar {
+    grid-template-columns: 168px minmax(0, 1fr);
+  }
+  .analysis-workspace-with-sidebar .analysis-charts {
+    border-left: 1px solid var(--analysis-outline);
+    padding-left: 20px;
+  }
+  .analysis-sidebar-scroll {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 18px;
+    scrollbar-width: thin;
+  }
+
+  .analysis-peaks > div:first-child {
+    border: 0;
+    padding: 0 0 8px;
+  }
+  .analysis-peaks h2 {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .analysis-peaks h2 + p {
+    margin-top: 4px;
+    font-size: 10px;
+    line-height: 1.4;
+  }
+  .analysis-peaks > div:last-child {
+    border-top: 1px solid var(--analysis-outline);
+    padding-block: 4px;
+  }
+  .analysis-peaks button {
+    min-height: 30px;
+    border-radius: 3px;
+    gap: 4px;
+    padding-inline: 4px;
+    font-size: 12px;
+  }
+  .analysis-peaks button > span:first-child {
+    color: var(--foreground);
+  }
+  .analysis-peaks button > span:last-child {
+    font-weight: 550;
+  }
+  .analysis-peaks button:focus-visible,
+  .analysis-peaks button:hover {
+    background: var(--analysis-subtle);
+  }
+  .analysis-peaks button[aria-pressed="true"] {
+    background: color-mix(in oklab, #f97316 9%, var(--card));
+    box-shadow: inset 3px 0 #f97316;
+  }
+
+  .analysis-chart-heading {
+    display: flex;
+    user-select: none;
+    min-height: 24px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 4px;
+  }
+
+  .analysis-chart-heading > p:first-child {
+    color: var(--muted-foreground);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .analysis-chart-heading .analysis-range-active {
+    color: #c2410c;
+    font-weight: 550;
+  }
+  .dark .analysis-chart-heading .analysis-range-active {
+    color: #fb923c;
+  }
+  .analysis-chart-help {
+    color: var(--muted-foreground);
+    font-size: 10px;
+    text-align: right;
+  }
+  .analysis-chart-help > span {
+    padding-inline: 3px;
+  }
+
+  .analysis-terrain-key {
+    position: absolute;
+    right: 0;
+    bottom: 8px;
+    display: flex;
+    width: 12.2%;
+    height: 20px;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    color: var(--muted-foreground);
+    font-size: 9px;
+  }
+  .analysis-terrain-key > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .analysis-terrain-key i {
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+  }
+  .analysis-charts [aria-label="Elevation, laps and splits"] {
+    border: 0;
+    padding-top: 0;
+  }
+  .analysis-charts
+    [aria-label="Elevation, laps and splits"]
+    > div:first-child
+    > div {
+    font-weight: 550;
+  }
+  .analysis-charts [aria-label="Elevation, laps and splits"] > svg,
+  .analysis-charts
+    [aria-label="Elevation, laps and splits"]
+    > div:first-child
+    > svg {
+    height: 68px;
+  }
+  .analysis-timelines {
+    position: relative;
+    margin-top: 4px;
+    padding-top: 4px;
+    padding-bottom: 8px;
+  }
+  .analysis-timelines > .analysis-timeline-row + .analysis-timeline-row {
+    margin-top: 4px;
+  }
+  .analysis-timeline-label {
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .analysis-timeline-track {
+    height: 20px;
+    background: var(--analysis-subtle);
+  }
+  .analysis-timeline-segment {
+    overflow: hidden;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #334155;
+  }
+  .analysis-timeline-segment[aria-pressed="true"] {
+    color: #0f172a;
+    outline: 2px solid #f97316;
+    outline-offset: -2px;
+  }
+  .analysis-timeline-segment:hover {
+    filter: brightness(0.93);
+  }
+  .analysis-distance-axis > div {
+    font-size: 10px;
+  }
+  .analysis-distance-axis {
+    height: 18px;
+  }
+  .analysis-charts
+    svg[aria-label^="Smoothed full workout"]
+    > rect:not(:first-child) {
+    fill: #f97316;
+    fill-opacity: 0.15;
+  }
+  .analysis-signal-svg > rect {
+    fill: #f97316;
+    fill-opacity: 0.08;
+  }
+  .analysis-charts svg[role="slider"] > rect:last-child {
+    fill: #f97316;
+    stroke: #ea580c;
+  }
+
+  .analysis-charts [aria-label="Recorded signal graphs"] {
+    border-top: 1px solid var(--analysis-outline);
+    padding-top: 6px;
+  }
+  .analysis-signal-label {
+    min-height: 0;
+    border-left: 3px solid;
+    padding-left: 9px;
+    margin-left: 8px;
+  }
+  .analysis-signal-label > span:first-child {
+    font-size: 12px;
+    font-weight: 550;
+    line-height: 1.2;
+  }
+  .analysis-signal-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 7px;
+    margin-top: 1px;
+    color: var(--muted-foreground);
+    font-size: 10px;
+    line-height: 1.2;
+  }
+  .analysis-signal-summary > span {
+    white-space: nowrap;
+  }
+  .analysis-signal-value {
+    color: var(--foreground);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+  .analysis-signal-readout {
+    min-height: 0;
+  }
+  .analysis-live-value {
+    font-size: 17px;
+    font-weight: 550;
+    line-height: 1.2;
+  }
+  .analysis-cursor-label {
+    margin-bottom: 0;
+    color: var(--muted-foreground);
+    font-size: 9px;
+    line-height: 1.2;
+  }
+  .analysis-live-unit {
+    color: var(--muted-foreground);
+    font-size: 10px;
+    font-weight: 400;
+  }
+  .analysis-signal-svg:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+    border-radius: 4px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .workout-analysis-desktop:not(.workout-analysis-comparison) {
+    /* Leave room for the 56px navigation bar and 20px page padding at each edge. */
+    height: calc(100dvh - 96px);
+    min-height: 620px;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .analysis-overview-with-map {
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  }
+  .analysis-area .analysis-workspace,
+  .analysis-area .analysis-workspace > div {
+    height: 100%;
+    min-height: 0;
+  }
+  .analysis-charts {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+  }
+  .analysis-charts > .analysis-chart-heading,
+  .analysis-charts > [aria-label="Elevation, laps and splits"] {
+    flex-shrink: 0;
+  }
+  .analysis-charts [aria-label="Recorded signal graphs"] {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+  }
+  .analysis-charts .analysis-distance-axis,
+  .analysis-charts [aria-label="Pan selected chart range"] {
+    flex-shrink: 0;
+  }
+  .analysis-signal-plot {
+    min-height: 0;
+    flex: 1;
+  }
+  .analysis-signal-svg {
+    height: 100% !important;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .analysis-overview-content {
+    padding: 0;
+  }
+  .analysis-primary-metrics {
+    gap: 12px;
+  }
+  .analysis-workspace-with-sidebar {
+    grid-template-columns: 144px minmax(0, 1fr);
+  }
+  .analysis-peaks button {
+    padding-inline: 2px;
+  }
+  .analysis-workspace-with-sidebar .analysis-charts {
+    padding-left: 16px;
+  }
+  .analysis-chart-help {
+    font-size: 9px;
+  }
+  .analysis-signal-label {
+    margin-left: 4px;
+    padding-left: 7px;
+    padding-right: 2px;
+  }
+}
+
+@media (min-width: 1024px) and (max-width: 1199px) {
+  .analysis-overview-with-map .analysis-primary-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .analysis-overview-with-map .analysis-overview-content {
+    min-height: 270px;
+  }
+  .analysis-overview-with-map .analysis-route > div {
+    height: 270px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .analysis-workspace-with-sidebar {
+    grid-template-columns: 160px minmax(0, 1fr);
+  }
+  .analysis-sidebar-scroll {
+    padding-right: 14px;
+  }
+  .analysis-terrain-key {
+    flex-direction: column;
+    gap: 0;
+    line-height: 1.1;
+  }
+}

@@ -3,6 +3,7 @@ import mapboxgl from "mapbox-gl"
 import "mapbox-gl/dist/mapbox-gl.css"
 
 import { mapboxConfig } from "@/lib/mapbox-config"
+import { isRouteCursorPoint } from "@/lib/route-cursor"
 import type {
   MapRoutePoint,
   MapboxRouteMapProps,
@@ -31,6 +32,7 @@ export function MapboxRouteMapCanvas({
   points,
   center,
   highlightRange,
+  cursorPoint,
   className,
   interactive = true,
   topPadding = 0,
@@ -39,6 +41,11 @@ export function MapboxRouteMapCanvas({
   const container = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const highlightedRef = useRef<MapRoutePoint[]>([])
+  const cursorRef = useRef<MapRoutePoint | null>(null)
+  const syncCursorRef = useRef<(() => void) | null>(null)
+  cursorRef.current = isRouteCursorPoint(cursorPoint) ? cursorPoint : null
+  const cursorLatitude = cursorRef.current?.latitude,
+    cursorLongitude = cursorRef.current?.longitude
   const paddingRef = useRef({
     top: 36 + topPadding,
     right: 36,
@@ -65,16 +72,17 @@ export function MapboxRouteMapCanvas({
       ),
     [points],
   )
+  const highlightStart = highlightRange?.[0],
+    highlightEnd = highlightRange?.[1]
   const highlighted = useMemo(
     () =>
-      highlightRange
+      highlightStart != null && highlightEnd != null
         ? valid.filter(
             (point) =>
-              point.time >= highlightRange[0] &&
-              point.time <= highlightRange[1],
+              point.time >= highlightStart && point.time <= highlightEnd,
           )
         : [],
-    [highlightRange, valid],
+    [highlightStart, highlightEnd, valid],
   )
   highlightedRef.current = highlighted
 
@@ -152,6 +160,43 @@ export function MapboxRouteMapCanvas({
           })(),
         }).setLngLat([positions.at(-1)!.longitude, positions.at(-1)!.latitude])
       : null
+    const cursorMarker = hasRoute
+      ? new mapboxgl.Marker({
+          element: (() => {
+            const element = document.createElement("div")
+            element.className = "route-chart-cursor"
+            element.setAttribute("role", "img")
+            element.setAttribute("aria-label", "Chart cursor location")
+            Object.assign(element.style, {
+              width: "18px",
+              height: "18px",
+              borderRadius: "50%",
+              border: "3px solid white",
+              background: "#f97316",
+              boxShadow: "0 0 0 1px #c2410c, 0 2px 5px #0004",
+              pointerEvents: "none",
+              zIndex: "2",
+            })
+            return element
+          })(),
+        })
+      : null
+    let cursorVisible = false
+    const syncCursor = () => {
+      if (!cursorMarker) return
+      const point = cursorRef.current
+      if (!point) {
+        if (cursorVisible) cursorMarker.remove()
+        cursorVisible = false
+        return
+      }
+      cursorMarker.setLngLat([point.longitude, point.latitude])
+      if (!cursorVisible) {
+        cursorMarker.addTo(map)
+        cursorVisible = true
+      }
+    }
+    syncCursorRef.current = syncCursor
     map.on("load", () => {
       if (hasRoute) {
         map.addSource("recorded-route", {
@@ -197,6 +242,7 @@ export function MapboxRouteMapCanvas({
       }
       startMarker.addTo(map)
       finishMarker?.addTo(map)
+      syncCursor()
     })
     const observer = new ResizeObserver(() => map.resize())
     observer.observe(container.current)
@@ -204,6 +250,8 @@ export function MapboxRouteMapCanvas({
       observer.disconnect()
       startMarker.remove()
       finishMarker?.remove()
+      cursorMarker?.remove()
+      if (syncCursorRef.current === syncCursor) syncCursorRef.current = null
       map.remove()
       mapRef.current = null
     }
@@ -231,6 +279,10 @@ export function MapboxRouteMapCanvas({
       | undefined
     if (source) source.setData(line(highlighted))
   }, [highlighted])
+
+  useEffect(() => {
+    syncCursorRef.current?.()
+  }, [cursorLatitude, cursorLongitude, positions])
 
   return (
     <div ref={container} className={className} aria-label="Activity route" />
