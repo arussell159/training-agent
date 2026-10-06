@@ -1082,7 +1082,7 @@ export function TrainingCalendar({
 
   useEffect(() => {
     const mark = () => {
-      if (initialAlignmentDone.current) calendarUserScrolled.current = true
+      calendarUserScrolled.current = true
     }
     const key = (event: KeyboardEvent) => {
       if (
@@ -1126,8 +1126,8 @@ export function TrainingCalendar({
       if (!calendarReady) return
       window.scrollTo({ top: Math.max(0, restoreScrollTop), behavior: "instant" })
       initialAlignmentDone.current = true
-      requestAnimationFrame(() => onScrollRestored?.())
-      return
+      const frame = requestAnimationFrame(() => onScrollRestored?.())
+      return () => cancelAnimationFrame(frame)
     }
     if (initialAlignmentDone.current || calendarUserScrolled.current || calendarWasDragged.current) return
     const mobileViewport = window.matchMedia("(max-width: 767px)").matches
@@ -1307,7 +1307,7 @@ export function TrainingCalendar({
           }
           loadedWeeks.current.add(start)
           void hydrateDeviceHistory().then((cachedFull) => {
-            if (active)
+            if (active && revision === calendarRevision.current)
               rememberTrainingContext(
                 {
                   ...mergeCalendarContext(cachedFull || context, next),
@@ -1346,7 +1346,7 @@ export function TrainingCalendar({
                     `[data-calendar-date="${dateKey(new Date())}"]`
                   )
                 : weekRefs.current.get(start)
-              if (element && !scrolled)
+              if (active && element?.isConnected && !scrolled)
                 window.scrollTo({
                   top: Math.max(
                     0,
@@ -1385,9 +1385,13 @@ export function TrainingCalendar({
       }
       void pump()
     }
+    let scrollFrame = 0
     const onScroll = () => {
       scrolled = calendarUserScrolled.current
-      loadVisible()
+      if (!scrollFrame) scrollFrame = requestAnimationFrame(() => {
+        scrollFrame = 0
+        if (active) loadVisible()
+      })
     }
     const observer = new IntersectionObserver(loadVisible, {
       rootMargin: "0px",
@@ -1399,6 +1403,7 @@ export function TrainingCalendar({
     window.addEventListener("scroll", onScroll, { passive: true })
     return () => {
       active = false
+      cancelAnimationFrame(scrollFrame)
       controller.abort()
       observer.disconnect()
       window.removeEventListener("scroll", onScroll)
@@ -1471,6 +1476,7 @@ export function TrainingCalendar({
   )
 
   useEffect(() => {
+    let frame = 0
     const trackVisibleWeek = () => {
       let visibleKey = activeWeekKey
       for (const week of weeks) {
@@ -1490,6 +1496,7 @@ export function TrainingCalendar({
             Math.min(bounds.bottom, window.innerHeight) -
               Math.max(bounds.top, 57)
           ) / 7
+        if (!weight) continue
         week.days.forEach((day) => {
           const month = day.toLocaleDateString("en-US", {
             month: "long",
@@ -1505,8 +1512,17 @@ export function TrainingCalendar({
       if (visibleKey && visibleKey !== activeWeekKey)
         setActiveWeekKey(visibleKey)
     }
-    window.addEventListener("scroll", trackVisibleWeek, { passive: true })
-    return () => window.removeEventListener("scroll", trackVisibleWeek)
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(() => {
+        frame = 0
+        trackVisibleWeek()
+      })
+    }
+    window.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener("scroll", onScroll)
+    }
   }, [activeWeekKey, weeks])
 
   const goToToday = useCallback(() => {
@@ -1514,6 +1530,7 @@ export function TrainingCalendar({
     calendarWasDragged.current = true
     setDatePickerOpen(false)
     const scrollToToday = () => {
+      if (!calendarRef.current?.isConnected) return
       setActiveWeekKey(target)
       if (!isMobile) {
         scrollToWeek(target, "instant")
@@ -1559,6 +1576,7 @@ export function TrainingCalendar({
       setDatePickerOpen(false)
       setActiveWeekKey(key)
       requestAnimationFrame(() => {
+        if (!calendarRef.current?.isConnected) return
         if (!isMobile) {
           scrollToWeek(key, "smooth")
           return

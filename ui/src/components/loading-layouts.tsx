@@ -170,7 +170,7 @@ export function NutritionDashboardSkeleton() {
     <LoadingRegion label="Loading nutrition" className="space-y-5">
       <div className="space-y-5">
         <div className="grid gap-5 lg:grid-cols-[1.15fr_1fr]">
-          <Card className="gap-5 p-5">
+          <Card className="min-h-[368px] gap-5 p-5">
             {[0, 1, 2, 3].map((i) => (
               <div key={i} className="space-y-[7px]">
                 <div className="flex gap-2">
@@ -184,7 +184,7 @@ export function NutritionDashboardSkeleton() {
               </div>
             ))}
           </Card>
-          <Card className="gap-4 p-5">
+          <Card className="min-h-[383px] gap-4 p-5">
             <div className="space-y-1">
               <Skeleton className="h-5 w-28" />
               <Skeleton className="h-4 w-24" />

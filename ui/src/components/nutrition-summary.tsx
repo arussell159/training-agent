@@ -20,7 +20,7 @@ export function MacroBars({
   targets: Targets
 }) {
   return (
-    <div className="grid grid-cols-3 gap-4">
+    <div className="grid min-h-[59px] grid-cols-3 gap-4">
       {(["protein", "carbs", "fat"] as const).map((key) => (
         <div key={key} className="min-w-0">
           <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -89,8 +89,8 @@ export function NutritionHomeCard({ date }: { date: string }) {
           </span>
         </div>
         <div className="mb-4 flex items-baseline justify-between gap-3">
-          <div className="text-2xl font-semibold tabular-nums">
-            {data ? displayNutrient(totals.calories) : error ? "—" : <Skeleton className="inline-block h-7 w-20 align-middle" />}
+          <div className="text-2xl leading-8 font-semibold tabular-nums">
+            {data ? displayNutrient(totals.calories) : error ? "—" : <Skeleton className="inline-block h-6 w-20 align-middle" />}
             <span className="ml-1 text-xs font-normal text-muted-foreground">
               kcal eaten
             </span>
@@ -105,7 +105,7 @@ export function NutritionHomeCard({ date }: { date: string }) {
                   : <Skeleton className="h-3 w-20" />}
           </div>
         </div>
-        {!data && !error ? <div className="grid grid-cols-3 gap-4" aria-label="Loading macros">{[0, 1, 2].map(i => <div key={i} className="space-y-2"><Skeleton className="h-3 w-14" /><Skeleton className="h-5 w-16" /><Skeleton className="h-1.5 w-full" /></div>)}</div> : <MacroBars
+        {!data && !error ? <div className="grid min-h-[59px] grid-cols-3 gap-4" aria-label="Loading macros">{[0, 1, 2].map(i => <div key={i} className="space-y-2"><Skeleton className="h-3 w-14" /><Skeleton className="h-5 w-16" /><Skeleton className="h-1.5 w-full" /></div>)}</div> : <MacroBars
           totals={totals}
           targets={
             data

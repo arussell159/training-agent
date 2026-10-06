@@ -2,6 +2,34 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import { createSharedRequestCache } from "../src/lib/shared-request-cache.ts"
 
+test("rapid close and reopen ignores late downloads from each abandoned view", async () => {
+  const downloads = []
+  const cache = createSharedRequestCache(
+    (key, signal) =>
+      new Promise((resolve) => downloads.push({ key, signal, resolve })),
+    { maxWeight: 4 },
+  )
+  for (let index = 0; index < 100; index++) {
+    const key = `ride-${index % 5}`
+    const controller = new AbortController()
+    const abandoned = cache.get(key, controller.signal)
+    await Promise.resolve()
+    const old = downloads.at(-1)
+    controller.abort()
+    await assert.rejects(abandoned, { name: "AbortError" })
+    const reopened = cache.get(key)
+    await Promise.resolve()
+    const fresh = downloads.at(-1)
+    assert.notEqual(fresh, old)
+    old.resolve(`stale-${index}`)
+    await Promise.resolve()
+    fresh.resolve(`current-${index}`)
+    assert.equal(await reopened, `current-${index}`)
+    assert.equal(await cache.get(key), `current-${index}`)
+    assert.equal(old.signal.aborted, true)
+  }
+})
+
 test("views share a download and closing one leaves the other request alive", async () => {
   let complete,
     calls = 0,
@@ -50,7 +78,7 @@ test("cache reset rejects in-flight requests and late responses cannot repopulat
     () =>
       new Promise((resolve) => {
         complete = resolve
-      })
+      }),
   )
   const request = cache.get("private")
   await Promise.resolve()
@@ -65,7 +93,7 @@ test("timeouts reject stalled loaders and errors can be retried", async () => {
   let calls = 0
   const cache = createSharedRequestCache(
     () => (++calls === 1 ? new Promise(() => {}) : Promise.resolve("ready")),
-    { timeoutMs: 10 }
+    { timeoutMs: 10 },
   )
   await assert.rejects(cache.get("ride"), /too long/)
   assert.equal(await cache.get("ride"), "ready")
@@ -74,7 +102,7 @@ test("timeouts reject stalled loaders and errors can be retried", async () => {
 test("large recordings are bounded by weight with least recently used eviction", async () => {
   const cache = createSharedRequestCache(
     async (key) => new Array(Number(key)).fill(1),
-    { maxWeight: 10, weight: (value) => value.length }
+    { maxWeight: 10, weight: (value) => value.length },
   )
   await cache.get("4")
   await cache.get("5")

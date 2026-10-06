@@ -19,7 +19,11 @@ const line = (points: MapRoutePoint[]) => ({
 
 export function prewarmRouteMap() {
   if (mapboxConfig) {
-    try { mapboxgl.prewarm() } catch { /* Map initialization can retry when opened. */ }
+    try {
+      mapboxgl.prewarm()
+    } catch {
+      /* Map initialization can retry when opened. */
+    }
   }
 }
 
@@ -35,6 +39,20 @@ export function MapboxRouteMapCanvas({
   const container = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const highlightedRef = useRef<MapRoutePoint[]>([])
+  const paddingRef = useRef({
+    top: 36 + topPadding,
+    right: 36,
+    bottom: 36 + bottomPadding,
+    left: 36,
+  })
+  paddingRef.current = {
+    top: 36 + topPadding,
+    right: 36,
+    bottom: 36 + bottomPadding,
+    left: 36,
+  }
+  const centerLongitude = center?.[0],
+    centerLatitude = center?.[1]
   const valid = useMemo(
     () =>
       points.filter(
@@ -43,32 +61,44 @@ export function MapboxRouteMapCanvas({
           Number.isFinite(point.latitude) &&
           Number.isFinite(point.longitude) &&
           Math.abs(point.latitude) <= 85 &&
-          Math.abs(point.longitude) <= 180
+          Math.abs(point.longitude) <= 180,
       ),
-    [points]
+    [points],
   )
   const highlighted = useMemo(
     () =>
       highlightRange
         ? valid.filter(
             (point) =>
-              point.time >= highlightRange[0] && point.time <= highlightRange[1]
+              point.time >= highlightRange[0] &&
+              point.time <= highlightRange[1],
           )
         : [],
-    [highlightRange, valid]
+    [highlightRange, valid],
   )
   highlightedRef.current = highlighted
 
   // Adding real playback timestamps must not destroy and reload an identical map.
-  const geometryKey = useMemo(() => JSON.stringify(valid.map(point => [point.latitude, point.longitude])), [valid])
-  const positions = useMemo<MapRoutePoint[]>(() => (JSON.parse(geometryKey) as [number, number][])
-    .map(([latitude, longitude], time) => ({latitude, longitude, time})), [geometryKey])
+  const geometryKey = useMemo(
+    () =>
+      JSON.stringify(valid.map((point) => [point.latitude, point.longitude])),
+    [valid],
+  )
+  const positions = useMemo<MapRoutePoint[]>(
+    () =>
+      (JSON.parse(geometryKey) as [number, number][]).map(
+        ([latitude, longitude], time) => ({ latitude, longitude, time }),
+      ),
+    [geometryKey],
+  )
 
   useEffect(() => {
     const hasRoute = positions.length > 1
     const mapCenter = hasRoute
       ? ([positions[0].longitude, positions[0].latitude] as [number, number])
-      : center
+      : centerLongitude != null && centerLatitude != null
+        ? ([centerLongitude, centerLatitude] as [number, number])
+        : undefined
     if (!container.current || !mapboxConfig || !mapCenter) return
     const bounds = new mapboxgl.LngLatBounds()
     if (hasRoute)
@@ -83,12 +113,7 @@ export function MapboxRouteMapCanvas({
         ? {
             bounds,
             fitBoundsOptions: {
-              padding: {
-                top: 36 + topPadding,
-                right: 36,
-                bottom: 36 + bottomPadding,
-                left: 36,
-              },
+              padding: paddingRef.current,
               maxZoom: 16,
             },
           }
@@ -102,7 +127,7 @@ export function MapboxRouteMapCanvas({
     if (interactive)
       map.addControl(
         new mapboxgl.NavigationControl({ showCompass: false }),
-        "top-left"
+        "top-left",
       )
     const startMarker = hasRoute
       ? new mapboxgl.Marker({
@@ -182,12 +207,28 @@ export function MapboxRouteMapCanvas({
       map.remove()
       mapRef.current = null
     }
-  }, [bottomPadding, center, interactive, topPadding, positions])
+  }, [centerLongitude, centerLatitude, interactive, positions])
+
+  // Moving the workout sheet changes the visible area, not the map lifecycle.
+  // Keep the same canvas, tiles and route while adjusting the camera.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || positions.length < 2) return
+    const bounds = new mapboxgl.LngLatBounds()
+    for (const point of positions)
+      bounds.extend([point.longitude, point.latitude])
+    map.fitBounds(bounds, {
+      padding: paddingRef.current,
+      maxZoom: 16,
+      duration: 0,
+    })
+  }, [positions, topPadding, bottomPadding])
 
   useEffect(() => {
     const map = mapRef.current
     const source = map?.getSource("highlighted-route") as
-      mapboxgl.GeoJSONSource | undefined
+      | mapboxgl.GeoJSONSource
+      | undefined
     if (source) source.setData(line(highlighted))
   }, [highlighted])
 

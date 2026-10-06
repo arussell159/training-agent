@@ -8,8 +8,7 @@ import { MapboxRouteMap } from "@/components/mapbox-route-map"
 import { MobileWorkoutSignals } from "@/components/mobile-workout-signals"
 import { WorkoutMapSplits } from "@/components/workout-map-splits"
 import { Button } from "@/components/ui/button"
-import { apiFetch } from "@/lib/api-client"
-import { cachedActivityAnalysis, loadActivityAnalysis } from "@/lib/activity-analysis"
+import { cachedActivityAnalysis, loadActivityAnalysis, cachedActivitySummary, loadActivitySummary } from "@/lib/activity-analysis"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { distanceSplits } from "@/lib/distance-splits"
 import { formatDuration, formatPace } from "@/lib/duration"
@@ -223,12 +222,12 @@ export function WorkoutAnalysis({workout,onLapSelection,analysisOverride,compari
 function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverride,comparisonMode,onComparisonStats}:{id:string;revision:string;workout:PlannedWorkout;summary?:WorkoutSummaryValues|null;onLapSelection?:(range:[number,number]|null)=>void;analysisOverride?:Analysis;comparisonMode:boolean;onComparisonStats?:(id:string,stats:WorkoutComparisonStats|null)=>void}){
   const mobile = useIsMobile()
   const sport=workout.sport
-  const [data,setData]=useState<Analysis|null>(analysisOverride||cachedActivityAnalysis(id,revision)||null),[error,setError]=useState(""),[retry,setRetry]=useState(0),[totals,setTotals]=useState<WorkoutSummaryValues|null>(summary||null)
+  const [data,setData]=useState<Analysis|null>(analysisOverride||cachedActivityAnalysis(id,revision)||null),[error,setError]=useState(""),[retry,setRetry]=useState(0),[totals,setTotals]=useState<WorkoutSummaryValues|null>(()=>cachedActivitySummary(id,revision)||summary||null)
   const [range,setRange]=useState<[number,number]|null>(null),[cursor,setCursor]=useState<number|null>(null),[selection,setSelection]=useState<[number,number]|null>(null),[selected,setSelected]=useState(""),[hovered,setHovered]=useState<Segment|null>(null)
   const [hiddenTracks,setHiddenTracks]=useState<string[]>([])
   const gesture=useRef<{x:number;time:number;range:[number,number];overview:boolean;pan:boolean}|null>(null)
   const draggedChart=useRef(false)
-  useEffect(()=>{if(analysisOverride)return;const controller=new AbortController();void apiFetch(`/api/activities/${encodeURIComponent(id)}/summary?v=${encodeURIComponent(revision)}&schema=2`,{signal:controller.signal}).then(async response=>{if(!response.ok)throw Error();return await response.json() as WorkoutSummaryValues}).then(values=>{if(!controller.signal.aborted)setTotals({...summary,...values})}).catch(()=>{});return()=>controller.abort()},[id,revision,summary,analysisOverride])
+  useEffect(()=>{if(analysisOverride)return;const controller=new AbortController();void loadActivitySummary(id,revision,controller.signal).then(values=>{if(!controller.signal.aborted)setTotals({...summary,...values})}).catch(()=>{});return()=>controller.abort()},[id,revision,summary,analysisOverride])
   useEffect(()=>{if(analysisOverride){setData(analysisOverride);return}const controller=new AbortController();setError("");void loadActivityAnalysis(id,revision,controller.signal).then(value=>{if(!controller.signal.aborted)setData(value)}).catch(reason=>{if(!controller.signal.aborted)setError(reason.message)});return()=>controller.abort()},[id,retry,revision,analysisOverride])
   const duration=data?.duration||1,view:[number,number]=range||[0,duration],swim=sport.toLowerCase().includes("swim"),run=sport.toLowerCase().includes("run"),bike=/bike|ride|cycl/i.test(sport)
   const available=useMemo(()=>({elevation:Boolean(data?.points.some(point=>point.elevation!=null)),power:Boolean(data?.points.some(point=>point.power!=null)),speed:Boolean(data?.points.some(point=>point.speed!=null)),heartRate:Boolean(data?.points.some(point=>point.heartRate!=null)),cadence:Boolean(data?.points.some(point=>point.cadence!=null))}),[data])
@@ -258,7 +257,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
   const swimIntervals=useMemo(()=>swim?intervalSignals(data?.points||[],data?.laps||[]):[],[data,swim])
   const routePoints=useMemo(()=>(data?.points||[]).flatMap(point=>point.latitude!=null&&point.longitude!=null?[{time:point.time,latitude:point.latitude,longitude:point.longitude}]:[]),[data])
   const selectedSegment=[...laps,...splits,...terrain,...peaks].find(segment=>segment.id===selected)
-  const highlight=hovered||selectedSegment||(range?{start:range[0],end:range[1]}:null)
+  const highlight=selection?{start:Math.min(...selection),end:Math.max(...selection)}:hovered||selectedSegment||(range?{start:range[0],end:range[1]}:null)
   const graphHover=hovered&&hovered.end>viewStart&&hovered.start<viewEnd?{start:Math.max(viewStart,hovered.start),end:Math.min(viewEnd,hovered.end)}:null
   useEffect(()=>onLapSelection?.(range),[range,onLapSelection])
   const comparisonStart=selection?Math.min(selection[0],selection[1]):hovered?.start??range?.[0]??null
@@ -281,7 +280,16 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
   const down=(event:PointerEvent<SVGSVGElement>,overview=false)=>{if(event.button!==0)return;draggedChart.current=false;event.currentTarget.setPointerCapture(event.pointerId);const time=timeAt(event,overview),pan=overview&&Boolean(range)&&time>=view[0]&&time<=view[1];gesture.current={x:event.clientX,time,range:[view[0],view[1]],overview,pan};if(!pan)setSelection([time,time]);setSelected("")}
   const up=(event:PointerEvent<SVGSVGElement>)=>{const active=gesture.current;if(!active)return;const time=timeAt(event,active.overview),moved=Math.abs(event.clientX-active.x)>5;if(moved){draggedChart.current=true;window.setTimeout(()=>{draggedChart.current=false},0)}if(!active.pan&&moved&&Math.abs(time-active.time)>=2)setRange([Math.min(time,active.time),Math.max(time,active.time)]);gesture.current=null;setSelection(null);if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId)}
   if(error)return <div className="border p-4 text-sm">{error}<Button variant="outline" size="sm" className="ml-3" onClick={()=>setRetry(value=>value+1)}>Retry</Button></div>
-  if(!data)return <ChartSkeleton className="border" />
+  if(!data){
+    if(mobile||comparisonMode)return <ChartSkeleton className="border" />
+    return <><section aria-label="Recorded workout analysis" className="workout-analysis-desktop hidden min-w-0 space-y-3 md:block">
+      <section className="grid overflow-hidden rounded-xl border bg-card lg:grid-cols-2" aria-label="Workout overview">
+        <div className="min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} compact/></div>
+        <div className="flex min-h-[300px] min-w-0 flex-col justify-center p-4"><h2 className="text-base font-semibold">{workout.title}</h2><p className="mt-2 text-sm text-muted-foreground">{workout.sport} · Completed</p><dl className="mt-5 grid grid-cols-3 gap-4 text-sm"><div><dt className="text-xs text-muted-foreground">Moving time</dt><dd className="mt-1">{totals?.duration_seconds!=null?durationClock(totals.duration_seconds):"—"}</dd></div><div><dt className="text-xs text-muted-foreground">Distance</dt><dd className="mt-1">{totals?.distance_meters!=null?`${(totals.distance_meters/1609.344).toFixed(2)} mi`:"—"}</dd></div><div><dt className="text-xs text-muted-foreground">Training load</dt><dd className="mt-1">{totals?.tss??"—"}</dd></div></dl></div>
+      </section>
+      <ChartSkeleton className="rounded-xl border"/>
+    </section></>
+  }
   if(!data.points.length||(!allSignalTracks.length&&!data.dfa))return <div className="border border-dashed p-5 text-sm text-muted-foreground">No recorded signal stream is available for this activity.</div>
   if(mobile)return <MobileWorkoutSignals points={data.points} laps={data.laps} duration={duration} sport={sport} summary={totals} dfa={data.dfa} onLapSelect={lap=>setSelected(lap?.id||"")} afterLaps={<WorkoutMapSplits workout={workout} analysis={data}/>}/>
   const selectionRange=selection?[Math.min(selection[0],selection[1]),Math.max(selection[0],selection[1])] as [number,number]:null
@@ -341,7 +349,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
     <section aria-label="Recorded workout analysis" className="workout-analysis-desktop hidden min-w-0 space-y-3 md:block">
       {!comparisonMode&&<section className={`grid overflow-hidden rounded-xl border bg-card ${routePoints.length>1||swim?"lg:grid-cols-2":"grid-cols-1"}`} aria-label="Workout overview">
         {routePoints.length>1
-          ? <div className="min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} timedPoints={routePoints} compact/></div>
+          ? <div className="min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} timedPoints={routePoints} highlightRange={highlight?[highlight.start,highlight.end]:null} compact/></div>
           : swim
             ? <div className="relative min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Approximate pool workout area"><MapboxRouteMap points={noRoutePoints} center={cypressCenter} interactive={false} className="relative min-h-[300px] w-full bg-muted/25 lg:h-full"/><span className="pointer-events-none absolute top-3 left-3 rounded-md border bg-background/90 px-2.5 py-1.5 text-xs font-medium shadow-sm">Cypress, Texas · approximate area</span></div>
             : null}

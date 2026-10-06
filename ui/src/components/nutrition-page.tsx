@@ -1,6 +1,6 @@
 import { NutritionDashboardSkeleton } from "@/components/loading-layouts"
 import { useFirstReveal } from "@/hooks/use-first-reveal"
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import "./nutrition.css"
 import {
   LoaderCircle,
@@ -227,7 +227,7 @@ export function NutritionPage({
       mode: EntryMode
       meal: Meal
       existing?: FoodEntry
-    } | null>(null),
+    } | null>(() => quickAddRequest > 0 ? { mode: "write", meal: suggestedMeal() } : null),
     [targetsOpen, setTargetsOpen] = useState(false),
     [mutationError, setMutationError] = useState(""),
     [mutating, setMutating] = useState(false),
@@ -256,11 +256,6 @@ export function NutritionPage({
       meal: meal || suggestedMeal(),
     })
   }
-  useEffect(() => {
-    if (quickAddRequest <= 0) return
-    setMutationError("")
-    setComposer({ mode: "write", meal: suggestedMeal() })
-  }, [quickAddRequest])
   async function change(
     action: "add" | "update" | "delete",
     entries?: FoodEntry[],
@@ -364,7 +359,7 @@ export function NutritionPage({
           <>
             <div className="grid gap-5 lg:grid-cols-[1.15fr_1fr]">
               <Card
-                className="nutrition-progress-card order-1 gap-5 p-5 touch-pan-y md:touch-auto"
+                className="nutrition-progress-card order-1 min-h-[368px] gap-5 p-5 touch-pan-y md:touch-auto"
                 onPointerDown={startNutritionSwipe}
                 onPointerUp={finishNutritionSwipe}
                 onPointerCancel={() => {
@@ -448,7 +443,7 @@ export function NutritionPage({
                   </p>
                 )}
               </Card>
-              <Card className="order-3 gap-4 rounded-3xl border p-5 shadow-sm lg:order-2">
+              <Card className="order-3 min-h-[383px] gap-4 rounded-3xl border p-5 shadow-sm lg:order-2">
                 <div className="flex items-start justify-between">
                   <div>
                     <h2 className="text-sm font-semibold">Last 7 days</h2>
@@ -684,11 +679,11 @@ export function NutritionPage({
           </>
         )}
       </div>
-      {composer && data && (
+      {composer && (
         <NutritionComposer
           {...composer}
           date={date}
-          aiAvailable={data.aiAvailable}
+          aiAvailable={data?.aiAvailable}
           onClose={() => setComposer(null)}
           onSave={async (entries, operationId) =>
             change(

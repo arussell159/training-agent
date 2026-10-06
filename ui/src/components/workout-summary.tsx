@@ -2,7 +2,7 @@ import {formatDuration,formatPace} from '@/lib/duration'
 import {METERS_PER_100_YARDS,METERS_PER_YARD} from '../../../app-backend/lib/swim-units.mjs'
 import type {PlannedWorkout,WorkoutSummaryValues} from '@/lib/training-context'
 import {useEffect,useState} from 'react'
-import {apiFetch} from '@/lib/api-client'
+import {cachedActivitySummary,loadActivitySummary} from '@/lib/activity-analysis'
 import {Button} from '@/components/ui/button'
 
 export function WorkoutSummary({workout,showElapsed=true,embedded=false,section='all'}:{workout:PlannedWorkout;showElapsed?:boolean;embedded?:boolean;section?:'all'|'overview'|'recorded'}){
@@ -10,17 +10,16 @@ export function WorkoutSummary({workout,showElapsed=true,embedded=false,section=
  const data=workout.workout_summary
  const id=workout.activity_id || (workout.id.startsWith('activity:')?workout.id.slice(9):null)
  const revision=(workout as PlannedWorkout & {activity_revision?:string}).activity_revision || ''
- const [recorded,setRecorded]=useState<WorkoutSummaryValues|null>(null)
- const [loading,setLoading]=useState(Boolean(id)),[error,setError]=useState(''),[retry,setRetry]=useState(0)
+ const identity=JSON.stringify([id,revision])
+ const [download,setDownload]=useState<{key:string;values:WorkoutSummaryValues|null}>(()=>({key:identity,values:id?cachedActivitySummary(id,revision)||null:null}))
+ const recorded=download.key===identity?download.values:id?cachedActivitySummary(id,revision)||null:null
+ const [error,setError]=useState(''),[retry,setRetry]=useState(0)
  useEffect(()=>{
-  setRecorded(null);setError('');setLoading(Boolean(id));if(!id)return
+  setDownload({key:identity,values:id?cachedActivitySummary(id,revision)||null:null});setError('');if(!id)return
   const controller=new AbortController()
-  void apiFetch(`/api/activities/${encodeURIComponent(id)}/summary?v=${encodeURIComponent(revision)}`,{signal:controller.signal}).then(async response=>{
-   if(!response.ok)throw Error('Completed values could not be refreshed.')
-   return await response.json() as WorkoutSummaryValues
-  }).then(values=>{if(!controller.signal.aborted)setRecorded(values)}).catch(e=>{if(e.name!=='AbortError')setError(e.message)}).finally(()=>{if(!controller.signal.aborted)setLoading(false)})
+  void loadActivitySummary(id,revision,controller.signal).then(values=>{if(!controller.signal.aborted)setDownload({key:identity,values})}).catch(e=>{if(!controller.signal.aborted)setError(e.message)})
   return()=>controller.abort()
- },[id,retry,revision])
+ },[id,retry,revision,identity])
  const planned=data?.planned,completed=recorded?{...data?.completed,...recorded,elapsed_time_seconds:recorded.elapsed_time_seconds ?? data?.completed?.elapsed_time_seconds,elapsed_speed:recorded.elapsed_speed ?? data?.completed?.elapsed_speed}:data?.completed
  const number=(v:number|null|undefined,digits=0)=>v==null || !Number.isFinite(v)?'':v.toLocaleString('en-US',{maximumFractionDigits:digits,minimumFractionDigits:digits})
  const clock=(v:number|null|undefined)=>v==null?'':formatDuration(v/60)
@@ -60,7 +59,6 @@ export function WorkoutSummary({workout,showElapsed=true,embedded=false,section=
    <thead className="bg-muted/25"><tr><th className="px-3 py-2"/>{['Min','Avg','Max'].map(label=><th key={label} className="py-2 font-medium">{label}</th>)}</tr></thead>
    <tbody>{recordedRows.map(row=><tr key={row.label} className={green+' border-t border-border/50'}><th className="px-3 py-1.5 text-left font-normal">{heading(row.label,row.unit)}</th>{row.values.map((v,i)=><td key={i} className="whitespace-nowrap px-1 py-1.5 text-center text-sm font-medium tabular-nums">{v}</td>)}</tr>)}</tbody>
   </table></div>}
-  {section!=='recorded'&&loading&&<p role="status" className="text-xs text-muted-foreground">Refreshing completed values…</p>}
   {section!=='recorded'&&error&&<div role="status" className="flex items-center justify-between gap-2 text-xs text-muted-foreground">{error}<Button size="sm" variant="ghost" onClick={()=>setRetry(v=>v+1)}>Retry</Button></div>}
  </section>
 }

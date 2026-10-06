@@ -5,6 +5,8 @@ import { BackgroundSync } from "@/components/background-sync"
 import { GithubSyncIndicator } from "@/components/github-sync-indicator"
 import { prefetchWorkoutRecording } from "@/lib/activity-analysis"
 import { prefetchNutrition } from "@/lib/nutrition"
+import { NutritionPage } from "@/components/nutrition-page"
+import { flushSync } from "react-dom"
 import { apiFetch } from "@/lib/api-client"
 import { SidebarNavigationSlim } from "@/components/application/app-navigation/sidebar-navigation/sidebar-slim"
 import {
@@ -77,7 +79,7 @@ import {
 } from "@/lib/workout-navigation"
 
 const pageImports = {
-  Nutrition: () => import("@/components/nutrition-page"),
+  Nutrition: () => Promise.resolve({ NutritionPage }),
   Settings: () => import("@/components/settings-workspace"),
   Calendar: () => import("@/components/training-calendar"),
   Coach: () => import("@/components/coach-page"),
@@ -97,7 +99,6 @@ const TermsReferenceDialog = lazy(() =>
   }))
 )
 
-const NutritionPage = lazy(() => pageImports.Nutrition().then(module => ({default: module.NutritionPage})))
 const SettingsWorkspace = lazy(() =>
   pageImports["Settings"]().then((module) => ({
     default: module.SettingsWorkspace,
@@ -180,10 +181,10 @@ function itemPath(item: string) {
   )
 }
 
-function RouteScrollReset({ route }: { route: string }) {
+function RouteScrollReset({ route, target }: { route: string; target: { current: number } }) {
   useLayoutEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: "instant" })
-  }, [route])
+    window.scrollTo({ top: target.current, left: 0, behavior: "instant" })
+  }, [route, target])
   return null
 }
 
@@ -209,6 +210,7 @@ function AppWorkspace() {
   const [activeItem, setActiveItem] = useState(routeItem)
   const nutritionReturnRoute = useRef("Home")
   const [nutritionQuickAddRequest, setNutritionQuickAddRequest] = useState(0)
+  const nutritionQuickAddSequence = useRef(0)
   const [navigationItem, setNavigationItem] = useState(routeItem)
   const [annualPlanChartVisible, setAnnualPlanChartVisible] = useState(true)
   const [calendarNavigationVersion, setCalendarNavigationVersion] = useState(0)
@@ -225,6 +227,7 @@ function AppWorkspace() {
     return () => window.removeEventListener("annual-plan-chart-visibility", updateVisibility)
   }, [])
   const workoutReturnScroll = useRef(0)
+  const routeScrollTarget = useRef(0)
   const workoutReturnRoute = useRef<string | null>(null)
   const clearCalendarReturnScroll = useCallback(() => setCalendarReturnScroll(null), [])
   const isCoachPage = activeItem === "Coach"
@@ -253,10 +256,10 @@ function AppWorkspace() {
     if (routeItem() !== "Workout Reports" || !id) { forgetOpenWorkout(); return }
     let active = true
     void loadFullTrainingContext().then(context => {
-      if (!active) return
+      if (!active || routeItem() !== "Workout Reports" || workoutRouteId() !== id) return
       const workout = [...context.history, ...context.planned].find(item => (item as PlannedWorkout).id === id)
       if (workout) setSelectedWorkout(workout as PlannedWorkout)
-    })
+    }).catch(() => {})
     return () => { active = false }
   }, [])
 
@@ -267,8 +270,10 @@ function AppWorkspace() {
         ...cachedTrainingContext().planned,
         ...cachedTrainingContext().history,
       ])
-      if (!restoredWorkout && route === "Calendar" && workoutReturnRoute.current === "Calendar") {
-        setCalendarReturnScroll(workoutReturnScroll.current)
+      routeScrollTarget.current = 0
+      if (!restoredWorkout && route === workoutReturnRoute.current) {
+        routeScrollTarget.current = workoutReturnScroll.current
+        if (route === "Calendar") setCalendarReturnScroll(workoutReturnScroll.current)
         workoutReturnRoute.current = null
       }
       startTransition(() => {
@@ -303,9 +308,9 @@ function AppWorkspace() {
 
   useEffect(() => {
     const open = () => {
+      routeScrollTarget.current = 0
       setSelectedReport(restoreReportReader())
       setSelectedWorkout(null)
-      requestAnimationFrame(() => window.scrollTo({ top: 0 }))
     }
     window.addEventListener("section11-report-open", open)
     return () => window.removeEventListener("section11-report-open", open)
@@ -317,9 +322,9 @@ function AppWorkspace() {
     return () => window.removeEventListener("terms-open", openTerms)
   }, [])
 
-  const selectItem = (item: string, quickAdd = false) => {
-    setNutritionQuickAddRequest((request) => quickAdd ? request + 1 : 0)
-    if (item === "Nutrition" && activeItem !== "Nutrition") nutritionReturnRoute.current = activeItem
+  const selectItem = useCallback((item: string, quickAdd = false) => {
+    const currentItem = routeItem()
+    if (item === "Nutrition" && currentItem !== "Nutrition") nutritionReturnRoute.current = currentItem
     if (
       item === "Calendar" &&
       activeItem === "Calendar" &&
@@ -332,15 +337,24 @@ function AppWorkspace() {
     }
     setNavigationItem(item)
     preloadPage(item)
-    startTransition(() => {
+    routeScrollTarget.current = 0
+    workoutReturnRoute.current = null
+    window.history.pushState({}, "", itemPath(item))
+    const quickAddRequest = quickAdd ? ++nutritionQuickAddSequence.current : 0
+    const navigate = () => {
+      setNutritionQuickAddRequest(quickAddRequest)
       setSelectedReport(null)
       setSelectedWorkout(null)
+      setCalendarReturnScroll(null)
       setActiveItem(item)
       if (item === "Calendar")
         setCalendarNavigationVersion((value) => value + 1)
-    })
-    window.history.pushState({}, "", itemPath(item))
-  }
+    }
+    // Commit the textarea during the original tap so mobile browsers can open
+    // the keyboard. Neither a lazy import nor a food-log request gates this path.
+    if (quickAdd) flushSync(navigate)
+    else startTransition(navigate)
+  }, [activeItem, selectedReport, selectedWorkout])
 
   useEffect(() => {
     const navigate = (event: Event) => {
@@ -365,6 +379,7 @@ function AppWorkspace() {
     prefetchWorkoutRecording(workout)
     workoutReturnRoute.current = activeItem
     workoutReturnScroll.current = window.scrollY
+    routeScrollTarget.current = 0
     setCalendarReturnScroll(null)
     rememberOpenWorkout(workout)
     startTransition(() => setSelectedWorkout(workout))
@@ -387,7 +402,7 @@ function AppWorkspace() {
       void pageImports.Nutrition().catch(()=>{})
       void prefetchNutrition().catch(()=>{})
     }
-    void loadFullTrainingContext().then(prepare)
+    void loadFullTrainingContext().then(prepare).catch(() => {})
     window.addEventListener('training-context-updated',prepare)
     return()=>{active=false;window.removeEventListener('training-context-updated',prepare)}
   },[])
@@ -401,10 +416,10 @@ function AppWorkspace() {
     const returnTo = workoutReturnScroll.current
     const returnToCalendar = workoutReturnRoute.current === "Calendar"
     workoutReturnRoute.current = null
+    routeScrollTarget.current = returnTo
     forgetOpenWorkout()
     setSelectedWorkout(null)
     if (returnToCalendar) setCalendarReturnScroll(returnTo)
-    else requestAnimationFrame(() => window.scrollTo({ top: returnTo }))
   }
 
   return (
@@ -581,7 +596,7 @@ function AppWorkspace() {
             <PageErrorBoundary resetKey={`${activeItem}:${selectedWorkout?.id ?? ""}`}>
               <Suspense fallback={<PageSkeleton page={selectedReport ? "Report" : selectedWorkout ? "Workout" : activeItem} />}>
                 <MobilePageTabs activeItem={["Workout Reports", "Library", "Nutrition"].includes(activeItem) ? "Settings" : activeItem}>
-                <RouteScrollReset route={`${activeItem}:${selectedWorkout?.id ?? ""}`} />
+                <RouteScrollReset route={`${activeItem}:${selectedWorkout?.id ?? ""}:${selectedReport ? JSON.stringify(selectedReport) : ""}`} target={routeScrollTarget} />
                 {activeItem === "Settings" && !selectedReport && (
                   <div className={selectedWorkout ? "hidden" : "flex min-h-0 w-full min-w-0 flex-1"}>
                     <SettingsWorkspace onWorkoutOpen={openWorkout} />
@@ -591,11 +606,13 @@ function AppWorkspace() {
                   <ReportReaderPage target={selectedReport} />
                 ) : selectedWorkout ? (
                   <WorkoutDetailPage
+                    key={selectedWorkout.id}
                     workout={selectedWorkout}
                     onBack={closeWorkout}
                   />
                 ) : activeItem === "Nutrition" ? (
                   <NutritionPage
+                    key={nutritionQuickAddRequest}
                     onBack={() => selectItem(nutritionReturnRoute.current)}
                     returnLabel={nutritionReturnRoute.current === "Settings" ? "More" : nutritionReturnRoute.current}
                     quickAddRequest={nutritionQuickAddRequest}

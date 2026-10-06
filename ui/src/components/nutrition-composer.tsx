@@ -52,7 +52,7 @@ export function NutritionComposer({
   mode: EntryMode
   existing?: FoodEntry
   date: string
-  aiAvailable: boolean
+  aiAvailable?: boolean
   onClose: () => void
   onSave: (entries: FoodEntry[], operationId: string) => Promise<void>
   onMoveExisting?: (meal: Meal) => Promise<void>
@@ -914,7 +914,7 @@ export function NutritionComposer({
           </div>
         </div>
       )}
-      {!aiAvailable && tab === "type" && (
+      {aiAvailable === false && tab === "type" && (
         <p className="mt-4 text-sm text-muted-foreground">
           AI food entry is unavailable. Search or add a custom food instead.
         </p>

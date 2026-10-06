@@ -2,15 +2,29 @@ import { apiFetch } from "./api-client"
 import { deviceCacheScope } from "./device-cache"
 import { createSharedRequestCache } from "./shared-request-cache"
 import type { WorkoutRecordedAnalysis } from "../components/workout-analysis"
+import type { WorkoutSummaryValues } from "./training-context"
 
 const keyFor = (id: string, revision: string) =>
   JSON.stringify([deviceCacheScope(), id, revision])
+const summaries = createSharedRequestCache<WorkoutSummaryValues>(
+  async (key, signal) => {
+    const [, id, revision] = JSON.parse(key) as string[]
+    const response = await apiFetch(
+      `/api/activities/${encodeURIComponent(id)}/summary?schema=2&v=${encodeURIComponent(revision)}`,
+      { signal },
+    )
+    if (!response.ok)
+      throw new Error("Completed values could not be refreshed.")
+    return (await response.json()) as WorkoutSummaryValues
+  },
+  { maxWeight: 64 },
+)
 const recordings = createSharedRequestCache<WorkoutRecordedAnalysis>(
   async (key, signal) => {
     const [, id, revision] = JSON.parse(key) as string[]
     const response = await apiFetch(
       `/api/activities/${encodeURIComponent(id)}/analysis?schema=8&v=${encodeURIComponent(revision)}`,
-      { signal }
+      { signal },
     )
     if (!response.ok)
       throw new Error("The recording could not be loaded. Please retry.")
@@ -19,7 +33,7 @@ const recordings = createSharedRequestCache<WorkoutRecordedAnalysis>(
       throw new Error("The recording is incomplete. Please retry.")
     return data
   },
-  { maxWeight: 100000, weight: (data) => data.points.length }
+  { maxWeight: 100000, weight: (data) => data.points.length },
 )
 
 const routes = createSharedRequestCache<[number, number][]>(
@@ -27,7 +41,7 @@ const routes = createSharedRequestCache<[number, number][]>(
     const [, id, revision] = JSON.parse(key) as string[]
     const response = await apiFetch(
       `/api/activities/${encodeURIComponent(id)}/route?schema=2&v=${encodeURIComponent(revision)}`,
-      { signal }
+      { signal },
     )
     if (!response.ok) throw new Error("The route could not be loaded.")
     const data = await response.json()
@@ -38,10 +52,10 @@ const routes = createSharedRequestCache<[number, number][]>(
         point.length === 2 &&
         point.every(Number.isFinite) &&
         Math.abs(point[0]) <= 85 &&
-        Math.abs(point[1]) <= 180
+        Math.abs(point[1]) <= 180,
     )
   },
-  { maxWeight: 250000, weight: (points) => points.length, timeoutMs: 15000 }
+  { maxWeight: 250000, weight: (points) => points.length, timeoutMs: 15000 },
 )
 
 for (const event of [
@@ -52,27 +66,44 @@ for (const event of [
   window.addEventListener(event, () => {
     recordings.clear()
     routes.clear()
+    summaries.clear()
   })
+export const cachedActivitySummary = (id: string, revision = "") =>
+  summaries.peek(keyFor(id, revision))
+export const loadActivitySummary = (
+  id: string,
+  revision = "",
+  signal?: AbortSignal,
+) => summaries.get(keyFor(id, revision), signal)
 export const cachedActivityRoute = (id: string, revision = "") =>
   routes.peek(keyFor(id, revision))
 export const loadActivityRoute = (
   id: string,
   revision = "",
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ) => routes.get(keyFor(id, revision), signal)
 export const cachedActivityAnalysis = (id: string, revision = "") =>
   recordings.peek(keyFor(id, revision))
 export const loadActivityAnalysis = (
   id: string,
   revision = "",
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ) => recordings.get(keyFor(id, revision), signal)
 
-export function prefetchWorkoutRecording(workout: {id:string;activity_id?:string|null;activity_revision?:string}) {
-  const id=workout.activity_id || (workout.id.startsWith('activity:')?workout.id.slice(9):null)
-  if(!id)return
-  void loadActivityRoute(id,workout.activity_revision).catch(()=>{})
-  void loadActivityAnalysis(id,workout.activity_revision).catch(()=>{})
-  void import('../components/workout-analysis').catch(()=>{})
-  void import('../components/mapbox-route-map-canvas').then(module=>module.prewarmRouteMap()).catch(()=>{})
+export function prefetchWorkoutRecording(workout: {
+  id: string
+  activity_id?: string | null
+  activity_revision?: string
+}) {
+  const id =
+    workout.activity_id ||
+    (workout.id.startsWith("activity:") ? workout.id.slice(9) : null)
+  if (!id) return
+  void loadActivityRoute(id, workout.activity_revision).catch(() => {})
+  void loadActivityAnalysis(id, workout.activity_revision).catch(() => {})
+  void loadActivitySummary(id, workout.activity_revision).catch(() => {})
+  void import("../components/workout-analysis").catch(() => {})
+  void import("../components/mapbox-route-map-canvas")
+    .then((module) => module.prewarmRouteMap())
+    .catch(() => {})
 }
