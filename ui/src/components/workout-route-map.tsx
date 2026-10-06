@@ -4,7 +4,7 @@ import {
   MapboxRouteMap,
   type MapRoutePoint,
 } from "@/components/mapbox-route-map"
-import { cachedActivityRoute, loadActivityRoute } from "@/lib/activity-analysis"
+import { cachedActivityRoute, loadActivityRoute, cachedActivityAnalysis, loadActivityAnalysis } from "@/lib/activity-analysis"
 import { RouteReplayButton } from "@/components/route-replay-button"
 import type { PlannedWorkout } from "@/lib/training-context"
 
@@ -37,6 +37,15 @@ export function WorkoutRouteMap({
     (workout as PlannedWorkout & { activity_revision?: string })
       .activity_revision || ""
   const key = `${id}:${revision}`
+  const [recording,setRecording]=useState(()=>({key,data:id?cachedActivityAnalysis(id,revision):null}))
+  useEffect(()=>{
+    if(!id || timedPoints)return
+    const controller=new AbortController()
+    void loadActivityAnalysis(id,revision,controller.signal).then(data=>{
+      if(!controller.signal.aborted)setRecording({key,data})
+    }).catch(()=>{})
+    return()=>controller.abort()
+  },[id,revision,key,timedPoints])
   const [route, setRoute] = useState<{
     key: string
     points: Coordinate[]
@@ -52,15 +61,15 @@ export function WorkoutRouteMap({
   )
   const validTimedPoints = useMemo(
     () =>
-      (timedPoints || []).filter(
+      (timedPoints || (recording.key===key?recording.data?.points || []:[])).filter(
         (point) =>
           Number.isFinite(point.time) &&
-          Number.isFinite(point.latitude) &&
-          Number.isFinite(point.longitude) &&
+          typeof point.latitude==='number' &&
+          typeof point.longitude==='number' &&
           Math.abs(point.latitude) <= 85 &&
           Math.abs(point.longitude) <= 180
-      ),
-    [timedPoints]
+      ).map(point=>({time:point.time,latitude:point.latitude!,longitude:point.longitude!})),
+    [timedPoints,recording,key]
   )
   const usesTimedRoute = validTimedPoints.length > 1
   const points = useMemo<TimedRoutePoint[]>(

@@ -460,3 +460,30 @@ test("HTTP requires session and same-origin writes; estimate never saves", async
   );
   assert.equal((await request(handler)).body.day.entries.length, 1);
 });
+
+test("nutrition opens share a cached view and saving food immediately invalidates it", async () => {
+  const store = createNutritionStore(memoryRecords());
+  let reads = 0;
+  const handler = createNutritionHttp({
+    getStore: async () => {
+      reads++;
+      return store;
+    },
+    catalog: { hydrate: async (entry) => entry },
+    env: () => ({}),
+  });
+  const [a, b] = await Promise.all([request(handler), request(handler)]);
+  assert.equal(a.status, 200);
+  assert.deepEqual(a.body, b.body);
+  await request(handler);
+  assert.equal(reads, 1);
+  assert.equal((await request(handler, { session: false })).status, 401);
+  const write = await request(handler, {
+    route: "/api/nutrition/entries",
+    method: "POST",
+    payload: add(),
+  });
+  assert.equal(write.status, 200);
+  assert.equal((await request(handler)).body.day.entries.length, 1);
+  assert.equal(reads, 3);
+});

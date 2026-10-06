@@ -126,6 +126,7 @@ export function createFoodCatalog({
     expires = 0,
     tokenPending;
   const pending = new Map();
+  const products = new Map();
   let active = 0;
   const queue = [];
   const acquire = async () => {
@@ -245,8 +246,16 @@ export function createFoodCatalog({
     },
     async product(id) {
       if (!/^\d{1,20}$/.test(id || "")) throw new NutritionError("Choose a valid FatSecret food.");
+      const saved = products.get(id);
+      if (saved && saved.expires > now()) return structuredClone(saved.value);
       const data = await request("food/v5", { food_id: id });
-      return normalizeFatSecret(data.food);
+      const value = normalizeFatSecret(data.food);
+      if (value) {
+        products.delete(id);
+        products.set(id, { value, expires: now() + 15 * 60_000 });
+      }
+      if (products.size > 256) products.delete(products.keys().next().value);
+      return value;
     },
     async hydrate(entry) {
       if (entry.source !== "fatsecret") return entry;

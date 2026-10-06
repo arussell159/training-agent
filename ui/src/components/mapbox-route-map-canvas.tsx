@@ -17,6 +17,12 @@ const line = (points: MapRoutePoint[]) => ({
   },
 })
 
+export function prewarmRouteMap() {
+  if (mapboxConfig) {
+    try { mapboxgl.prewarm() } catch { /* Map initialization can retry when opened. */ }
+  }
+}
+
 export function MapboxRouteMapCanvas({
   points,
   center,
@@ -53,15 +59,20 @@ export function MapboxRouteMapCanvas({
   )
   highlightedRef.current = highlighted
 
+  // Adding real playback timestamps must not destroy and reload an identical map.
+  const geometryKey = useMemo(() => JSON.stringify(valid.map(point => [point.latitude, point.longitude])), [valid])
+  const positions = useMemo<MapRoutePoint[]>(() => (JSON.parse(geometryKey) as [number, number][])
+    .map(([latitude, longitude], time) => ({latitude, longitude, time})), [geometryKey])
+
   useEffect(() => {
-    const hasRoute = valid.length > 1
+    const hasRoute = positions.length > 1
     const mapCenter = hasRoute
-      ? ([valid[0].longitude, valid[0].latitude] as [number, number])
+      ? ([positions[0].longitude, positions[0].latitude] as [number, number])
       : center
     if (!container.current || !mapboxConfig || !mapCenter) return
     const bounds = new mapboxgl.LngLatBounds()
     if (hasRoute)
-      for (const point of valid)
+      for (const point of positions)
         bounds.extend([point.longitude, point.latitude])
     mapboxgl.accessToken = mapboxConfig.accessToken
     const map = new mapboxgl.Map({
@@ -101,7 +112,7 @@ export function MapboxRouteMapCanvas({
               "size-4 rounded-full border-[3px] border-white bg-lime-600 shadow-sm"
             return element
           })(),
-        }).setLngLat([valid[0].longitude, valid[0].latitude])
+        }).setLngLat([positions[0].longitude, positions[0].latitude])
       : new mapboxgl.Marker({ color: "#4f46e5" }).setLngLat(mapCenter)
     const finishMarker = hasRoute
       ? new mapboxgl.Marker({
@@ -114,13 +125,13 @@ export function MapboxRouteMapCanvas({
             element.style.backgroundSize = "6px 6px"
             return element
           })(),
-        }).setLngLat([valid.at(-1)!.longitude, valid.at(-1)!.latitude])
+        }).setLngLat([positions.at(-1)!.longitude, positions.at(-1)!.latitude])
       : null
     map.on("load", () => {
       if (hasRoute) {
         map.addSource("recorded-route", {
           type: "geojson",
-          data: line(valid),
+          data: line(positions),
         })
         map.addLayer({
           id: "recorded-route-casing",
@@ -171,7 +182,7 @@ export function MapboxRouteMapCanvas({
       map.remove()
       mapRef.current = null
     }
-  }, [bottomPadding, center, interactive, topPadding, valid])
+  }, [bottomPadding, center, interactive, topPadding, positions])
 
   useEffect(() => {
     const map = mapRef.current

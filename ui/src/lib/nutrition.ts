@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { apiFetch } from "./api-client"
-import { deviceCacheScope } from "./device-cache"
+import { deviceCacheScope, readDeviceCache, writeDeviceCache, deleteDeviceCachePrefix } from "./device-cache"
 import { cachedTrainingContext } from "./training-context"
 import { dashboardToday } from "./dashboard-metrics"
 import { completedWorkoutCalories } from "./nutrition-math"
@@ -309,6 +309,19 @@ export async function nutritionRequest<T>(
 const cache = new Map<string, { time: number; view: NutritionView }>(),
   pending = new Map<string, Promise<NutritionView>>()
 let generation = 0
+const SNAPSHOT_KEY='training-agent-nutrition-startup-v1'
+const SNAPSHOT_TTL=15*60_000
+export function cachedNutrition(date: string): NutritionView|null {
+  const saved=cache.get(`${deviceCacheScope()}:${date}`)
+  if(saved && Date.now()-saved.time<SNAPSHOT_TTL)return saved.view
+  try {
+    const snapshot=JSON.parse(localStorage.getItem(SNAPSHOT_KEY)||'null')
+    if(snapshot?.scope===deviceCacheScope() && snapshot.view.date===date && Date.now()-snapshot.time<SNAPSHOT_TTL)return snapshot.view
+    if(snapshot && Date.now()-snapshot.time>=SNAPSHOT_TTL)localStorage.removeItem(SNAPSHOT_KEY)
+  }catch{/* Storage is optional. */}
+  return null
+}
+export function prefetchNutrition(date=nutritionToday()) {return load(date)}
 function load(date: string, refresh = false) {
   const key = `${deviceCacheScope()}:${date}`,
     saved = cache.get(key)
@@ -321,6 +334,8 @@ function load(date: string, refresh = false) {
     .then((view) => {
       if (generation === version) {
         cache.set(key, { time: Date.now(), view })
+        void writeDeviceCache(`nutrition:${key}`,view)
+        try{localStorage.setItem(SNAPSHOT_KEY,JSON.stringify({scope:deviceCacheScope(),time:Date.now(),view}))}catch{/* Storage is optional. */}
         if (cache.size > 14) cache.delete(cache.keys().next().value!)
       }
       return view
@@ -340,17 +355,20 @@ for (const event of [
     generation++
     cache.clear()
     pending.clear()
+    try{localStorage.removeItem(SNAPSHOT_KEY)}catch{/* Storage is optional. */}
   })
 export function nutritionChanged() {
   generation++
   cache.clear()
   pending.clear()
+  void deleteDeviceCachePrefix('nutrition:')
+  try{localStorage.removeItem(SNAPSHOT_KEY)}catch{/* Storage is optional. */}
   window.dispatchEvent(new Event("nutrition-updated"))
 }
 export function useNutrition(date: string) {
-  const [data, setData] = useState<NutritionView | null>(null),
+  const [data, setData] = useState<NutritionView | null>(()=>cachedNutrition(date)),
     [error, setError] = useState(""),
-    [loading, setLoading] = useState(true),
+    [loading, setLoading] = useState(()=>!cachedNutrition(date)),
     [retry, setRetry] = useState(0)
   useEffect(() => {
     let active = true
@@ -358,7 +376,12 @@ export function useNutrition(date: string) {
     const read = (refresh = false) => {
       const version = ++sequence
       setError("")
-      setLoading(true)
+      const cached=refresh?null:cachedNutrition(date)
+      if(cached)setData(cached)
+      setLoading(!cached)
+      if(!refresh)void readDeviceCache<NutritionView>(`nutrition:${deviceCacheScope()}:${date}`,SNAPSHOT_TTL).then(saved=>{
+        if(saved && active && version===sequence && !cache.has(`${deviceCacheScope()}:${date}`)){setData(saved);setLoading(false)}
+      })
       void load(date, refresh)
         .then((value) => {
           if (active && version === sequence) setData(value)

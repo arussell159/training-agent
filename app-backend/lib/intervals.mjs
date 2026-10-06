@@ -333,6 +333,7 @@ export async function fetchIntervalsContext(
     includeFutureRaces = false,
     repairWorkoutLinks = false,
     onProgress,
+    cachedAthlete,
   } = {}
 ) {
   const syncStartedAt = new Date().toISOString();
@@ -355,7 +356,7 @@ export async function fetchIntervalsContext(
     completed: 0,
     total: totalRequests,
   });
-  const athlete = await track(request("/athlete/0"), "Loaded athlete profile");
+  const athlete = cachedAthlete || (await track(request("/athlete/0"), "Loaded athlete profile"));
   timeZone = athlete.timezone || athlete.time_zone || timeZone;
   const today = athleteLocalDate(now, timeZone);
   const shift = (days) =>

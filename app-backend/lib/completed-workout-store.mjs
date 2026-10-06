@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
+import { contentFingerprint } from "./content-fingerprint.mjs";
 
 export function providerConnection(config) {
   return createHash("sha256")
@@ -27,14 +28,14 @@ export function createCompletedWorkoutStore(config, store) {
   }
   return {
     ready: store.ready,
-    async saveViews(id, views) {
+    async saveViews(id, views, expectedRevision) {
       const meta = await metadata(id);
       await store.upsert(
         "sync_state",
         Object.entries(views).map(([kind, data]) => ({
           athlete_id: recordId(id, kind),
           status: "archived",
-          cursor: { revision: meta?.revision || "", data, saved_at: new Date().toISOString() },
+          cursor: encoded(data, expectedRevision || meta?.revision || ""),
           updated_at: new Date().toISOString(),
         }))
       );
@@ -43,7 +44,7 @@ export function createCompletedWorkoutStore(config, store) {
       if (store.ready)
         await store.upsert(
           "sync_state",
-          ["analysis", "summary", "route"].map((kind) => ({
+          ["bundle", "analysis", "summary", "route", "route-full"].map((kind) => ({
             athlete_id: recordId(id, kind),
             status: "archived",
             cursor: { pending: true },
@@ -51,13 +52,19 @@ export function createCompletedWorkoutStore(config, store) {
           }))
         );
     },
-    async loadView(id, kind, download) {
+    async loadView(id, kind, download, { revision } = {}) {
       const saved = store.ready ? await store.getSyncRecord(recordId(id, kind)) : null;
-      if (saved && Object.hasOwn(saved, "data"))
+      if (saved && (!revision || saved.revision === revision) && Object.hasOwn(saved, "data"))
         return saved.encoding === "gzip-json-v1"
           ? JSON.parse(gunzipSync(Buffer.from(saved.data, "base64")).toString("utf8"))
           : saved.data;
-      return this.load(id, kind, download);
+      // Missing prepared views do not require a second lookup of the same row.
+      const data = await download({ force: Boolean(revision && saved?.revision !== revision) });
+      if (store.ready) {
+        const meta = await metadata(id);
+        await write(id, kind, encoded(data, revision || meta?.revision || ""));
+      }
+      return data;
     },
     async saveWorkouts(context, { previousContext = null } = {}) {
       if (!store.ready) return;
@@ -73,16 +80,13 @@ export function createCompletedWorkoutStore(config, store) {
           .filter((w) => w.completed && w.activity_id)
           .map((workout) => {
             const actual = workout.raw_activity || workout.completed_data || {};
-            return [
-              String(workout.activity_id),
-              createHash("sha256").update(JSON.stringify(actual)).digest("hex"),
-            ];
+            return [String(workout.activity_id), contentFingerprint(actual)];
           })
       );
       const rows = workouts
         .map((workout) => {
           const actual = workout.raw_activity || workout.completed_data || {};
-          const revision = createHash("sha256").update(JSON.stringify(actual)).digest("hex");
+          const revision = contentFingerprint(actual);
           return {
             athlete_id: recordId(String(workout.activity_id), "metadata"),
             status: "archived",
@@ -93,7 +97,19 @@ export function createCompletedWorkoutStore(config, store) {
         .filter(
           (row) => previousRevisions.get(row.athlete_id.split(":").at(-2)) !== row.cursor.revision
         );
-      if (rows.length) await store.upsert("sync_state", rows);
+      if (rows.length)
+        await store.upsert(
+          "sync_state",
+          rows.flatMap((row) => [
+            row,
+            ...["bundle", "analysis", "summary", "route", "route-full"].map((kind) => ({
+              athlete_id: recordId(row.athlete_id.split(":").at(-2), kind),
+              status: "archived",
+              cursor: { pending: true, revision: row.cursor.revision },
+              updated_at: row.updated_at,
+            })),
+          ])
+        );
     },
     async load(id, kind, download, { force = false } = {}) {
       const meta = store.ready ? await metadata(id) : null;
@@ -121,6 +137,17 @@ export function createCompletedWorkoutStore(config, store) {
       }
       return data;
     },
+  };
+}
+
+function encoded(data, revision) {
+  const json = JSON.stringify(data);
+  return {
+    revision,
+    ...(json.length > 65536
+      ? { encoding: "gzip-json-v1", data: gzipSync(json).toString("base64") }
+      : { data }),
+    saved_at: new Date().toISOString(),
   };
 }
 
@@ -153,7 +180,10 @@ export function mergeTrainingSnapshot(previous, incoming, range) {
           ...recent.values(),
         ].map((w) => [String(w.id), w])
       ).values(),
-    ].sort((a, b) => a.workout_date.localeCompare(b.workout_date));
+    ].sort(
+      (a, b) =>
+        a.workout_date.localeCompare(b.workout_date) || String(a.id).localeCompare(String(b.id))
+    );
   };
   const wellness = new Map(
     [...(previous.wellness_history || []), ...(incoming.wellness_history || [])].map((w) => [
@@ -167,6 +197,7 @@ export function mergeTrainingSnapshot(previous, incoming, range) {
   return {
     ...previous,
     ...incoming,
+    athlete: { ...previous.athlete, ...incoming.athlete },
     cached_ranges: [
       ...new Map(
         [...(previous.cached_ranges || []), ...(incoming.cached_ranges || [])].map((r) => [

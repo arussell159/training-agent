@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react"
+import { lazy, Suspense, useEffect, useState } from "react"
 import { Play, X } from "lucide-react"
 import {
   Dialog,
@@ -33,7 +33,14 @@ export function RouteReplayButton({
   bottom?: number
 }) {
   const [open, setOpen] = useState(false)
-  if (!mapboxConfig || points.length < 2) return null
+  const [ready,setReady]=useState(false)
+  useEffect(()=>{
+    let active=true
+    if(timed && points.length>1)void loadReplay().then(()=>{if(active)setReady(true)}).catch(()=>{})
+    else setReady(false)
+    return()=>{active=false}
+  },[timed,points.length])
+  if (!mapboxConfig || points.length < 2 || !timed || !ready) return null
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger

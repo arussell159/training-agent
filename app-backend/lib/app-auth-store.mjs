@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+const sharedReads = new Map();
 
 // One small encrypted record per app origin. Compare-and-swap updates make challenge
 // consumption, throttling and session revocation atomic across Vercel instances.
@@ -26,7 +27,7 @@ export function createAuthStore(bootstrap, origin, fetchImpl = fetch) {
 export function createEncryptedRecordStore(
   bootstrap,
   identity,
-  { namespace, name, fresh, timestampCas = false },
+  { namespace, name, fresh, timestampCas = false, readCacheMs = 0 },
   fetchImpl = fetch
 ) {
   const url = String(bootstrap.SUPABASE_URL || "").replace(/\/$/, "");
@@ -41,6 +42,7 @@ export function createEncryptedRecordStore(
   const scope = `${bootstrap.SETTINGS_SCOPE || "default"}:${namespace}:${createHash("sha256").update(identity).digest("hex")}`;
   const filter = `?scope=eq.${encodeURIComponent(scope)}&name=eq.${encodeURIComponent(name)}`;
   const versionColumn = timestampCas ? "updated_at" : "encrypted_value";
+  const readKey = createHash("sha256").update(`${url}:${secret}:${scope}`).digest("hex");
   function nextTimestamp(previous) {
     if (!timestampCas || !previous) return new Date().toISOString();
     // PostgreSQL retains microseconds. Always advance the previous revision, even
@@ -107,32 +109,53 @@ export function createEncryptedRecordStore(
   }
   return {
     async read() {
-      return (await read()).state;
+      let entry = sharedReads.get(readKey);
+      if (!entry || entry.expires <= Date.now()) {
+        entry = { expires: Infinity, promise: null };
+        const current = entry;
+        entry.promise = read()
+          .then((value) => {
+            current.expires = Date.now() + readCacheMs;
+            return value;
+          })
+          .catch((error) => {
+            if (sharedReads.get(readKey) === current) sharedReads.delete(readKey);
+            throw error;
+          });
+        sharedReads.set(readKey, entry);
+        if (sharedReads.size > 128) sharedReads.delete(sharedReads.keys().next().value);
+      }
+      return structuredClone((await entry.promise).state);
     },
     async update(change) {
-      for (let attempt = 0; attempt < 8; attempt++) {
-        const { state, version } = await read();
-        // change must be synchronous and safe to retry; it must not perform external work.
-        const result = change(state);
-        const row = {
-          scope,
-          name,
-          encrypted_value: encrypt(state),
-          updated_at: nextTimestamp(version),
-        };
-        const rows = version
-          ? await request(`${filter}&${versionColumn}=eq.${encodeURIComponent(version)}`, {
-              method: "PATCH",
-              body: JSON.stringify(row),
-            })
-          : await request("?on_conflict=scope,name", {
-              method: "POST",
-              body: JSON.stringify([row]),
-              headers: { Prefer: "resolution=ignore-duplicates,return=representation" },
-            });
-        if (rows.length === 1) return result;
+      sharedReads.delete(readKey);
+      try {
+        for (let attempt = 0; attempt < 8; attempt++) {
+          const { state, version } = await read();
+          // change must be synchronous and safe to retry; it must not perform external work.
+          const result = change(state);
+          const row = {
+            scope,
+            name,
+            encrypted_value: encrypt(state),
+            updated_at: nextTimestamp(version),
+          };
+          const rows = version
+            ? await request(`${filter}&${versionColumn}=eq.${encodeURIComponent(version)}`, {
+                method: "PATCH",
+                body: JSON.stringify(row),
+              })
+            : await request("?on_conflict=scope,name", {
+                method: "POST",
+                body: JSON.stringify([row]),
+                headers: { Prefer: "resolution=ignore-duplicates,return=representation" },
+              });
+          if (rows.length === 1) return result;
+        }
+        throw new Error("Sign-in is busy. Please try again.");
+      } finally {
+        sharedReads.delete(readKey);
       }
-      throw new Error("Sign-in is busy. Please try again.");
     },
   };
 }

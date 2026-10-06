@@ -14,7 +14,8 @@ export async function apiFetch(path: string, options?: RequestInit): Promise<Res
   const activity=/^\/api\/activities\/(i?\d+)\/(analysis|summary|route)/.test(path) && (!options?.method || options.method==='GET')
   const key=`activity:${deviceCacheScope()}:${path}`
   if(activity){
-    const cached=await readDeviceCache(key)
+    // A slow or unavailable device database must not postpone the network.
+    const cached=await Promise.race([readDeviceCache(key),new Promise<null>(resolve=>setTimeout(()=>resolve(null),40))])
     if(options?.signal?.aborted)throw new DOMException('Aborted','AbortError')
     if(cached && authenticated && revision === authRevision)return new Response(JSON.stringify(cached),{headers:{'Content-Type':'application/json'}})
   }

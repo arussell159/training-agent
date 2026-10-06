@@ -6,6 +6,36 @@ import {
   loadActivityView,
 } from "./activity-bundle.mjs";
 
+test("map loading requests GPS directly and never downloads the original recording", async () => {
+  const paths = [];
+  const archive = {
+    loadView: async (_id, kind, download) => {
+      assert.equal(kind, "route-full");
+      return download();
+    },
+  };
+  const points = await loadActivityView(
+    archive,
+    {},
+    async (path) => {
+      paths.push(path);
+      return [
+        {
+          type: "latlng",
+          data: [
+            [30, -97],
+            [31, -98],
+          ],
+        },
+      ];
+    },
+    "i10",
+    "route"
+  );
+  assert.deepEqual(paths, ["/activity/i10/streams.json"]);
+  assert.equal(points.length, 2);
+});
+
 test("bundle retains every available stream and the original FIT bytes, with ready-to-display views", async () => {
   const bytes = Buffer.alloc(14);
   bytes[0] = 14;

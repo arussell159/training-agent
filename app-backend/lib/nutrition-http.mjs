@@ -10,6 +10,8 @@ export function createNutritionHttp({
   estimate = estimateFood,
 }) {
   let running = 0;
+  const views = new Map();
+  let viewRevision = 0;
   const hydrate = (entry) => (catalog.hydrate ? catalog.hydrate(entry) : entry);
   const resolveWrites = (entries) => {
     if (!Array.isArray(entries) || !entries.length || entries.length > 30)
@@ -35,15 +37,40 @@ export function createNutritionHttp({
     try {
       if (!req.appSession) throw new NutritionError("Sign in to view your food log.", 401);
       const config = coachConfig(env());
-      if (req.method !== "GET") checkOrigin(req, config);
+      if (req.method !== "GET") {
+        checkOrigin(req, config);
+        views.clear();
+        viewRevision++;
+      }
       const url = new URL(req.url, "http://localhost");
       if (req.method === "GET" && pathname === "/api/nutrition") {
-        const store = await getStore(req);
-        json(200, {
-          ...(await store.view(nutritionDate(url.searchParams.get("date")), hydrate)),
-          aiAvailable: Boolean(config.openaiKey),
-          localPreview: env().NUTRITION_LOCAL_PREVIEW === "true" && !env().VERCEL,
-        });
+        const date = nutritionDate(url.searchParams.get("date"));
+        const key = `${req.headers.host}:${date}`;
+        const cached = views.get(key);
+        if (cached && cached.expires > Date.now()) {
+          json(200, await cached.promise);
+          return true;
+        }
+        const revision = viewRevision;
+        const promise = (async () => {
+          const store = await getStore(req);
+          return {
+            ...(await store.view(date, hydrate)),
+            aiAvailable: Boolean(config.openaiKey),
+            localPreview: env().NUTRITION_LOCAL_PREVIEW === "true" && !env().VERCEL,
+          };
+        })();
+        const entry = { promise, expires: Date.now() + 30_000 };
+        views.set(key, entry);
+        if (views.size > 32) views.delete(views.keys().next().value);
+        try {
+          json(200, await promise);
+        } catch (error) {
+          if (views.get(key) === entry) views.delete(key);
+          throw error;
+        } finally {
+          if (revision !== viewRevision && views.get(key) === entry) views.delete(key);
+        }
       } else if (req.method === "GET" && pathname === "/api/nutrition/library")
         json(200, await (await getStore(req)).library(hydrate));
       else if (req.method === "POST" && pathname === "/api/nutrition/library") {

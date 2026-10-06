@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { contentFingerprint } from "./content-fingerprint.mjs";
 import { providerConnection } from "./completed-workout-store.mjs";
 import { athleteLocalDate } from "./athlete-date.mjs";
 import { intervalsOnlyContext } from "./intervals-only-context.mjs";
@@ -20,6 +20,10 @@ export function projectTrainingContext(context, scope = "week", now = new Date()
       [...(context.history || []), ...(context.planned || [])].map((w) => [String(w.id), w])
     ).values(),
   ]
+    .sort(
+      (a, b) =>
+        a.workout_date.localeCompare(b.workout_date) || String(a.id).localeCompare(String(b.id))
+    )
     .map((workout) => {
       const details = appWorkoutDescription(workout, context.athlete?.sport_settings || []);
       return details ? { ...workout, details, app_description_version: 3 } : workout;
@@ -52,7 +56,7 @@ export function projectTrainingContext(context, scope = "week", now = new Date()
           ? raw_activity.device_name
           : workout.device_name || null,
       activity_revision: raw_activity
-        ? createHash("sha256").update(JSON.stringify(raw_activity)).digest("hex")
+        ? contentFingerprint(raw_activity)
         : workout.activity_revision,
       ...(!workout.completed
         ? { status: workout.workout_date === today ? "today" : "upcoming" }
@@ -100,14 +104,16 @@ export function projectTrainingContext(context, scope = "week", now = new Date()
     version: context.version || context.synced_at,
   };
 }
-export async function saveFastView(config, store, context) {
+export function prepareFastView(config, context) {
   const full = projectTrainingContext(
     { ...context, provider_connection: providerConnection(config) },
     "full"
   );
-  full.version = createHash("sha256")
-    .update(JSON.stringify({ ...full, synced_at: undefined, version: undefined }))
-    .digest("hex");
+  full.version = contentFingerprint({ ...full, synced_at: undefined, version: undefined });
+  return full;
+}
+export async function saveFastView(config, store, context) {
+  const full = prepareFastView(config, context);
   const week = projectTrainingContext(full, "week");
   week.version = full.version;
   await store.upsert("sync_state", [

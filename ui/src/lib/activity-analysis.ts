@@ -26,7 +26,7 @@ const routes = createSharedRequestCache<[number, number][]>(
   async (key, signal) => {
     const [, id, revision] = JSON.parse(key) as string[]
     const response = await apiFetch(
-      `/api/activities/${encodeURIComponent(id)}/route?v=${encodeURIComponent(revision)}`,
+      `/api/activities/${encodeURIComponent(id)}/route?schema=2&v=${encodeURIComponent(revision)}`,
       { signal }
     )
     if (!response.ok) throw new Error("The route could not be loaded.")
@@ -41,7 +41,7 @@ const routes = createSharedRequestCache<[number, number][]>(
         Math.abs(point[1]) <= 180
     )
   },
-  { maxWeight: 50000, weight: (points) => points.length, timeoutMs: 15000 }
+  { maxWeight: 250000, weight: (points) => points.length, timeoutMs: 15000 }
 )
 
 for (const event of [
@@ -67,3 +67,12 @@ export const loadActivityAnalysis = (
   revision = "",
   signal?: AbortSignal
 ) => recordings.get(keyFor(id, revision), signal)
+
+export function prefetchWorkoutRecording(workout: {id:string;activity_id?:string|null;activity_revision?:string}) {
+  const id=workout.activity_id || (workout.id.startsWith('activity:')?workout.id.slice(9):null)
+  if(!id)return
+  void loadActivityRoute(id,workout.activity_revision).catch(()=>{})
+  void loadActivityAnalysis(id,workout.activity_revision).catch(()=>{})
+  void import('../components/workout-analysis').catch(()=>{})
+  void import('../components/mapbox-route-map-canvas').then(module=>module.prewarmRouteMap()).catch(()=>{})
+}

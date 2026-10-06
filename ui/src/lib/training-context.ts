@@ -165,6 +165,11 @@ export function rememberTrainingContext(context: CachedContext,scope:'week'|'ful
   if(!previous?.version || previous.version!==context.version || scope==='full')window.dispatchEvent(new CustomEvent('training-context-updated',{detail:context}))
 }
 export function trainingCacheScope() {return (cachedTrainingContext() as CachedContext).cache_scope || 'initial'}
+export function rememberLiveTrainingContext(context:CachedContext) {
+  // Supersede an older cached response still in flight when the live check wins.
+  contextRevision++;contextRequests.clear();networkLoadedScopes.add('full');networkLoadedScopes.add('week')
+  rememberTrainingContext(context,'full')
+}
 export function mergeCalendarContext(previous:TrainingContext,incoming:CachedContext): TrainingContext {
   const range=incoming.display_range
   const merge=<T extends {workout_date?:string}>(old:T[],next:T[])=>[...new Map([...old.filter(w=>!range || (w.workout_date || '')<range.start || (w.workout_date || '')>range.end),...next].map(w=>[(w as T & {id?:string}).id,w])).values()]

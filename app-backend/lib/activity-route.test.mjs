@@ -23,3 +23,7 @@ test("GPS supports separate Intervals latitude/longitude arrays and skips missin
   );
   assert.deepEqual(activityRoute([]), []);
 });
+test("maps retain every GPS sample, including the final point of long workouts", () => {
+  const points = Array.from({ length: 12000 }, (_, i) => [30 + i / 100000, -97 + i / 100000]);
+  assert.deepEqual(activityRoute([{ type: "latlng", data: points }]), points);
+});

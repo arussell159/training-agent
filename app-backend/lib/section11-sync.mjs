@@ -15,10 +15,23 @@ export function createSection11Sync({ store, run, waitUntil, now = Date.now }) {
   function status(state, revision = state.requested?.revision) {
     if (!revision) return { status: "idle" };
     if (state.complete?.revision >= revision)
-      return { status: "complete", revision, commit: state.complete.commit };
+      return {
+        status: "complete",
+        revision,
+        commit: state.complete.commit,
+        version:
+          state.complete.version ||
+          (state.complete.revision === state.requested?.revision
+            ? state.requested.version
+            : undefined),
+      };
     if (state.failed?.revision >= revision)
       return { status: "failed", revision, error: state.failed.error };
-    return { status: state.active?.revision >= revision ? "running" : "queued", revision };
+    return {
+      status: state.active?.revision >= revision ? "running" : "queued",
+      revision,
+      version: state.requested?.version,
+    };
   }
   async function start(input, revision) {
     const { claim, state } = await store.update((state) => {
@@ -57,11 +70,19 @@ export function createSection11Sync({ store, run, waitUntil, now = Date.now }) {
         try {
           const result = await run(claim);
           if (result.status !== "complete") throw Error(result.error || "GitHub export failed.");
-          await store.update((state) => {
-            if (state.active?.claimId !== claim.claimId) return;
-            state.complete = { revision: claim.revision, commit: result.commit, at: now() };
+          const newer = await store.update((state) => {
+            if (state.active?.claimId !== claim.claimId) return false;
+            state.complete = {
+              revision: claim.revision,
+              version: claim.version,
+              commit: result.commit,
+              at: now(),
+            };
             state.active = null;
+            return state.requested?.revision > claim.revision;
           });
+          // Drain a newer version even if every browser has closed.
+          if (newer) await start(null);
         } catch (error) {
           await store.update((state) => {
             if (state.active?.claimId !== claim.claimId) return;
@@ -80,7 +101,18 @@ export function createSection11Sync({ store, run, waitUntil, now = Date.now }) {
     return status(state, revision);
   }
   return {
-    ensure: (input) => start(input),
+    async ensure(input) {
+      const state = await store.read();
+      if (
+        !input.force &&
+        state.requested?.version === input.version &&
+        (state.complete?.revision >= state.requested.revision ||
+          (state.active && now() - state.active.startedAt < leaseMs) ||
+          (state.failed?.revision >= state.requested.revision && now() - state.failed.at < 60_000))
+      )
+        return status(state);
+      return start(input);
+    },
     // A queued newer version can claim its own function lifetime after the older
     // export finishes. No second browser POST is required to start the first job.
     async progress(revision) {

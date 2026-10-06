@@ -4,6 +4,8 @@ import { activityRoute } from "./activity-route.mjs";
 import { recordedExtremes } from "./recorded-extremes.mjs";
 import { mapIntervalsWorkout } from "./intervals.mjs";
 import { elapsedSummary } from "./elapsed-summary.mjs";
+import { providerConnection } from "./completed-workout-store.mjs";
+const bundleRequests = new Map();
 
 export async function downloadOriginalActivityFile(config, id, fetchImpl = fetch) {
   const response = await fetchImpl(`https://intervals.icu/api/v1/activity/${id}/file`, {
@@ -19,14 +21,13 @@ export async function downloadOriginalActivityFile(config, id, fetchImpl = fetch
 
 export async function downloadActivityBundle(request, id, downloadFile) {
   if (!/^(i\d+|\d+)$/.test(String(id))) throw new Error("Invalid activity ID");
-  const activity = await request(`/activity/${id}?intervals=true`);
-  let streams = [];
-  try {
-    streams = (await request(`/activity/${id}/streams.json`)) || [];
-  } catch (error) {
-    if (error.status !== 404) throw error;
-  }
-  const bytes = activity.file_type ? await downloadFile(id) : null;
+  // Metadata, recording streams and the original file have independent requests.
+  const activityPromise = request(`/activity/${id}?intervals=true`);
+  const [activity, streams, bytes] = await Promise.all([
+    activityPromise,
+    downloadActivityStreams(request, id),
+    activityPromise.then((activity) => (activity.file_type ? downloadFile(id) : null)),
+  ]);
   const fitLaps = bytes && activity.file_type === "fit" ? readFitLaps(bytes) : [];
   const fitSwimLengths =
     bytes && activity.file_type === "fit" && /swim/i.test(activity.type || "")
@@ -62,24 +63,54 @@ export async function downloadActivityBundle(request, id, downloadFile) {
   };
 }
 
-export async function loadActivityBundle(archive, config, request, id) {
-  const bundle = await archive.load(id, "bundle", () =>
-    downloadActivityBundle(request, id, (fileId) => downloadOriginalActivityFile(config, fileId))
+export async function loadActivityBundle(archive, config, request, id, options = {}) {
+  const key = `${providerConnection(config)}:${id}:${options.revision || ""}:${Boolean(options.force)}`;
+  if (bundleRequests.has(key)) return bundleRequests.get(key);
+  const operation = readActivityBundle(archive, config, request, id, options);
+  bundleRequests.set(key, operation);
+  try {
+    return await operation;
+  } finally {
+    if (bundleRequests.get(key) === operation) bundleRequests.delete(key);
+  }
+}
+async function readActivityBundle(archive, config, request, id, options) {
+  const bundle = await archive.load(
+    id,
+    "bundle",
+    () =>
+      downloadActivityBundle(request, id, (fileId) => downloadOriginalActivityFile(config, fileId)),
+    options
   );
   if (archive.ready)
-    await archive.saveViews(id, {
-      analysis: bundle.analysis,
-      summary: bundle.summary,
-      route: bundle.route,
-    });
+    await archive.saveViews(
+      id,
+      {
+        analysis: bundle.analysis,
+        summary: bundle.summary,
+        route: bundle.route,
+        "route-full": bundle.route,
+      },
+      options.revision
+    );
   return bundle;
 }
 
-export async function loadActivityView(archive, config, request, id, kind) {
+export async function loadActivityView(archive, config, request, id, kind, options = {}) {
+  // Maps need only GPS streams. Never wait for FIT download, lap parsing or charts.
+  if (kind === "route")
+    return archive.loadView(
+      id,
+      "route-full",
+      async () => activityRoute(await downloadActivityStreams(request, id)),
+      options
+    );
   let view = await archive.loadView(
     id,
     kind,
-    async () => (await loadActivityBundle(archive, config, request, id))[kind]
+    async ({ force } = {}) =>
+      (await loadActivityBundle(archive, config, request, id, { ...options, force }))[kind],
+    options
   );
   if (kind === "analysis" && view.version !== 8) {
     const bundle = await archive.load(id, "bundle", () =>
@@ -110,4 +141,13 @@ export async function loadActivityView(archive, config, request, id, kind) {
       });
   }
   return view;
+}
+
+export async function downloadActivityStreams(request, id) {
+  try {
+    return (await request(`/activity/${id}/streams.json`)) || [];
+  } catch (error) {
+    if (error.status !== 404) throw error;
+    return [];
+  }
 }

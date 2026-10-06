@@ -5,13 +5,17 @@ import { createSection11Sync, freshSection11Sync } from "./section11-sync.mjs";
 function fixture(run, clock = Date.now) {
   let state = freshSection11Sync();
   const tasks = [];
+  let updates = 0;
   const store = {
     read: async () => structuredClone(state),
-    update: async (change) => change(state),
+    update: async (change) => {
+      updates++;
+      return change(state);
+    },
   };
   const create = () =>
     createSection11Sync({ store, run, now: clock, waitUntil: (task) => tasks.push(task) });
-  return { service: create(), create, tasks, state: () => state };
+  return { service: create(), create, tasks, state: () => state, updates: () => updates };
 }
 const input = { version: "training-1", athleteId: "i123", requestId: "request-1" };
 
@@ -35,6 +39,7 @@ test("training response returns while GitHub continues in a platform-managed tas
     status: "complete",
     revision: 1,
     commit: "abc",
+    version: "training-1",
   });
 });
 
@@ -46,7 +51,9 @@ test("unchanged provider data still triggers an export when GitHub has never rec
   });
   await f.service.ensure(input);
   await f.tasks[0];
+  const writes = f.updates();
   assert.equal((await f.service.ensure(input)).status, "complete");
+  assert.equal(f.updates(), writes);
   assert.equal(calls, 1);
   await f.service.ensure({ ...input, force: true, requestId: "manual-refresh" });
   await f.tasks[1];
@@ -67,7 +74,7 @@ test("concurrent instances share a claim and a newer version cannot complete wit
   assert.equal(next.status, "queued");
   gate.resolve();
   await f.tasks[0];
-  assert.equal((await f.create().progress(next.revision)).status, "running");
+  assert.equal(calls, 2); // The server starts the newer version without browser polling.
   await f.tasks[1];
   assert.equal((await f.create().progress(next.revision)).commit, "2");
 });

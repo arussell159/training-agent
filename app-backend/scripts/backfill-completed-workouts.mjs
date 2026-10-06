@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import {createHash} from 'node:crypto';
+import {contentFingerprint} from '../lib/content-fingerprint.mjs';
 import {gzipSync} from 'node:zlib';
 import {createSupabaseSettingsStore} from '../lib/settings-store.mjs';
 import {createIntervalsClient,fetchIntervalsContext} from '../lib/intervals.mjs';
@@ -33,7 +33,7 @@ for(let offset=0;offset<completed.length;offset+=2){
       if(bundle.original_file){report.originalFiles++;report.originalBytes+=bundle.original_file.bytes;if(bundle.original_file.type==='fit')report.fitFiles++;}
       else report.unavailableFiles.push(id);
       if(!bundle.availability.streams)report.unavailableStreams.push(id);
-      context.archived_activity_versions[id]=createHash('sha256').update(JSON.stringify(workout.raw_activity || workout.completed_data || {})).digest('hex');
+      context.archived_activity_versions[id]=contentFingerprint(workout.raw_activity || workout.completed_data || {});
     }catch(error){report.failures.push({id,error:error.message});}
   }));
   console.log(JSON.stringify({step:'progress',processed:Math.min(offset+2,completed.length),archived:report.archived,failures:report.failures.length}));

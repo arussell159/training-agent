@@ -2,6 +2,10 @@ import { PageSkeleton } from "@/components/loading-layouts"
 import { restoreReportReader } from "@/lib/report-navigation"
 import { ReportReaderPage } from "@/components/report-reader-page"
 import { BackgroundSync } from "@/components/background-sync"
+import { GithubSyncIndicator } from "@/components/github-sync-indicator"
+import { prefetchWorkoutRecording } from "@/lib/activity-analysis"
+import { prefetchNutrition } from "@/lib/nutrition"
+import { apiFetch } from "@/lib/api-client"
 import { SidebarNavigationSlim } from "@/components/application/app-navigation/sidebar-navigation/sidebar-slim"
 import {
   lazy,
@@ -28,7 +32,6 @@ import {
   TableProperties,
 } from "lucide-react"
 import { useToastManager } from "@/components/ui/toast"
-import { RefreshProgressToast } from "@/components/refresh-progress-toast"
 import { PageErrorBoundary } from "@/components/page-error-boundary"
 
 import {
@@ -61,10 +64,9 @@ import { MobileTermsPage } from "@/components/terms-reference/mobile-terms-page"
 import { useMobileViewport } from "@/hooks/use-mobile-viewport"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
-  refreshRecentIntervals,
   cachedTrainingContext,
+  rememberLiveTrainingContext,
   loadFullTrainingContext,
-  type ManualRefreshProgress,
   type PlannedWorkout,
 } from "@/lib/training-context"
 import {
@@ -87,6 +89,7 @@ const pageImports = {
 function preloadPage(item: string) {
   const load = pageImports[item as keyof typeof pageImports]
   if (load) void load().catch(() => {})
+  if(item==='Nutrition')void prefetchNutrition().catch(()=>{})
 }
 const TermsReferenceDialog = lazy(() =>
   import("@/components/terms-reference-dialog").then((module) => ({
@@ -228,78 +231,15 @@ function AppWorkspace() {
   const refreshIntervals = useCallback(async () => {
     if (isRefreshing) return
     setIsRefreshing(true)
-    const startedAt = Date.now()
-    const toastId = "intervals-icu-refresh"
-    const updateProgress = (progress: ManualRefreshProgress) => {
-      toastManager.update(toastId, {
-        type: "loading",
-        title: "Refreshing Intervals.icu",
-        description: <RefreshProgressToast progress={progress} />,
-        timeout: 0,
-      })
-    }
-    toastManager.add({
-      id: toastId,
-      type: "loading",
-      title: "Refreshing Intervals.icu",
-      description: (
-        <RefreshProgressToast
-          progress={{ phase: "starting", label: "Starting manual refresh", completed: 0, total: 1 }}
-        />
-      ),
-      timeout: 0,
-    })
     try {
-      const { context, githubSync } = await refreshRecentIntervals(updateProgress)
-      setSelectedWorkout((current) =>
-        current
-          ? [...context.planned, ...context.history].find(
-              (workout): workout is PlannedWorkout =>
-                "id" in workout && workout.id === current.id
-            ) || current
-          : null
-      )
-      toastManager.update(toastId, {
-        type: "loading",
-        title: "Updating GitHub",
-        description: (
-          <RefreshProgressToast progress={{
-            phase: "github",
-            label: "App updated. Saving to GitHub…",
-          }} />
-        ),
-        timeout: 0,
-      })
-      await githubSync.then(() => {
-        toastManager.add({
-          id: toastId,
-          type: "success",
-          title: "Refresh complete",
-          description: "App and GitHub are up to date.",
-          timeout: 6000,
-        })
-      }).catch((error) => {
-        toastManager.add({
-          id: toastId,
-          type: "error",
-          title: "GitHub sync needs a retry",
-          description: error instanceof Error ? error.message : "Section 11 files could not be updated. Try Refresh again.",
-          timeout: 10000,
-        })
-      })
-    } catch (error) {
-      const elapsed = Math.floor((Date.now() - startedAt) / 1000)
-      const duration = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`
-      toastManager.add({
-        id: toastId,
-        type: "error",
-        title: "Intervals.icu refresh failed",
-        description: `${error instanceof Error ? error.message : "Training data could not be refreshed."} (${duration})`,
-        timeout: 8000,
-      })
-    } finally {
-      setIsRefreshing(false)
-    }
+      const response=await apiFetch('/api/training-updates')
+      const result=await response.json()
+      if(!response.ok || !result.context)throw Error(result.error || 'Training data could not be refreshed.')
+      rememberLiveTrainingContext(result.context)
+      window.dispatchEvent(new Event('github-sync-check'))
+    } catch(error) {
+      toastManager.add({type:'error',title:'Training data could not refresh',description:error instanceof Error?error.message:'Please try again.',timeout:6000})
+    } finally {setIsRefreshing(false)}
   }, [isRefreshing, toastManager])
   useEffect(() => {
     const showReconnect = () => setIntervalsDisconnected(true)
@@ -422,12 +362,35 @@ function AppWorkspace() {
   }, [selectItem])
 
   const openWorkout = (workout: PlannedWorkout) => {
+    prefetchWorkoutRecording(workout)
     workoutReturnRoute.current = activeItem
     workoutReturnScroll.current = window.scrollY
     setCalendarReturnScroll(null)
     rememberOpenWorkout(workout)
     startTransition(() => setSelectedWorkout(workout))
   }
+
+  useEffect(()=>{
+    let active=true
+    const warmed=new Set<string>()
+    const prepare=()=>{
+      if(!active)return
+      const context=cachedTrainingContext()
+      const recent=[...new Map([...context.history,...context.planned]
+        .filter((w):w is PlannedWorkout=>'id' in w && (w as PlannedWorkout).status==='completed')
+        .map(w=>[w.id,w])).values()]
+        .sort((a,b)=>(b.workout_date||'').localeCompare(a.workout_date||'')).slice(0,4)
+      for(const workout of recent){
+        const key=`${workout.id}:${(workout as {activity_revision?:string}).activity_revision || ''}`
+        if(!warmed.has(key)){warmed.add(key);prefetchWorkoutRecording(workout)}
+      }
+      void pageImports.Nutrition().catch(()=>{})
+      void prefetchNutrition().catch(()=>{})
+    }
+    void loadFullTrainingContext().then(prepare)
+    window.addEventListener('training-context-updated',prepare)
+    return()=>{active=false;window.removeEventListener('training-context-updated',prepare)}
+  },[])
 
   const closeWorkout = () => {
     if (workoutReturnRoute.current === "Workout Reports") {
@@ -452,6 +415,7 @@ function AppWorkspace() {
         }}
       >
         <BackgroundSync />
+        <GithubSyncIndicator />
         <MobileTermsPage open={termsOpen} onOpenChange={setTermsOpen} />
         {termsOpen && !mobileTerms && (
           <Suspense fallback={null}>

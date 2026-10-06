@@ -40,6 +40,8 @@ import {buildTwelveWeekTrainingHistory} from './lib/training-history.mjs';
 import {createMutationQueue,validateMutation,pendingMutationContext} from './lib/mutation-queue.mjs';
 import {createRequestCache} from './lib/request-cache.mjs';
 import {compressAsset} from './lib/asset-compression.mjs';
+import {createTrainingUpdates} from './lib/training-updates.mjs';
+import {contentFingerprint} from './lib/content-fingerprint.mjs';
 import {updateWorkoutDescription} from './lib/workout-description.mjs';
 import {loadWorkoutEditor,saveWorkoutEditor,loadNewWorkoutEditor,createWorkoutEditor,workoutRevision} from './lib/workout-editor.mjs';
 import {expandSteps,stepMetrics,workoutTotals,serializeWorkout,validateWorkout,distanceFactors} from './lib/workout-editor-model.mjs';
@@ -66,7 +68,7 @@ const handleNutrition = createNutritionHttp({ catalog:nutritionCatalog, getStore
   if (process.env.NUTRITION_LOCAL_PREVIEW === 'true' && !process.env.VERCEL) return fatSecretDiary.configured() ? localFatSecretNutrition : localNutrition;
   const bootstrap = await readBootstrapConfig();
   return createNutritionStore((key, fresh) => createEncryptedRecordStore(bootstrap, `${req.headers.host}/nutrition/${key}`, {
-    namespace: 'nutrition', name: 'NUTRITION', fresh, timestampCas: true,
+    namespace: 'nutrition', name: 'NUTRITION', fresh, timestampCas: true, readCacheMs: 15_000,
   }));
 } });
 const handleCoach = createCoachHttp({ getCalendar: async (req, config) => createCoachCalendar({
@@ -195,8 +197,32 @@ function stableUuid(value) {
   return `${hex.slice(0,8).join('')}-${hex.slice(8,12).join('')}-${hex.slice(12,16).join('')}-${hex.slice(16,20).join('')}-${hex.slice(20).join('')}`;
 }
 
+const checkTrainingUpdates = createTrainingUpdates({
+  readSnapshot: loadSupabaseTrainingSnapshot,
+  // These few small reads must see a workout uploaded just before app open.
+  request: config => createIntervalsClient(config),
+  persist: (config, context) => {providerReads.clear();return persistTrainingContext(config, context, {archiveActivities:false});},
+  warm: warmRecentActivities,
+  exportGithub: ensureSection11Export,
+  waitUntil,
+  log: updateLogs,
+});
+const warmedActivities=new Map();
+async function warmRecentActivities(config, context) {
+  const archive=createCompletedWorkoutStore(config,createContextStore(config));
+  const workouts=[...new Map([...context.history,...context.planned]
+    .filter(w=>w.completed && w.activity_id).map(w=>[String(w.activity_id),w])).values()]
+    .sort((a,b)=>b.workout_date.localeCompare(a.workout_date)).slice(0,4);
+  for(let i=0;i<workouts.length;i+=2)await Promise.all(workouts.slice(i,i+2).map(async workout=>{
+    const key=`${providerConnection(config)}:${workout.activity_id}:${valueFingerprint(workout.raw_activity || {})}`;
+    if(warmedActivities.has(key))return;
+    try {await loadActivityView(archive,config,intervalsClient(config),String(workout.activity_id),'analysis',{revision:valueFingerprint(workout.raw_activity || {})});warmedActivities.set(key,true);if(warmedActivities.size>32)warmedActivities.delete(warmedActivities.keys().next().value);}
+    catch(error){updateLogs(`Recording preparation pending: ${error.message}`);}
+  }));
+}
+
 function valueFingerprint(value) {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  return contentFingerprint(value);
 }
 
 function trainingContextFingerprint(context) {
@@ -243,13 +269,13 @@ export async function persistTrainingContext(config, context, {archiveActivities
   const archivedVersions=Object.fromEntries(Object.entries({...(previous?.archived_activity_versions || {}),...(context.archived_activity_versions || {})}).filter(([id])=>activeActivityIds.has(id)));
   if(archiveActivities){
     const completed=[...new Map([...(context.history || []),...(context.planned || [])].filter(w=>w.completed && w.activity_id).map(w=>[String(w.activity_id),w])).values()];
-    const pending=completed.filter(w=>archivedVersions[String(w.activity_id)]!==createHash('sha256').update(JSON.stringify(w.raw_activity || w.completed_data || {})).digest('hex'));
+    const pending=completed.filter(w=>archivedVersions[String(w.activity_id)]!==contentFingerprint(w.raw_activity || w.completed_data || {}));
     for(let offset=0;offset<pending.length;offset+=2)await Promise.all(pending.slice(offset,offset+2).map(async workout=>{
       const id=String(workout.activity_id);
       try{
         await archive.invalidateViews(id);
         await loadActivityBundle(archive,config,intervalsClient(config),id);
-        archivedVersions[id]=createHash('sha256').update(JSON.stringify(workout.raw_activity || workout.completed_data || {})).digest('hex');
+        archivedVersions[id]=contentFingerprint(workout.raw_activity || workout.completed_data || {});
       }catch(error){updateLogs(`Completed workout archive pending ${id}: ${error.message}`);}
     }));
   }
@@ -335,7 +361,10 @@ export async function persistTrainingContext(config, context, {archiveActivities
     }]);
     await saveFastView(config,store,context);
   }
-  await store.prune();
+  // Retention maintenance is throttled; unchanged checks should not issue writes.
+  if (contextChanged && Date.now()-lastTrainingPruneAt>86400000) {
+    lastTrainingPruneAt=Date.now();await store.prune();
+  }
   return {contextChanged,sourceChanged};
 }
 
@@ -385,6 +414,7 @@ function setManualSyncProgress(id,progress) {
   for(const [key,value] of manualSyncProgress)if(now-value.updatedAt>15*60_000)manualSyncProgress.delete(key);
   manualSyncProgress.set(id,{...progress,updatedAt:now});
 }
+let lastTrainingPruneAt=0;
 async function syncSection11Files(config,athleteId,syncId,reportProgress) {
   reportProgress({phase:'github',requestId:syncId,status:'running',label:'Generating Section 11 files and committing them to GitHub',completed:0,total:1});
   let section11Sync;
@@ -616,6 +646,7 @@ async function readIntervalsCache() {
 }
 
 async function localEditCacheEnabled(req) {
+  if(process.env.LOCAL_LIVE_DATA==='true' && !process.env.VERCEL)return false;
   if (process.env.VERCEL) return false;
   const host = String(req.headers.host || '').replace(/^\[|\]$/g, '').split(':')[0].toLowerCase();
   if (!['localhost', '127.0.0.1', '::1'].includes(host)) return false;
@@ -896,6 +927,14 @@ export async function handleRequest(req, res) {
       const job=await createMutationQueue(config,createContextStore(config)).enqueue(mutation);
       const context=job.state==='synced'?projectTrainingContext(snapshot,'full'):await saveVerifiedSnapshot(config,pending);
       sendJson(req,res,{queued:job.state!=='synced',verified:job.state==='synced',context,operationId:mutation.operationId});return;
+    }
+    if(pathname==='/api/training-updates' && req.method==='GET') {
+      if(await localEditCacheEnabled(req)) {
+        const cached=await readIntervalsCache();
+        sendJson(req,res,{context:scopedTrainingContext(cached,'full'),sourceChanged:false});return;
+      }
+      const config=await readConfig();
+      sendJson(req,res,await checkTrainingUpdates(config));return;
     }
     if(pathname==='/api/sync/progress' && req.method==='GET') {
       const id=requestUrl.searchParams.get('id') || '';
@@ -1434,7 +1473,7 @@ export async function handleRequest(req, res) {
     if(routeMap && req.method==='GET'){
       const config=await readConfig();
       const archive=createCompletedWorkoutStore(config,createContextStore(config,updateLogs));
-      const points=await loadActivityView(archive,config,intervalsClient(config),routeMap[1],'route');
+      const points=await loadActivityView(archive,config,intervalsClient(config),routeMap[1],'route',{revision:requestUrl.searchParams.get('v') || undefined});
       sendJson(req,res,{points},'private,max-age=300');return;
     }
 
@@ -1443,7 +1482,7 @@ export async function handleRequest(req, res) {
       const config=await readConfig();
       const request=intervalsClient(config);
       const archive=createCompletedWorkoutStore(config,createContextStore(config,updateLogs));
-      const summary=await loadActivityView(archive,config,request,summaryRoute[1],'summary');
+      const summary=await loadActivityView(archive,config,request,summaryRoute[1],'summary',{revision:requestUrl.searchParams.get('v') || undefined});
       sendJson(req,res,summary);return;
     }
 
@@ -1451,7 +1490,7 @@ export async function handleRequest(req, res) {
     if(analysisRoute && req.method==='GET'){
       const config=await readConfig(),id=analysisRoute[1],request=intervalsClient(config);
       const archive=createCompletedWorkoutStore(config,createContextStore(config,updateLogs));
-      const analysis=await loadActivityView(archive,config,request,id,'analysis');
+      const analysis=await loadActivityView(archive,config,request,id,'analysis',{revision:requestUrl.searchParams.get('v') || undefined});
       sendJson(req,res,analysis,'private,max-age=300');return;
     }
 

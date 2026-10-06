@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import {useEffect,useMemo,useState} from 'react'
 
 import {MapboxRouteMap} from '@/components/mapbox-route-map'
-import {apiFetch} from '@/lib/api-client'
+import {cachedActivityRoute,loadActivityRoute} from '@/lib/activity-analysis'
 import {RouteReplayButton} from '@/components/route-replay-button'
 import type {PlannedWorkout} from '@/lib/training-context'
 import type {TimedRoutePoint} from '@/components/workout-route-map'
@@ -14,15 +14,14 @@ export function DesktopWorkoutRouteMap({workout,timedPoints,compact=false}:{work
  const revision=(workout as PlannedWorkout & {activity_revision?:string}).activity_revision || ''
  const key=`${id}:${revision}`
  const [failed,setFailed]=useState('')
- const [loaded,setLoaded]=useState<{key:string;points:Coordinate[]}|null>(null)
+ const [loaded,setLoaded]=useState<{key:string;points:Coordinate[]}|null>(()=>{const points=id?cachedActivityRoute(id,revision):null;return points?{key,points}:null})
  const fallback=useMemo(()=>loaded?.key===key?loaded.points:[],[loaded,key])
  const validTimed=useMemo(()=>(timedPoints || []).filter(point=>Number.isFinite(point.time)&&Number.isFinite(point.latitude)&&Number.isFinite(point.longitude)&&Math.abs(point.latitude)<=85&&Math.abs(point.longitude)<=180),[timedPoints])
  useEffect(()=>{
   if(validTimed.length>1||!id)return
   const controller=new AbortController()
-  void apiFetch(`/api/activities/${encodeURIComponent(id)}/route?v=${encodeURIComponent(revision)}`,{signal:controller.signal})
-   .then(async response=>{if(!response.ok)throw Error();return await response.json() as {points:Coordinate[]}})
-   .then(data=>{if(!controller.signal.aborted)setLoaded({key,points:(data.points || []).filter(point=>Array.isArray(point)&&point.length===2&&point.every(Number.isFinite)&&Math.abs(point[0])<=85&&Math.abs(point[1])<=180)})})
+  void loadActivityRoute(id,revision,controller.signal)
+   .then(points=>{if(!controller.signal.aborted)setLoaded({key,points})})
    .catch(()=>{if(!controller.signal.aborted)setFailed(key)})
   return()=>controller.abort()
  },[id,revision,key,validTimed.length])

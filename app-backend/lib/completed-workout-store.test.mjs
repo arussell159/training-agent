@@ -39,7 +39,8 @@ test("completed workouts retain full provider totals and paired prescriptions in
     history: [workout],
     planned: [workout, { id: "event:2", completed: false }],
   });
-  assert.equal(store.rows.size, 1);
+  assert.equal(store.rows.size, 6);
+  assert.equal([...store.rows.values()].filter((row) => row.cursor.pending).length, 5);
   const row = [...store.rows.values()][0];
   assert.equal(row.status, "archived");
   assert.deepEqual(row.cursor.workout, workout);
