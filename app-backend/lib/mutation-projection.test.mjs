@@ -5,6 +5,7 @@ import { createMutationProjection } from "./mutation-projection.mjs";
 import { providerConnection } from "./completed-workout-store.mjs";
 import { fastViewId, saveFastView } from "./fast-context.mjs";
 import { preserveQueuedSnapshot } from "./queued-snapshot.mjs";
+import { syncRevision } from './sync-record-revision.mjs';
 
 const operation = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const job = (n, description, workout = "event:1") => ({
@@ -43,6 +44,18 @@ function fixture(name) {
   ]);
   let beforeWrite = async () => {};
   const fetchImpl = async (url, options) => {
+    if (new URL(url).pathname.endsWith('/rpc/save_training_views')) {
+      const incoming = JSON.parse(options.body).p_rows;
+      // The gate models a delayed request before its transaction starts.
+      await Promise.all(incoming.map(row => beforeWrite(row)));
+      for (const row of incoming) {
+        const previous = rows.get(row.athlete_id)?.cursor.queue_snapshot_revision;
+        const next = row.cursor.queue_snapshot_revision;
+        if (!previous || (next && syncRevision(next) > syncRevision(previous))) rows.set(row.athlete_id, row);
+      }
+      const saved = rows.get(incoming.find(row => row.athlete_id.endsWith(':training')).athlete_id).cursor;
+      return { ok: true, text: async () => JSON.stringify({ version: saved.version, revision: saved.queue_snapshot_revision || null }) };
+    }
     const params = new URL(url).searchParams;
     const id = params.get("athlete_id")?.slice(3);
     if (!options.method || options.method === "GET") {

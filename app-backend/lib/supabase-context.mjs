@@ -71,6 +71,9 @@ export function createContextStore(config, log = () => {}, fetchImpl = fetch) {
   }
   return {
     ready,
+    async savePreparedViews(rows) {
+      return request('rpc/save_training_views', { method: 'POST', body: JSON.stringify({ p_rows: rows }) });
+    },
     async registerTrainingLive(topic, viewId, expiresAt) {
       return request('rpc/register_training_live', { method: 'POST', body: JSON.stringify({
         p_topic: topic, p_view_id: viewId, p_expires_at: expiresAt,
