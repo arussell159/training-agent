@@ -1096,6 +1096,9 @@ export function TrainingCalendar({
   const mobilePickerTriggerRef = useRef<HTMLButtonElement>(null)
   const pickerSwipeStartRef = useRef<{ x: number; y: number } | null>(null)
   const mobilePickerRef = useRef<Framework7Calendar.Calendar | null>(null)
+  const desktopPickerTriggerRef = useRef<HTMLButtonElement>(null)
+  const desktopPickerContentRef = useRef<HTMLDivElement>(null)
+  const queuedDateJump = useRef<Date | null>(null)
   const calendarUserScrolled = useRef(false)
   const initialAlignmentDone = useRef(false)
   useEffect(() => {
@@ -1527,9 +1530,13 @@ export function TrainingCalendar({
     calendarWasDragged.current = true
     calendarUserScrolled.current = true
     setDatePickerOpen(false)
+    if (!isMobile && datePickerOpen) {
+      queuedDateJump.current = new Date()
+      return
+    }
     setDateRange(calendarRange(new Date()))
     setPendingDateJump(new Date())
-  }, [])
+  }, [datePickerOpen, isMobile])
 
   useEffect(() => {
     window.addEventListener("calendar-go-today", goToToday)
@@ -1550,9 +1557,13 @@ export function TrainingCalendar({
     calendarWasDragged.current = true
     calendarUserScrolled.current = true
     setDatePickerOpen(false)
+    if (!isMobile && datePickerOpen) {
+      queuedDateJump.current = date
+      return
+    }
     setDateRange(calendarRange(date))
     setPendingDateJump(date)
-  }, [])
+  }, [datePickerOpen, isMobile])
 
   useLayoutEffect(() => {
     if (!pendingDateJump || !calendarReady) return
@@ -1562,7 +1573,9 @@ export function TrainingCalendar({
       : weekRefs.current.get(key)
     if (!element) return
     viewportAnchor.current = null
+    performanceProbe('calendar-date-jump', { before: element.getBoundingClientRect().top, scrollY: window.scrollY, expected: isMobile ? 56 : 84 })
     window.scrollTo({ top: Math.max(0, window.scrollY + element.getBoundingClientRect().top - (isMobile ? 56 : 84)), behavior: 'instant' })
+    performanceProbe('calendar-date-aligned', { top: element.getBoundingClientRect().top, scrollY: window.scrollY })
     initialAlignmentDone.current = true
     setActiveWeekKey(key)
     setVisibleMonth(pendingDateJump.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))
@@ -1773,11 +1786,29 @@ export function TrainingCalendar({
         )}
         {!isMobile && (
           <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center px-4 md:flex md:bg-background md:shadow-none">
-            <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
-              <PopoverTrigger className="mx-auto h-9 min-w-0 truncate rounded-md px-2 text-left text-sm font-semibold hover:bg-muted md:mx-0 md:text-base">
+            <Popover open={datePickerOpen} onOpenChange={(open) => {
+              if (open) queuedDateJump.current = null
+              setDatePickerOpen(open)
+            }} onOpenChangeComplete={(open) => {
+              if (open || !queuedDateJump.current) return
+              // Closing popovers restore focus asynchronously. Move the calendar
+              // after that lifecycle instead of letting it undo the date jump.
+              const date = queuedDateJump.current
+              queuedDateJump.current = null
+              setDateRange(calendarRange(date))
+              setPendingDateJump(date)
+            }}>
+              <PopoverTrigger ref={desktopPickerTriggerRef} className="mx-auto h-9 min-w-0 truncate rounded-md px-2 text-left text-sm font-semibold hover:bg-muted md:mx-0 md:text-base">
                 {activeMonth}
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-auto p-0">
+              <PopoverContent ref={desktopPickerContentRef} align="start" className="w-auto p-0" initialFocus={() => {
+                const target = desktopPickerContentRef.current?.querySelector<HTMLElement>('button, select') ?? desktopPickerContentRef.current
+                target?.focus({ preventScroll: true })
+                return false
+              }} finalFocus={() => {
+                desktopPickerTriggerRef.current?.focus({ preventScroll: true })
+                return false
+              }}>
                 <Calendar
                   mode="single"
                   captionLayout="dropdown"

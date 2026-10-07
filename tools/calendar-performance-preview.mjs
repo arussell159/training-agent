@@ -9,7 +9,7 @@ import path from 'node:path'
 const root = path.resolve('ui/dist')
 const port = Number(process.env.CALENDAR_PREVIEW_PORT || 5180)
 const calls = []
-let slow = 400, grown = false, annual = false, revision = 1
+let slow = 400, grown = false, annual = false, varied = false, revision = 1
 const key = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 const todayDate = new Date(), today = key(todayDate)
 const offset = (days) => { const date = new Date(todayDate); date.setDate(date.getDate() + days); return key(date) }
@@ -28,7 +28,7 @@ const history = (start, end) => {
   for (; date <= last && rows.length < 5000; date.setDate(date.getDate() + 1)) {
     const day = key(date)
     if (day > today || day < '2010-01-01') continue
-    const count = grown && (day === offset(-1) || day === offset(-8)) ? 9 : date.getDay() % 3 === 0 ? 2 : 1
+    const count = grown && (day === offset(-1) || day === offset(-8)) ? 9 : varied ? (Number(day.slice(-2)) % 5 === 0 ? 7 : date.getMonth() % 3 === 0 ? 0 : 1) : date.getDay() % 3 === 0 ? 2 : 1
     for (let i = 0; i < count; i++) rows.push(workout(day, i))
   }
   return rows
@@ -49,9 +49,10 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === '/_test/config') {
     if (url.searchParams.has('grow')) { grown = url.searchParams.get('grow') === '1'; revision++ }
     if (url.searchParams.has('annual')) annual = url.searchParams.get('annual') === '1'
+    if (url.searchParams.has('varied')) { varied = url.searchParams.get('varied') === '1'; revision++ }
     if (url.searchParams.has('slow')) slow = Math.min(10_000, Math.max(0, Number(url.searchParams.get('slow')) || 0))
     if (url.searchParams.has('resetCalls')) calls.length = 0
-    return json({ grown, annual, revision, slow })
+    return json({ grown, annual, varied, revision, slow })
   }
   if (url.pathname === '/_test/calls') return json(calls)
   if (url.pathname.startsWith('/api/')) {
