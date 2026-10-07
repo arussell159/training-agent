@@ -12,7 +12,10 @@ const config = { INTERVALS_API_KEY: "fixture" };
 test('a workout webhook refreshes the affected three days, without reloading profile or annual races', async () => {
   const f = await fixture(); f.complete();
   const tasks = [];
-  const check = createTrainingUpdates({ readSnapshot: async () => f.saved, request: () => f.request,
+  const check = createTrainingUpdates({ readSnapshot: async (_config, options) => {
+    assert.equal(options.fresh, true, 'targeted jobs must merge the newest durable snapshot');
+    return f.saved;
+  }, request: () => f.request,
     persist: async () => {}, warm: async () => {}, exportGithub: async () => {},
     waitUntil: task => tasks.push(task), now: () => clock,
   });

@@ -26,7 +26,9 @@ export function createTrainingUpdates({
     if (current && durable) await current.promise.catch(() => {});
     const entry = { at: time.getTime(), promise: null };
     entry.promise = (async () => {
-      const saved = await readSnapshot(config);
+      // Another Vercel instance may have just saved the preceding webhook.
+      // A targeted merge must start from that commit, never a 30-second cache.
+      const saved = await readSnapshot(config, { fresh: durable });
       const zone = saved?.athlete?.time_zone || "America/Chicago";
       const today = athleteLocalDate(time, zone);
       const shift = (n) =>

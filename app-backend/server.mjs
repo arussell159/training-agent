@@ -261,7 +261,7 @@ function stableUuid(value) {
 }
 
 const checkTrainingUpdates = createTrainingUpdates({
-  readSnapshot: loadSupabaseTrainingSnapshot,
+  readSnapshot: (config,options)=>loadSupabaseTrainingSnapshot(config,null,options),
   // These few small reads must see a workout uploaded just before app open.
   request: config => createIntervalsClient(config),
   persist: (config, context) => {providerReads.clear();return persistTrainingContext(config, context, {archiveActivities:false});},
@@ -475,12 +475,12 @@ export async function persistTrainingContext(config, context, {archiveActivities
   return {contextChanged,sourceChanged};
 }
 
-async function loadSupabaseTrainingSnapshot(config, athleteId = null) {
+async function loadSupabaseTrainingSnapshot(config, athleteId = null, {fresh=false}={}) {
   const store = createContextStore(config, updateLogs);
   if (!store.ready) return null;
   try {
     const preferredId = athleteId && athleteId !== 'default' ? String(athleteId) : null;
-    const state = await store.getLatestSyncState(preferredId);
+    const state = await store.getLatestSyncState(preferredId,{fresh});
     const snapshot = state?.cursor?.context;
     if (!snapshot || snapshot.provider !== 'intervals' || !Array.isArray(snapshot.history) || !Array.isArray(snapshot.planned)) return null;
     if (snapshot.provider_connection !== providerConnection(config)) return null;
