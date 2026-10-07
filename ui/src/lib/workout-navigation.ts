@@ -2,7 +2,10 @@ import type {PlannedWorkout} from '@/lib/training-context'
 
 const STORAGE_KEY='training-agent-open-workout-v1'
 
-export function workoutRouteId(){return new URLSearchParams(window.location.search).get('workout')}
+export function workoutRouteId(){
+ const value=new URLSearchParams(window.location.search).get("workout")
+ return value?.replace(/^(activity:i\d+)\$external_id\$/, "$1") || null
+}
 
 export function restoreOpenWorkout(candidates:unknown[]=[]){
  const id=workoutRouteId()

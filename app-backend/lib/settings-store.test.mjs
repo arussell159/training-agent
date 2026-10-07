@@ -314,6 +314,19 @@ test("config API save and reload expose only status, with no stale-cache headers
     const appearance = await request("POST", { APP_THEME: "dark" });
     assert.equal(appearance.result.theme, "dark");
     assert.equal((await request("GET")).result.intervalsConnected, true);
+    const integrationSecrets = {
+      INTERVALS_CLIENT_ID: "1250",
+      INTERVALS_CLIENT_SECRET: "fixture-oauth-client-secret",
+      INTERVALS_WEBHOOK_SECRET: "fixture-webhook-secret",
+    };
+    const integrationSaved = await request("POST", integrationSecrets);
+    assert.equal(integrationSaved.status, 200);
+    assert.doesNotMatch(JSON.stringify(integrationSaved.result), /fixture-oauth|fixture-webhook/);
+    assert.doesNotMatch(JSON.stringify([...db.rows.values()]), /fixture-oauth|fixture-webhook/);
+    assert.doesNotMatch(
+      JSON.stringify((await request("GET")).result),
+      /fixture-oauth|fixture-webhook/
+    );
     assert.equal((await request("POST", { APP_THEME: "invalid" })).status, 400);
     assert.equal((await request("POST", { OPENAI_API_KEY: "retired-key" })).status, 400);
     assert.equal((await request("POST", { OPENAI_MODEL: "retired-model" })).status, 400);

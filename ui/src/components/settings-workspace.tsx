@@ -1,3 +1,4 @@
+import { IntervalsConnection } from "@/components/intervals-connection"
 import { TableSkeleton } from "@/components/loading-layouts"
 import { apiFetch } from "@/lib/api-client"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
@@ -19,7 +20,7 @@ import { useTheme } from "@/components/theme-provider"
 import { loadTrainingContext, rememberTrainingContext, fallbackTrainingContext, type PlannedWorkout, type TrainingContext } from "@/lib/training-context"
 import { cn } from "@/lib/utils"
 
-type SettingsSection = "nutrition" | "zones" | "race" | "performance" | "library" | "appearance"
+type SettingsSection = "nutrition" | "zones" | "race" | "performance" | "library" | "appearance" | "intervals"
 type SettingsItem = { id: SettingsSection; label: string; description: string; icon: LucideIcon }
 type RaceEvent = { id: string; name: string; date: string; priority: string }
 type PerformanceSport = "Run" | "Bike" | "Swim"
@@ -40,6 +41,7 @@ const groups: Array<{ label: string; items: SettingsItem[] }> = [
   ] },
   { label: "Nutrition", items: [{ id: "nutrition", label: "Food tracker", description: "Meals, calories, and daily macro targets", icon: Utensils }] },
   { label: "Preferences", items: [
+    { id: "intervals", label: "Intervals.icu", description: "Connection and automatic updates", icon: Activity },
     { id: "appearance", label: "Appearance", description: "Light, dark, or system", icon: SunMoon },
   ] },
 ]
@@ -287,8 +289,8 @@ function SettingsSelectField({ id, label, value, onChange, options }: {
 export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout: PlannedWorkout) => void }) {
   const mobile = useIsMobile()
   const [context, setContext] = useState<TrainingContext>(fallbackTrainingContext)
-  const [section, setSection] = useState<SettingsSection | null>(null)
-  const [dialogSection, setDialogSection] = useState<SettingsSection | null>(null)
+  const [section, setSection] = useState<SettingsSection | null>(() => new URLSearchParams(window.location.search).has("intervals") ? "intervals" : null)
+  const [dialogSection, setDialogSection] = useState<SettingsSection | null>(() => new URLSearchParams(window.location.search).has("intervals") && window.innerWidth >= 768 ? "intervals" : null)
   const [zones, setZones] = useState({ bike_ftp: "", run_threshold_pace: "", swim_css: "", threshold_hr: "" })
   const [zonesEdited, setZonesEdited] = useState(false)
   const [events, setEvents] = useState<RaceEvent[]>([])
@@ -356,6 +358,7 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
   const past = events.filter(event => event.date < today).reverse()
   const currentGoal = upcoming.find(event => event.priority === "A") || upcoming[0] || (context.athlete.race && context.athlete.race_date ? { id: "athlete-current-goal", name: context.athlete.race, date: context.athlete.race_date, priority: "A" } : undefined)
   function summary(id: SettingsSection) {
+    if (id === "intervals") return "API and live updates"
     if (id === "nutrition") return "Meals, calories and macros"
     if (id === "zones") return context.athlete.zones?.bike_ftp ? `FTP ${context.athlete.zones.bike_ftp} W` : "Edit thresholds"
     if (id === "race") return currentGoal ? `${currentGoal.name} · ${compactDate(currentGoal.date)}` : "No upcoming races"
@@ -464,6 +467,7 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
   }
 
   function renderPanel(id: SettingsSection) {
+    if (id === "intervals") return <IntervalsConnection />
     const athlete = context.athlete
     if (id === "zones") return <div className="space-y-5">
       <p className="text-sm text-muted-foreground">Update the thresholds used by Intervals.icu and the training zones in this app. Leave a field blank to keep its current value.</p>

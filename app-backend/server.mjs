@@ -4,6 +4,9 @@ import { createFatSecretDiary } from './lib/fatsecret-diary.mjs';
 import { createFatSecretDiaryStore } from './lib/fatsecret-diary-store.mjs';
 import { createFoodCatalog } from './lib/nutrition-fatsecret.mjs';
 import {athleteLocalDate} from './lib/athlete-date.mjs';
+import { createWebhookSync, freshWebhookState, secretMatches } from './lib/intervals-webhook.mjs';
+import { createIntervalsOAuth, freshIntervalsOAuth, intervalsOrigin } from './lib/intervals-oauth.mjs';
+import { cachedTrainingUpdates } from './lib/cached-training-updates.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -162,6 +165,50 @@ function sendJson(req,res,value,cacheControl='no-store'){
  const payload=compressAsset(Buffer.from(JSON.stringify(value)),'.js',req.headers['accept-encoding']);
  res.writeHead(200,{'Content-Type':'application/json','Cache-Control':cacheControl,...payload.headers});res.end(payload.body);
 }
+function sendWebhookJson(res,status,value) {
+ res.writeHead(status,{
+  'Content-Type':'application/json',
+  'Cache-Control':'no-store',
+  'X-Content-Type-Options':'nosniff',
+ });
+ res.end(JSON.stringify(value));
+}
+async function handleIntervalsWebhook(req,res) {
+ if(req.method!=='POST') {
+  sendWebhookJson(res,405,{error:'Method not allowed'});
+  return;
+ }
+ const config=await readConfig();
+ const expectedSecret=config.INTERVALS_WEBHOOK_SECRET;
+ if(!expectedSecret) {
+  sendWebhookJson(res,503,{error:'Intervals.icu webhook is not configured.'});
+  return;
+ }
+ const payload=await readBody(req);
+ if(!secretMatches(payload?.secret,expectedSecret) || (config.INTERVALS_WEBHOOK_AUTHORIZATION && !secretMatches(req.headers.authorization,config.INTERVALS_WEBHOOK_AUTHORIZATION))) {
+  sendWebhookJson(res,401,{error:'Invalid webhook secret'});
+  return;
+ }
+ if(!Array.isArray(payload?.events) || payload.events.length>100) {
+  sendWebhookJson(res,400,{error:'Invalid webhook events'});
+  return;
+ }
+ try {
+  if(!config.INTERVALS_API_KEY) {
+   sendWebhookJson(res,503,{error:"The server's Intervals.icu API connection is not configured."});
+   return;
+  }
+  const view=await createContextStore(config).getSyncRecord(fastViewId(config));
+  const athleteId=view?.athlete?.id || (await createIntervalsClient(config)('/athlete/0')).id;
+  const sync=webhookSync(config);
+  const accepted=await sync.accept(payload.events,athleteId);
+  if(accepted.accepted || accepted.duplicate)scheduleTrainingReconciliation(config);
+  sendWebhookJson(res,202,{ok:true,...accepted});
+ } catch(error) {
+  updateLogs(`Intervals.icu webhook refresh failed: ${error.message}`);
+  sendWebhookJson(res,500,{error:'Webhook refresh failed; Intervals.icu can retry this delivery.'});
+ }
+}
 function intervalsClient(config){
  const account=createHash('sha256').update(config.INTERVALS_API_KEY || '').digest('hex');
  return providerReads.wrap(createIntervalsClient(config),account);
@@ -169,6 +216,10 @@ function intervalsClient(config){
 
 const CONFIG_ENV_KEYS = [
   'INTERVALS_API_KEY',
+  'INTERVALS_CLIENT_ID',
+  'INTERVALS_CLIENT_SECRET',
+  'INTERVALS_WEBHOOK_SECRET',
+  'INTERVALS_WEBHOOK_AUTHORIZATION',
   'SUPABASE_URL',
   'SUPABASE_SECRET_KEY',
   'SETTINGS_ENCRYPTION_KEY',
@@ -207,6 +258,34 @@ const checkTrainingUpdates = createTrainingUpdates({
   waitUntil,
   log: updateLogs,
 });
+function webhookSync(config) {
+  return createWebhookSync({
+    store:createEncryptedRecordStore(config,providerConnection(config),{
+      namespace:'intervals-webhook',name:'INTERVALS_WEBHOOK',fresh:freshWebhookState,timestampCas:true,
+    }),
+    refresh:()=>checkTrainingUpdates(config,{durable:true,full:true}),
+  });
+}
+const reconciliationTasks=new Map();
+function scheduleTrainingReconciliation(config) {
+  if(!config.INTERVALS_API_KEY || !config.SUPABASE_URL || !config.SUPABASE_SECRET_KEY)return;
+  const key=providerConnection(config);
+  if(reconciliationTasks.has(key))return;
+  const task=Promise.resolve().then(()=>webhookSync(config).drain())
+    .catch(()=>updateLogs('Background Intervals.icu reconciliation will retry on the next app check.'))
+    .finally(()=>reconciliationTasks.delete(key));
+  reconciliationTasks.set(key,task);
+  waitUntil(task);
+}
+function intervalsOAuth(config,req) {
+  const origin=intervalsOrigin(process.env,req);
+  return createIntervalsOAuth({config,origin,
+    store:createEncryptedRecordStore(config,`${origin}:${providerConnection(config)}:${config.INTERVALS_CLIENT_ID || ''}`,{
+      namespace:'intervals-oauth',name:'INTERVALS_OAUTH',fresh:freshIntervalsOAuth,timestampCas:true,
+    }),
+    athlete:()=>createIntervalsClient(config)('/athlete/0'),
+  });
+}
 const warmedActivities=new Map();
 async function warmRecentActivities(config, context) {
   const archive=createCompletedWorkoutStore(config,createContextStore(config));
@@ -359,8 +438,9 @@ export async function persistTrainingContext(config, context, {archiveActivities
       error:null,
       updated_at:new Date().toISOString(),
     }]);
-    await saveFastView(config,store,context);
   }
+  // Retry prepared-view persistence even if the provider snapshot already saved.
+  await saveFastView(config,store,context);
   // Retention maintenance is throttled; unchanged checks should not issue writes.
   if (contextChanged && Date.now()-lastTrainingPruneAt>86400000) {
     lastTrainingPruneAt=Date.now();await store.prune();
@@ -631,7 +711,7 @@ function readBody(req) {
       try {
         resolve(JSON.parse(Buffer.concat(chunks, size).toString('utf8') || '{}'));
       } catch (error) {
-        reject(error);
+        reject(Object.assign(new Error('Invalid JSON request'), { statusCode: 400 }));
       }
     });
   });
@@ -772,7 +852,35 @@ export async function handleRequest(req, res) {
     req.url = resolveApiRoute(req.url || '/');
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     const pathname = requestUrl.pathname;
+    if(pathname==='/api/intervals/webhook') {
+      await handleIntervalsWebhook(req,res);
+      return;
+    }
+    // OAuth returns cross-site, where the app's Strict session cookie is absent.
+    // The one-use state plus its separate Lax HttpOnly cookie bind the callback
+    // to a flow initiated by an authenticated POST below.
+    if(pathname==='/api/intervals/oauth/callback' && req.method==='GET') {
+      try {
+        const config=await readConfig();
+        const result=await intervalsOAuth(config,req).callback(requestUrl.searchParams,req.headers.cookie);
+        scheduleTrainingReconciliation(config);
+        res.writeHead(303,{Location:`/settings?intervals=${result.scopesComplete?'connected':'permissions'}`,'Set-Cookie':result.cookie,'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});res.end();
+      } catch(error) {
+        sendWebhookJson(res,400,{error:error.message});
+      }
+      return;
+    }
     if (await handleAuth(req, res, pathname)) return;
+    if(pathname==='/api/intervals/oauth/start' && req.method==='POST') {
+      const result=await intervalsOAuth(await readConfig(),req).start();
+      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store','Set-Cookie':result.cookie});
+      res.end(JSON.stringify({url:result.url}));return;
+    }
+    if(pathname==='/api/intervals/status' && req.method==='GET') {
+      const config=await readConfig(),oauth=intervalsOAuth(config,req);
+      const [connection,sync]=await Promise.all([oauth.status(),webhookSync(config).status()]);
+      sendJson(req,res,{...connection,...sync,apiConnected:Boolean(config.INTERVALS_API_KEY),clientId:config.INTERVALS_CLIENT_ID || '',oauthConfigured:Boolean(config.INTERVALS_CLIENT_ID && config.INTERVALS_CLIENT_SECRET),webhookConfigured:Boolean(config.INTERVALS_WEBHOOK_SECRET),webhookUrl:`${intervalsOrigin(process.env,req)}/api/intervals/webhook`});return;
+    }
     if (await handleNutrition(req, res, pathname)) return;
     if (await handleReports(req, res, pathname)) return;
     if (await handleCoach(req, res, pathname)) return;
@@ -934,7 +1042,11 @@ export async function handleRequest(req, res) {
         sendJson(req,res,{context:scopedTrainingContext(cached,'full'),sourceChanged:false});return;
       }
       const config=await readConfig();
-      sendJson(req,res,await checkTrainingUpdates(config));return;
+      sendJson(req,res,await cachedTrainingUpdates({
+        readView:()=>createContextStore(config).getSyncRecord(fastViewId(config)),
+        refresh:()=>scheduleTrainingReconciliation(config),schedule:task=>task(),
+        version:requestUrl.searchParams.get('version'),
+      }));return;
     }
     if(pathname==='/api/sync/progress' && req.method==='GET') {
       const id=requestUrl.searchParams.get('id') || '';
@@ -1050,6 +1162,7 @@ export async function handleRequest(req, res) {
       if(view && snapshotCoversRange(view,range)) {
         let projected=projectTrainingContext(view,scope==='week'?'week':'full');
         if(range)projected={...projected,display_range:range,history:projected.history.filter(w=>w.workout_date>=range.start && w.workout_date<=range.end),planned:projected.planned.filter(w=>w.workout_date>=range.start && w.workout_date<=range.end)};
+        scheduleTrainingReconciliation(config);
         sendJson(req,res,projected);return;
       }
     }

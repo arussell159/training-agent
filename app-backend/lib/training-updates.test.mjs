@@ -135,3 +135,49 @@ test("database JSON key ordering does not trigger another write or invalidate re
   assert.equal(result.sourceChanged, false);
   assert.equal(writes, 0);
 });
+
+test("webhook reconciliation refreshes the full retained window and waits for persistence", async () => {
+  const f = await fixture();
+  f.complete();
+  const gate = Promise.withResolvers();
+  let finished = false;
+  const tasks = [];
+  const check = createTrainingUpdates({
+    readSnapshot: async () => f.saved,
+    request: () => f.request,
+    persist: () => gate.promise,
+    warm: async () => {},
+    exportGithub: async () => {},
+    waitUntil: (task) => tasks.push(task),
+    now: () => clock,
+  });
+  const result = check(config, { durable: true, full: true }).then((value) => {
+    finished = true;
+    return value;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(finished, false);
+  assert.ok(
+    f.calls.some((path) => path.includes("/activities?oldest=2026-07-09")),
+    "old retained activities must be reconciled too"
+  );
+  gate.resolve();
+  assert.equal((await result).sourceChanged, true);
+  await Promise.all(tasks);
+});
+
+test("failed durable persistence rejects the webhook job instead of acknowledging success", async () => {
+  const f = await fixture();
+  const check = createTrainingUpdates({
+    readSnapshot: async () => f.saved,
+    request: () => f.request,
+    persist: async () => {
+      throw Error("save unavailable");
+    },
+    warm: async () => {},
+    exportGithub: async () => {},
+    waitUntil: () => {},
+    now: () => clock,
+  });
+  await assert.rejects(check(config, { durable: true, full: true }), /save unavailable/);
+});

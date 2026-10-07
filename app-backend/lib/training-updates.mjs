@@ -17,11 +17,12 @@ export function createTrainingUpdates({
 }) {
   const checks = new Map();
   const profiles = new Map();
-  return async (config) => {
+  return async (config, { durable = false, full = false } = {}) => {
     const key = providerConnection(config),
       time = now();
     const current = checks.get(key);
-    if (current && time.getTime() - current.at < 2000) return current.promise;
+    if (current && !durable && time.getTime() - current.at < 2000) return current.promise;
+    if (current && durable) await current.promise.catch(() => {});
     const entry = { at: time.getTime(), promise: null };
     entry.promise = (async () => {
       const saved = await readSnapshot(config);
@@ -29,10 +30,10 @@ export function createTrainingUpdates({
       const today = athleteLocalDate(time, zone);
       const shift = (n) =>
         new Date(Date.parse(`${today}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
-      const range = saved ? { start: shift(-7), end: shift(60) } : undefined;
+      const range = saved && !full ? { start: shift(-7), end: shift(60) } : undefined;
       const provider = request(config);
       let profile = profiles.get(key);
-      if (!profile || time.getTime() - profile.at >= 300_000) {
+      if (!profile || full || time.getTime() - profile.at >= 300_000) {
         profile = { at: time.getTime(), promise: provider("/athlete/0") };
         profiles.set(key, profile);
         if (profiles.size > 8) profiles.delete(profiles.keys().next().value);
@@ -55,8 +56,11 @@ export function createTrainingUpdates({
       const context = prepareFastView(config, merged);
       const previous = saved ? prepareFastView(config, saved) : null;
       const changed = !previous || previous.version !== context.version;
+      // Webhook jobs must not mark their revision complete until persistence
+      // succeeds. Optional recording preparation/GitHub export stay off that path.
+      if (durable) await persist(config, merged);
       const task = (async () => {
-        if (changed) await persist(config, merged);
+        if (!durable && changed) await persist(config, merged);
         // New/corrected recordings are prepared before they are opened.
         await Promise.all([warm(config, merged), exportGithub(config, context)]);
       })().catch((error) => log(`Background training preparation: ${error.message}`));

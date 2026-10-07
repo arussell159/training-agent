@@ -2,6 +2,10 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 
 export const STORED_SETTINGS = [
   "INTERVALS_API_KEY",
+  "INTERVALS_CLIENT_ID",
+  "INTERVALS_CLIENT_SECRET",
+  "INTERVALS_WEBHOOK_SECRET",
+  "INTERVALS_WEBHOOK_AUTHORIZATION",
   "APP_THEME",
   "METRICS_LAYOUT",
   "APP_DATA",

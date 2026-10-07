@@ -1,11 +1,9 @@
 import { PageSkeleton } from "@/components/loading-layouts"
 import { restoreReportReader } from "@/lib/report-navigation"
-import { ReportReaderPage } from "@/components/report-reader-page"
 import { BackgroundSync } from "@/components/background-sync"
 import { GithubSyncIndicator } from "@/components/github-sync-indicator"
 import { prefetchWorkoutRecording } from "@/lib/activity-analysis"
 import { prefetchNutrition } from "@/lib/nutrition"
-import { NutritionPage } from "@/components/nutrition-page"
 import { flushSync } from "react-dom"
 import { apiFetch } from "@/lib/api-client"
 import { SidebarNavigationSlim } from "@/components/application/app-navigation/sidebar-navigation/sidebar-slim"
@@ -79,7 +77,7 @@ import {
 } from "@/lib/workout-navigation"
 
 const pageImports = {
-  Nutrition: () => Promise.resolve({ NutritionPage }),
+  Nutrition: () => import("@/components/nutrition-page"),
   Settings: () => import("@/components/settings-workspace"),
   Calendar: () => import("@/components/training-calendar"),
   Coach: () => import("@/components/coach-page"),
@@ -98,6 +96,10 @@ const TermsReferenceDialog = lazy(() =>
     default: module.TermsReferenceDialog,
   }))
 )
+
+const NutritionPage = lazy(() => import("@/components/nutrition-page").then(module => ({default:module.NutritionPage})))
+
+const ReportReaderPage = lazy(() => import("@/components/report-reader-page").then(module => ({default:module.ReportReaderPage})))
 
 const SettingsWorkspace = lazy(() =>
   pageImports["Settings"]().then((module) => ({
