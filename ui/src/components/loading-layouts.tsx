@@ -1,7 +1,10 @@
 import type { ReactNode } from "react"
+import { Toolbar, ToolbarPane } from "framework7-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { appRouteItem } from "@/lib/app-route"
+import { restoreReportReader } from "@/lib/report-navigation"
 
 /** Keep placeholders in the same flow as the content they replace. */
 export function LoadingRegion({
@@ -235,8 +238,8 @@ export function NutritionDashboardSkeleton() {
 export function HomeCardsSkeleton() {
   return (
     <LoadingRegion label="Loading dashboard">
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-12">
-        <Card className="col-span-2 h-[320px] justify-between p-4 lg:col-span-6 lg:row-span-2 lg:h-full">
+      <div className="dashboard-card-grid grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-12">
+        <Card className="dashboard-session-card col-span-2 justify-between p-4 lg:col-span-6 lg:row-span-2">
           <div className="space-y-3">
             <Skeleton className="h-4 w-24" />
             <Skeleton className="h-8 w-3/4" />
@@ -248,7 +251,7 @@ export function HomeCardsSkeleton() {
             ))}
           </div>
         </Card>
-        <Card className="col-span-2 h-[135px] justify-between p-4 lg:col-span-2 lg:h-full">
+        <Card className="dashboard-events-card col-span-2 justify-between p-4 lg:col-span-2">
           <div className="flex justify-between">
             <Skeleton className="size-14" />
             <Skeleton className="h-12 w-16" />
@@ -256,7 +259,10 @@ export function HomeCardsSkeleton() {
           <Lines count={2} />
         </Card>
         {[0, 1].map((i) => (
-          <Card key={i} className="h-[195px] justify-between p-4 lg:col-span-2">
+          <Card
+            key={i}
+            className="dashboard-recovery-card justify-between p-4 lg:col-span-2"
+          >
             <Skeleton className="h-4 w-16" />
             <Skeleton className="h-8 w-20" />
             <Skeleton className="h-14 w-full" />
@@ -266,7 +272,7 @@ export function HomeCardsSkeleton() {
             </div>
           </Card>
         ))}
-        <Card className="col-span-2 h-[172.5px] justify-between p-4 lg:col-span-6 lg:col-start-7">
+        <Card className="dashboard-nutrition-card col-span-2 justify-between p-4 lg:col-span-6 lg:col-start-7">
           <Skeleton className="h-5 w-28" />
           <div className="flex justify-between">
             <Skeleton className="h-7 w-24" />
@@ -280,7 +286,13 @@ export function HomeCardsSkeleton() {
         </Card>
         <div className="col-span-2 grid grid-cols-2 gap-3 sm:gap-4 lg:col-span-6 lg:col-start-7">
           {[0, 1].map((i) => (
-            <Card key={i} className="h-[147px] justify-between p-4">
+            <Card
+              key={i}
+              className={cn(
+                i ? "dashboard-fitness-card" : "dashboard-sleep-card",
+                "justify-between p-4"
+              )}
+            >
               <Skeleton className="h-4 w-16" />
               <Skeleton className="h-8 w-20" />
               <Lines count={2} />
@@ -394,9 +406,9 @@ export function ArticleSkeleton() {
 export function PageSkeleton({ page }: { page: string }) {
   if (page === "Home")
     return (
-      <div className="mobile-dashboard w-full space-y-3 p-4 md:space-y-6 md:p-6">
+      <div className="mobile-dashboard flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:gap-4 md:gap-6 md:p-6">
         <HomeCardsSkeleton />
-        <ChartSkeleton className="training-history-card min-h-[350px] rounded-2xl border bg-card lg:min-h-[400px]" />
+        <ChartSkeleton className="dashboard-history-card training-history-card rounded-2xl border bg-card" />
       </div>
     )
   if (page === "Nutrition")
@@ -473,19 +485,11 @@ export function PageSkeleton({ page }: { page: string }) {
 
 /** No private data is rendered until authentication finishes. */
 export function AppStartupSkeleton() {
-  const page =
-    (
-      {
-        "/nutrition": "Nutrition",
-        "/calendar": "Calendar",
-        "/coach": "Coach",
-        "/atp": "Annual Plan",
-        "/annual-plan": "Annual Plan",
-        "/settings": "Settings",
-        "/library": "Library",
-        "/workout-reports": "Workout Reports",
-      } as Record<string, string>
-    )[location.pathname] || "Home"
+  const page = new URLSearchParams(location.search).get("workout")
+    ? "Workout"
+    : restoreReportReader()
+      ? "Report"
+      : appRouteItem()
   return (
     <div className="flex min-h-svh bg-background text-foreground">
       <aside
@@ -496,20 +500,29 @@ export function AppStartupSkeleton() {
           <Skeleton key={i} className="size-10 rounded-xl" />
         ))}
       </aside>
-      <main className="min-w-0 flex-1 pb-24 md:pb-0">
+      <main
+        className={cn(
+          "min-w-0 flex-1 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0",
+          (page === "Home" || page === "Nutrition") && "home-dashboard-shell"
+        )}
+      >
         <div className="hidden h-14 items-center border-b px-4 md:flex">
           <Skeleton className="h-5 w-32" />
         </div>
         {page === "Home" && <HeaderSkeleton />}
         <PageSkeleton page={page} />
       </main>
-      <div
-        className="fixed right-4 bottom-4 left-4 flex h-16 items-center justify-around rounded-full border bg-background/95 md:hidden"
-        aria-hidden="true"
-      >
-        {[0, 1, 2, 3, 4].map((i) => (
-          <Skeleton key={i} className="size-8 rounded-lg" />
-        ))}
+      <div aria-hidden="true" inert className="md:hidden">
+        <Toolbar bottom tabbar icons className="mobile-navbar">
+          <ToolbarPane>
+            {[0, 1, 2, 3, 4].map((i) => (
+              <span key={i} className="tab-link">
+                <Skeleton className="size-6 rounded-md" />
+                <Skeleton className="mt-1 h-2 w-8" />
+              </span>
+            ))}
+          </ToolbarPane>
+        </Toolbar>
       </div>
     </div>
   )

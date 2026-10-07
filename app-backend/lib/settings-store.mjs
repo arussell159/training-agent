@@ -31,13 +31,28 @@ function pickSettings(config, keys) {
 }
 
 export function publicSettings(config) {
+  let metricsLayout = null;
+  try {
+    const layout = config.METRICS_LAYOUT ? JSON.parse(config.METRICS_LAYOUT) : null;
+    if (
+      layout &&
+      Array.isArray(layout.graphs) &&
+      layout.graphs.length === 3 &&
+      layout.graphs.every((value) => typeof value === "string") &&
+      Array.isArray(layout.cards) &&
+      layout.cards.every((value) => typeof value === "string")
+    )
+      metricsLayout = layout;
+  } catch {
+    // A corrupted display preference must not prevent connecting or recovering Settings.
+  }
   return {
     intervalsConnected: Boolean(config.INTERVALS_API_KEY),
     supabaseConnected: Boolean(config.SUPABASE_URL && config.SUPABASE_SECRET_KEY),
     supabaseNeedsUrl: Boolean(config.SUPABASE_SECRET_KEY && !config.SUPABASE_URL),
     settingsStorage: "supabase",
     theme: ["light", "dark", "system"].includes(config.APP_THEME) ? config.APP_THEME : null,
-    metricsLayout: config.METRICS_LAYOUT ? JSON.parse(config.METRICS_LAYOUT) : null,
+    metricsLayout,
     calendarSummaryOpen: config.CALENDAR_SUMMARY_OPEN !== "false",
     settingsError: config.settingsError || null,
   };
@@ -132,7 +147,8 @@ export function createSupabaseSettingsStore(bootstrap, fetchImpl = fetch) {
   }
   return {
     async read(names = STORED_SETTINGS) {
-      const selected = names.filter((name) => STORED_SETTINGS.includes(name));
+      const selected = STORED_SETTINGS.filter((name) => names.includes(name));
+      if (!selected.length) return {};
       const filter =
         selected.length === STORED_SETTINGS.length ? "" : `&name=in.(${selected.join(",")})`;
       const rows = await request(
@@ -179,6 +195,7 @@ export function createSettingsService({
   const cache = new Map();
   return {
     async read(names = STORED_SETTINGS) {
+      names = STORED_SETTINGS.filter((name) => names.includes(name));
       const bootstrap = pickSettings(await readBootstrap(), [
         ...BOOTSTRAP_SETTINGS,
         ...STORED_SETTINGS,
@@ -195,13 +212,17 @@ export function createSettingsService({
         const entry = cache.get(id);
         if (entry && Date.now() - entry.savedAt < 600000)
           return { ...bootstrap, ...(await entry.promise) };
+        const next = { savedAt: Infinity, promise: null };
         const promise = createSupabaseSettingsStore(bootstrap, fetchImpl).read(names);
-        cache.set(id, { savedAt: Date.now(), promise });
+        next.promise = promise;
+        cache.set(id, next);
+        if (cache.size > 32) cache.delete(cache.keys().next().value);
         let saved;
         try {
           saved = await promise;
+          next.savedAt = Date.now();
         } catch (error) {
-          cache.delete(id);
+          if (cache.get(id) === next) cache.delete(id);
           throw error;
         }
         // Saved application settings take precedence over older environment/local application keys.
@@ -213,27 +234,37 @@ export function createSettingsService({
     },
     async save(patch) {
       cache.clear();
-      const bootstrap = pickSettings(await readBootstrap(), [
-        ...BOOTSTRAP_SETTINGS,
-        ...STORED_SETTINGS,
-      ]);
-      const target = { ...bootstrap, ...pickSettings(patch, BOOTSTRAP_SETTINGS) };
-      const bootstrapChanged = BOOTSTRAP_SETTINGS.some((name) => target[name] !== bootstrap[name]);
-      if (bootstrapChanged && hosted)
-        throw new Error(
-          "Set the Supabase URL and secret in the deployment environment. Hosted Settings cannot change their database bootstrap connection."
+      try {
+        const bootstrap = pickSettings(await readBootstrap(), [
+          ...BOOTSTRAP_SETTINGS,
+          ...STORED_SETTINGS,
+        ]);
+        const target = { ...bootstrap, ...pickSettings(patch, BOOTSTRAP_SETTINGS) };
+        const bootstrapChanged = BOOTSTRAP_SETTINGS.some(
+          (name) => target[name] !== bootstrap[name]
         );
-      const store = createSupabaseSettingsStore(target, fetchImpl);
-      // Ensure the destination table is reachable, including when only saving bootstrap fields.
-      const existing = await store.read();
-      const migrated = Object.fromEntries(
-        Object.entries(pickSettings(bootstrap, STORED_SETTINGS)).filter(([name]) => !existing[name])
-      );
-      await store.save({ ...migrated, ...patch });
-      if (bootstrapChanged || (!hosted && STORED_SETTINGS.some((name) => bootstrap[name])))
-        await writeBootstrap(pickSettings(target, BOOTSTRAP_SETTINGS));
-      cache.clear();
-      return { ...target, ...(await store.read()) };
+        if (bootstrapChanged && hosted)
+          throw new Error(
+            "Set the Supabase URL and secret in the deployment environment. Hosted Settings cannot change their database bootstrap connection."
+          );
+        const store = createSupabaseSettingsStore(target, fetchImpl);
+        // Ensure the destination table is reachable, including when only saving bootstrap fields.
+        const existing = await store.read();
+        const migrated = Object.fromEntries(
+          Object.entries(pickSettings(bootstrap, STORED_SETTINGS)).filter(
+            ([name]) => !existing[name]
+          )
+        );
+        await store.save({ ...migrated, ...patch });
+        if (bootstrapChanged || (!hosted && STORED_SETTINGS.some((name) => bootstrap[name])))
+          await writeBootstrap(pickSettings(target, BOOTSTRAP_SETTINGS));
+        cache.clear();
+        return { ...target, ...(await store.read()) };
+      } finally {
+        // A read started during even an uncertain/failed write cannot remain
+        // cached as the saved state after that write has completed.
+        cache.clear();
+      }
     },
   };
 }

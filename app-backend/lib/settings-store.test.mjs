@@ -240,6 +240,62 @@ test("a failed settings read can recover without resubmitting or changing saved 
   assert.equal(db.requests.filter((r) => r.options.method === "POST").length, 1);
 });
 
+test("invalid saved metrics preferences leave the Settings recovery form usable", () => {
+  for (const METRICS_LAYOUT of ["{broken", "null", "[]", '{"graphs":[],"cards":[]}'])
+    assert.equal(publicSettings({ ...bootstrap, METRICS_LAYOUT }).metricsLayout, null);
+  const layout = { graphs: ["hrv", "rhr", "sleep"], cards: ["weight"] };
+  assert.deepEqual(
+    publicSettings({ METRICS_LAYOUT: JSON.stringify(layout) }).metricsLayout,
+    layout
+  );
+});
+
+test("equivalent settings selections deduplicate and empty selections skip the database", async () => {
+  const db = fakeDatabase();
+  const store = createSupabaseSettingsStore(bootstrap, db.fetchImpl);
+  assert.deepEqual(await store.read([]), {});
+  assert.equal(db.requests.length, 0);
+  const service = createSettingsService({
+    readBootstrap: async () => bootstrap,
+    writeBootstrap: async () => {},
+    fetchImpl: db.fetchImpl,
+  });
+  await Promise.all([
+    service.read(["APP_THEME", "INTERVALS_API_KEY"]),
+    service.read(["INTERVALS_API_KEY", "APP_THEME", "APP_THEME"]),
+  ]);
+  assert.equal(db.requests.length, 1);
+});
+
+test("an uncertain Settings save invalidates reads made while the write was pending", async () => {
+  const db = fakeDatabase();
+  await createSupabaseSettingsStore(bootstrap, db.fetchImpl).save({ APP_THEME: "light" });
+  let entered, resume;
+  const pending = new Promise((resolve) => {
+    entered = resolve;
+  });
+  const service = createSettingsService({
+    readBootstrap: async () => bootstrap,
+    writeBootstrap: async () => {},
+    fetchImpl: async (url, options) => {
+      if (options.method !== "POST") return db.fetchImpl(url, options);
+      entered();
+      await new Promise((resolve) => {
+        resume = resolve;
+      });
+      await db.fetchImpl(url, options);
+      throw new TypeError("response lost after database save");
+    },
+  });
+  const writing = service.save({ APP_THEME: "dark" });
+  await pending;
+  assert.equal((await service.read(["APP_THEME"])).APP_THEME, "light");
+  const rejected = assert.rejects(writing, /may have reached the database/);
+  resume();
+  await rejected;
+  assert.equal((await service.read(["APP_THEME"])).APP_THEME, "dark");
+});
+
 test("config API save and reload expose only status, with no stale-cache headers or local persistence", async () => {
   const originalFetch = globalThis.fetch;
   const envNames = [

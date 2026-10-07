@@ -5,14 +5,13 @@ import { ArrowLeft, ExternalLink, RotateCw } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { apiFetch } from "@/lib/api-client"
+import { cachedActivityAnalysis, loadActivityAnalysis } from "@/lib/activity-analysis"
 import { formatPace } from "@/lib/duration"
 import { metric, type ReportWorkout } from "@/lib/workout-reports-model"
 import type { RecordedPoint } from "@/lib/segment-statistics"
 import type { WorkoutComparisonStats, WorkoutRecordedAnalysis } from "@/components/workout-analysis"
 
 const WorkoutAnalysis = lazy(() => import("@/components/workout-analysis").then((module) => ({ default: module.WorkoutAnalysis })))
-const cache = new Map<string, WorkoutRecordedAnalysis>()
 const sampleCache = new Map<string, WorkoutRecordedAnalysis>()
 const localPreview = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname)
 const number = (value: number, digits = 0) => value.toLocaleString("en-US", { maximumFractionDigits: digits })
@@ -95,24 +94,14 @@ export function WorkoutReportCompare({ workouts, onBack, onWorkoutOpen }: {
         finished()
         continue
       }
-      const key = `${id}${revision(workout)}:analysis-8`
-      const cached = cache.get(key)
+      const cached = cachedActivityAnalysis(id, revision(workout))
       if (cached) {
         setAnalyses((current) => ({ ...current, [workout.id]: cached }))
         finished()
         continue
       }
-      void apiFetch(`/api/activities/${encodeURIComponent(id)}/analysis?schema=8&v=${encodeURIComponent(revision(workout))}`, { signal: controller.signal })
-        .then(async (response) => {
-          if (!response.ok) {
-            const result = await response.json().catch(() => null) as { error?: string } | null
-            throw Error(result?.error || "The recording could not be loaded.")
-          }
-          return await response.json() as WorkoutRecordedAnalysis
-        })
+      void loadActivityAnalysis(id, revision(workout), controller.signal)
         .then((analysis) => {
-          cache.set(key, analysis)
-          if (cache.size > 24) cache.delete(cache.keys().next().value!)
           if (!controller.signal.aborted) setAnalyses((current) => ({ ...current, [workout.id]: analysis }))
         })
         .catch((reason: unknown) => {

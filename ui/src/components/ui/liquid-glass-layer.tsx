@@ -12,11 +12,15 @@ export function LiquidGlassLayer() {
     probe.style.backdropFilter = "url(#liquid-glass-test)"
     if (!probe.style.backdropFilter.includes("url(")) return
     // The SVG map follows the control's actual size, including the wide tab bar.
+    let previousSize = ""
     const update = () => {
       const { width: rawWidth, height: rawHeight } = element.getBoundingClientRect()
       const width = Math.round(rawWidth)
       const height = Math.round(rawHeight)
       if (!width || !height) return
+      const size = `${width}:${height}`
+      if (size === previousSize) return
+      previousSize = size
       const radius = Math.min(width, height) / 2
       const displacement = getDisplacementFilter({
         width,
@@ -29,6 +33,7 @@ export function LiquidGlassLayer() {
       element.style.backdropFilter = `url('${displacement}') blur(1px) brightness(1.15) saturate(1.2)`
     }
     update()
+    if (typeof ResizeObserver === "undefined") return
     const observer = new ResizeObserver(update)
     observer.observe(element)
     return () => observer.disconnect()

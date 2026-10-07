@@ -26,7 +26,10 @@ type AuthContextValue = {
   session: AppSession
   refresh: () => Promise<void>
   logout: () => Promise<void>
-  update: (value: AppSession) => void
+  runAccountAction: (
+    action: () => Promise<unknown>,
+    password?: string
+  ) => Promise<void>
 }
 const AuthContext = createContext<AuthContextValue | null>(null)
 const inputClass =
@@ -56,45 +59,70 @@ export function AppAuth({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const revision = useRef(0)
-  const update = useCallback((value: AppSession) => {
+  const mounted = useRef(true)
+  const sessionRef = useRef<AppSession | null>(null)
+  const operationBusy = useRef(false)
+  const logoutPending = useRef<Promise<void> | null>(null)
+  const update = useCallback((value: AppSession, newSession = false) => {
     revision.current++
-    setApiAuthenticated(value.authenticated)
+    sessionRef.current = value
+    setApiAuthenticated(value.authenticated, newSession)
     setSession(value)
   }, [])
   const refresh = useCallback(async () => {
     const current = revision.current
-    const next = await authRequest("session")
-    if (current !== revision.current) return
-    update(next)
-    if (!next.authenticated) {
-      setOfferPasskey(false)
-      await clearPrivateCache()
+    try {
+      const next = await authRequest("session")
+      if (!mounted.current || current !== revision.current) return
+      update(next)
+      if (!next.authenticated) {
+        setOfferPasskey(false)
+        await clearPrivateCache()
+      }
+      if (mounted.current && sessionRef.current === next) setError("")
+    } catch (problem) {
+      if (
+        mounted.current &&
+        current === revision.current &&
+        !sessionRef.current?.authenticated
+      )
+        setError(authError(problem))
+      throw problem
     }
-    setError("")
   }, [update])
   useEffect(() => {
-    let active = true
+    mounted.current = true
     let checking = false
     let lastCheckedAt = 0
     const check = () => {
-      if (document.visibilityState !== "hidden" && !checking && Date.now() - lastCheckedAt >= 15 * 60_000) {
+      if (
+        document.visibilityState !== "hidden" &&
+        !checking &&
+        !operationBusy.current &&
+        Date.now() - lastCheckedAt >= 15 * 60_000
+      ) {
         checking = true
         lastCheckedAt = Date.now()
-        void refresh().catch((problem) => {
-          if (active) {
-            setApiAuthenticated(false)
-            setSession(null)
-            setError(authError(problem))
-          }
-        }).finally(() => { checking = false })
+        void refresh()
+          .catch(() => {})
+          .finally(() => {
+            checking = false
+          })
       }
     }
     const expired = () => {
       revision.current++
       setApiAuthenticated(false)
-      setSession((current) =>
-        current ? { ...current, authenticated: false } : null
-      )
+      const anonymous = sessionRef.current
+        ? { ...sessionRef.current, authenticated: false }
+        : {
+            configured: true,
+            authenticated: false,
+            hasPasskey: false,
+            passkeysSupported: false,
+          }
+      sessionRef.current = anonymous
+      setSession(anonymous)
       setOfferPasskey(false)
       void clearPrivateCache()
     }
@@ -110,7 +138,10 @@ export function AppAuth({ children }: { children: ReactNode }) {
     window.addEventListener("keydown", check)
     document.addEventListener("visibilitychange", check)
     return () => {
-      active = false
+      mounted.current = false
+      // This is a generation counter; cleanup deliberately invalidates the latest request.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      revision.current++
       window.removeEventListener("app-auth-required", expired)
       window.removeEventListener("focus", check)
       window.removeEventListener("pageshow", check)
@@ -120,56 +151,124 @@ export function AppAuth({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", check)
     }
   }, [refresh])
-  async function logout() {
-    await authRequest("logout", {})
-    update({ ...session!, authenticated: false })
-    setOfferPasskey(false)
-    try {
-      localStorage.setItem("training-app-signed-out", String(Date.now()))
-    } catch {
-      /* Other tabs also check their server session. */
+  function logout(): Promise<void> {
+    if (logoutPending.current) return logoutPending.current
+    const current = ++revision.current
+    operationBusy.current = true
+    setApiAuthenticated(false)
+    const pending = (async () => {
+      try {
+        await authRequest("logout", {})
+      } catch (problem) {
+        if (current === revision.current)
+          setApiAuthenticated(Boolean(sessionRef.current?.authenticated))
+        throw problem
+      }
+      if (mounted.current && current === revision.current) {
+        update({ ...sessionRef.current!, authenticated: false })
+        setOfferPasskey(false)
+      }
+      try {
+        localStorage.setItem("training-app-signed-out", String(Date.now()))
+      } catch {
+        /* Other tabs also check their server session. */
+      }
+      await clearPrivateCache()
+    })()
+    logoutPending.current = pending
+    void pending
+      .finally(() => {
+        if (logoutPending.current === pending) logoutPending.current = null
+        operationBusy.current = false
+      })
+      .catch(() => {})
+    return pending
+  }
+  async function runAccountAction(
+    action: () => Promise<unknown>,
+    password?: string
+  ) {
+    if (operationBusy.current)
+      throw Error("An account action is already in progress.")
+    operationBusy.current = true
+    let current = ++revision.current
+    const assertCurrent = () => {
+      if (!mounted.current || current !== revision.current)
+        throw new DOMException(
+          "Your session changed during this action.",
+          "AbortError"
+        )
     }
-    await clearPrivateCache()
+    try {
+      if (password !== undefined) {
+        const next = await authRequest("password", {
+          password,
+          remember: sessionRef.current?.remember,
+        })
+        assertCurrent()
+        update(next, true)
+        current = revision.current
+      }
+      assertCurrent()
+      await action()
+      assertCurrent()
+      await refresh()
+    } finally {
+      operationBusy.current = false
+    }
   }
   async function passwordLogin(event: FormEvent) {
     event.preventDefault()
-    if (busy) return
+    if (operationBusy.current) return
+    operationBusy.current = true
     setBusy(true)
     setError("")
     revision.current++
+    const current = revision.current
     try {
       const next = await authRequest("password", { password, remember })
+      if (!mounted.current || current !== revision.current) return
       setPassword("")
-      update(next)
+      update(next, true)
       setOfferPasskey(
         !next.hasPasskey && next.passkeysSupported && supportsPasskeys()
       )
       setPasswordMode(false)
     } catch (problem) {
-      setError(authError(problem))
+      if (mounted.current && current === revision.current)
+        setError(authError(problem))
     } finally {
-      setBusy(false)
+      operationBusy.current = false
+      if (mounted.current) setBusy(false)
     }
   }
   async function passkeyAction(register: boolean) {
+    if (operationBusy.current) return
+    operationBusy.current = true
     setBusy(true)
     setError("")
     revision.current++
+    const current = revision.current
     try {
       const next = register
         ? await addPasskey()
         : await signInWithPasskey(remember)
-      update(next)
+      if (!mounted.current || current !== revision.current) return
+      update(next, !register)
       setOfferPasskey(false)
     } catch (problem) {
-      setError(authError(problem))
+      if (mounted.current && current === revision.current)
+        setError(authError(problem))
     } finally {
-      setBusy(false)
+      operationBusy.current = false
+      if (mounted.current) setBusy(false)
     }
   }
   if (session?.authenticated && !offerPasskey)
     return (
-      <AuthContext.Provider value={{ session, refresh, logout, update }}>
+      <AuthContext.Provider
+        value={{ session, refresh, logout, runAccountAction }}
+      >
         {children}
       </AuthContext.Provider>
     )
@@ -338,10 +437,11 @@ export function AppAuth({ children }: { children: ReactNode }) {
 }
 
 export function AccountSecurity() {
-  const { session, refresh, logout, update } = useAppAuth()
+  const { session, logout, runAccountAction } = useAppAuth()
   const [password, setPassword] = useState("")
   const [name, setName] = useState("")
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   const [feedback, setFeedback] = useState("")
   const [checkedAt, setCheckedAt] = useState(Date.now)
   useEffect(() => {
@@ -352,30 +452,26 @@ export function AccountSecurity() {
     return () => window.clearTimeout(timeout)
   }, [session.verifiedAt])
   const needsPassword =
-    !session.recentlyVerified ||
-    checkedAt - (session.verifiedAt || 0) >= 600000
+    !session.recentlyVerified || checkedAt - (session.verifiedAt || 0) >= 600000
   async function act(
     action: () => Promise<unknown>,
     message: string,
     verify = true
   ) {
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true)
     setFeedback("")
     try {
-      if (verify && needsPassword) {
-        const next = await authRequest("password", {
-          password,
-          remember: session.remember,
-        })
-        update(next)
+      if (verify) {
+        await runAccountAction(action, needsPassword ? password : undefined)
         setPassword("")
-      }
-      await action()
-      if (verify) await refresh()
+      } else await action()
       setFeedback(message)
     } catch (problem) {
       setFeedback(authError(problem))
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }

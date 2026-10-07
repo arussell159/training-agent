@@ -1,76 +1,222 @@
-const DB_NAME = 'training-agent-device-v1'
+const DB_NAME = "training-agent-device-v1"
+const CACHE_TIMEOUT = 1000
+let lastStartup: string | null | undefined
+let lastScope = "initial"
 export function deviceCacheScope() {
-  try {return JSON.parse(localStorage.getItem('training-agent-startup-v2') || 'null')?.cache_scope || 'initial'}catch{return 'initial'}
+  try {
+    const startup = localStorage.getItem("training-agent-startup-v2")
+    if (startup !== lastStartup) {
+      lastStartup = startup
+      const scope = JSON.parse(startup || "null")?.cache_scope
+      lastScope = typeof scope === "string" && scope ? scope : "initial"
+    }
+    return lastScope
+  } catch {
+    lastStartup = undefined
+    return "initial"
+  }
 }
+
 let database: Promise<IDBDatabase | null> | undefined
-function openDatabase() {
-  if (!database) database = new Promise(resolve => {
-    if (typeof indexedDB === 'undefined') return resolve(null)
+let retryAt = 0
+let generation = 0
+function openDatabase(): Promise<IDBDatabase | null> {
+  if (database) return database
+  if (Date.now() < retryAt) return Promise.resolve(null)
+  const attempt = new Promise<IDBDatabase | null>((resolve) => {
+    if (typeof indexedDB === "undefined") return resolve(null)
     let finished = false
-    const timer = setTimeout(() => { finished = true; resolve(null) }, 1000)
-    const request = indexedDB.open(DB_NAME, 1)
-    request.onupgradeneeded = () => request.result.createObjectStore('records')
-    request.onsuccess = () => { clearTimeout(timer); if(finished)request.result.close();else {finished=true;resolve(request.result)} }
-    request.onerror = request.onblocked = () => { clearTimeout(timer);finished=true;resolve(null) }
+    const finish = (db: IDBDatabase | null) => {
+      if (finished) {
+        db?.close()
+        return
+      }
+      finished = true
+      clearTimeout(timer)
+      resolve(db)
+    }
+    const timer = setTimeout(() => finish(null), CACHE_TIMEOUT)
+    try {
+      const request = indexedDB.open(DB_NAME, 1)
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("records"))
+          request.result.createObjectStore("records")
+      }
+      request.onsuccess = () => {
+        const db = request.result
+        db.onversionchange = () => {
+          db.close()
+          if (database === attempt) database = undefined
+        }
+        finish(db)
+      }
+      request.onerror = request.onblocked = () => finish(null)
+    } catch {
+      finish(null)
+    }
   })
-  return database
+  database = attempt
+  void attempt.then((db) => {
+    if (!db && database === attempt) {
+      database = undefined
+      // Retry transient/private-mode failures without reopening on every read.
+      retryAt = Date.now() + 30_000
+    }
+  })
+  return attempt
 }
-export async function readDeviceCache<T>(key: string, maxAgeMs = Infinity): Promise<T | null> {
+
+export async function readDeviceCache<T>(
+  key: string,
+  maxAgeMs = Infinity
+): Promise<T | null> {
+  const version = generation
   try {
     const db = await openDatabase()
-    if (!db) return null
-    return await new Promise(resolve => {
-      const timer = setTimeout(() => resolve(null), 1000)
-      const request = db.transaction('records').objectStore('records').get(key)
-      request.onsuccess = () => {
+    if (!db || version !== generation) return null
+    return await new Promise<T | null>((resolve) => {
+      let finished = false
+      const finish = (value: T | null) => {
+        if (finished) return
+        finished = true
         clearTimeout(timer)
-        if(request.result && Date.now()-request.result.savedAt>=maxAgeMs){db.transaction('records','readwrite').objectStore('records').delete(key);resolve(null)}
-        else resolve(request.result?.value ?? null)
+        resolve(version === generation ? value : null)
       }
-      request.onerror = () => { clearTimeout(timer);resolve(null) }
+      const timer = setTimeout(() => finish(null), CACHE_TIMEOUT)
+      try {
+        const transaction = db.transaction("records")
+        const request = transaction.objectStore("records").get(key)
+        request.onsuccess = () => {
+          if (finished) return
+          if (version !== generation) {
+            finish(null)
+            return
+          }
+          const row = request.result
+          const age = Date.now() - row?.savedAt
+          if (
+            !row ||
+            !Number.isFinite(row.savedAt) ||
+            age < -60_000 ||
+            age >= maxAgeMs
+          ) {
+            finish(null)
+            if (row)
+              try {
+                db.transaction("records", "readwrite")
+                  .objectStore("records")
+                  .delete(key)
+              } catch {
+                /* Expiry cleanup is optional. */
+              }
+          } else finish(row.value ?? null)
+        }
+        request.onerror = transaction.onabort = () => finish(null)
+      } catch {
+        finish(null)
+      }
     })
-  } catch { return null }
+  } catch {
+    return null
+  }
 }
+
+async function writeTransaction(
+  db: IDBDatabase,
+  action: (store: IDBObjectStore) => void
+) {
+  await new Promise<void>((resolve) => {
+    const finish = () => {
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(finish, CACHE_TIMEOUT)
+    try {
+      const transaction = db.transaction("records", "readwrite")
+      transaction.oncomplete =
+        transaction.onerror =
+        transaction.onabort =
+          finish
+      action(transaction.objectStore("records"))
+    } catch {
+      finish()
+    }
+  })
+}
+
 export async function writeDeviceCache(key: string, value: unknown) {
+  const version = generation
+  try {
+    const db = await openDatabase()
+    if (!db || version !== generation) return
+    await writeTransaction(db, (store) => {
+      store.put({ value, savedAt: Date.now() }, key)
+      // Bound chart snapshots without expiring the useful startup history.
+      const kind = key.startsWith("activity:")
+        ? "activity:"
+        : key.startsWith("nutrition:")
+          ? "nutrition:"
+          : null
+      if (!kind) return
+      const request = store.openCursor()
+      const charts: { key: IDBValidKey; savedAt: number }[] = []
+      request.onsuccess = () => {
+        const cursor = request.result
+        if (cursor) {
+          if (String(cursor.key).startsWith(kind)) {
+            const savedAt = cursor.value?.savedAt
+            if (
+              !Number.isFinite(savedAt) ||
+              (kind === "nutrition:" && Date.now() - savedAt >= 15 * 60_000)
+            )
+              cursor.delete()
+            else charts.push({ key: cursor.key, savedAt })
+          }
+          cursor.continue()
+        } else {
+          charts
+            .sort((a, b) => b.savedAt - a.savedAt)
+            .slice(kind === "activity:" ? 40 : 14)
+            .forEach((row) => store.delete(row.key))
+        }
+      }
+    })
+  } catch {
+    /* Device cache failure never blocks the app or a durable save. */
+  }
+}
+
+export async function clearDeviceCache() {
+  generation++
+  if (typeof window !== "undefined")
+    window.dispatchEvent(new Event("device-cache-cleared"))
+  try {
+    const db = await openDatabase()
+    if (db)
+      await writeTransaction(db, (store) => {
+        store.clear()
+      })
+  } catch {
+    /* Best effort. */
+  }
+}
+
+export async function deleteDeviceCachePrefix(prefix: string) {
+  generation++
   try {
     const db = await openDatabase()
     if (!db) return
-    await new Promise<void>(resolve => {
-      const transaction = db.transaction('records', 'readwrite')
-      const store = transaction.objectStore('records')
-      store.put({value, savedAt: Date.now()}, key)
-      // Bound cached chart views without expiring the useful startup snapshot.
-      if (key.startsWith('activity:') || key.startsWith('nutrition:')) {
-        const request = store.openCursor()
-        const charts: {key: IDBValidKey; savedAt: number}[] = []
-        request.onsuccess = () => {
-          const cursor = request.result
-          if (cursor) {
-            const sameKind=String(cursor.key).startsWith(key.startsWith('activity:')?'activity:':'nutrition:')
-            if(sameKind){
-              if(key.startsWith('nutrition:') && Date.now()-cursor.value.savedAt>=15*60_000)cursor.delete()
-              else charts.push({key:cursor.key,savedAt:cursor.value.savedAt})
-            }
-            cursor.continue()
-          }
-          else charts.sort((a,b)=>b.savedAt-a.savedAt).slice(key.startsWith('activity:')?40:14).forEach(row=>store.delete(row.key))
+    await writeTransaction(db, (store) => {
+      const request = store.openCursor()
+      request.onsuccess = () => {
+        const cursor = request.result
+        if (cursor) {
+          if (String(cursor.key).startsWith(prefix)) cursor.delete()
+          cursor.continue()
         }
       }
-      transaction.oncomplete = () => resolve()
-      transaction.onerror = () => resolve()
-      transaction.onabort = () => resolve()
     })
-  } catch { /* Device cache failure must never block the app or a durable save. */ }
-}
-export async function clearDeviceCache() {
-  window.dispatchEvent(new Event('device-cache-cleared'))
-  try { const db=await openDatabase(); if(db)db.transaction('records','readwrite').objectStore('records').clear() } catch { /* Best effort. */ }
-}
-export async function deleteDeviceCachePrefix(prefix:string) {
-  try {
-    const db=await openDatabase();if(!db)return
-    const store=db.transaction('records','readwrite').objectStore('records')
-    const request=store.openCursor()
-    request.onsuccess=()=>{const cursor=request.result;if(cursor){if(String(cursor.key).startsWith(prefix))cursor.delete();cursor.continue()}}
-  }catch{/* Cache invalidation is best effort. */}
+  } catch {
+    /* Cache invalidation is best effort. */
+  }
 }

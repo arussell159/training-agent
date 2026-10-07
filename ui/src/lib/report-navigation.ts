@@ -5,7 +5,9 @@ export function restoreReportReader(): ReportTarget | null {
     const value = JSON.parse(
       new URLSearchParams(window.location.search).get("report") || "null"
     )
-    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value.startDate)) return null
+    if (!value || typeof value.startDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.startDate)) return null
+    const timestamp = Date.parse(`${value.startDate}T12:00:00Z`)
+    if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== value.startDate) return null
     if (value.kind === "weekly")
       return { kind: "weekly", startDate: value.startDate }
     if (value.kind === "block" && typeof value.planId === "string")

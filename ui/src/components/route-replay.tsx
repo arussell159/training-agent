@@ -9,6 +9,9 @@ import {
   prepareReplayRoute,
   replayFrame,
   replayTourSeconds,
+  REPLAY_SPEED_OPTIONS,
+  replayDurationLabel,
+  advanceReplayProgress,
   type ReplayPoint,
 } from "@/lib/route-replay"
 import type { PlannedWorkout } from "@/lib/training-context"
@@ -49,7 +52,15 @@ export function RouteReplay({
   const [playing, setPlaying] = useState(
     () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches
   )
-  const [speed, setSpeed] = useState(1)
+  const [speed, setSpeed] = useState(() => {
+    try {
+      const saved = Number(sessionStorage.getItem("route-replay-speed-v1"))
+      if (REPLAY_SPEED_OPTIONS.some((value) => value === saved)) return saved
+    } catch {
+      /* Replay controls remain available when storage is blocked. */
+    }
+    return 1
+  })
   const [threeD, setThreeD] = useState(
     () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches
   )
@@ -58,10 +69,10 @@ export function RouteReplay({
   const [introComplete, setIntroComplete] = useState(false)
   const [horizonHeight, setHorizonHeight] = useState(0)
   const [mapError, setMapError] = useState(false)
-  const [buffering, setBuffering] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const [controlsVisible, setControlsVisible] = useState(true)
   const [interacting, setInteracting] = useState(false)
+  const [controlFocused, setControlFocused] = useState(false)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (!id) {
@@ -95,48 +106,49 @@ export function RouteReplay({
   }, [recorded, points, timed])
   const frame = replayFrame(route, progress)
   const tourSeconds = replayTourSeconds(route)
-  const ready =
-    mapReady && introComplete && !mapError && !loading && route.duration > 0
+  const usableRoute = route.points.length > 1 && route.duration > 0
+  const ready = mapReady && introComplete && !mapError && usableRoute
+  const missingRoute = !loading && !usableRoute
   const clearHideTimer = () => {
     if (hideTimer.current !== null) clearTimeout(hideTimer.current)
   }
   const revealControls = () => {
     setControlsVisible(true)
     clearHideTimer()
-    if (ready && playing && !interacting) {
+    if (ready && playing && !interacting && !controlFocused) {
       hideTimer.current = setTimeout(() => setControlsVisible(false), 1000)
     }
   }
   useEffect(() => {
     setControlsVisible(true)
-    if (ready && playing && !interacting) {
+    if (ready && playing && !interacting && !controlFocused) {
       hideTimer.current = setTimeout(() => setControlsVisible(false), 1000)
     }
     return () => {
       if (hideTimer.current !== null) clearTimeout(hideTimer.current)
     }
-  }, [ready, playing, interacting])
+  }, [ready, playing, interacting, controlFocused])
   // Base duration scales with the recording and route length, including geometry-only routes.
   useEffect(() => {
-    if (!playing || !ready || buffering) return
+    if (!playing || !ready) return
     let request = 0,
       previous: number | null = null,
       lastPaint = 0
     const tick = (now: number) => {
       if (previous === null) previous = now
       if (now - lastPaint >= 32) {
-        const delta = Math.min(100, now - previous)
+        const delta = Math.max(0, now - previous)
         previous = now
         lastPaint = now
         setProgress((value) =>
-          Math.min(1, value + (delta * speed) / (tourSeconds * 1000))
+          advanceReplayProgress(value, delta, tourSeconds, speed)
         )
       }
       request = requestAnimationFrame(tick)
     }
     request = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(request)
-  }, [playing, ready, speed, tourSeconds, buffering])
+  }, [playing, ready, speed, tourSeconds])
   useEffect(() => {
     if (progress >= 1) setPlaying(false)
   }, [progress])
@@ -169,7 +181,27 @@ export function RouteReplay({
       }}
       onPointerUp={() => setInteracting(false)}
       onPointerCancel={() => setInteracting(false)}
-      onFocusCapture={revealControls}
+      onFocusCapture={(event) => {
+        revealControls()
+        setControlFocused(
+          event.target instanceof Element &&
+            Boolean(
+              event.target.closest(
+                '[data-testid="replay-playback-controls"], [data-testid="replay-top-controls"]'
+              )
+            )
+        )
+      }}
+      onBlurCapture={(event) => {
+        setControlFocused(
+          event.relatedTarget instanceof Element &&
+            Boolean(
+              event.relatedTarget.closest(
+                '[data-testid="replay-playback-controls"], [data-testid="replay-top-controls"]'
+              )
+            )
+        )
+      }}
       onKeyDownCapture={revealControls}
     >
       {
@@ -185,7 +217,6 @@ export function RouteReplay({
           onIntroComplete={setIntroComplete}
           onHorizonChange={setHorizonHeight}
           onError={setMapError}
-          onBuffering={setBuffering}
         />
       }
       <div
@@ -199,14 +230,6 @@ export function RouteReplay({
             "linear-gradient(180deg, rgba(13,23,42,.88) 0%, rgba(22,36,62,.80) 48%, rgba(40,59,86,.66) 72%, rgba(40,59,86,.20) 90%, transparent 100%)",
         }}
       />
-      {buffering && !mapError && (
-        <div
-          role="status"
-          className="pointer-events-none absolute bottom-36 left-1/2 z-20 -translate-x-1/2 rounded-full bg-white/90 px-3 py-1 text-xs text-slate-700"
-        >
-          Loading map imagery…
-        </div>
-      )}
       <div
         data-testid="replay-metrics"
         className="pointer-events-none absolute inset-x-0 top-0 z-10 px-5 pt-[max(6rem,calc(env(safe-area-inset-top)+5rem))] pb-12 text-center text-white"
@@ -288,13 +311,15 @@ export function RouteReplay({
           </button>
         </div>
       </div>
-      {(loading || !mapReady || mapError) && (
+      {((loading && !usableRoute) || !mapReady || mapError || missingRoute) && (
         <div className="absolute inset-0 z-10 flex items-center justify-center px-6">
           <div
             role="status"
             className="max-w-sm rounded-2xl bg-white/95 p-5 text-center text-sm text-slate-900 shadow-lg backdrop-blur-md"
           >
-            {mapError ? (
+            {missingRoute ? (
+              "This recording has no timed GPS route to replay."
+            ) : mapError ? (
               <>
                 <p>The satellite map couldn’t load.</p>
                 <button
@@ -303,6 +328,7 @@ export function RouteReplay({
                   onClick={() => {
                     setMapError(false)
                     setMapReady(false)
+                    setIntroComplete(false)
                     setPlaying(false)
                     setAttempt((value) => value + 1)
                   }}
@@ -310,7 +336,7 @@ export function RouteReplay({
                   Retry map
                 </button>
               </>
-            ) : loading ? (
+            ) : loading && !usableRoute ? (
               "Loading activity data…"
             ) : (
               "Loading satellite map…"
@@ -332,7 +358,7 @@ export function RouteReplay({
             <span>
               {progress >= 1
                 ? "Replay complete"
-                : `${Math.round(progress * 100)}%`}
+                : `${Math.round(progress * 100)}% · ${replayDurationLabel(tourSeconds * (1 - progress), speed)} left`}
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -378,20 +404,30 @@ export function RouteReplay({
               }}
               className="h-11 min-w-0 flex-1 cursor-pointer accent-orange-500"
             />
-            <button
-              type="button"
-              aria-label={`Playback speed ${speed} times`}
-              title={`1× tour takes about ${Math.ceil(tourSeconds / 60)} minutes`}
-              className={`${buttonClass} text-sm font-semibold tabular-nums`}
-              onClick={() =>
-                setSpeed((value) => {
-                  const speeds = [0.5, 1, 2, 5, 10]
-                  return speeds[(speeds.indexOf(value) + 1) % speeds.length]
-                })
-              }
+            <select
+              aria-label="Replay speed"
+              title={`Full replay: ${replayDurationLabel(tourSeconds, speed)} at ${speed}×`}
+              value={speed}
+              style={{ colorScheme: "light" }}
+              className="h-11 w-16 shrink-0 cursor-pointer rounded-full bg-transparent px-1 text-center text-sm font-semibold text-slate-900 tabular-nums hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500"
+              onChange={(event) => {
+                const next = Number(event.target.value)
+                if (!REPLAY_SPEED_OPTIONS.some((value) => value === next))
+                  return
+                setSpeed(next)
+                try {
+                  sessionStorage.setItem("route-replay-speed-v1", String(next))
+                } catch {
+                  /* Optional preference. */
+                }
+              }}
             >
-              {speed}×
-            </button>
+              {REPLAY_SPEED_OPTIONS.map((value) => (
+                <option key={value} value={value}>
+                  {value}×
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </div>

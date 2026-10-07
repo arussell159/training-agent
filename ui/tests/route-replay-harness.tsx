@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import Framework7 from "framework7/lite"
 import Picker from "framework7/components/picker"
 import Sheet from "framework7/components/sheet"
@@ -16,6 +16,13 @@ import App from "../src/App"
 import { AppToastProvider } from "../src/components/ui/toast"
 import { TooltipProvider } from "../src/components/ui/tooltip"
 import { ThemeProvider } from "../src/components/theme-provider"
+import { RouteReplay } from "../src/components/route-replay"
+import { RouteReplayButton } from "../src/components/route-replay-button"
+import {
+  Dialog as ReplayDialog,
+  DialogContent,
+  DialogTitle,
+} from "../src/components/ui/dialog"
 import { setApiAuthenticated } from "../src/lib/api-client"
 import {
   rememberTrainingContext,
@@ -44,9 +51,11 @@ Framework7.use([
   Range,
   Sortable,
 ])
-const fallback = new URLSearchParams(location.search).has("fallback")
-const longRide = new URLSearchParams(location.search).has("long")
-const slow = new URLSearchParams(location.search).has("slow")
+const flags = new URLSearchParams(location.search)
+const fallback = flags.has("fallback")
+const longRide = flags.has("long")
+const slow = flags.has("slow")
+const direct = flags.has("direct")
 const today = new Date().toLocaleDateString("en-CA")
 const summary = {
   duration_seconds: 2880,
@@ -78,20 +87,20 @@ const workout: PlannedWorkout = {
 }
 if (longRide) {
   Object.assign(summary, {
-    duration_seconds: 14400,
-    elapsed_time_seconds: 14400,
-    distance_meters: 160000,
-    average_speed: 160000 / 14400,
+    duration_seconds: 21600,
+    elapsed_time_seconds: 21600,
+    distance_meters: 200000,
+    average_speed: 200000 / 21600,
   })
   Object.assign(workout, {
     title: "Long ride performance test",
     sport: "Ride",
-    duration: "4h",
-    actualDurationMinutes: 240,
-    activity_revision: "long-v1",
+    duration: "6h",
+    actualDurationMinutes: 360,
+    activity_revision: "long-v2",
   })
 }
-const count = longRide ? 14401 : 481
+const count = flags.has("huge") ? 86401 : longRide ? 21601 : 481
 const points = Array.from({ length: count }, (_, i) => {
   const t = i / (count - 1),
     out = t < 0.5 ? t * 2 : 2 - t * 2
@@ -108,15 +117,16 @@ const points = Array.from({ length: count }, (_, i) => {
     power: null,
   }
 })
+const replayPoints = flags.has("empty") ? [] : points
 const originalFetch = window.fetch.bind(window)
 const laps = Array.from({ length: 5 }, (_, i) => ({
   id: String(i + 1),
   label: `Lap ${i + 1}`,
   kind: "lap",
-  start: i * 576,
-  end: (i + 1) * 576,
-  distance: 1632,
-  speed: 8160 / 2880,
+  start: (i * summary.duration_seconds) / 5,
+  end: ((i + 1) * summary.duration_seconds) / 5,
+  distance: summary.distance_meters / 5,
+  speed: summary.average_speed,
   heartRate: 146,
   power: null,
 }))
@@ -131,11 +141,25 @@ const context = {
   cache_scope: "replay-preview",
   context_scope: "full" as const,
 }
+const fixture = {
+  points: count,
+  duration: summary.duration_seconds,
+  distance: summary.distance_meters,
+  calls: [] as string[],
+  mountedAt: 0,
+}
+Object.assign(window, { __replayFixture: fixture })
 window.fetch = async (input, init) => {
-  const url = new URL(String(input), location.href)
+  const url = new URL(
+    input instanceof Request ? input.url : String(input),
+    location.href
+  )
+  if (url.origin !== location.origin)
+    throw new Error("Off-origin requests are blocked in the replay fixture")
   if (!url.pathname.startsWith("/api/")) return originalFetch(input, init)
   const route =
     url.searchParams.get("__api_route") || url.pathname.replace(/^\/api\//, "")
+  fixture.calls.push(route)
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), {
       status,
@@ -169,13 +193,21 @@ window.fetch = async (input, init) => {
     return json({ points: points.map((p) => [p.latitude, p.longitude]) })
   if (route.includes("/analysis")) {
     if (slow) await new Promise((resolve) => setTimeout(resolve, 6000))
+    const linked = route.includes("replay-linked")
     return fallback
       ? json({ error: "No recording" }, 404)
       : json({
-          points,
-          laps,
-          intervals: laps,
-          duration: summary.duration_seconds,
+          points: linked
+            ? points.map((point) => ({
+                ...point,
+                latitude: point.latitude + 0.03,
+                time: point.time / 2,
+                distance: point.distance / 2,
+              }))
+            : points,
+          laps: linked ? [] : laps,
+          intervals: linked ? [] : laps,
+          duration: summary.duration_seconds / (linked ? 2 : 1),
         })
   }
   if (route.includes("/summary")) return json(summary)
@@ -197,12 +229,64 @@ function PreviewApp() {
   }, [])
   return <App />
 }
+function DirectReplay() {
+  const [open, setOpen] = useState(true)
+  useEffect(() => {
+    fixture.mountedAt = performance.now()
+  }, [])
+  return (
+    <>
+      <button onClick={() => setOpen(true)}>Open replay fixture</button>
+      {!open && <p>Replay closed</p>}
+      <ReplayDialog open={open} onOpenChange={setOpen}>
+        <DialogContent
+          className="!fixed !inset-0 !h-full !w-full !max-w-none !translate-x-0 !translate-y-0 !gap-0 !rounded-none !border-0 !p-0"
+          showCloseButton={false}
+        >
+          <DialogTitle className="sr-only">Route replay fixture</DialogTitle>
+          {open && (
+            <RouteReplay
+              workout={workout}
+              points={replayPoints}
+              timed={!fallback}
+            />
+          )}
+        </DialogContent>
+      </ReplayDialog>
+    </>
+  )
+}
+function ButtonReplay() {
+  const [current, setCurrent] = useState(workout)
+  useEffect(() => {
+    Object.assign(window, {
+      __replayRelink: () =>
+        setCurrent({
+          ...workout,
+          activity_id: "replay-linked",
+          activity_revision: "linked-v1",
+          title: "Relinked recording fixture",
+        }),
+    })
+  }, [])
+  return (
+    <div className="relative h-screen">
+      <RouteReplayButton workout={current} points={points} timed />
+    </div>
+  )
+}
 createRoot(document.getElementById("root")!).render(
   <Framework7App name="Replay preview" theme="ios">
     <ThemeProvider defaultTheme="light">
       <TooltipProvider>
         <AppToastProvider>
-          <PreviewApp />
+          {flags.has("button") ? (
+            <ButtonReplay />
+          ) : direct ? (
+            <DirectReplay />
+          ) : (
+            <PreviewApp />
+          )}
         </AppToastProvider>
       </TooltipProvider>
     </ThemeProvider>

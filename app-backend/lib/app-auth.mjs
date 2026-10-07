@@ -169,6 +169,10 @@ export function createAppAuth({
         );
       }
       if (!["GET", "HEAD"].includes(req.method)) checkOrigin(req, config);
+      // Requests without a session cookie cannot be authorized. Reject them
+      // before a database lookup, including bursts from an expired login page.
+      if (!isAuth && !cookies(req, SESSION_COOKIE))
+        throw new AuthError("Sign in to your app to continue.", 401);
       const store = getStore(await readBootstrap(), config.origin);
       const state = await store.read();
       const session = sessionFor(state, req, config, now());

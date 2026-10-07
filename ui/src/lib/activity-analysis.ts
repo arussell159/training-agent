@@ -1,6 +1,7 @@
 import { apiFetch } from "./api-client"
 import { deviceCacheScope } from "./device-cache"
 import { createSharedRequestCache } from "./shared-request-cache"
+import { validActivitySummary, validActivityAnalysis, validActivityRoute } from "./activity-payload"
 import type { WorkoutRecordedAnalysis } from "../components/workout-analysis"
 import type { WorkoutSummaryValues } from "./training-context"
 
@@ -15,9 +16,12 @@ const summaries = createSharedRequestCache<WorkoutSummaryValues>(
     )
     if (!response.ok)
       throw new Error("Completed values could not be refreshed.")
-    return (await response.json()) as WorkoutSummaryValues
+    const data = await response.json()
+    if (!validActivitySummary(data))
+      throw new Error("Completed values are incomplete. Please retry.")
+    return data as WorkoutSummaryValues
   },
-  { maxWeight: 64 },
+  { maxWeight: 64, maxEntries: 64 },
 )
 const recordings = createSharedRequestCache<WorkoutRecordedAnalysis>(
   async (key, signal) => {
@@ -28,10 +32,10 @@ const recordings = createSharedRequestCache<WorkoutRecordedAnalysis>(
     )
     if (!response.ok)
       throw new Error("The recording could not be loaded. Please retry.")
-    const data = (await response.json()) as WorkoutRecordedAnalysis
-    if (!Array.isArray(data.points))
+    const data = await response.json()
+    if (!validActivityAnalysis(data))
       throw new Error("The recording is incomplete. Please retry.")
-    return data
+    return data as WorkoutRecordedAnalysis
   },
   { maxWeight: 100000, weight: (data) => data.points.length },
 )
@@ -45,7 +49,7 @@ const routes = createSharedRequestCache<[number, number][]>(
     )
     if (!response.ok) throw new Error("The route could not be loaded.")
     const data = await response.json()
-    if (!Array.isArray(data.points)) throw new Error("The route is incomplete.")
+    if (!validActivityRoute(data)) throw new Error("The route is incomplete.")
     return data.points.filter(
       (point: unknown): point is [number, number] =>
         Array.isArray(point) &&

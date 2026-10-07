@@ -1,5 +1,4 @@
 import { HomeCardsSkeleton, ChartSkeleton } from "@/components/loading-layouts"
-import { useFirstReveal } from "@/hooks/use-first-reveal"
 import { fallbackTrainingContext } from "@/lib/training-context"
 import { lazy, Suspense, useEffect, useState } from "react"
 
@@ -37,7 +36,6 @@ export function TrainingDashboard({
     useState<PlannedWorkout | null>(null)
   const isMobile = useIsMobile()
   const [settled, setSettled] = useState(() => context !== fallbackTrainingContext)
-  const reveal = useFirstReveal("Home", settled)
 
   const openWorkout = (workout: PlannedWorkout) => {
     if (isMobile && onWorkoutOpen) {
@@ -81,11 +79,11 @@ export function TrainingDashboard({
   }, [])
 
   return (
-    <div className={`mobile-dashboard flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:gap-4 md:gap-6 md:p-6 ${reveal}`}>
+    <div className="mobile-dashboard flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:gap-4 md:gap-6 md:p-6">
       {settled ? <SectionCards context={context} onWorkoutOpen={openWorkout} /> : <HomeCardsSkeleton />}
       <div className="grid w-full min-w-0 grid-cols-1 gap-3 sm:gap-4">
-        <Suspense fallback={<ChartSkeleton className="training-history-card min-h-[350px] rounded-2xl border bg-background lg:min-h-[400px]" />}>
-          {settled ? <ChartAreaInteractive context={context} compactDesktop /> : <ChartSkeleton className="training-history-card min-h-[350px] rounded-2xl border bg-card lg:min-h-[400px]" />}
+        <Suspense fallback={<ChartSkeleton className="dashboard-history-card training-history-card rounded-2xl border bg-background" />}>
+          {settled ? <ChartAreaInteractive context={context} compactDesktop /> : <ChartSkeleton className="dashboard-history-card training-history-card rounded-2xl border bg-card" />}
         </Suspense>
       </div>
       {selectedWorkout ? (

@@ -5,10 +5,12 @@ export function createSharedRequestCache<T>(
     maxWeight = 100000,
     weight = () => 1,
     timeoutMs = 20000,
+    maxEntries = 8,
   }: {
     maxWeight?: number
     weight?: (value: T) => number
     timeoutMs?: number
+    maxEntries?: number
   } = {}
 ) {
   const values = new Map<string, { value: T; weight: number }>()
@@ -16,7 +18,11 @@ export function createSharedRequestCache<T>(
     string,
     { controller: AbortController; promise: Promise<T>; users: number }
   >()
+  const entryLimit = Number.isFinite(maxEntries)
+    ? Math.max(0, Math.floor(maxEntries))
+    : 8
   let generation = 0
+  let totalWeight = 0
   const peek = (key: string) => {
     const entry = values.get(key)
     if (entry) {
@@ -30,6 +36,7 @@ export function createSharedRequestCache<T>(
     clear() {
       generation++
       values.clear()
+      totalWeight = 0
       for (const request of requests.values()) request.controller.abort()
       requests.clear()
     },
@@ -37,7 +44,7 @@ export function createSharedRequestCache<T>(
       if (signal?.aborted)
         return Promise.reject(new DOMException("Aborted", "AbortError"))
       const cached = peek(key)
-      if (cached !== undefined) return Promise.resolve(cached)
+      if (values.has(key)) return Promise.resolve(cached as T)
       let request = requests.get(key)
       if (!request || request.controller.signal.aborted) {
         const controller = new AbortController()
@@ -66,16 +73,19 @@ export function createSharedRequestCache<T>(
         ])
           .then((value) => {
             if (!controller.signal.aborted && generation === version) {
-              const cost = Math.max(1, weight(value))
-              if (cost <= maxWeight) {
+              let cost = Infinity
+              try {
+                cost = Math.max(1, weight(value))
+              } catch {
+                /* Cache sizing is optional. */
+              }
+              if (Number.isFinite(cost) && cost <= maxWeight) {
+                totalWeight -= values.get(key)?.weight ?? 0
                 values.set(key, { value, weight: cost })
-                let total = [...values.values()].reduce(
-                  (sum, item) => sum + item.weight,
-                  0
-                )
-                while (total > maxWeight || values.size > 8) {
+                totalWeight += cost
+                while (totalWeight > maxWeight || values.size > entryLimit) {
                   const first = values.keys().next().value!
-                  total -= values.get(first)!.weight
+                  totalWeight -= values.get(first)!.weight
                   values.delete(first)
                 }
               }

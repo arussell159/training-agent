@@ -12,6 +12,24 @@ import {
 } from "./intervals.mjs";
 import { pairIntervalsWorkouts } from "./intervals.mjs";
 
+test("provider requests retain their timeout while honoring caller cancellation", async () => {
+  const controller = new AbortController();
+  const request = createIntervalsClient(
+    { INTERVALS_API_KEY: "fixture-key" },
+    async (url, options) => {
+      assert.notEqual(options.signal, controller.signal);
+      return new Promise((resolve, reject) => {
+        options.signal.addEventListener("abort", () => reject(options.signal.reason), {
+          once: true,
+        });
+      });
+    }
+  );
+  const pending = request("/athlete/0", { signal: controller.signal });
+  controller.abort();
+  await assert.rejects(pending, { name: "AbortError" });
+});
+
 test("unique same-day named swim pairs without upstream links and retains the plan and actual", async () => {
   const event = {
     id: 1,
@@ -48,6 +66,53 @@ test("unique same-day named swim pairs without upstream links and retains the pl
   assert.equal(context.history[0].details, "3 x 400y");
   assert.equal(context.history[0].workout_summary.planned.duration_seconds, 3231);
   assert.equal(context.history[0].workout_summary.completed.duration_seconds, 2930);
+});
+
+test("pairing repair claims the activity and only updates its pairing field", async () => {
+  const event = {
+    id: 1,
+    type: "Swim",
+    category: "WORKOUT",
+    name: "Swim",
+    start_date_local: "2026-09-15T00:00:00",
+  };
+  let activity = {
+    id: "i1",
+    type: "Swim",
+    name: "Swim",
+    start_date_local: "2026-09-15T16:00:00",
+    description: "old instructions",
+  };
+  let claims = 0,
+    writes = 0;
+  const request = async (path, options = {}) => {
+    if (options.method === "PUT") {
+      const patch = JSON.parse(options.body);
+      assert.deepEqual(patch, { paired_event_id: 1 });
+      activity.description = "concurrently saved description";
+      activity = { ...activity, ...patch };
+      writes++;
+      return structuredClone(activity);
+    }
+    if (path === "/activity/i1") return structuredClone(activity);
+    if (path === "/athlete/0/events/1") return event;
+    if (path === "/athlete/0") return { id: "1" };
+    if (path.includes("/activities?")) return [activity];
+    if (path.includes("/events?")) return [event];
+    return [];
+  };
+  await fetchIntervalsContext(request, {
+    now: new Date("2026-09-15T23:00:00Z"),
+    repairWorkoutLinks: true,
+    withWorkoutWrite: async (id, write) => {
+      assert.equal(id, "activity:i1");
+      claims++;
+      return write(request);
+    },
+  });
+  assert.equal(claims, 1);
+  assert.equal(writes, 1);
+  assert.equal(activity.description, "concurrently saved description");
 });
 
 test("inferred pairing refuses ambiguous, different-day, different-sport and note matches", () => {

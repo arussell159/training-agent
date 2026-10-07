@@ -113,6 +113,8 @@ import {
   type TrainingContext,
 } from "@/lib/training-context"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { validatedTrainingContext } from "@/lib/training-context-validation"
+import { withRequestDeadline } from "@/lib/request-deadline"
 const WorkoutAnalysis = lazy(() =>
   import("@/components/workout-analysis").then((m) => ({
     default: m.WorkoutAnalysis,
@@ -663,7 +665,6 @@ export function TrainingCalendar({
   const [annualPlan, setAnnualPlan] = useState<AnnualPlan | null>(null)
   const [historyReady, setHistoryReady] = useState(false)
   const loadedWeeks = useRef(new Set<string>())
-  const pendingWeeks = useRef(new Set<string>())
   const [selectedWorkout, setSelectedWorkout] =
     useState<PlannedWorkout | null>(null)
   const [newWorkoutDate, setNewWorkoutDate] = useState<string | null>(null)
@@ -794,6 +795,7 @@ export function TrainingCalendar({
         }
         if (!response.ok || !result.plan)
           throw new Error(result.error || "The race could not be deleted")
+        if(result.context)result.context=validatedTrainingContext(result.context)
         setAnnualPlan(result.plan)
         if (result.context)
           setContext((current) => ({ ...current, ...result.context }))
@@ -1252,6 +1254,7 @@ export function TrainingCalendar({
     let busy = false
     let scrolled = false
     const queue = new Set<string>()
+    const pendingWeeks = new Set<string>()
     const pump = async () => {
       if (busy || !active) return
       const start = queue.values().next().value as string | undefined
@@ -1266,20 +1269,19 @@ export function TrainingCalendar({
       const end = dateKey(
         new Date(date.getFullYear(), date.getMonth(), date.getDate() + 6)
       )
-      pendingWeeks.current.add(start)
+      pendingWeeks.add(start)
       const revision = calendarRevision.current
       const query = new URLSearchParams({ scope: "range", start, end })
-      await apiFetch(`/api/training-context?${query}`, {
-        signal: controller.signal,
-      })
-        .then(async (response) => {
+      await withRequestDeadline(async signal => {
+          const response=await apiFetch(`/api/training-context?${query}`, {signal})
           if (!response.ok) throw new Error("Could not load calendar week")
-          return (await response.json()) as TrainingContext
-        })
+          return validatedTrainingContext(await response.json())
+        },20_000,controller.signal)
         .then((next) => {
           if (!active || revision !== calendarRevision.current) return
+          const mobileViewport=window.matchMedia("(max-width: 767px)").matches
           if (scrolled) {
-            const header = isMobile ? 56 : 84
+            const header = mobileViewport ? 56 : 84
             const visible = Array.from(
               calendarRef.current?.querySelectorAll("[data-calendar-date]") ||
                 []
@@ -1310,38 +1312,16 @@ export function TrainingCalendar({
             if (active && revision === calendarRevision.current)
               rememberTrainingContext(
                 {
-                  ...mergeCalendarContext(cachedFull || context, next),
+                  ...mergeCalendarContext(cachedFull || cachedTrainingContext(), next),
                   display_range: { start: "0000-01-01", end: "9999-12-31" },
                 },
                 "full"
               )
           })
-          setContext((previous) => {
-            const history = new Map(
-              [...previous.history, ...next.history].map((w) => [
-                (w as PlannedWorkout).id,
-                w,
-              ])
-            )
-            const planned = new Map(
-              [...previous.planned, ...next.planned].map((w) => [w.id, w])
-            )
-            const wellness = new Map(
-              [
-                ...(previous.wellness_history || []),
-                ...(next.wellness_history || []),
-              ].map((w) => [w.date, w])
-            )
-            return {
-              ...next,
-              history: [...history.values()],
-              planned: [...planned.values()],
-              wellness_history: [...wellness.values()],
-            }
-          })
+          setContext((previous) => mergeCalendarContext(previous, next))
           if (!scrolled && !initialAlignmentDone.current)
             requestAnimationFrame(() => {
-              const element = isMobile
+              const element = mobileViewport
                 ? calendarRef.current?.querySelector(
                     `[data-calendar-date="${dateKey(new Date())}"]`
                   )
@@ -1352,7 +1332,7 @@ export function TrainingCalendar({
                     0,
                     window.scrollY +
                       element.getBoundingClientRect().top -
-                      (isMobile ? 56 : 84)
+                      (mobileViewport ? 56 : 84)
                   ),
                   behavior: "instant",
                 })
@@ -1365,7 +1345,7 @@ export function TrainingCalendar({
             )
         })
         .finally(() => {
-          pendingWeeks.current.delete(start)
+          pendingWeeks.delete(start)
           busy = false
         })
       if (active) void pump()
@@ -1379,7 +1359,7 @@ export function TrainingCalendar({
           bounds.bottom > 56 &&
           bounds.top < window.innerHeight &&
           !loadedWeeks.current.has(key) &&
-          !pendingWeeks.current.has(key)
+          !pendingWeeks.has(key)
         )
           queue.add(key)
       }
@@ -1407,23 +1387,24 @@ export function TrainingCalendar({
       controller.abort()
       observer.disconnect()
       window.removeEventListener("scroll", onScroll)
-      pendingWeeks.current.clear()
+      pendingWeeks.clear()
     }
   }, [weekKeys, historyReady])
 
   useLayoutEffect(() => {
+    const keys = weekKeys ? weekKeys.split("|") : []
     if (
       restoreScrollTop !== null ||
       initialAlignmentDone.current ||
-      !weeks.length ||
+      !keys.length ||
       calendarWasDragged.current ||
       calendarUserScrolled.current
     )
       return
     const todayWeek = dateKey(startOfMonday(new Date()))
-    const target = weeks.some((week) => week.key === todayWeek)
+    const target = keys.includes(todayWeek)
       ? todayWeek
-      : weeks[weeks.length - 1].key
+      : keys[keys.length - 1]
     const alignToday = () => {
       if (initialAlignmentDone.current || calendarWasDragged.current || calendarUserScrolled.current) return
       const mobileViewport = window.matchMedia("(max-width: 767px)").matches
@@ -1603,10 +1584,10 @@ export function TrainingCalendar({
       return
     let destroyed = false
     let picker: Framework7Calendar.Calendar | null = null
+    const container=mobilePickerContainerRef.current
     const selected = activeWeek?.start ?? new Date()
     f7ready((app) => {
-      if (destroyed || !mobilePickerContainerRef.current) return
-      const container = mobilePickerContainerRef.current
+      if (destroyed || !container.isConnected) return
       container.replaceChildren()
       const updatePickerMonth = (calendar: {
         currentMonth: number
@@ -1646,7 +1627,7 @@ export function TrainingCalendar({
       destroyed = true
       mobilePickerRef.current = null
       picker?.destroy()
-      mobilePickerContainerRef.current?.replaceChildren()
+      container.replaceChildren()
     }
   }, [activeWeek?.start, datePickerOpen, isMobile, jumpToDate, weeks])
 

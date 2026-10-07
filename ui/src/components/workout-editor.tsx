@@ -91,6 +91,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { apiFetch } from "@/lib/api-client"
+import { validatedTrainingContext, validatedTrainingWorkout } from "@/lib/training-context-validation"
 import {
   cachedTrainingContext,
   rememberTrainingContext,
@@ -3440,6 +3441,9 @@ function EditorWorkspace({
         throw Error(
           data.error || "Intervals.icu did not verify the saved workout"
         )
+      data.workout=validatedTrainingWorkout(data.workout)
+      if(data.context)data.context=validatedTrainingContext(data.context)
+      if(typeof data.revision!=="string")throw Error("The saved workout revision is missing. Your draft is retained.")
       setSavedId(data.workout.id)
       setCreationAttempted(false)
       setRevision(data.revision)

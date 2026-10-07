@@ -5,6 +5,7 @@ import { intervalsOnlyContext } from "./intervals-only-context.mjs";
 import { elapsedSummary } from "./elapsed-summary.mjs";
 import { appWorkoutDescription } from "./workout-readable-description.mjs";
 import { retainRecentTrainingContext } from "./training-retention.mjs";
+import { syncRevision } from "./sync-record-revision.mjs";
 
 export const fastViewId = (config, scope = "full") =>
   `view:v1:${providerConnection(config)}:${scope === "week" ? "startup" : "training"}`;
@@ -102,6 +103,9 @@ export function projectTrainingContext(context, scope = "week", now = new Date()
         : { start: "0000-01-01", end: "9999-12-31" },
     cache_scope: context.cache_scope || context.provider_connection || "",
     version: context.version || context.synced_at,
+    ...(context.queue_snapshot_revision
+      ? { queue_snapshot_revision: context.queue_snapshot_revision }
+      : {}),
   };
 }
 export function prepareFastView(config, context) {
@@ -109,14 +113,19 @@ export function prepareFastView(config, context) {
     { ...context, provider_connection: providerConnection(config) },
     "full"
   );
-  full.version = contentFingerprint({ ...full, synced_at: undefined, version: undefined });
+  full.version = contentFingerprint({
+    ...full,
+    synced_at: undefined,
+    version: undefined,
+    queue_snapshot_revision: undefined,
+  });
   return full;
 }
-export async function saveFastView(config, store, context) {
+export async function saveFastView(config, store, context, { atomic = true } = {}) {
   const full = prepareFastView(config, context);
   const week = projectTrainingContext(full, "week");
   week.version = full.version;
-  await store.upsert("sync_state", [
+  const rows = [
     {
       athlete_id: fastViewId(config),
       status: "view",
@@ -129,6 +138,24 @@ export async function saveFastView(config, store, context) {
       cursor: week,
       updated_at: new Date().toISOString(),
     },
-  ]);
+  ];
+  if (atomic && store.updateSyncRecord) {
+    const saved = await Promise.all(
+      rows.map((row) =>
+        store.updateSyncRecord(row.athlete_id, (current) => {
+          const currentRevision = current?.cursor?.queue_snapshot_revision;
+          if (
+            currentRevision &&
+            (!context.queue_snapshot_revision ||
+              syncRevision(currentRevision) >= syncRevision(context.queue_snapshot_revision))
+          )
+            return null;
+          return row;
+        })
+      )
+    );
+    return saved[0]?.cursor || full;
+  }
+  await store.upsert("sync_state", rows);
   return full;
 }

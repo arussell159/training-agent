@@ -1,5 +1,5 @@
-import { IntervalsConnection } from "@/components/intervals-connection"
 import { TableSkeleton } from "@/components/loading-layouts"
+import { IntervalsConnection } from "@/components/intervals-connection"
 import { apiFetch } from "@/lib/api-client"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { useEffect, useState, type ReactNode } from "react"
@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label"
 import { useTheme } from "@/components/theme-provider"
 import { loadTrainingContext, rememberTrainingContext, fallbackTrainingContext, type PlannedWorkout, type TrainingContext } from "@/lib/training-context"
 import { cn } from "@/lib/utils"
+import { validatedTrainingContext } from "@/lib/training-context-validation"
 
 type SettingsSection = "nutrition" | "zones" | "race" | "performance" | "library" | "appearance" | "intervals"
 type SettingsItem = { id: SettingsSection; label: string; description: string; icon: LucideIcon }
@@ -387,7 +388,8 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
       const response = await apiFetch("/api/training-zones", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(zones) })
       const result = await response.json() as { context?: TrainingContext; error?: string }
       if (!response.ok || !result.context) throw new Error(result.error || "Training zones could not be saved.")
-      setContext(result.context); rememberTrainingContext(result.context, "full")
+      const nextContext=validatedTrainingContext(result.context)
+      rememberTrainingContext(nextContext, "full");setContext(nextContext)
       setZonesEdited(false)
       setFeedback("Training zones saved to Intervals.icu. The previous values were added to history.")
     } catch (error) { setFeedback(error instanceof Error ? error.message : "Training zones could not be saved.") }
@@ -402,7 +404,7 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
       const result = await response.json() as { event?: RaceEvent; context?: TrainingContext; error?: string }
       if (!response.ok || !result.event) throw new Error(result.error || "Race could not be added.")
       setEvents(current => [...current.filter(event => event.id !== result.event!.id), result.event!].sort((a, b) => a.date.localeCompare(b.date)))
-      if (result.context) { setContext(result.context); rememberTrainingContext(result.context, "full") }
+      if (result.context) { const nextContext=validatedTrainingContext(result.context);rememberTrainingContext(nextContext, "full");setContext(nextContext) }
       setRaceName(""); setRaceDate(""); setRaceEdited(false); setFeedback("Race added to Intervals.icu.")
     } catch (error) { setFeedback(error instanceof Error ? error.message : "Race could not be added.") }
     finally { setSaving(false) }

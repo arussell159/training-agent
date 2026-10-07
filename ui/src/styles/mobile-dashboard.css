@@ -1,3 +1,31 @@
+/* Skeletons and live cards share geometry so late reads only update values. */
+.dashboard-session-card { height: 320px; }
+.dashboard-events-card { height: 160px; }
+.dashboard-recovery-card { height: 195px; }
+.dashboard-nutrition-card { height: 174px; }
+.dashboard-sleep-card, .dashboard-fitness-card { height: 160px; }
+.dashboard-card-grid .dashboard-events-card[data-slot="card"],
+.dashboard-card-grid .dashboard-sleep-card[data-slot="card"] { overflow-y: auto; }
+.dashboard-history-card { height: 350px; min-height: 350px; flex-shrink: 0; }
+.dashboard-history-card[data-slot="card"] { padding-block: 0; }
+.dashboard-nutrition-card .grid p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dashboard-events-card [data-slot="card-content"] { flex-shrink: 0; }
+
+@media (width >= 40rem) {
+  .dashboard-events-card { height: 280px; }
+}
+
+@media (width >= 48rem) {
+  .dashboard-session-card { height: 385px; }
+  .dashboard-events-card { height: 240px; }
+  .dashboard-history-card { height: 408px; min-height: 408px; }
+  .dashboard-events-card, .dashboard-sleep-card { scrollbar-gutter: stable; }
+}
+
+@media (width >= 64rem) {
+  .dashboard-events-card { height: 195px; }
+}
+
 @media (width < 48rem) {
   .planned-workout-mobile-page {
     min-height: 100dvh;

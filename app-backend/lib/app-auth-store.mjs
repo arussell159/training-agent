@@ -42,7 +42,9 @@ export function createEncryptedRecordStore(
   const scope = `${bootstrap.SETTINGS_SCOPE || "default"}:${namespace}:${createHash("sha256").update(identity).digest("hex")}`;
   const filter = `?scope=eq.${encodeURIComponent(scope)}&name=eq.${encodeURIComponent(name)}`;
   const versionColumn = timestampCas ? "updated_at" : "encrypted_value";
-  const readKey = createHash("sha256").update(`${url}:${secret}:${scope}`).digest("hex");
+  const readKey = createHash("sha256")
+    .update(JSON.stringify([url, secret, scope, name, key.toString("hex")]))
+    .digest("hex");
   function nextTimestamp(previous) {
     if (!timestampCas || !previous) return new Date().toISOString();
     // PostgreSQL retains microseconds. Always advance the previous revision, even

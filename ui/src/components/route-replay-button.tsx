@@ -32,14 +32,27 @@ export function RouteReplayButton({
   timed: boolean
   bottom?: number
 }) {
+  const replayKey = JSON.stringify([
+    workout.id,
+    workout.activity_id || "",
+    (workout as PlannedWorkout & { activity_revision?: string })
+      .activity_revision || "",
+  ])
   const [open, setOpen] = useState(false)
-  const [ready,setReady]=useState(false)
-  useEffect(()=>{
-    let active=true
-    if(timed && points.length>1)void loadReplay().then(()=>{if(active)setReady(true)}).catch(()=>{})
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    let active = true
+    if (timed && points.length > 1)
+      void loadReplay()
+        .then(() => {
+          if (active) setReady(true)
+        })
+        .catch(() => {})
     else setReady(false)
-    return()=>{active=false}
-  },[timed,points.length])
+    return () => {
+      active = false
+    }
+  }, [timed, points.length])
   if (!mapboxConfig || points.length < 2 || !timed || !ready) return null
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -75,7 +88,7 @@ export function RouteReplayButton({
         </DialogDescription>
         {open && (
           <PageErrorBoundary
-            resetKey={workout.id}
+            resetKey={replayKey}
             onClose={() => setOpen(false)}
           >
             <Suspense
@@ -97,7 +110,7 @@ export function RouteReplayButton({
               }
             >
               <RouteReplay
-                key={workout.id}
+                key={replayKey}
                 workout={workout}
                 points={points}
                 timed={timed}

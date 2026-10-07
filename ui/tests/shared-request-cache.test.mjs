@@ -7,7 +7,7 @@ test("rapid close and reopen ignores late downloads from each abandoned view", a
   const cache = createSharedRequestCache(
     (key, signal) =>
       new Promise((resolve) => downloads.push({ key, signal, resolve })),
-    { maxWeight: 4 },
+    { maxWeight: 4 }
   )
   for (let index = 0; index < 100; index++) {
     const key = `ride-${index % 5}`
@@ -78,7 +78,7 @@ test("cache reset rejects in-flight requests and late responses cannot repopulat
     () =>
       new Promise((resolve) => {
         complete = resolve
-      }),
+      })
   )
   const request = cache.get("private")
   await Promise.resolve()
@@ -93,7 +93,7 @@ test("timeouts reject stalled loaders and errors can be retried", async () => {
   let calls = 0
   const cache = createSharedRequestCache(
     () => (++calls === 1 ? new Promise(() => {}) : Promise.resolve("ready")),
-    { timeoutMs: 10 },
+    { timeoutMs: 10 }
   )
   await assert.rejects(cache.get("ride"), /too long/)
   assert.equal(await cache.get("ride"), "ready")
@@ -102,7 +102,7 @@ test("timeouts reject stalled loaders and errors can be retried", async () => {
 test("large recordings are bounded by weight with least recently used eviction", async () => {
   const cache = createSharedRequestCache(
     async (key) => new Array(Number(key)).fill(1),
-    { maxWeight: 10, weight: (value) => value.length },
+    { maxWeight: 10, weight: (value) => value.length }
   )
   await cache.get("4")
   await cache.get("5")
@@ -130,4 +130,46 @@ test("cache keys isolate revisions and users, and already aborted requests never
     name: "AbortError",
   })
   assert.equal(calls, 3)
+})
+
+test("invalid cache weights never poison the memory budget or a successful response", async () => {
+  for (const weight of [
+    () => NaN,
+    () => Infinity,
+    () => {
+      throw Error("Cannot size")
+    },
+  ]) {
+    const cache = createSharedRequestCache(async () => ({ ready: true }), {
+      weight,
+    })
+    assert.deepEqual(await cache.get("ride"), { ready: true })
+    assert.equal(cache.peek("ride"), undefined)
+  }
+})
+
+test("undefined results can be shared and cached without repeat downloads", async () => {
+  let calls = 0
+  const cache = createSharedRequestCache(async () => {
+    calls++
+    return undefined
+  })
+  await cache.get("empty")
+  await cache.get("empty")
+  assert.equal(calls, 1)
+})
+
+test("entry limits can hold lightweight summaries while retaining least recently used eviction", async () => {
+  const cache = createSharedRequestCache(async (key) => key, {
+    maxEntries: 12,
+    maxWeight: 12,
+  })
+  for (let index = 0; index < 12; index++) await cache.get(String(index))
+  assert.equal(cache.peek("0"), "0")
+  await cache.get("12")
+  assert.equal(cache.peek("1"), undefined)
+  assert.equal(cache.peek("0"), "0")
+  const disabled = createSharedRequestCache(async () => 42, { maxEntries: -1 })
+  assert.equal(await disabled.get("no-cache"), 42)
+  assert.equal(disabled.peek("no-cache"), undefined)
 })

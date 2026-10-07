@@ -145,7 +145,7 @@ function RecoveryTrendCard({
   )
 
   return (
-    <Card className="min-w-0 overflow-hidden [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-2">
+    <Card className="dashboard-recovery-card min-w-0 overflow-hidden [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-2">
       <CardHeader className="pb-0">
         <CardDescription className="flex items-center gap-1.5 font-semibold text-rose-500">
           <Heart className="size-3.5 fill-current" aria-hidden="true" />
@@ -171,6 +171,7 @@ function RecoveryTrendCard({
             <XAxis dataKey="date" hide />
             <YAxis domain={[low - 2, high + 2]} hide />
             <Area
+              isAnimationActive={false}
               dataKey="baselineHigh"
               type="monotone"
               fill="var(--color-baselineHigh)"
@@ -179,6 +180,7 @@ function RecoveryTrendCard({
               tooltipType="none"
             />
             <Area
+              isAnimationActive={false}
               dataKey="baselineLow"
               type="monotone"
               fill="var(--color-baselineLow)"
@@ -187,6 +189,7 @@ function RecoveryTrendCard({
               tooltipType="none"
             />
             <Line
+              isAnimationActive={false}
               dataKey="average"
               type="monotone"
               stroke="var(--color-average)"
@@ -212,6 +215,7 @@ function RecoveryTrendCard({
               }
             />
             <Line
+              isAnimationActive={false}
               dataKey="value"
               type="monotone"
               stroke="var(--color-value)"
@@ -324,7 +328,7 @@ function SleepCard({ context }: { context: TrainingContext }) {
       values.findIndex((candidate) => candidate.label === item.label) === index
   )
   return (
-    <Card className="min-w-0 [--card-spacing:--spacing(3)]">
+    <Card className="dashboard-sleep-card min-w-0 [--card-spacing:--spacing(3)]">
       <CardHeader>
         <CardDescription className="flex items-center gap-1.5 font-semibold text-teal-500">
           <BedDouble className="size-4" aria-hidden="true" />
@@ -387,7 +391,7 @@ export function SectionCards({
     context.metrics.form == null ? "—" : Math.round(context.metrics.form)
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-12">
+    <div className="dashboard-card-grid grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-12">
       <MobileDailySessions context={context} onWorkoutOpen={onWorkoutOpen} />
       <Card
         role={onWorkoutOpen && visibleTodayWorkout ? "button" : undefined}
@@ -400,7 +404,7 @@ export function SectionCards({
           event.preventDefault()
           if (visibleTodayWorkout) onWorkoutOpen(visibleTodayWorkout)
         }}
-        className="col-span-2 hidden min-w-0 md:flex lg:col-span-6 lg:row-span-2"
+        className="dashboard-session-card col-span-2 hidden min-w-0 md:flex lg:col-span-6 lg:row-span-2"
       >
         <CardHeader className="relative gap-3">
           <CardDescription className={multipleToday ? "pr-16" : undefined}>
@@ -467,7 +471,7 @@ export function SectionCards({
       <NutritionHomeCard date={dashboardToday(context)} />
       <div className="col-span-2 grid min-w-0 grid-cols-2 gap-3 sm:gap-4 lg:col-span-6 lg:col-start-7">
         <SleepCard context={context} />
-        <Card className="min-w-0 [--card-spacing:--spacing(3)]">
+        <Card className="dashboard-fitness-card min-w-0 [--card-spacing:--spacing(3)]">
           <CardHeader>
             <CardDescription className="flex items-center gap-1.5 font-semibold text-violet-500">
               <PersonStanding className="size-4" aria-hidden="true" />

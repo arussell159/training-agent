@@ -1,5 +1,4 @@
 import { NutritionDashboardSkeleton } from "@/components/loading-layouts"
-import { useFirstReveal } from "@/hooks/use-first-reveal"
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import "./nutrition.css"
 import {
@@ -326,7 +325,6 @@ export function NutritionPage({
       String(next.getDate()).padStart(2, "0"),
     ].join("-"))
   }
-  const reveal = useFirstReveal("Nutrition", Boolean(data))
   const maximum = Math.max(
     ...weekGoals.map((goal) => goal || 0),
     ...(data?.week.map((day) => day.totals.calories) || []),
@@ -342,7 +340,7 @@ export function NutritionPage({
         disabled={mutating}
         onTargets={() => setTargetsOpen(true)}
       />
-      <div className={`mobile-dashboard mx-auto max-w-5xl space-y-5 px-4 pt-4 pb-8 md:px-8 ${reveal}`}>
+      <div className="mobile-dashboard mx-auto max-w-5xl space-y-5 px-4 pt-4 pb-8 md:px-8">
         {error && (
           <div
             role="alert"

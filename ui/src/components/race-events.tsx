@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Ellipsis, Trophy, Trash2 } from "lucide-react"
 
 import {
@@ -24,6 +24,7 @@ import { calendarRaceEvents, dateLabel } from "@/lib/annual-plan"
 import type { AnnualPlan, PlanEvent } from "@/lib/annual-plan"
 import { apiFetch } from "@/lib/api-client"
 import type { PlannedWorkout, TrainingContext } from "@/lib/training-context"
+import { dashboardToday } from "@/lib/dashboard-metrics"
 
 export function isRaceWorkout(workout: PlannedWorkout) {
   const race = workout as PlannedWorkout & { category?: string; raw?: { category?: string } }
@@ -60,8 +61,8 @@ function eventCountdown(date: string, target = "event") {
   return `${countdown.value} ${countdown.unit.toLowerCase()}${countdown.value === 1 ? "" : "s"} until ${target}`
 }
 
-function countdownDetails(date: string) {
-  const today = new Date()
+function countdownDetails(date: string, todayDate?: string) {
+  const today = todayDate ? new Date(`${todayDate}T12:00:00`) : new Date()
   today.setHours(12, 0, 0, 0)
   const event = new Date(`${date}T12:00:00`)
   const days = Math.ceil((event.getTime() - today.getTime()) / 86_400_000)
@@ -151,24 +152,37 @@ export function RaceCalendarCard({
 
 export function EventsCard({ context }: { context: TrainingContext }) {
   const [planEvents, setPlanEvents] = useState<PlanEvent[]>([])
-  const loadPlanEvents = useCallback(async () => {
-    const response = await apiFetch("/api/annual-plans")
-    if (!response.ok) return
-    const result = await response.json() as { plans?: AnnualPlan[]; activeId?: string | null }
-    const active = result.plans?.find((plan) => plan.id === result.activeId) || result.plans?.[0]
-    setPlanEvents(active?.events || [])
-  }, [])
-
   useEffect(() => {
+    let active = true
+    let revision = 0
+    const loadPlanEvents = async () => {
+      const request = ++revision
+      try {
+        const response = await apiFetch("/api/annual-plans")
+        if (!response.ok) return
+        const result = await response.json() as { plans?: AnnualPlan[]; activeId?: string | null }
+        if (!active || request !== revision || !Array.isArray(result?.plans)) return
+        const plan = result.plans.find((item) => item?.id === result.activeId) || result.plans[0]
+        setPlanEvents(Array.isArray(plan?.events) ? plan.events : [])
+      } catch {
+        // Calendar races remain visible when the optional annual plan is offline.
+      }
+    }
     void loadPlanEvents()
     window.addEventListener("annual-plan-updated", loadPlanEvents)
-    return () => window.removeEventListener("annual-plan-updated", loadPlanEvents)
-  }, [loadPlanEvents])
+    return () => {
+      active = false
+      window.removeEventListener("annual-plan-updated", loadPlanEvents)
+    }
+  }, [])
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = dashboardToday(context)
   const events = useMemo(() => {
     const merged = new Map<string, Partial<PlanEvent> & { name: string; date: string }>()
     for (const event of [...calendarRaceEvents(context), ...planEvents]) {
+      if (!event || typeof event.name !== "string" || typeof event.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(event.date)) continue
+      const date = new Date(`${event.date}T12:00:00Z`)
+      if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== event.date) continue
       merged.set(event.date, event)
     }
     return [...merged.values()]
@@ -176,10 +190,10 @@ export function EventsCard({ context }: { context: TrainingContext }) {
       .sort((a, b) => a.date.localeCompare(b.date))
   }, [context, planEvents, today])
   const nextA = events.find((event) => String(event.priority || "").toUpperCase() === "A")
-  const countdown = nextA ? countdownDetails(nextA.date) : null
+  const countdown = nextA ? countdownDetails(nextA.date, today) : null
 
   return (
-    <Card className="col-span-2 min-w-0 gap-0 overflow-hidden bg-card py-0 [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-2">
+    <Card role="region" aria-label="Upcoming race events" tabIndex={0} className="dashboard-events-card col-span-2 min-w-0 gap-0 bg-card py-0 [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-2">
       <CardContent className="space-y-3 px-0">
         {nextA ? (
           <>
@@ -188,8 +202,8 @@ export function EventsCard({ context }: { context: TrainingContext }) {
                 <DateFlag date={nextA.date} />
               </div>
               <div className="min-w-0 flex-1 pt-3">
-                <p className="min-w-0 text-base font-black uppercase leading-tight">{nextA.name}</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">{dateLabel(nextA.date, { weekday: "short", month: "long", day: "numeric", year: "numeric" })}</p>
+                <p title={nextA.name} className="line-clamp-2 min-w-0 text-base font-black uppercase leading-tight">{nextA.name}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">{dateLabel(nextA.date, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</p>
               </div>
               {countdown&&<div className="shrink-0 pt-2 text-center sm:hidden" aria-label={`${countdown.value} ${countdown.unit.toLowerCase()}${countdown.value===1?'':'s'} left`}>
                 <div className="flex justify-center gap-0.5">
@@ -209,7 +223,7 @@ export function EventsCard({ context }: { context: TrainingContext }) {
                 <div key={`${event.id}-${event.date}`} className="grid grid-cols-[3.5rem_1.25rem_minmax(0,1fr)] items-center gap-2 font-normal normal-case">
                   <span>{dateLabel(event.date, { month: "short", day: "2-digit" })}</span>
                   <span className="text-center">{event.priority || "—"}</span>
-                  <span className="truncate">{event.name}</span>
+                  <span title={event.name} className="truncate">{event.name}</span>
                 </div>
               ))}
             </div>
@@ -221,7 +235,7 @@ export function EventsCard({ context }: { context: TrainingContext }) {
               <div key={`${event.id}-${event.date}`} className="grid grid-cols-[3.5rem_1.25rem_minmax(0,1fr)] items-center gap-2 font-normal normal-case">
                 <span>{dateLabel(event.date, { month: "short", day: "2-digit" })}</span>
                 <span className="text-center">{event.priority || "—"}</span>
-                <span className="truncate">{event.name}</span>
+                <span title={event.name} className="truncate">{event.name}</span>
               </div>
             ))}</div>}
           </>

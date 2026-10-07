@@ -14,6 +14,8 @@ export type ReplayRoute = {
   timed: boolean
 }
 
+export const REPLAY_SPEED_OPTIONS = [0.5, 1, 2, 5, 10, 25, 50, 100] as const
+
 const finite = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value)
 const radians = (value: number) => (value * Math.PI) / 180
@@ -172,13 +174,16 @@ export function replayCameraBearing(
   tourSeconds = 60
 ) {
   if (headings.length < 2) return headings[0] ?? 0
-  const pace = Math.max(0.01, Math.min(10, (speed * 60) / tourSeconds))
+  const multiplier = finite(speed) && speed > 0 ? speed : 1
+  const duration = finite(tourSeconds) && tourSeconds > 0 ? tourSeconds : 60
+  const pace = Math.max(0.01, Math.min(10, (multiplier * 60) / duration))
   const radius = Math.max(
     1 / (headings.length - 1),
     Math.min(0.18, 0.04 * pace)
   )
   const center =
-    Math.max(0, Math.min(1, progress)) + Math.min(0.07, 0.012 * pace)
+    Math.max(0, Math.min(1, finite(progress) ? progress : 0)) +
+    Math.min(0.07, 0.012 * pace)
   const intervals = headings.length - 1
   let sum = 0,
     weights = 0
@@ -194,13 +199,53 @@ export function replayCameraBearing(
   return weights ? sum / weights : headings[0]
 }
 
-/** Long rides need enough time for both the scenery and map tiles to keep up. */
+/** A ride's length can add detail, but never turn the default preview into a long wait. */
 export function replayTourSeconds(route: ReplayRoute) {
-  return Math.max(
-    60,
-    route.timed ? route.duration / 24 : 0,
-    (route.distances.at(-1) ?? 0) / 150
+  const recordedSeconds =
+    route.timed && finite(route.duration) ? Math.max(0, route.duration) : 0
+  const distance = route.distances.at(-1)
+  return Math.min(
+    120,
+    Math.max(
+      60,
+      recordedSeconds / 240,
+      finite(distance) ? Math.max(0, distance) / 1500 : 0
+    )
   )
+}
+
+/** Playback rates multiply the bounded tour, without changing recorded elapsed-time interpolation. */
+export function advanceReplayProgress(
+  progress: number,
+  elapsedMs: number,
+  tourSeconds: number,
+  speed = 1
+) {
+  const current = Math.max(0, Math.min(1, finite(progress) ? progress : 0))
+  if (
+    !finite(elapsedMs) ||
+    elapsedMs <= 0 ||
+    !finite(tourSeconds) ||
+    tourSeconds <= 0 ||
+    !finite(speed) ||
+    speed <= 0
+  )
+    return current
+  return Math.min(1, current + ((elapsedMs / 1000) * speed) / tourSeconds)
+}
+
+export function replayDurationLabel(tourSeconds: number, speed = 1) {
+  if (!finite(tourSeconds) || tourSeconds < 0 || !finite(speed) || speed <= 0)
+    return "—"
+  const duration = tourSeconds / speed
+  if (!finite(duration)) return "—"
+  if (duration < 10) return `${Number(duration.toFixed(1))}s`
+  const seconds = Math.round(duration)
+  const minutes = Math.floor(seconds / 60),
+    remainder = seconds % 60
+  return minutes
+    ? `${minutes}m${remainder ? ` ${remainder}s` : ""}`
+    : `${seconds}s`
 }
 
 /** One bounded, date-line-safe GPU route; no per-frame GeoJSON rebuilds. */

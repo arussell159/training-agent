@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode, type ComponentProps } from "react"
+import { useLayoutEffect, useRef, type ReactNode, type ComponentProps } from "react"
 import { f7, Navbar, NavLeft, NavRight, NavTitle } from "framework7-react"
 import { ChevronLeft } from "lucide-react"
 import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
@@ -38,11 +38,14 @@ export function MobileSiteNavbar({
 }) {
   const mobile = useIsMobile()
   const header = useRef<HTMLElement>(null)
-  useEffect(() => {
+  useLayoutEffect(() => {
     const navbar = header.current?.querySelector<HTMLElement>(".navbar")
     if (!mobile || !navbar) return
-    // Re-center after fonts, page content or viewport changes alter available width.
-    const observer = new ResizeObserver(() => f7?.navbar.size(navbar))
+    // Center before first paint, then only when an actual control width changes.
+    const resize = () => f7?.navbar?.size(navbar)
+    resize()
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(resize)
     observer.observe(navbar)
     navbar
       .querySelectorAll(".title, .left, .right")

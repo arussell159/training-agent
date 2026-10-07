@@ -4,13 +4,13 @@ import { createFatSecretDiary } from './lib/fatsecret-diary.mjs';
 import { createFatSecretDiaryStore } from './lib/fatsecret-diary-store.mjs';
 import { createFoodCatalog } from './lib/nutrition-fatsecret.mjs';
 import {athleteLocalDate} from './lib/athlete-date.mjs';
-import { createWebhookSync, freshWebhookState, secretMatches } from './lib/intervals-webhook.mjs';
-import { createIntervalsOAuth, freshIntervalsOAuth, intervalsOrigin } from './lib/intervals-oauth.mjs';
-import { cachedTrainingUpdates } from './lib/cached-training-updates.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { createWebhookSync, freshWebhookState, secretMatches } from './lib/intervals-webhook.mjs';
+import { createIntervalsOAuth, freshIntervalsOAuth, intervalsOrigin } from './lib/intervals-oauth.mjs';
+import { cachedTrainingUpdates } from './lib/cached-training-updates.mjs';
 import { createCoachHttp } from './lib/coach-http.mjs';
 import { createNutritionHttp } from './lib/nutrition-http.mjs';
 import { createNutritionStore } from './lib/nutrition-model.mjs';
@@ -40,12 +40,15 @@ import {loadActivityBundle,loadActivityView} from './lib/activity-bundle.mjs';
 import {saveFastView,fastViewId,projectTrainingContext} from './lib/fast-context.mjs';
 import {retainRecentTrainingContext,twelveWeekStart} from './lib/training-retention.mjs';
 import {buildTwelveWeekTrainingHistory} from './lib/training-history.mjs';
-import {createMutationQueue,validateMutation,pendingMutationContext} from './lib/mutation-queue.mjs';
+import {createMutationQueue,validateMutation} from './lib/mutation-queue.mjs';
+import {createMutationProjection} from './lib/mutation-projection.mjs';
+import {withDirectWorkoutWrite,reconcileDirectWorkoutWrite} from './lib/direct-workout-write.mjs';
+import {preserveQueuedSnapshot} from './lib/queued-snapshot.mjs';
 import {createRequestCache} from './lib/request-cache.mjs';
 import {compressAsset} from './lib/asset-compression.mjs';
 import {createTrainingUpdates} from './lib/training-updates.mjs';
 import {contentFingerprint} from './lib/content-fingerprint.mjs';
-import {updateWorkoutDescription} from './lib/workout-description.mjs';
+import {updateWorkoutDescription,DEFINITION_MARKER} from './lib/workout-description.mjs';
 import {loadWorkoutEditor,saveWorkoutEditor,loadNewWorkoutEditor,createWorkoutEditor,workoutRevision} from './lib/workout-editor.mjs';
 import {expandSteps,stepMetrics,workoutTotals,serializeWorkout,validateWorkout,distanceFactors} from './lib/workout-editor-model.mjs';
 import {applyCompletionConfirmation} from './lib/completion-confirmation.mjs';
@@ -145,10 +148,17 @@ const uiDistPath = path.resolve(__dirname, '..', 'ui', 'dist');
 const intervalsCachePath = path.join(process.env.VERCEL ? '/tmp' : __dirname, 'intervals.cache');
 const localEditCacheFlagPath = path.join(__dirname, 'local-edit-cache.enabled');
 let completionConfirmation=null;
+let completionConfirmationPromise;
 let localEditCacheOnDisk = false;
 try { await fs.access(localEditCacheFlagPath); localEditCacheOnDisk = !process.env.VERCEL; } catch {}
-if (!localEditCacheOnDisk) {
-  try{completionConfirmation=await readDurableState('COMPLETION_CONFIRMATION',path.join(__dirname,'completion-confirmation.cache'),null);}catch(error){console.error('Completion confirmation unavailable:',error.message);}
+async function loadCompletionConfirmation() {
+  if (localEditCacheOnDisk) return;
+  // Static assets, sign-in and prepared startup views must never wait on a
+  // separate database request while the server module is loading.
+  completionConfirmationPromise ||= readDurableState('COMPLETION_CONFIRMATION',path.join(__dirname,'completion-confirmation.cache'),null)
+    .then(value=>{completionConfirmation=value;})
+    .catch(error=>{updateLogs(`Completion confirmation unavailable: ${error.message}`);});
+  await completionConfirmationPromise;
 }
 
 const serverState = {
@@ -195,7 +205,7 @@ async function handleIntervalsWebhook(req,res) {
  }
  try {
   if(!config.INTERVALS_API_KEY) {
-   sendWebhookJson(res,503,{error:"The server's Intervals.icu API connection is not configured."});
+   sendWebhookJson(res,503,{error:'Connect Intervals.icu in app Settings before enabling webhook refreshes.'});
    return;
   }
   const view=await createContextStore(config).getSyncRecord(fastViewId(config));
@@ -411,16 +421,18 @@ export async function persistTrainingContext(config, context, {archiveActivities
   if (changedCommentRows.length) await store.upsert('athlete_comments', changedCommentRows);
   const syncedAt = context.synced_at || new Date().toISOString();
   if (contextChanged || archiveStateChanged) {
-    await store.upsert('sync_state', [{
+    const savedSnapshot=await store.updateSyncRecord(athleteId,(current,revision)=>({
       athlete_id:athleteId,
       last_backfill_at:new Date().toISOString(),
       cursor:{
-        context:{
+        context:{...preserveQueuedSnapshot(current?.cursor?.context?.provider_connection===providerConnection(config)?current.cursor.context:null,{
           provider:'intervals',
           provider_connection:providerConnection(config),
+          queue_snapshot_revision:context.queue_snapshot_revision,
           cached_ranges:context.cached_ranges || [],
           archived_activity_versions:archivedVersions,
           app_deleted_workouts:context.app_deleted_workouts || {},
+          sync_started_at:context.sync_started_at,
           athlete:context.athlete,
           metrics:context.metrics,
           wellness:context.wellness,
@@ -432,14 +444,16 @@ export async function persistTrainingContext(config, context, {archiveActivities
           library:context.library || [],
           synced_at:syncedAt,
           retention_days:90,
-        },
+        }),queue_snapshot_revision:revision},
       },
       status:'ready',
       error:null,
       updated_at:new Date().toISOString(),
-    }]);
+    }));
+    context=savedSnapshot.cursor.context;
   }
-  // Retry prepared-view persistence even if the provider snapshot already saved.
+  // Heal a partially failed earlier sync even when the provider content has not
+  // changed. Equal snapshot revisions make existing view writes a no-op.
   await saveFastView(config,store,context);
   // Retention maintenance is throttled; unchanged checks should not issue writes.
   if (contextChanged && Date.now()-lastTrainingPruneAt>86400000) {
@@ -464,13 +478,14 @@ async function loadSupabaseTrainingSnapshot(config, athleteId = null) {
   }
 }
 
-async function saveVerifiedSnapshot(config,context) {
+async function saveVerifiedSnapshot(config,context,{verifiedIds=[]}={}) {
   if(!context)throw Error('The workout was verified in Intervals.icu but the saved calendar is unavailable. Refresh before retrying.');
   const store=createContextStore(config,updateLogs);
   context=retainRecentTrainingContext({...context,provider_connection:providerConnection(config)});
-  await store.upsert('sync_state',[{athlete_id:String(context.athlete.id),status:'ready',cursor:{context},updated_at:new Date().toISOString()}]);
-  await saveFastView(config,store,context);
-  return projectTrainingContext(context,'full');
+  const saved=await store.updateSyncRecord(String(context.athlete.id),(current,revision)=>({
+    status:'ready',cursor:{context:{...preserveQueuedSnapshot(current?.cursor?.context?.provider_connection===providerConnection(config)?current.cursor.context:null,context,{verifiedIds}),queue_snapshot_revision:revision}},
+  }));
+  return saveFastView(config,store,saved.cursor.context);
 }
 
 function applyVerifiedEvent(context,id,result,action) {
@@ -573,23 +588,43 @@ async function syncRecentTraining(config,{force=false,onProgress}={}) {
 }
 
 async function flushMutations(config,retryFailed=false) {
-  const queue=createMutationQueue(config,createContextStore(config));
-  return queue.drain(async mutation=>{
-    const request=intervalsClient(config);
+  const store=createContextStore(config);
+  const queue=createMutationQueue(config,store);
+  const projection=createMutationProjection(config,store);
+  const saveState=(mutation,status,result={},sequence)=>projection.status(mutation,status,result,sequence);
+  return queue.drain(async(mutation,job)=>{
+    const source=intervalsClient(config);
+    let writeAttempted=false;
+    const request=async(path,options={})=>{
+      const writing=(options.method || 'GET').toUpperCase()!=='GET';
+      if(writing)writeAttempted=true;
+      try{return await source(path,options);}catch(error){
+        if(!writeAttempted)error.beforeWrite=true;
+        else if(writing && error.status>=400 && error.status<500)error.writeRejected=true;
+        throw error;
+      }
+    };
     try {
+      // A claim cannot reach the provider before its durable projection exists.
+      try{await projection.pending(job);}catch(error){error.beforeWrite=true;throw error;}
       const result=mutation.type==='move'?await moveIntervalsEvent(request,mutation.id,mutation.date):await updateWorkoutDescription(request,mutation.id,mutation.description);
-      const snapshot=await loadSupabaseTrainingSnapshot(config);
-      const map=workout=>{
-        if(workout.sync_operation!==mutation.operationId)return workout;
-        return {...workout,...(mutation.type==='move'?{raw:result.event}:{}),sync_status:'synced',sync_operation:null,app_updated_at:new Date().toISOString()};
-      };
-      await saveVerifiedSnapshot(config,{...snapshot,history:snapshot.history.map(map),planned:snapshot.planned.map(map)});
+      await saveState(mutation,'synced',result,job.sequence);
     }catch(error){
-      const snapshot=await loadSupabaseTrainingSnapshot(config);
-      if(snapshot){const map=w=>w.sync_operation===mutation.operationId?{...w,sync_status:'failed'}:w;await saveVerifiedSnapshot(config,{...snapshot,history:snapshot.history.map(map),planned:snapshot.planned.map(map)});}
+      // Keep the durable optimistic edit visible while an uncertain outcome is
+      // reconciled. An older claim never changes the status of a newer edit.
+      await saveState(mutation,error.beforeWrite || error.writeRejected?'failed':'pending',{},job.sequence).catch(()=>{});
       throw error;
     }
-  },{retryFailed});
+  },{retryFailed,reconcileDirect:claim=>reconcileDirectWorkoutWrite(claim,createIntervalsClient(config)),reconcile:async(mutation,job)=>{
+    // Manual refresh can confirm a timed-out edit; it cannot replay its write.
+    const [kind,id]=mutation.id.split(':');
+    const event=await createIntervalsClient(config)(kind==='event'?`/athlete/0/events/${id}`:`/activity/${id}`);
+    const confirmed=mutation.type==='move'
+      ?String(event.start_date_local || '').slice(0,10)===mutation.date
+      :String(event.description || '').split(DEFINITION_MARKER)[0]===mutation.description;
+    if(confirmed)await saveState(mutation,'synced',{event},job.sequence);
+    return confirmed;
+  }});
 }
 
 function isoDate(date) {
@@ -612,7 +647,7 @@ async function fetchIntervalsTrainingContext(config, {force = false, timeZone = 
   if (!config.INTERVALS_API_KEY) throw new Error('Connect Intervals.icu in Settings first');
   if(force)providerReads.clear();
   if (!range && !force && intervalsMemoryCache?.key === config.INTERVALS_API_KEY && Date.now() - intervalsMemoryCache.savedAt < 60_000) return intervalsMemoryCache.data;
-  const context = await fetchIntervalsContext(intervalsClient(config), {timeZone,range,includeFutureRaces,repairWorkoutLinks,onProgress});
+  const context = await fetchIntervalsContext(intervalsClient(config), {timeZone,range,includeFutureRaces,repairWorkoutLinks,onProgress,withWorkoutWrite:(id,write)=>withDirectWorkoutWrite(config,id,write)});
   if(range)return context;
   intervalsMemoryCache = {savedAt:Date.now(),key:config.INTERVALS_API_KEY,data:context};
   try {await fs.writeFile(intervalsCachePath,JSON.stringify(context));}
@@ -620,7 +655,8 @@ async function fetchIntervalsTrainingContext(config, {force = false, timeZone = 
   return context;
 }
 
-function scopedTrainingContext(context, scope, today = new Date()) {
+async function scopedTrainingContext(context, scope, today = new Date()) {
+  await loadCompletionConfirmation();
   context = intervalsOnlyContext(context);
   context = applyCompletionConfirmation(context,completionConfirmation);
   if(context.source === 'supabase-cache') {
@@ -704,7 +740,7 @@ function readBody(req) {
       chunks.push(buffer);
     });
     req.on('error', fail);
-    req.on('aborted', () => fail(new Error('Request was interrupted')));
+    req.on('aborted', () => fail(Object.assign(new Error('Request was interrupted'), { statusCode: 400 })));
     req.on('end', () => {
       if (settled) return;
       settled = true;
@@ -814,7 +850,7 @@ async function saveLocalWorkoutMutation(mutation) {
   context.planned = [...sessions.values()].filter(item => item.workout_date >= today);
   context.source = 'local-edit-cache';
   await persistLocalEditCache(context);
-  return scopedTrainingContext({ ...context, sync_error: null, retention_days: 90 }, 'full');
+  return await scopedTrainingContext({ ...context, sync_error: null, retention_days: 90 }, 'full');
 }
 
 async function persistLocalEditCache(context) {
@@ -989,12 +1025,22 @@ export async function handleRequest(req, res) {
         const category=`RACE_${String(planEvent.priority || '').toUpperCase()}`;
         const matching=Array.isArray(sameDay)?sameDay.filter(event=>String(event.category || '')===category):[];
         const ids=[...new Set([eventIdValue,...matching.map(event=>`event:${event.id}`)])];
-        for(const id of ids)deletedResults.push(await changeIntervalsEvent(request,id,'delete'));
+        for(const id of ids)deletedResults.push(await withDirectWorkoutWrite(config,id,async(claimed)=>{
+          const deleted=await changeIntervalsEvent(claimed,id,'delete');
+          const saved=await loadSupabaseTrainingSnapshot(config);
+          if(saved)await saveVerifiedSnapshot(config,applyVerifiedEvent(saved,id,deleted,'delete'),{verifiedIds:[id]});
+          return deleted;
+        }));
         result=deletedResults.find(item=>item.workoutId===eventIdValue) || deletedResults[0];
         nextEvents=existing.events.filter(event=>event.id!==eventIdValue);
       } else {
         const payload=await readBody(req),priority=String(payload.priority || '').toUpperCase(),name=String(payload.name || '').trim(),eventDate=validDate(payload.date);
-        providerEvent=await updateIntervalsRaceEvent(request,eventIdValue,{name,date:eventDate,priority});
+        providerEvent=await withDirectWorkoutWrite(config,eventIdValue,async(claimed)=>{
+          const event=await updateIntervalsRaceEvent(claimed,eventIdValue,{name,date:eventDate,priority});
+          const saved=await loadSupabaseTrainingSnapshot(config);
+          if(saved)await saveVerifiedSnapshot(config,applyVerifiedEvent(saved,eventIdValue,{event},'update'),{verifiedIds:[eventIdValue]});
+          return event;
+        });
         result={workoutId:eventIdValue,verified:true,action:'update',event:providerEvent};
         nextEvents=existing.events.map(event=>event.id===eventIdValue?{...event,name,date:eventDate,priority}:event);
       }
@@ -1031,15 +1077,16 @@ export async function handleRequest(req, res) {
       const config=await readConfig();
       const snapshot=await loadSupabaseTrainingSnapshot(config);
       if(!snapshot)throw Error('Load the saved calendar before editing');
-      const pending=pendingMutationContext(snapshot,mutation);
-      const job=await createMutationQueue(config,createContextStore(config)).enqueue(mutation);
-      const context=job.state==='synced'?projectTrainingContext(snapshot,'full'):await saveVerifiedSnapshot(config,pending);
-      sendJson(req,res,{queued:job.state!=='synced',verified:job.state==='synced',context,operationId:mutation.operationId});return;
+      const store=createContextStore(config);
+      const job=await createMutationQueue(config,store).enqueue(mutation);
+      if(job.state==='superseded')throw Object.assign(Error('This edit was replaced by a newer saved edit.'),{status:409});
+      const context=job.state==='synced'?projectTrainingContext(snapshot,'full'):await createMutationProjection(config,store).pending(job);
+      sendJson(req,res,{queued:job.state!=='synced',verified:job.state==='synced',state:job.state,context,operationId:mutation.operationId});return;
     }
     if(pathname==='/api/training-updates' && req.method==='GET') {
       if(await localEditCacheEnabled(req)) {
         const cached=await readIntervalsCache();
-        sendJson(req,res,{context:scopedTrainingContext(cached,'full'),sourceChanged:false});return;
+        sendJson(req,res,{context:await scopedTrainingContext(cached,'full'),sourceChanged:false});return;
       }
       const config=await readConfig();
       sendJson(req,res,await cachedTrainingUpdates({
@@ -1073,7 +1120,7 @@ export async function handleRequest(req, res) {
         const cached = await readIntervalsCache();
         if (cached) {
           sendJson(req, res, {
-            context:scopedTrainingContext({ ...local, ...cached, comments:local.comments, library:local.library, source:'local-edit-cache', sync_error:null, retention_days:90 }, 'week'),
+            context:await scopedTrainingContext({ ...local, ...cached, comments:local.comments, library:local.library, source:'local-edit-cache', sync_error:null, retention_days:90 }, 'week'),
             queue:{ failed:0 }, sourceChanged:false, checked_at:new Date().toISOString(), localEditCache:true,
           });
           return;
@@ -1108,6 +1155,8 @@ export async function handleRequest(req, res) {
       const queue=await flushMutations(config,requestUrl.searchParams.get('retry')==='1');
       try {
         const {context,sourceChanged}=await syncRecentTraining(config,{force:forceIntervals,onProgress:reportProgress});
+        const remaining=await createMutationQueue(config,createContextStore(config)).summary();
+        Object.assign(queue,remaining,{synced:queue.synced});
         // Compare with the last exported version, not just this request's source
         // delta: another page may already have saved the new Intervals data.
         const section11Sync=await ensureSection11Export(config,context,{force:forceIntervals,requestId:syncId});
@@ -1145,7 +1194,7 @@ export async function handleRequest(req, res) {
           if (end < start || new Date(end) - new Date(start) > 31 * 86400000) throw new Error('Calendar range must be between 1 and 32 days.');
           scope = { start, end };
         }
-        sendJson(req, res, scopedTrainingContext({ ...local, ...cached, comments:local.comments, library:local.library, source:'local-edit-cache', sync_error:null, retention_days:90 }, scope));
+        sendJson(req, res, await scopedTrainingContext({ ...local, ...cached, comments:local.comments, library:local.library, source:'local-edit-cache', sync_error:null, retention_days:90 }, scope));
         return;
       }
       const config=await readConfig(),store=createContextStore(config);
@@ -1360,7 +1409,7 @@ export async function handleRequest(req, res) {
             if (end < start || new Date(end) - new Date(start) > 31 * 86400000) throw new Error('Calendar range must be between 1 and 32 days.');
             scope = { start, end };
           }
-          sendJson(req, res, scopedTrainingContext({ ...local, ...cached, comments:local.comments, library:local.library, source:'local-edit-cache', sync_error:null, retention_days:90 }, scope));
+          sendJson(req, res, await scopedTrainingContext({ ...local, ...cached, comments:local.comments, library:local.library, source:'local-edit-cache', sync_error:null, retention_days:90 }, scope));
           return;
         }
         res.writeHead(503, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
@@ -1384,7 +1433,7 @@ export async function handleRequest(req, res) {
       if (config.INTERVALS_API_KEY) {
         const saved = await loadSupabaseTrainingSnapshot(config,local.athlete?.id);
         if (saved && !forceRefresh && snapshotCoversRange(saved,typeof contextScope === 'object' ? contextScope : null)) {
-          sendJson(req,res,scopedTrainingContext({...local,...saved,athlete:athleteWithRace(saved.athlete),comments:local.comments,library:local.library},contextScope));
+          sendJson(req,res,await scopedTrainingContext({...local,...saved,athlete:athleteWithRace(saved.athlete),comments:local.comments,library:local.library},contextScope));
           return;
         }
         try {
@@ -1404,24 +1453,24 @@ export async function handleRequest(req, res) {
           } catch (error) {
             updateLogs(`context write failed: ${error.message}`);
           }
-          sendJson(req,res,scopedTrainingContext(liveContext, contextScope));
+          sendJson(req,res,await scopedTrainingContext(liveContext, contextScope));
           return;
         } catch (error) {
           updateLogs(`Intervals.icu sync failed: ${error.message}`);
           const remote = await loadSupabaseTrainingSnapshot(config, local.athlete?.id);
           if (remote) {
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
-            res.end(JSON.stringify(scopedTrainingContext({ ...local, ...remote, athlete:athleteWithRace(remote.athlete), sync_error:error.message }, contextScope)));
+            res.end(JSON.stringify(await scopedTrainingContext({ ...local, ...remote, athlete:athleteWithRace(remote.athlete), sync_error:error.message }, contextScope)));
             return;
           }
           try {
             const cached = JSON.parse(await fs.readFile(intervalsCachePath, 'utf8'));
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
-            res.end(JSON.stringify(scopedTrainingContext({ ...local, ...cached, athlete:athleteWithRace(cached.athlete), comments:local.comments, library:local.library, source:'intervals-cache', sync_error:error.message }, contextScope)));
+            res.end(JSON.stringify(await scopedTrainingContext({ ...local, ...cached, athlete:athleteWithRace(cached.athlete), comments:local.comments, library:local.library, source:'intervals-cache', sync_error:error.message }, contextScope)));
             return;
           } catch {
             res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
-            res.end(JSON.stringify(scopedTrainingContext({ ...local, athlete:athleteWithRace(local.athlete), source:'local-fallback', sync_error:error.message, retention_days:90 }, contextScope)));
+            res.end(JSON.stringify(await scopedTrainingContext({ ...local, athlete:athleteWithRace(local.athlete), source:'local-fallback', sync_error:error.message, retention_days:90 }, contextScope)));
             return;
           }
         }
@@ -1432,17 +1481,17 @@ export async function handleRequest(req, res) {
       const remote = await loadSupabaseTrainingSnapshot(config, local.athlete?.id);
       if (remote) {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control':'no-store' });
-        res.end(JSON.stringify(scopedTrainingContext({ ...local, ...remote, athlete:athleteWithRace(remote.athlete) }, contextScope)));
+        res.end(JSON.stringify(await scopedTrainingContext({ ...local, ...remote, athlete:athleteWithRace(remote.athlete) }, contextScope)));
         return;
       }
       const cachedIntervals = await readIntervalsCache();
       if (cachedIntervals) {
         res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'no-store' });
-        res.end(JSON.stringify(scopedTrainingContext({ ...local, ...cachedIntervals, athlete:athleteWithRace(cachedIntervals.athlete), comments:local.comments, library:local.library, source:'intervals-cache', sync_error:null }, contextScope)));
+        res.end(JSON.stringify(await scopedTrainingContext({ ...local, ...cachedIntervals, athlete:athleteWithRace(cachedIntervals.athlete), comments:local.comments, library:local.library, source:'intervals-cache', sync_error:null }, contextScope)));
         return;
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(scopedTrainingContext({ ...local, athlete:{...athleteWithRace(local.athlete),zones:{}}, history:[],planned:[],metrics:{fitness:null,fatigue:null,form:null},wellness:{},source:'not-connected',sync_error:'Connect Intervals.icu in Settings to load your training.', retention_days:90 }, contextScope)));
+      res.end(JSON.stringify(await scopedTrainingContext({ ...local, athlete:{...athleteWithRace(local.athlete),zones:{}}, history:[],planned:[],metrics:{fitness:null,fatigue:null,form:null},wellness:{},source:'not-connected',sync_error:'Connect Intervals.icu in Settings to load your training.', retention_days:90 }, contextScope)));
       return;
     }
 
@@ -1530,7 +1579,7 @@ export async function handleRequest(req, res) {
           cache.source = 'local-edit-cache';
           cache.synced_at = event.updated;
           await persistLocalEditCache(cache);
-          const context = scopedTrainingContext({ ...cache, sync_error: null, retention_days: 90 }, 'full');
+          const context = await scopedTrainingContext({ ...cache, sync_error: null, retention_days: 90 }, 'full');
           sendJson(req, res, {
             workoutId: id,
             event,
@@ -1549,7 +1598,9 @@ export async function handleRequest(req, res) {
       const config=await readConfig(),request=createIntervalsClient(config);
       try {
         if(req.method==='GET'){sendJson(req,res,await loadWorkoutEditor(request,id));return;}
-        const result=await saveWorkoutEditor(request,id,await readBody(req),providerConnection(config));
+        const input=await readBody(req);
+        const result=await withDirectWorkoutWrite(config,id,async(request)=>{
+        const result=await saveWorkoutEditor(request,id,input,providerConnection(config));
         if (String(result.event.external_id || '').startsWith('training-agent:editor:')) {
           try { result.libraryWorkout=await saveLibraryWorkout(request,result.event); }
           catch(error) { result.refreshWarning='The calendar workout is saved. Its library copy could not be verified; save again to retry.'; }
@@ -1563,23 +1614,28 @@ export async function handleRequest(req, res) {
           if(snapshot){
             const context={...applyVerifiedEvent(snapshot,id,result,'edit'),provider:'intervals',provider_connection:providerConnection(config)};
             result.workout=[...context.history,...context.planned].find(w=>w.id===id);
-            result.context=await saveVerifiedSnapshot(config,context);
+            result.context=await saveVerifiedSnapshot(config,context,{verifiedIds:[id]});
             await fs.writeFile(intervalsCachePath,JSON.stringify(context));
           }
         } catch(error) { result.refreshWarning='Saved and verified in Intervals.icu; the durable calendar refresh is pending. Refresh the calendar to retry.';updateLogs(`Workout editor context refresh pending: ${error.message}`); }
+        return result;
+        });
         sendJson(req,res,result);return;
       } catch(error) {res.writeHead(error.status || 500,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code || 'PROVIDER_ERROR'}));return;}
     }
 
     if(pathname==='/api/calendar/workout-description' && req.method==='POST'){
       const config=await readConfig(),{id,description}=await readBody(req);
-      const result=await updateWorkoutDescription(intervalsClient(config),id,description);
+      const result=await withDirectWorkoutWrite(config,id,async(request)=>{
+      const result=await updateWorkoutDescription(request,id,description);
       intervalsMemoryCache=null;
       const snapshot=await loadSupabaseTrainingSnapshot(config);
       if(snapshot){
         const map=w=>w.id===id?{...w,details:description,goal:description,app_updated_at:new Date().toISOString()}:w;
-        result.context=await saveVerifiedSnapshot(config,{...snapshot,history:snapshot.history.map(map),planned:snapshot.planned.map(map)});
+        result.context=await saveVerifiedSnapshot(config,{...snapshot,history:snapshot.history.map(map),planned:snapshot.planned.map(map)},{verifiedIds:[id]});
       }
+      return result;
+      });
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(result));return;
     }
     const routeMap=pathname.match(/^\/api\/activities\/(i\d+|\d+)\/route$/);
@@ -1616,7 +1672,12 @@ export async function handleRequest(req, res) {
       const events = (await request(`/athlete/0/events?oldest=${date}&newest=${date}`) || []).filter(e => String(e.start_date_local).slice(0,10) === date);
       const results = [], failures = [];
       for (const event of events) {
-        try {results.push(await changeIntervalsEvent(request,`event:${event.id}`,action));}
+        try {results.push(await (action==='delete'?withDirectWorkoutWrite(config,`event:${event.id}`,async(claimed)=>{
+          const result=await changeIntervalsEvent(claimed,`event:${event.id}`,action);
+          const saved=await loadSupabaseTrainingSnapshot(config);
+          if(saved)await saveVerifiedSnapshot(config,applyVerifiedEvent(saved,result.workoutId,result,action),{verifiedIds:[result.workoutId]});
+          return result;
+        }):changeIntervalsEvent(request,`event:${event.id}`,action)));}
         catch(error) {failures.push({workoutId:`event:${event.id}`,error:error.message});break;}
       }
       intervalsMemoryCache = null;
@@ -1636,14 +1697,18 @@ export async function handleRequest(req, res) {
       const request = intervalsClient(config);
       const action = calendarAction?.[2] || 'delete';
       const payload = action === 'move' ? await readBody(req) : {};
+      const apply=async(request)=>{
       const result = action === 'move'
         ? await moveIntervalsEvent(request,id,payload.date)
         : await changeIntervalsEvent(request,id,action);
       intervalsMemoryCache = null;
       const snapshot=await loadSupabaseTrainingSnapshot(config);
-      const context=snapshot?await saveVerifiedSnapshot(config,applyVerifiedEvent(snapshot,id,result,action)):null;
+      const context=snapshot?await saveVerifiedSnapshot(config,applyVerifiedEvent(snapshot,id,result,action),{verifiedIds:action==='copy'?[]:[id]}):null;
+      return {...result,context};
+      };
+      const result=action==='copy'?await apply(request):await withDirectWorkoutWrite(config,id,apply);
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-      res.end(JSON.stringify({...result,context}));
+      res.end(JSON.stringify(result));
       return;
     }
 
@@ -1741,7 +1806,8 @@ export async function handleRequest(req, res) {
       res.end();
       return;
     }
-    res.writeHead(error.statusCode || 500, { 'Content-Type': 'application/json' });
+    const status = error.statusCode || error.status;
+    res.writeHead(Number.isInteger(status) && status >= 400 && status <= 599 ? status : 500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ error: error.message }));
   }
 }

@@ -15,12 +15,14 @@ const colors = { protein: "#ed7d83", carbs: "#e6ae45", fat: "#7198e1" }
 export function MacroBars({
   totals,
   targets,
+  loading = false,
 }: {
   totals: Record<Nutrient, number>
   targets: Targets
+  loading?: boolean
 }) {
   return (
-    <div className="grid min-h-[59px] grid-cols-3 gap-4">
+    <div className="grid min-h-[59px] grid-cols-3 gap-4" aria-busy={loading || undefined} aria-label={loading ? "Loading macros" : undefined}>
       {(["protein", "carbs", "fat"] as const).map((key) => (
         <div key={key} className="min-w-0">
           <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -30,18 +32,22 @@ export function MacroBars({
             />
             {key[0].toUpperCase() + key.slice(1)}
           </p>
-          <p className="mt-1 text-base font-semibold tabular-nums">
-            {displayNutrient(totals[key])}
-            <span className="text-[11px] font-normal text-muted-foreground">
-              {targets[key] != null
-                ? ` / ${displayNutrient(targets[key])}`
-                : ""}{" "}
-              g
-            </span>
-          </p>
+          <div className="mt-1 flex h-6 items-center text-base font-semibold tabular-nums">
+            {loading ? <Skeleton className="h-5 w-16" /> : (
+              <span className="truncate whitespace-nowrap">
+                {displayNutrient(totals[key])}
+                <span className="text-[11px] font-normal text-muted-foreground">
+                  {targets[key] != null
+                    ? ` / ${displayNutrient(targets[key])}`
+                    : ""}{" "}
+                  g
+                </span>
+              </span>
+            )}
+          </div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full transition-[width] duration-300"
+              className="h-full rounded-full"
               style={{
                 background: colors[key],
                 width: `${targets[key] ? Math.min(100, (totals[key] / targets[key]!) * 100) : 0}%`,
@@ -71,7 +77,7 @@ export function NutritionHomeCard({ date }: { date: string }) {
   return (
     <div
       data-slot="card"
-      className="group relative col-span-2 rounded-[22px] border bg-card p-4 text-left shadow-sm transition-shadow hover:shadow-md lg:col-span-6 lg:col-start-7"
+      className="dashboard-nutrition-card group relative col-span-2 rounded-[22px] border bg-card p-4 text-left shadow-sm transition-shadow hover:shadow-md lg:col-span-6 lg:col-start-7"
     >
       <button
         type="button"
@@ -88,14 +94,16 @@ export function NutritionHomeCard({ date }: { date: string }) {
             Nutrition
           </span>
         </div>
-        <div className="mb-4 flex items-baseline justify-between gap-3">
-          <div className="text-2xl leading-8 font-semibold tabular-nums">
-            {data ? displayNutrient(totals.calories) : error ? "—" : <Skeleton className="inline-block h-6 w-20 align-middle" />}
-            <span className="ml-1 text-xs font-normal text-muted-foreground">
+        <div className="mb-4 flex h-8 items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-1 whitespace-nowrap text-2xl leading-8 font-semibold tabular-nums">
+            <span className="inline-flex h-8 w-20 shrink-0 items-center overflow-hidden">
+              {data ? displayNutrient(totals.calories) : error ? "—" : <Skeleton className="h-6 w-20" />}
+            </span>
+            <span className="text-xs font-normal text-muted-foreground">
               kcal eaten
             </span>
           </div>
-          <div className="text-right text-xs text-muted-foreground">
+          <div className="w-24 shrink-0 truncate text-right text-xs text-muted-foreground">
             {error
               ? "Tap to retry"
               : goal != null
@@ -105,7 +113,8 @@ export function NutritionHomeCard({ date }: { date: string }) {
                   : <Skeleton className="h-3 w-20" />}
           </div>
         </div>
-        {!data && !error ? <div className="grid min-h-[59px] grid-cols-3 gap-4" aria-label="Loading macros">{[0, 1, 2].map(i => <div key={i} className="space-y-2"><Skeleton className="h-3 w-14" /><Skeleton className="h-5 w-16" /><Skeleton className="h-1.5 w-full" /></div>)}</div> : <MacroBars
+        <MacroBars
+          loading={!data && !error}
           totals={totals}
           targets={
             data
@@ -118,7 +127,7 @@ export function NutritionHomeCard({ date }: { date: string }) {
                   fiber: null,
                 }
           }
-        />}
+        />
       </div>
       <Button
         type="button"

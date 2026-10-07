@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api-client"
+import { withRequestDeadline } from "./request-deadline"
 
 export type CoachSource = {
   dataRevision: string
@@ -85,7 +86,9 @@ export async function coachRequest(
   if (!response.ok) {
     const result = await response.json().catch(() => ({}))
     throw new CoachRequestError(
-      result.error || "The coach could not connect. Please try again.",
+      typeof result?.error === "string"
+        ? result.error
+        : "The coach could not connect. Please try again.",
       response.status
     )
   }
@@ -98,60 +101,103 @@ export async function askCoach(
   onStatus: (status: string) => void,
   onToken: (text: string) => void = () => {}
 ): Promise<CoachAnswer> {
-  const response = await coachRequest(
-    "message",
-    { messages: messages.map(({ role, content }) => ({ role, content })) },
-    signal
-  )
-  if (!response.headers.get("content-type")?.includes("text/event-stream"))
-    throw new CoachRequestError(
-      "The chat endpoint is unavailable. Check that the backend is running."
-    )
-  const reader = response.body?.getReader()
-  if (!reader)
-    throw new CoachRequestError("The coach returned an empty response.")
-  const decoder = new TextDecoder()
-  let buffer = ""
-  let answer: CoachAnswer | undefined
-  const cancelReader = () => {
-    void reader.cancel().catch(() => {})
-  }
-  signal.addEventListener("abort", cancelReader, { once: true })
-  try {
-    signal.throwIfAborted()
-    while (true) {
-      const { value, done } = await reader.read()
-      signal.throwIfAborted()
-      buffer += decoder.decode(value, { stream: !done })
-      let boundary
-      while ((boundary = buffer.indexOf("\n\n")) !== -1) {
-        const block = buffer.slice(0, boundary)
-        buffer = buffer.slice(boundary + 2)
-        const event = block
-          .split("\n")
-          .find((line) => line.startsWith("event: "))
-          ?.slice(7)
-        const raw = block
-          .split("\n")
-          .filter((line) => line.startsWith("data: "))
-          .map((line) => line.slice(6))
+  return withRequestDeadline(
+    async (requestSignal) => {
+      const response = await coachRequest(
+        "message",
+        { messages: messages.map(({ role, content }) => ({ role, content })) },
+        requestSignal
+      )
+      if (!response.headers.get("content-type")?.includes("text/event-stream"))
+        throw new CoachRequestError(
+          "The chat endpoint is unavailable. Check that the backend is running."
+        )
+      const reader = response.body?.getReader()
+      if (!reader)
+        throw new CoachRequestError("The coach returned an empty response.")
+      const decoder = new TextDecoder()
+      let buffer = ""
+      let trailingCarriageReturn = false
+      let answer: CoachAnswer | undefined
+      const processBlock = (block: string) => {
+        const lines = block.split("\n")
+        const event = lines
+          .find((line) => line.startsWith("event:"))
+          ?.slice(6)
+          .trim()
+        if (!event || !["error", "status", "token", "answer"].includes(event))
+          return
+        const raw = lines
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).replace(/^ /, ""))
           .join("\n")
-        if (!raw) continue
-        const data = JSON.parse(raw)
-        if (event === "error") throw new CoachRequestError(data.error)
+        if (!raw) return
+        let data
+        try {
+          data = JSON.parse(raw)
+        } catch {
+          throw new CoachRequestError(
+            "The coach sent an incomplete response. Your question is ready to retry."
+          )
+        }
+        if (!data || typeof data !== "object")
+          throw new CoachRequestError("The coach sent an incomplete response.")
+        if (event === "error")
+          throw new CoachRequestError(
+            typeof data.error === "string"
+              ? data.error
+              : "The coach could not complete this answer."
+          )
+        if (typeof data.text !== "string")
+          throw new CoachRequestError("The coach sent an incomplete response.")
         if (event === "status") onStatus(data.text)
         if (event === "token") onToken(data.text)
-        if (event === "answer") answer = data
+        if (event === "answer") {
+          if (!data.source || typeof data.source !== "object")
+            throw new CoachRequestError("The coach sent an incomplete answer.")
+          answer = data
+        }
       }
-      if (done) break
-    }
-  } finally {
-    signal.removeEventListener("abort", cancelReader)
-    void reader.cancel().catch(() => {})
-  }
-  if (!answer?.text)
-    throw new CoachRequestError(
-      "The connection ended before the answer arrived. Your question is ready to retry."
-    )
-  return answer
+      const cancelReader = () => {
+        void reader.cancel().catch(() => {})
+      }
+      requestSignal.addEventListener("abort", cancelReader, { once: true })
+      try {
+        requestSignal.throwIfAborted()
+        while (true) {
+          const { value, done } = await reader.read()
+          requestSignal.throwIfAborted()
+          let decoded: string =
+            (trailingCarriageReturn ? "\r" : "") +
+            decoder.decode(value, { stream: !done })
+          trailingCarriageReturn = !done && decoded.endsWith("\r")
+          if (trailingCarriageReturn) decoded = decoded.slice(0, -1)
+          buffer += decoded.replace(/\r\n?/g, "\n")
+          if (buffer.length > 1024 * 1024)
+            throw new CoachRequestError(
+              "The coach response was too large. Please retry."
+            )
+          let boundary
+          while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+            const block = buffer.slice(0, boundary)
+            buffer = buffer.slice(boundary + 2)
+            processBlock(block)
+          }
+          if (done && buffer.trim()) processBlock(buffer)
+          if (done || answer) break
+        }
+      } finally {
+        requestSignal.removeEventListener("abort", cancelReader)
+        void reader.cancel().catch(() => {})
+      }
+      if (!answer?.text)
+        throw new CoachRequestError(
+          "The connection ended before the answer arrived. Your question is ready to retry."
+        )
+      return answer
+    },
+    180_000,
+    signal,
+    "The coach took too long to answer. Your question is ready to retry."
+  )
 }

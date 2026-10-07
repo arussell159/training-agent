@@ -51,6 +51,7 @@ import {
   type TrainingContext,
 } from "@/lib/training-context"
 import { RaceMarkerIcon } from "@/components/race-events"
+import { validatedTrainingContext } from "@/lib/training-context-validation"
 
 type PlanSettings = {
   id?: string
@@ -217,7 +218,7 @@ function SeasonChart({ plan, actuals, selectedWeek, onSelect, glassBackground = 
   glassBackground?: boolean
 }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
-  const [chartLoaded, setChartLoaded] = useState(false)
+  const centeredPeriod=useRef<string | null>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
   const monthWidth = 96
   const monthKeys = useMemo(() => {
@@ -231,22 +232,22 @@ function SeasonChart({ plan, actuals, selectedWeek, onSelect, glassBackground = 
   }, [plan.endDate, plan.startDate])
   const chartWidth = Math.max(960, viewportWidth, monthKeys.length * monthWidth)
   const equalMonthWidth = chartWidth / monthKeys.length
-  const daysInMonth = (key: string) => {
+  const daysInMonth = useCallback((key: string) => {
     const [year, month] = key.split("-").map(Number)
     return new Date(Date.UTC(year, month, 0)).getUTCDate()
-  }
-  const nextDay = (value: string) => {
+  },[])
+  const nextDay = useCallback((value: string) => {
     const next = new Date(`${value}T12:00:00Z`)
     next.setUTCDate(next.getUTCDate() + 1)
     return next.toISOString().slice(0, 10)
-  }
-  const boundaryX = (value: string) => {
+  },[])
+  const boundaryX = useCallback((value: string) => {
     const parsed = new Date(`${value}T12:00:00Z`)
     const key = value.slice(0, 7)
     const monthIndex = monthKeys.indexOf(key)
     if (monthIndex < 0) return value < plan.startDate ? 0 : chartWidth
     return (monthIndex + (parsed.getUTCDate() - 1) / daysInMonth(key)) * equalMonthWidth
-  }
+  },[chartWidth,daysInMonth,equalMonthWidth,monthKeys,plan.startDate])
   const dateCenterX = (value: string) => boundaryX(value) + equalMonthWidth / daysInMonth(value.slice(0, 7)) / 2
   const values = plan.weeks.flatMap((week) => {
     const completed = actuals.get(week.id)?.completedHours
@@ -255,6 +256,7 @@ function SeasonChart({ plan, actuals, selectedWeek, onSelect, glassBackground = 
   const max = Math.max(1, ...values) * 1.1
   const today = iso(new Date())
   const currentWeek = plan.weeks.find((week) => today >= week.startDate && today <= week.endDate)
+  const currentWeekStart=currentWeek?.startDate,currentWeekEnd=currentWeek?.endDate
   const groups = plan.weeks.reduce<Array<{ phase: PlanPhase; startDate: string; endDate: string }>>((result, week) => {
     const previous = result.at(-1)
     if (previous?.phase === week.phase) previous.endDate = week.endDate
@@ -274,18 +276,19 @@ function SeasonChart({ plan, actuals, selectedWeek, onSelect, glassBackground = 
 
   useEffect(() => {
     const element = scrollerRef.current
-    if (!element || !currentWeek) return
-    const currentLeft = boundaryX(currentWeek.startDate)
-    const currentRight = boundaryX(nextDay(currentWeek.endDate))
+    if (!element || !currentWeekStart || !currentWeekEnd) return
+    const period=`${plan.id}:${currentWeekStart}:${currentWeekEnd}`
+    if(centeredPeriod.current===period)return
+    const currentLeft = boundaryX(currentWeekStart)
+    const currentRight = boundaryX(nextDay(currentWeekEnd))
     const currentX = (currentLeft + currentRight) / 2
-    requestAnimationFrame(() => { element.scrollLeft = Math.max(0, currentX - element.clientWidth / 2) })
-  }, [chartWidth, currentWeek, plan.id, plan.startDate, plan.endDate, today])
-
-  useEffect(() => {
-    setChartLoaded(false)
-    const frame = requestAnimationFrame(() => setChartLoaded(true))
-    return () => cancelAnimationFrame(frame)
-  }, [plan.id])
+    const frame=requestAnimationFrame(() => {
+      if(!element.isConnected || !element.clientWidth)return
+      centeredPeriod.current=period
+      element.scrollLeft = Math.max(0, currentX - element.clientWidth / 2)
+    })
+    return ()=>cancelAnimationFrame(frame)
+  }, [boundaryX,currentWeekEnd,currentWeekStart,nextDay,plan.id])
 
   return (
     <TooltipProvider>
@@ -297,7 +300,7 @@ function SeasonChart({ plan, actuals, selectedWeek, onSelect, glassBackground = 
           </div>
           <div className={`relative h-28 border-b border-r md:h-36 ${glassBackground ? "overflow-hidden rounded-b-[var(--calendar-picker-radius)] bg-transparent" : "bg-background"}`}>
             {monthKeys.map((key, index) => <span key={key} aria-hidden className={`absolute inset-y-0 border-l border-border ${glassBackground ? (index % 2 ? "bg-white/5 dark:bg-white/5" : "bg-transparent") : index % 2 ? "bg-muted/45" : "bg-background"}`} style={{ left: index * equalMonthWidth, width: equalMonthWidth }} />)}
-            {plan.weeks.map((week, index) => {
+            {plan.weeks.map((week) => {
               const completed = actuals.get(week.id)?.completedHours ?? null
               const events = plan.events.filter((event) => event.date >= week.startDate && event.date <= week.endDate)
               const weekLeft = boundaryX(week.startDate)
@@ -305,8 +308,8 @@ function SeasonChart({ plan, actuals, selectedWeek, onSelect, glassBackground = 
               return (
                 <Tooltip key={week.id}>
                   <TooltipTrigger render={<button type="button" />} onClick={() => onSelect(week.id)} style={{ left: weekLeft, width: Math.max(2, weekRight - weekLeft) }} className={`group absolute inset-y-0 z-10 outline-none hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-primary ${currentWeek?.id === week.id ? "bg-foreground/5" : ""} ${selectedWeek === week.id && currentWeek?.id !== week.id ? "ring-2 ring-inset ring-primary" : ""}`} aria-label={`${dateLabel(week.startDate)} planned ${clockHours(week.targetHours) || "not set"}, completed ${clockHours(completed) || "not recorded"}`}>
-                    {(week.targetHours ?? 0) > 0 && <span className={`absolute bottom-0 left-px transition-[height,opacity] duration-700 ease-out motion-reduce:transition-none ${currentWeek?.id === week.id ? "bg-slate-400 dark:bg-slate-500" : "bg-slate-300 group-hover:bg-slate-400 dark:bg-slate-600"}`} style={{ width: "calc(100% - 2px)", height: `${chartLoaded ? week.targetHours! / max * 100 : 0}%`, opacity: chartLoaded ? 1 : 0, transitionDelay: `${Math.min(index, 24) * 14}ms` }} />}
-                    {(completed ?? 0) > 0 && <span className="absolute bottom-0 left-px z-20 transition-[height,opacity] duration-700 ease-out motion-reduce:transition-none" style={{ width: "calc(100% - 2px)", height: `${chartLoaded ? completed! / max * 100 : 0}%`, opacity: chartLoaded ? 1 : 0, backgroundColor:PHASE_COLORS[week.phase], transitionDelay: `${Math.min(index, 24) * 14 + 90}ms` }} />}
+                    {(week.targetHours ?? 0) > 0 && <span className={`absolute bottom-0 left-px ${currentWeek?.id === week.id ? "bg-slate-400 dark:bg-slate-500" : "bg-slate-300 group-hover:bg-slate-400 dark:bg-slate-600"}`} style={{ width: "calc(100% - 2px)", height: `${week.targetHours! / max * 100}%` }} />}
+                    {(completed ?? 0) > 0 && <span className="absolute bottom-0 left-px z-20" style={{ width: "calc(100% - 2px)", height: `${completed! / max * 100}%`, backgroundColor:PHASE_COLORS[week.phase] }} />}
                     {events.map((event, eventIndex) => <span key={event.id} className="absolute z-30" style={{ top: 4 + eventIndex * 20, left: dateCenterX(event.date) - weekLeft - 10 }}><RaceMarkerIcon priority={event.priority} /></span>)}
                   </TooltipTrigger>
                   <TooltipContent className="hidden space-y-1 md:block"><p className="font-semibold">{dateLabel(week.startDate)}–{dateLabel(week.endDate)}</p><p>{phaseLabel(week)}</p><p>Planned: {clockHours(week.targetHours) || "—"}</p><p>Completed: {clockHours(completed) || "—"}</p>{events.map((event) => <p key={event.id}>{event.priority} · {event.name}</p>)}</TooltipContent>
@@ -710,8 +713,9 @@ export function AnnualPlanCreator() {
         else planned.push(result.workout)
         nextContext = { ...context, history, planned }
       }
-      setContext(nextContext)
+      nextContext=validatedTrainingContext(nextContext)
       rememberTrainingContext(nextContext, "full")
+      setContext(nextContext)
       window.dispatchEvent(new CustomEvent("training-context-updated", { detail: nextContext }))
       window.dispatchEvent(new Event("annual-plan-updated"))
       setRaceEditor(null)
@@ -731,9 +735,9 @@ export function AnnualPlanCreator() {
       const result = await response.json() as { plan?: AnnualPlan; context?: TrainingContext; error?: string }
       if (!response.ok || !result.plan) throw new Error(result.error || "The race could not be deleted")
       setCurrentPlan(result.plan)
-      const nextContext = result.context || { ...context, planned: context.planned.filter((item) => item.id !== event.id), history: context.history.filter((item) => !("id" in item) || item.id !== event.id) }
-      setContext(nextContext)
+      const nextContext = validatedTrainingContext(result.context || { ...context, planned: context.planned.filter((item) => item.id !== event.id), history: context.history.filter((item) => !("id" in item) || item.id !== event.id) })
       rememberTrainingContext(nextContext, "full")
+      setContext(nextContext)
       window.dispatchEvent(new CustomEvent("training-context-updated", { detail: nextContext }))
       window.dispatchEvent(new Event("annual-plan-updated"))
       setRaceEditor(null)

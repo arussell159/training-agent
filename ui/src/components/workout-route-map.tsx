@@ -84,6 +84,11 @@ export function WorkoutRouteMap({
     [usesTimedRoute, validTimedPoints, fetched]
   )
   const available = points.length > 1
+  const slotStyle = {
+    height: compact
+      ? "280px"
+      : `calc(max(300px, min(48svh, 420px)) + ${revealOffset}px)`,
+  }
   useEffect(() => {
     if (usesTimedRoute || !id) return
     const controller = new AbortController()
@@ -102,7 +107,7 @@ export function WorkoutRouteMap({
   }, [available, onAvailable])
   if (!available && error)
     return (
-      <div className="flex min-h-[180px] items-center justify-center gap-3 bg-muted/20 text-sm">
+      <div style={slotStyle} className="flex items-center justify-center gap-3 bg-muted/20 text-sm">
         <span>Map couldn’t load.</span>
         <button
           type="button"
@@ -114,20 +119,15 @@ export function WorkoutRouteMap({
       </div>
     )
   if (!available)
-    return route == null && !usesTimedRoute ? (
-      <div
-        className={`bg-[#d7edf4] ${compact ? "h-[280px]" : "h-[min(48svh,420px)] min-h-[300px] md:h-[390px]"}`}
-        aria-hidden="true"
-      />
-    ) : null
+    return (
+      <div style={slotStyle} className="flex items-center justify-center bg-[#d7edf4] text-sm text-muted-foreground">
+        {id && route?.key !== key && !usesTimedRoute ? <span className="sr-only" role="status">Loading activity map</span> : "No GPS route recorded."}
+      </div>
+    )
   return (
     <div
       className="relative"
-      style={{
-        height: compact
-          ? "280px"
-          : `calc(max(300px, min(48svh, 420px)) + ${revealOffset}px)`,
-      }}
+      style={slotStyle}
     >
       <MapboxRouteMap
         points={points}

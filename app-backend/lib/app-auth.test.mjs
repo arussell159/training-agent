@@ -93,13 +93,30 @@ test("app authentication blocks every API, fails closed and rejects hostile orig
             throw new Error("secret provider body");
           },
         },
-      }).request("/api/config")
+      }).request("/api/config", undefined, { cookie: `training_app_session=${"a".repeat(43)}` })
     ).status,
     503
   );
   const missing = fixture({ environment: { ...env, APP_PASSWORD: "" } });
   assert.equal((await missing.request(auth("session"))).result.configured, false);
   assert.equal((await missing.request("/api/config")).status, 503);
+});
+
+test("missing and malformed session cookies reject protected requests without database traffic", async () => {
+  let reads = 0;
+  const f = fixture({
+    store: {
+      read: async () => {
+        reads++;
+        throw Error("database unavailable");
+      },
+    },
+  });
+  for (const cookie of [undefined, "", "training_app_session=bad", "unrelated=valid"])
+    assert.equal((await f.request("/api/config", undefined, { cookie })).status, 401);
+  assert.equal(reads, 0);
+  assert.equal((await f.request(auth("session"))).status, 503);
+  assert.equal(reads, 1);
 });
 
 test("remembered sessions survive a fresh server instance, expire, rotate and revoke on logout", async () => {

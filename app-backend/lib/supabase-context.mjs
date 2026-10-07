@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { nextSyncRevision } from "./sync-record-revision.mjs";
 
 // Server-local read-through cache for the large training snapshot and archived
 // activity rows. Keep it short so changes made elsewhere appear promptly, and
@@ -6,11 +7,9 @@ import { createHash } from "node:crypto";
 const READ_CACHE_TTL_MS = 30_000;
 const READ_CACHE_MAX_ENTRIES = 160;
 const readCache = new Map();
-let readCacheGeneration = 0;
-
-function clearReadCache() {
-  readCacheGeneration += 1;
-  readCache.clear();
+function clearReadCache(account) {
+  const prefix = `${account}\0`;
+  for (const key of readCache.keys()) if (key.startsWith(prefix)) readCache.delete(key);
 }
 
 const jsonHeaders = (key) => ({
@@ -31,12 +30,11 @@ export function createContextStore(config, log = () => {}, fetchImpl = fetch) {
     if (!ready) throw new Error("Supabase project URL is not configured");
     const method = (options.method || "GET").toUpperCase();
     const cacheKey = `${account}\0${table}${options.query || ""}`;
-    const cached = method === "GET" ? readCache.get(cacheKey) : null;
+    const cached = method === "GET" && !options.fresh ? readCache.get(cacheKey) : null;
     if (cached && (cached.expiresAt === 0 || cached.expiresAt > Date.now())) {
       return structuredClone(await cached.promise);
     }
-    if (method !== "GET") clearReadCache();
-    const generation = readCacheGeneration;
+    if (method !== "GET") clearReadCache(account);
     const operation = async () => {
       const response = await fetchImpl(`${url}/rest/v1/${table}${options.query || ""}`, {
         ...options,
@@ -44,7 +42,8 @@ export function createContextStore(config, log = () => {}, fetchImpl = fetch) {
         headers: { ...jsonHeaders(key), ...options.headers },
       });
       if (!response.ok)
-        throw new Error(`Supabase ${table}: ${response.status} ${await response.text()}`);
+        // Provider diagnostics can echo submitted personal data or credentials.
+        throw new Error(`Supabase ${table} request failed (${response.status}).`);
       const text = await response.text();
       return text ? JSON.parse(text) : null;
     };
@@ -52,14 +51,13 @@ export function createContextStore(config, log = () => {}, fetchImpl = fetch) {
       try {
         return await operation();
       } finally {
-        clearReadCache();
+        clearReadCache(account);
       }
     }
     const entry = { expiresAt: 0, promise: Promise.resolve(null) };
     entry.promise = operation()
       .then((value) => {
-        if (generation === readCacheGeneration && readCache.get(cacheKey) === entry)
-          entry.expiresAt = Date.now() + READ_CACHE_TTL_MS;
+        if (readCache.get(cacheKey) === entry) entry.expiresAt = Date.now() + READ_CACHE_TTL_MS;
         return value;
       })
       .catch((error) => {
@@ -68,20 +66,21 @@ export function createContextStore(config, log = () => {}, fetchImpl = fetch) {
       });
     readCache.delete(cacheKey);
     if (readCache.size >= READ_CACHE_MAX_ENTRIES) readCache.delete(readCache.keys().next().value);
-    if (generation === readCacheGeneration) readCache.set(cacheKey, entry);
+    readCache.set(cacheKey, entry);
     return structuredClone(await entry.promise);
   }
   return {
     ready,
-    async getSyncRecord(id) {
+    async getSyncRecord(id, { fresh = false } = {}) {
       const rows = await request("sync_state", {
+        fresh,
         query: `?athlete_id=eq.${encodeURIComponent(id)}&limit=1&select=cursor`,
       });
       return rows?.[0]?.cursor || null;
     },
-    async listSyncRecords(prefix) {
+    async listSyncRecords(prefix, { offset = 0 } = {}) {
       return request("sync_state", {
-        query: `?athlete_id=like.${encodeURIComponent(prefix + "*")}&cursor->>state=in.(pending,retry,failed)&order=updated_at.asc&limit=100&select=athlete_id,cursor`,
+        query: `?athlete_id=like.${encodeURIComponent(prefix + "*")}&cursor->>state=in.(pending,retry,failed)&order=updated_at.asc&limit=100&offset=${offset}&select=athlete_id,cursor`,
       });
     },
     async invalidateSyncState(id) {
@@ -97,12 +96,43 @@ export function createContextStore(config, log = () => {}, fetchImpl = fetch) {
         query: `?id=eq.${encodeURIComponent(id)}`,
       });
     },
-    async getLatestSyncState(athleteId = null) {
+    async getLatestSyncState(athleteId = null, { fresh = false } = {}) {
       const athleteFilter = athleteId ? `athlete_id=eq.${encodeURIComponent(athleteId)}&` : "";
       const rows = await request("sync_state", {
+        fresh,
         query: `?${athleteFilter}status=eq.ready&order=updated_at.desc&limit=1&select=athlete_id,status,cursor,updated_at`,
       });
       return rows?.[0] || null;
+    },
+    async updateSyncRecord(id, change) {
+      const filter = `?athlete_id=eq.${encodeURIComponent(id)}`;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const current = (
+          await request("sync_state", {
+            fresh: true,
+            query: `${filter}&limit=1&select=athlete_id,status,cursor,updated_at`,
+          })
+        )?.[0];
+        const revision = nextSyncRevision(current?.updated_at);
+        const patch = change(current ? structuredClone(current) : null, revision);
+        if (!patch) return current;
+        const row = { ...patch, athlete_id: id, updated_at: revision };
+        const saved = current
+          ? await request("sync_state", {
+              method: "PATCH",
+              query: `${filter}&updated_at=eq.${encodeURIComponent(current.updated_at)}`,
+              body: JSON.stringify(row),
+              headers: { Prefer: "return=representation" },
+            })
+          : await request("sync_state", {
+              method: "POST",
+              query: "?on_conflict=athlete_id",
+              body: JSON.stringify([row]),
+              headers: { Prefer: "resolution=ignore-duplicates,return=representation" },
+            });
+        if (saved?.length === 1) return saved[0];
+      }
+      throw Error("The saved calendar changed during this edit. Refresh before retrying.");
     },
     async upsert(table, rows) {
       log(`supabase upsert ${table}: ${rows.length}`);

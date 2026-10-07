@@ -64,7 +64,9 @@ document.addEventListener(
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    void navigator.serviceWorker.register("/sw.js")
+    void navigator.serviceWorker.register("/sw.js").catch(() => {
+      // Private browsing and offline startup can disable service workers.
+    })
   })
 }
 

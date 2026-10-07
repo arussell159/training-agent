@@ -29,16 +29,15 @@ import {
 } from "@/components/ui/select"
 import type { TrainingContext } from "@/lib/training-context"
 import { dashboardToday } from "@/lib/dashboard-metrics"
+import { validHistoryDay, validatedHistoryWeeks, type HistorySport, type HistoryWeek } from "@/lib/training-history-view"
 
 const METERS_PER_MILE = 1609.344
 const METERS_PER_YARD = 0.9144
 const METERS_PER_FOOT = 0.3048
 
-type SportFilter = "all" | "run" | "bike" | "swim"
+type SportFilter = HistorySport
 type HistoryMetric = "time" | "distance"
 type HistoryRecord = Record<string, unknown>
-type HistoryTotals = { hours: number; distanceMeters: number; elevationMeters: number }
-type HistoryWeek = { week: string } & Record<SportFilter, HistoryTotals>
 type SportOption = {
   value: SportFilter
   label: string
@@ -80,14 +79,10 @@ function weekStart(value: string) {
   return date.toISOString().slice(0, 10)
 }
 
-function dateKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
-}
-
 function completedHistory(context: TrainingContext, filter: SportFilter) {
   const records = new Map<string, TrainingContext["history"][number]>()
   for (const item of context.history) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(item.workout_date ?? "")) continue
+    if (!validHistoryDay(item.workout_date)) continue
     if (filter !== "all" && sportFor(item) !== filter) continue
     const key = String(
       completedActivityKey(item)
@@ -103,9 +98,9 @@ function completedHistory(context: TrainingContext, filter: SportFilter) {
 
 function twelveWeekHistory(
   records: TrainingContext["history"],
-  now = new Date()
+  today: string
 ) {
-  const currentWeek = weekStart(dateKey(now))
+  const currentWeek = weekStart(today)
   const currentDate = new Date(`${currentWeek}T12:00:00Z`)
   const rows = Array.from({ length: 12 }, (_, index) => {
     const date = new Date(currentDate)
@@ -535,10 +530,11 @@ export function ChartAreaInteractive({
     void apiFetch("/api/training-history", { headers: { Accept: "application/json" } })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Training history ${response.status}`)
-        return response.json() as Promise<{ weeks?: HistoryWeek[] }>
+        const result = await response.json() as { weeks?: unknown } | null
+        return validatedHistoryWeeks(result?.weeks)
       })
-      .then(({ weeks }) => {
-        if (active && Array.isArray(weeks) && weeks.length === 12) setSavedWeeks(weeks)
+      .then((weeks) => {
+        if (active && weeks) setSavedWeeks(weeks)
       })
       .catch(() => {
         // The current context remains available while a history read retries on remount.
@@ -550,8 +546,8 @@ export function ChartAreaInteractive({
     [context, sport]
   )
   const history = useMemo(
-    () => savedWeeks?.map((row) => ({ week: row.week, ...row[sport] })) ?? twelveWeekHistory(records),
-    [savedWeeks, records, sport]
+    () => savedWeeks?.map((row) => ({ week: row.week, ...row[sport] })) ?? twelveWeekHistory(records, dashboardToday(context)),
+    [savedWeeks, records, sport, context]
   )
   const chartHistory = useMemo(() => {
     return history.map((row) => ({
@@ -579,6 +575,7 @@ export function ChartAreaInteractive({
     const bounds = event.currentTarget.getBoundingClientRect()
     const left = 0
     const right = 32
+    if (bounds.width <= left + right) return
     const ratio = Math.max(
       0,
       Math.min(
@@ -590,7 +587,7 @@ export function ChartAreaInteractive({
   }
 
   return (
-    <Card className="training-history-card m-0 min-w-0">
+    <Card className="dashboard-history-card training-history-card m-0 min-w-0">
       <CardContent className="p-0">
         <div
           className="training-history-filter-scroll"
@@ -870,10 +867,7 @@ export function ChartAreaInteractive({
                     strokeWidth: 2,
                     style: { filter: "drop-shadow(0 0 4px var(--color-value))" },
                   }}
-                  isAnimationActive
-                  animationBegin={0}
-                  animationDuration={450}
-                  animationEasing="linear"
+                  isAnimationActive={false}
                 />
               </AreaChart>
             </ChartContainer>

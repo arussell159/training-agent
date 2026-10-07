@@ -9,6 +9,9 @@ import {
   replayTourSeconds,
   replayGeometry,
   replayTrimProgress,
+  REPLAY_SPEED_OPTIONS,
+  replayDurationLabel,
+  advanceReplayProgress,
 } from "../src/lib/route-replay.ts"
 
 const point = (time, longitude, values = {}) => ({
@@ -18,20 +21,95 @@ const point = (time, longitude, values = {}) => ({
   ...values,
 })
 
-test("long rides scale the tour duration instead of being compressed into a minute", () => {
-  const route = prepareReplayRoute([point(0, -95), point(14400, -94)], true)
-  assert.ok(replayTourSeconds(route) >= 600)
+test("long and ultra-distance rides have a bounded one-to-two-minute default tour", () => {
+  const route = prepareReplayRoute([point(0, -95), point(21600, -94)], true)
+  assert.equal(replayTourSeconds(route), 90)
+  assert.equal(
+    replayTourSeconds(
+      prepareReplayRoute([point(0, -95), point(86400, -90)], true)
+    ),
+    120
+  )
   assert.equal(
     replayTourSeconds(
       prepareReplayRoute([point(0, -95), point(60, -94.999)], true)
     ),
     60
   )
-  assert.ok(
+  assert.equal(
     replayTourSeconds(
-      prepareReplayRoute([point(0, -95), point(1, -94)], false)
-    ) > 600
+      prepareReplayRoute([point(0, -95), point(1, -90)], false)
+    ),
+    120
   )
+  assert.equal(replayTourSeconds(prepareReplayRoute([], true)), 60)
+})
+
+test("every selectable speed is a true multiplier of the bounded tour, including long frame intervals", () => {
+  assert.deepEqual(REPLAY_SPEED_OPTIONS, [0.5, 1, 2, 5, 10, 25, 50, 100])
+  for (const speed of REPLAY_SPEED_OPTIONS) {
+    const runtimeMs = 120_000 / speed
+    assert.equal(advanceReplayProgress(0, runtimeMs / 2, 120, speed), 0.5)
+    assert.equal(advanceReplayProgress(0.5, runtimeMs / 2, 120, speed), 1)
+    assert.equal(advanceReplayProgress(0.9, runtimeMs, 120, speed), 1)
+  }
+  assert.ok(
+    Math.abs(advanceReplayProgress(0.1, 5000, 120, 10) - (0.1 + 5 / 12)) < 1e-12
+  )
+  let progress = 0
+  for (const delta of [16, 33, 5000, 121, 830])
+    progress = advanceReplayProgress(progress, delta, 120, 10)
+  assert.ok(Math.abs(progress - 0.5) < 1e-12)
+})
+
+test("seeking and high-speed playback preserve the original long ride's recorded clock and signals", () => {
+  const route = prepareReplayRoute(
+    [
+      point(500, -95, { distance: 100, speed: 4 }),
+      point(2660, -94.99, { distance: 20000, speed: 6 }),
+      point(22100, -94.9, { distance: 200000, speed: 8 }),
+    ],
+    true
+  )
+  const tourSeconds = replayTourSeconds(route)
+  assert.equal(tourSeconds, 90)
+  const halfway = advanceReplayProgress(
+    0,
+    (tourSeconds * 1000) / 100 / 2,
+    tourSeconds,
+    100
+  )
+  assert.equal(halfway, 0.5)
+  const frame = replayFrame(route, halfway)
+  assert.equal(frame.time, 10800)
+  assert.ok(Math.abs(frame.longitude - (-94.99 + (0.09 * 4) / 9)) < 1e-10)
+  assert.ok(Math.abs(frame.speed - (6 + (2 * 4) / 9)) < 1e-10)
+  const seek = advanceReplayProgress(0.8, 90, tourSeconds, 100)
+  assert.equal(seek, 0.9)
+  assert.equal(replayFrame(route, seek).time, 19440)
+  assert.equal(
+    replayFrame(route, advanceReplayProgress(seek, 1000, tourSeconds, 100))
+      .distance,
+    199900
+  )
+})
+
+test("duration labels make fast choices explicit and malformed clock inputs cannot move playback", () => {
+  assert.equal(replayDurationLabel(120, 0.5), "4m")
+  assert.equal(replayDurationLabel(90), "1m 30s")
+  assert.equal(replayDurationLabel(120, 10), "12s")
+  assert.equal(replayDurationLabel(120, 50), "2.4s")
+  assert.equal(replayDurationLabel(60, 100), "0.6s")
+  for (const invalid of [NaN, Infinity, -1]) {
+    assert.equal(replayDurationLabel(invalid), "—")
+    assert.equal(replayDurationLabel(120, invalid), "—")
+    assert.equal(advanceReplayProgress(0.4, invalid, 120, 100), 0.4)
+    assert.equal(advanceReplayProgress(0.4, 100, invalid, 100), 0.4)
+    assert.equal(advanceReplayProgress(0.4, 100, 120, invalid), 0.4)
+  }
+  assert.equal(advanceReplayProgress(NaN, 0, 120), 0)
+  assert.equal(advanceReplayProgress(-1, 0, 120), 0)
+  assert.equal(advanceReplayProgress(2, 10, 120), 1)
 })
 
 test("a 100,000-point recording has bounded geometry, exact endpoints and monotonic trim", () => {
@@ -219,4 +297,30 @@ test("faster playback previews a turnaround farther in advance", () => {
   const camera = prepareReplayCamera(route)
   assert.ok(Math.abs(replayCameraBearing(camera, 0.36, 1) - 90) < 1)
   assert.ok(replayCameraBearing(camera, 0.36, 5) > 95)
+})
+
+test("ultra-fast camera previews stay bounded, continuous and finite without changing the recorded corner", () => {
+  const route = prepareReplayRoute(
+    [point(0, -95), point(43200, -94.99), point(86400, -95)],
+    true
+  )
+  const camera = prepareReplayCamera(route)
+  const tourSeconds = replayTourSeconds(route)
+  for (const speed of [25, 50, 100]) {
+    assert.ok(replayCameraBearing(camera, 0.3, speed, tourSeconds) > 90)
+    let previous = replayCameraBearing(camera, 0, speed, tourSeconds)
+    for (let i = 1; i <= 1000; i++) {
+      const next = replayCameraBearing(camera, i / 1000, speed, tourSeconds)
+      assert.ok(Number.isFinite(next) && next >= previous - 0.001)
+      assert.ok(Math.abs(next - previous) < 2)
+      previous = next
+    }
+    assert.ok(Math.abs(previous - 270) < 1)
+  }
+  assert.equal(replayFrame(route, 0.5).longitude, -94.99)
+  for (const invalid of [NaN, Infinity, -1]) {
+    assert.ok(
+      Number.isFinite(replayCameraBearing(camera, invalid, invalid, invalid))
+    )
+  }
 })

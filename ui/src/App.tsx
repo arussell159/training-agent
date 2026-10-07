@@ -1,11 +1,11 @@
 import { PageSkeleton } from "@/components/loading-layouts"
+import { appRouteItem as routeItem } from "@/lib/app-route"
 import { restoreReportReader } from "@/lib/report-navigation"
 import { BackgroundSync } from "@/components/background-sync"
 import { GithubSyncIndicator } from "@/components/github-sync-indicator"
 import { prefetchWorkoutRecording } from "@/lib/activity-analysis"
 import { prefetchNutrition } from "@/lib/nutrition"
 import { flushSync } from "react-dom"
-import { apiFetch } from "@/lib/api-client"
 import { SidebarNavigationSlim } from "@/components/application/app-navigation/sidebar-navigation/sidebar-slim"
 import {
   lazy,
@@ -60,12 +60,11 @@ import {
   MobileDefinitionsOpen,
 } from "@/components/ui/mobile-header-navigation"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { MobileTermsPage } from "@/components/terms-reference/mobile-terms-page"
 import { useMobileViewport } from "@/hooks/use-mobile-viewport"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
   cachedTrainingContext,
-  rememberLiveTrainingContext,
+  refreshRecentIntervals,
   loadFullTrainingContext,
   type PlannedWorkout,
 } from "@/lib/training-context"
@@ -89,18 +88,27 @@ const pageImports = {
 function preloadPage(item: string) {
   const load = pageImports[item as keyof typeof pageImports]
   if (load) void load().catch(() => {})
-  if(item==='Nutrition')void prefetchNutrition().catch(()=>{})
+  if (item === "Nutrition") void prefetchNutrition().catch(() => {})
 }
 const TermsReferenceDialog = lazy(() =>
   import("@/components/terms-reference-dialog").then((module) => ({
     default: module.TermsReferenceDialog,
   }))
 )
+const MobileTermsPage = lazy(() =>
+  import("@/components/terms-reference/mobile-terms-page").then((module) => ({
+    default: module.MobileTermsPage,
+  }))
+)
+const ReportReaderPage = lazy(() =>
+  import("@/components/report-reader-page").then((module) => ({
+    default: module.ReportReaderPage,
+  }))
+)
 
-const NutritionPage = lazy(() => import("@/components/nutrition-page").then(module => ({default:module.NutritionPage})))
-
-const ReportReaderPage = lazy(() => import("@/components/report-reader-page").then(module => ({default:module.ReportReaderPage})))
-
+const NutritionPage = lazy(() =>
+  pageImports.Nutrition().then(module => ({ default: module.NutritionPage }))
+)
 const SettingsWorkspace = lazy(() =>
   pageImports["Settings"]().then((module) => ({
     default: module.SettingsWorkspace,
@@ -132,7 +140,9 @@ const AnnualPlanCreator = lazy(() =>
   }))
 )
 const WorkoutReportsPage = lazy(() =>
-  pageImports["Workout Reports"]().then((module) => ({ default: module.WorkoutReportsPage }))
+  pageImports["Workout Reports"]().then((module) => ({
+    default: module.WorkoutReportsPage,
+  }))
 )
 const WorkoutDetailPage = lazy(() =>
   import("@/components/workout-detail-page").then((module) => ({
@@ -151,21 +161,6 @@ const navigation = [
   { label: "Settings", icon: Settings },
 ]
 
-function routeItem() {
-  if (window.location.pathname === "/nutrition") return "Nutrition"
-  if (window.location.pathname === "/workout-reports") return "Workout Reports"
-  if (window.location.pathname === "/coach") return "Coach"
-  if (
-    window.location.pathname === "/calendar" ||
-    window.location.pathname === "/week"
-  )
-    return "Calendar"
-  if (window.location.pathname === "/library") return "Library"
-  if (window.location.pathname === "/annual-plan") return "Annual Plan"
-  if (window.location.pathname === "/settings") return "Settings"
-  return "Home"
-}
-
 function itemPath(item: string) {
   return (
     (
@@ -183,7 +178,20 @@ function itemPath(item: string) {
   )
 }
 
-function RouteScrollReset({ route, target }: { route: string; target: { current: number } }) {
+// Fetch the current view's code while the server verifies the session.
+if (workoutRouteId())
+  void import("@/components/workout-detail-page").catch(() => {})
+else if (restoreReportReader())
+  void import("@/components/report-reader-page").catch(() => {})
+else void pageImports[routeItem() as keyof typeof pageImports]().catch(() => {})
+
+function RouteScrollReset({
+  route,
+  target,
+}: {
+  route: string
+  target: { current: number }
+}) {
   useLayoutEffect(() => {
     window.scrollTo({ top: target.current, left: 0, behavior: "instant" })
   }, [route, target])
@@ -198,54 +206,131 @@ function AppWorkspace() {
     const warm = async () => {
       for (const item of [routeItem() === "Home" ? "Calendar" : "Home"]) {
         if (!active) return
-        if (item !== routeItem()) await pageImports[item as keyof typeof pageImports]().catch(() => {})
+        if (item !== routeItem())
+          await pageImports[item as keyof typeof pageImports]().catch(() => {})
       }
     }
     if ("requestIdleCallback" in window) {
-      const id = window.requestIdleCallback(() => void warm(), { timeout: 5000 })
-      return () => { active = false; window.cancelIdleCallback(id) }
+      const id = window.requestIdleCallback(() => void warm(), {
+        timeout: 5000,
+      })
+      return () => {
+        active = false
+        window.cancelIdleCallback(id)
+      }
     }
     const id = setTimeout(() => void warm(), 3000)
-    return () => { active = false; clearTimeout(id) }
+    return () => {
+      active = false
+      clearTimeout(id)
+    }
   }, [])
-  const [selectedReport, setSelectedReport] = useState(restoreReportReader)
-  const [activeItem, setActiveItem] = useState(routeItem)
+  const [selectedReport, setSelectedReport] = useState(() =>
+    workoutRouteId() ? null : restoreReportReader()
+  )
+  const [activeItem, setActiveItem] = useState<string>(routeItem)
   const nutritionReturnRoute = useRef("Home")
   const [nutritionQuickAddRequest, setNutritionQuickAddRequest] = useState(0)
   const nutritionQuickAddSequence = useRef(0)
-  const [navigationItem, setNavigationItem] = useState(routeItem)
+  const [navigationItem, setNavigationItem] = useState<string>(routeItem)
   const [annualPlanChartVisible, setAnnualPlanChartVisible] = useState(true)
   const [calendarNavigationVersion, setCalendarNavigationVersion] = useState(0)
-  const [selectedWorkout, setSelectedWorkout] =
-    useState<PlannedWorkout | null>(null)
-  const [calendarReturnScroll, setCalendarReturnScroll] = useState<number | null>(null)
+  const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(
+    () =>
+      restoreOpenWorkout([
+        ...cachedTrainingContext().planned,
+        ...cachedTrainingContext().history,
+      ])
+  )
+  const [pendingWorkoutId, setPendingWorkoutId] = useState(() =>
+    restoreOpenWorkout([
+      ...cachedTrainingContext().planned,
+      ...cachedTrainingContext().history,
+    ])
+      ? null
+      : workoutRouteId()
+  )
+  const [workoutLoadError, setWorkoutLoadError] = useState<string | null>(null)
+  const [workoutLoadAttempt, setWorkoutLoadAttempt] = useState(0)
+  const [calendarReturnScroll, setCalendarReturnScroll] = useState<
+    number | null
+  >(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const refreshRequest = useRef<Promise<void> | null>(null)
   const toastManager = useToastManager()
   const [intervalsDisconnected, setIntervalsDisconnected] = useState(false)
   const [termsOpen, setTermsOpen] = useState(false)
   useEffect(() => {
-    const updateVisibility = (event: Event) => setAnnualPlanChartVisible(Boolean((event as CustomEvent<boolean>).detail))
+    const updateVisibility = (event: Event) =>
+      setAnnualPlanChartVisible(Boolean((event as CustomEvent<boolean>).detail))
     window.addEventListener("annual-plan-chart-visibility", updateVisibility)
-    return () => window.removeEventListener("annual-plan-chart-visibility", updateVisibility)
+    return () =>
+      window.removeEventListener(
+        "annual-plan-chart-visibility",
+        updateVisibility
+      )
   }, [])
   const workoutReturnScroll = useRef(0)
   const routeScrollTarget = useRef(0)
   const workoutReturnRoute = useRef<string | null>(null)
-  const clearCalendarReturnScroll = useCallback(() => setCalendarReturnScroll(null), [])
+  const clearCalendarReturnScroll = useCallback(
+    () => setCalendarReturnScroll(null),
+    []
+  )
   const isCoachPage = activeItem === "Coach"
-  const refreshIntervals = useCallback(async () => {
-    if (isRefreshing) return
+  const refreshIntervals = useCallback(() => {
+    if (refreshRequest.current) return refreshRequest.current
     setIsRefreshing(true)
-    try {
-      const response=await apiFetch('/api/training-updates')
-      const result=await response.json()
-      if(!response.ok || !result.context)throw Error(result.error || 'Training data could not be refreshed.')
-      rememberLiveTrainingContext(result.context)
-      window.dispatchEvent(new Event('github-sync-check'))
-    } catch(error) {
-      toastManager.add({type:'error',title:'Training data could not refresh',description:error instanceof Error?error.message:'Please try again.',timeout:6000})
-    } finally {setIsRefreshing(false)}
-  }, [isRefreshing, toastManager])
+    const request = (async () => {
+      try {
+        const { queue, githubSync } = await refreshRecentIntervals()
+        if (queue.unknown > 0) {
+          toastManager.add({
+            type: "warning",
+            title: "A workout edit still needs verification",
+            description:
+              "Intervals.icu has not confirmed the edit. Check your calendar before retrying.",
+            timeout: 10000,
+          })
+        } else if (queue.failed > 0) {
+          toastManager.add({
+            type: "warning",
+            title: "A workout edit could not sync",
+            description:
+              "Your saved draft remains available. Check the Intervals.icu connection and refresh again.",
+            timeout: 10000,
+          })
+        }
+        void githubSync
+          .then(() => window.dispatchEvent(new Event("github-sync-check")))
+          .catch((error) => {
+            toastManager.add({
+              type: "error",
+              title: "Training data loaded; GitHub sync needs attention",
+              description:
+                error instanceof Error
+                  ? error.message
+                  : "Please refresh to check again.",
+              timeout: 6000,
+            })
+          })
+        window.dispatchEvent(new Event("github-sync-check"))
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Training data could not refresh",
+          description:
+            error instanceof Error ? error.message : "Please try again.",
+          timeout: 6000,
+        })
+      } finally {
+        setIsRefreshing(false)
+        refreshRequest.current = null
+      }
+    })()
+    refreshRequest.current = request
+    return request
+  }, [toastManager])
   useEffect(() => {
     const showReconnect = () => setIntervalsDisconnected(true)
     window.addEventListener("intervals-auth-expired", showReconnect)
@@ -254,16 +339,34 @@ function AppWorkspace() {
   }, [])
 
   useEffect(() => {
-    const id = workoutRouteId()
-    if (routeItem() !== "Workout Reports" || !id) { forgetOpenWorkout(); return }
+    const id = pendingWorkoutId
+    if (!id) return
     let active = true
-    void loadFullTrainingContext().then(context => {
-      if (!active || routeItem() !== "Workout Reports" || workoutRouteId() !== id) return
-      const workout = [...context.history, ...context.planned].find(item => (item as PlannedWorkout).id === id)
-      if (workout) setSelectedWorkout(workout as PlannedWorkout)
-    }).catch(() => {})
-    return () => { active = false }
-  }, [])
+    setWorkoutLoadError(null)
+    void loadFullTrainingContext(false, workoutLoadAttempt > 0)
+      .then((context) => {
+        if (!active || workoutRouteId() !== id) return
+        const workout = [...context.history, ...context.planned].find(
+          (item) => (item as PlannedWorkout).id === id
+        )
+        if (workout) {
+          setSelectedWorkout(workout as PlannedWorkout)
+          setPendingWorkoutId(null)
+        } else
+          setWorkoutLoadError(
+            "This workout is no longer available in your saved calendar."
+          )
+      })
+      .catch(() => {
+        if (active)
+          setWorkoutLoadError(
+            "The workout could not load. Check your connection and try again."
+          )
+      })
+    return () => {
+      active = false
+    }
+  }, [pendingWorkoutId, workoutLoadAttempt])
 
   useEffect(() => {
     const handlePopState = () => {
@@ -275,12 +378,14 @@ function AppWorkspace() {
       routeScrollTarget.current = 0
       if (!restoredWorkout && route === workoutReturnRoute.current) {
         routeScrollTarget.current = workoutReturnScroll.current
-        if (route === "Calendar") setCalendarReturnScroll(workoutReturnScroll.current)
+        if (route === "Calendar")
+          setCalendarReturnScroll(workoutReturnScroll.current)
         workoutReturnRoute.current = null
       }
       startTransition(() => {
-        setSelectedReport(restoreReportReader())
+        setSelectedReport(workoutRouteId() ? null : restoreReportReader())
         setSelectedWorkout(restoredWorkout)
+        setPendingWorkoutId(restoredWorkout ? null : workoutRouteId())
         setActiveItem(route)
       })
       setNavigationItem(route)
@@ -296,6 +401,12 @@ function AppWorkspace() {
           history: PlannedWorkout[]
         }>
       ).detail
+      if (
+        !context ||
+        !Array.isArray(context.planned) ||
+        !Array.isArray(context.history)
+      )
+        return
       setSelectedWorkout((current) =>
         current
           ? [...context.planned, ...context.history].find(
@@ -313,6 +424,7 @@ function AppWorkspace() {
       routeScrollTarget.current = 0
       setSelectedReport(restoreReportReader())
       setSelectedWorkout(null)
+      setPendingWorkoutId(null)
     }
     window.addEventListener("section11-report-open", open)
     return () => window.removeEventListener("section11-report-open", open)
@@ -324,46 +436,59 @@ function AppWorkspace() {
     return () => window.removeEventListener("terms-open", openTerms)
   }, [])
 
-  const selectItem = useCallback((item: string, quickAdd = false) => {
-    const currentItem = routeItem()
-    if (item === "Nutrition" && currentItem !== "Nutrition") nutritionReturnRoute.current = currentItem
-    if (
-      item === "Calendar" &&
-      activeItem === "Calendar" &&
-      !selectedReport &&
-      !selectedWorkout &&
-      window.matchMedia("(max-width: 767px)").matches
-    ) {
-      window.dispatchEvent(new Event("calendar-go-today"))
-      return
-    }
-    setNavigationItem(item)
-    preloadPage(item)
-    routeScrollTarget.current = 0
-    workoutReturnRoute.current = null
-    window.history.pushState({}, "", itemPath(item))
-    const quickAddRequest = quickAdd ? ++nutritionQuickAddSequence.current : 0
-    const navigate = () => {
-      setNutritionQuickAddRequest(quickAddRequest)
-      setSelectedReport(null)
-      setSelectedWorkout(null)
-      setCalendarReturnScroll(null)
-      setActiveItem(item)
-      if (item === "Calendar")
-        setCalendarNavigationVersion((value) => value + 1)
-    }
-    // Commit the textarea during the original tap so mobile browsers can open
-    // the keyboard. Neither a lazy import nor a food-log request gates this path.
-    if (quickAdd) flushSync(navigate)
-    else startTransition(navigate)
-  }, [activeItem, selectedReport, selectedWorkout])
+  const selectItem = useCallback(
+    (item: string, quickAdd = false) => {
+      if (!Object.hasOwn(pageImports, item)) return
+      const currentItem = routeItem()
+      if (item === "Nutrition" && currentItem !== "Nutrition")
+        nutritionReturnRoute.current = currentItem
+      if (
+        item === "Calendar" &&
+        activeItem === "Calendar" &&
+        !selectedReport &&
+        !selectedWorkout &&
+        !pendingWorkoutId &&
+        window.matchMedia("(max-width: 767px)").matches
+      ) {
+        window.dispatchEvent(new Event("calendar-go-today"))
+        return
+      }
+      if (
+        item === currentItem &&
+        !selectedReport &&
+        !selectedWorkout &&
+        !workoutRouteId() &&
+        !quickAdd
+      )
+        return
+      setNavigationItem(item)
+      preloadPage(item)
+      routeScrollTarget.current = 0
+      workoutReturnRoute.current = null
+      window.history.pushState({}, "", itemPath(item))
+      const quickAddRequest = quickAdd ? ++nutritionQuickAddSequence.current : 0
+      const navigate = () => {
+        setNutritionQuickAddRequest(quickAddRequest)
+        setSelectedReport(null)
+        setSelectedWorkout(null)
+        setPendingWorkoutId(null)
+        setCalendarReturnScroll(null)
+        setActiveItem(item)
+        if (item === "Calendar")
+          setCalendarNavigationVersion((value) => value + 1)
+      }
+      // Commit the textarea during the original tap so mobile browsers can open
+      // the keyboard. Neither a lazy import nor a food-log request gates this path.
+      if (quickAdd) flushSync(navigate)
+      else startTransition(navigate)
+    },
+    [activeItem, selectedReport, selectedWorkout, pendingWorkoutId]
+  )
 
   useEffect(() => {
     const navigate = (event: Event) => {
       const detail = (
-        event as CustomEvent<
-          string | { item?: string; quickAdd?: "type" }
-        >
+        event as CustomEvent<string | { item?: string; quickAdd?: "type" }>
       ).detail
       if (typeof detail === "string") {
         if (detail) selectItem(detail)
@@ -384,30 +509,9 @@ function AppWorkspace() {
     routeScrollTarget.current = 0
     setCalendarReturnScroll(null)
     rememberOpenWorkout(workout)
+    setPendingWorkoutId(null)
     startTransition(() => setSelectedWorkout(workout))
   }
-
-  useEffect(()=>{
-    let active=true
-    const warmed=new Set<string>()
-    const prepare=()=>{
-      if(!active)return
-      const context=cachedTrainingContext()
-      const recent=[...new Map([...context.history,...context.planned]
-        .filter((w):w is PlannedWorkout=>'id' in w && (w as PlannedWorkout).status==='completed')
-        .map(w=>[w.id,w])).values()]
-        .sort((a,b)=>(b.workout_date||'').localeCompare(a.workout_date||'')).slice(0,4)
-      for(const workout of recent){
-        const key=`${workout.id}:${(workout as {activity_revision?:string}).activity_revision || ''}`
-        if(!warmed.has(key)){warmed.add(key);prefetchWorkoutRecording(workout)}
-      }
-      void pageImports.Nutrition().catch(()=>{})
-      void prefetchNutrition().catch(()=>{})
-    }
-    void loadFullTrainingContext().then(prepare).catch(() => {})
-    window.addEventListener('training-context-updated',prepare)
-    return()=>{active=false;window.removeEventListener('training-context-updated',prepare)}
-  },[])
 
   const closeWorkout = () => {
     if (workoutReturnRoute.current === "Workout Reports") {
@@ -421,6 +525,8 @@ function AppWorkspace() {
     routeScrollTarget.current = returnTo
     forgetOpenWorkout()
     setSelectedWorkout(null)
+    setPendingWorkoutId(null)
+    setWorkoutLoadError(null)
     if (returnToCalendar) setCalendarReturnScroll(returnTo)
   }
 
@@ -433,7 +539,11 @@ function AppWorkspace() {
       >
         <BackgroundSync />
         <GithubSyncIndicator />
-        <MobileTermsPage open={termsOpen} onOpenChange={setTermsOpen} />
+        {termsOpen && mobileTerms && (
+          <Suspense fallback={null}>
+            <MobileTermsPage open onOpenChange={setTermsOpen} />
+          </Suspense>
+        )}
         {termsOpen && !mobileTerms && (
           <Suspense fallback={null}>
             <TermsReferenceDialog open onOpenChange={setTermsOpen} />
@@ -484,20 +594,28 @@ function AppWorkspace() {
           className={
             selectedWorkout && selectedWorkout.status !== "completed"
               ? "planned-workout-nav-shell"
-              : (activeItem === "Home" || activeItem === "Nutrition") && !selectedWorkout && !selectedReport
-              ? "home-dashboard-shell"
-              : (isCoachPage || activeItem === "Library") &&
+              : (activeItem === "Home" || activeItem === "Nutrition") &&
                   !selectedWorkout &&
+                  !pendingWorkoutId &&
                   !selectedReport
+                ? "home-dashboard-shell"
+                : (isCoachPage || activeItem === "Library") &&
+                    !selectedWorkout &&
+                    !pendingWorkoutId &&
+                    !selectedReport
                   ? "coach-app-shell h-dvh min-h-0 overflow-hidden"
-                : (activeItem === "Settings" || activeItem === "Annual Plan") &&
-                    !selectedWorkout
-                  ? "mobile-content-under-nav-shell h-svh min-h-0 overflow-hidden"
-                  : undefined
+                  : (activeItem === "Settings" ||
+                        activeItem === "Annual Plan") &&
+                      !selectedWorkout &&
+                      !pendingWorkoutId &&
+                      !selectedReport
+                    ? "mobile-content-under-nav-shell h-svh min-h-0 overflow-hidden"
+                    : undefined
           }
         >
           {!selectedReport &&
             !selectedWorkout &&
+            !pendingWorkoutId &&
             activeItem !== "Calendar" &&
             activeItem !== "Annual Plan" &&
             activeItem !== "Settings" &&
@@ -523,10 +641,16 @@ function AppWorkspace() {
                 variant="ghost"
                 onClick={closeWorkout}
                 className="mr-2 shrink-0 rounded-lg"
-                aria-label={workoutReturnRoute.current === "Workout Reports" ? "Back to workout reports" : "Back to calendar"}
+                aria-label={
+                  workoutReturnRoute.current === "Workout Reports"
+                    ? "Back to workout reports"
+                    : "Back to calendar"
+                }
               >
                 <ArrowLeft className="size-4" />
-                {workoutReturnRoute.current === "Workout Reports" ? "Workout Reports" : "Calendar"}
+                {workoutReturnRoute.current === "Workout Reports"
+                  ? "Workout Reports"
+                  : "Calendar"}
               </Button>
             )}
             <h1 className="min-w-0 truncate text-sm font-semibold">
@@ -534,7 +658,12 @@ function AppWorkspace() {
                 ? selectedReport.kind === "weekly"
                   ? "Weekly Report"
                   : "Training Block"
-                : selectedWorkout?.title || (activeItem === "Annual Plan" ? "Annual Planner" : activeItem)}
+                : selectedWorkout?.title ||
+                  (pendingWorkoutId
+                    ? "Workout"
+                    : activeItem === "Annual Plan"
+                      ? "Annual Planner"
+                      : activeItem)}
             </h1>
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -552,21 +681,29 @@ function AppWorkspace() {
                 <Ellipsis className="size-5" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-max min-w-52">
-                {activeItem === "Annual Plan" && <>
-                  <DropdownMenuItem
-                    className="whitespace-nowrap"
-                    onClick={() => window.dispatchEvent(new Event("annual-plan-chart-toggle"))}
-                  >
-                    {annualPlanChartVisible ? "Hide chart" : "Show chart"}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                </>}
+                {activeItem === "Annual Plan" && (
+                  <>
+                    <DropdownMenuItem
+                      className="whitespace-nowrap"
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new Event("annual-plan-chart-toggle")
+                        )
+                      }
+                    >
+                      {annualPlanChartVisible ? "Hide chart" : "Show chart"}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem
                   disabled={isRefreshing}
                   className="whitespace-nowrap"
                   onClick={() => void refreshIntervals()}
                 >
-                  <RefreshCw className={isRefreshing ? "animate-spin" : undefined} />
+                  <RefreshCw
+                    className={isRefreshing ? "animate-spin" : undefined}
+                  />
                   Refresh Intervals.icu
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -582,7 +719,7 @@ function AppWorkspace() {
           </header>
           <main
             className={`flex min-h-0 flex-1 ${
-              selectedWorkout
+              selectedWorkout || pendingWorkoutId
                 ? "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
                 : isCoachPage || activeItem === "Library"
                   ? "coach-page-main overflow-hidden md:pb-0"
@@ -590,62 +727,133 @@ function AppWorkspace() {
                     ? "overflow-hidden pb-0"
                     : activeItem === "Nutrition"
                       ? "nutrition-page-main pb-0"
-                    : activeItem === "Annual Plan"
-                      ? "w-full overflow-hidden pb-0"
-                      : "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
+                      : activeItem === "Annual Plan"
+                        ? "w-full overflow-hidden pb-0"
+                        : "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
             }`}
           >
-            <PageErrorBoundary resetKey={`${activeItem}:${selectedWorkout?.id ?? ""}`}>
-              <Suspense fallback={<PageSkeleton page={selectedReport ? "Report" : selectedWorkout ? "Workout" : activeItem} />}>
-                <MobilePageTabs activeItem={["Workout Reports", "Library", "Nutrition"].includes(activeItem) ? "Settings" : activeItem}>
-                <RouteScrollReset route={`${activeItem}:${selectedWorkout?.id ?? ""}:${selectedReport ? JSON.stringify(selectedReport) : ""}`} target={routeScrollTarget} />
-                {activeItem === "Settings" && !selectedReport && (
-                  <div className={selectedWorkout ? "hidden" : "flex min-h-0 w-full min-w-0 flex-1"}>
-                    <SettingsWorkspace onWorkoutOpen={openWorkout} />
-                  </div>
-                )}
-                {selectedReport ? (
-                  <ReportReaderPage target={selectedReport} />
-                ) : selectedWorkout ? (
-                  <WorkoutDetailPage
-                    key={selectedWorkout.id}
-                    workout={selectedWorkout}
-                    onBack={closeWorkout}
+            <PageErrorBoundary
+              resetKey={`${activeItem}:${selectedWorkout?.id ?? ""}:${JSON.stringify(selectedReport)}`}
+            >
+              <Suspense
+                fallback={
+                  <PageSkeleton
+                    page={
+                      selectedReport
+                        ? "Report"
+                        : selectedWorkout || pendingWorkoutId
+                          ? "Workout"
+                          : activeItem
+                    }
                   />
-                ) : activeItem === "Nutrition" ? (
-                  <NutritionPage
-                    key={nutritionQuickAddRequest}
-                    onBack={() => selectItem(nutritionReturnRoute.current)}
-                    returnLabel={nutritionReturnRoute.current === "Settings" ? "More" : nutritionReturnRoute.current}
-                    quickAddRequest={nutritionQuickAddRequest}
+                }
+              >
+                <MobilePageTabs
+                  activeItem={
+                    ["Workout Reports", "Library", "Nutrition"].includes(
+                      activeItem
+                    )
+                      ? "Settings"
+                      : activeItem
+                  }
+                >
+                  <RouteScrollReset
+                    route={`${activeItem}:${selectedWorkout?.id ?? ""}:${selectedReport ? JSON.stringify(selectedReport) : ""}`}
+                    target={routeScrollTarget}
                   />
-                ) : activeItem === "Home" ? (
-                  <TrainingDashboard
-                    onWorkoutOpen={openWorkout}
-                  />
-                ) : activeItem === "Calendar" ? (
-                  <TrainingCalendar
-                    key={calendarNavigationVersion}
-                    onWorkoutOpen={openWorkout}
-                    restoreScrollTop={calendarReturnScroll}
-                    onScrollRestored={clearCalendarReturnScroll}
-                  />
-                ) : isCoachPage ? (
-                  <CoachPage />
-                ) : activeItem === "Settings" ? null : activeItem === "Library" ? (
-                  <TrainingLibrary onWorkoutOpen={openWorkout} />
-                ) : activeItem === "Workout Reports" ? (
-                  <WorkoutReportsPage onWorkoutOpen={openWorkout} />
-                ) : activeItem === "Annual Plan" ? (
-                  <AnnualPlanCreator />
-                ) : null}
+                  {activeItem === "Settings" && !selectedReport && (
+                    <div
+                      className={
+                        selectedWorkout || pendingWorkoutId
+                          ? "hidden"
+                          : "flex min-h-0 w-full min-w-0 flex-1"
+                      }
+                    >
+                      <SettingsWorkspace onWorkoutOpen={openWorkout} />
+                    </div>
+                  )}
+                  {pendingWorkoutId ? (
+                    <div className="relative w-full">
+                      <div aria-hidden={workoutLoadError ? true : undefined}>
+                        <PageSkeleton page="Workout" />
+                      </div>
+                      {workoutLoadError && (
+                        <div className="absolute inset-0 flex items-start justify-center bg-background/95 px-6 pt-16">
+                          <div
+                            role="alert"
+                            className="w-full max-w-md space-y-4 rounded-xl border bg-card p-6"
+                          >
+                            <p className="font-semibold">Workout unavailable</p>
+                            <p className="text-sm text-muted-foreground">
+                              {workoutLoadError}
+                            </p>
+                            <div className="flex gap-3">
+                              <Button
+                                onClick={() =>
+                                  setWorkoutLoadAttempt((value) => value + 1)
+                                }
+                              >
+                                Try again
+                              </Button>
+                              <Button variant="outline" onClick={closeWorkout}>
+                                Back
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : selectedReport ? (
+                    <ReportReaderPage target={selectedReport} />
+                  ) : selectedWorkout ? (
+                    <WorkoutDetailPage
+                      key={selectedWorkout.id}
+                      workout={selectedWorkout}
+                      onBack={closeWorkout}
+                    />
+                  ) : activeItem === "Nutrition" ? (
+                    <NutritionPage
+                      key={nutritionQuickAddRequest}
+                      onBack={() => selectItem(nutritionReturnRoute.current)}
+                      returnLabel={
+                        nutritionReturnRoute.current === "Settings"
+                          ? "More"
+                          : nutritionReturnRoute.current
+                      }
+                      quickAddRequest={nutritionQuickAddRequest}
+                    />
+                  ) : activeItem === "Home" ? (
+                    <TrainingDashboard onWorkoutOpen={openWorkout} />
+                  ) : activeItem === "Calendar" ? (
+                    <TrainingCalendar
+                      key={calendarNavigationVersion}
+                      onWorkoutOpen={openWorkout}
+                      restoreScrollTop={calendarReturnScroll}
+                      onScrollRestored={clearCalendarReturnScroll}
+                    />
+                  ) : isCoachPage ? (
+                    <CoachPage />
+                  ) : activeItem === "Settings" ? null : activeItem ===
+                    "Library" ? (
+                    <TrainingLibrary onWorkoutOpen={openWorkout} />
+                  ) : activeItem === "Workout Reports" ? (
+                    <WorkoutReportsPage onWorkoutOpen={openWorkout} />
+                  ) : activeItem === "Annual Plan" ? (
+                    <AnnualPlanCreator />
+                  ) : null}
                 </MobilePageTabs>
               </Suspense>
             </PageErrorBoundary>
           </main>
 
           <MobileNavbar
-            activeItem={["Workout Reports", "Library", "Nutrition"].includes(navigationItem) ? "Settings" : navigationItem}
+            activeItem={
+              ["Workout Reports", "Library", "Nutrition"].includes(
+                navigationItem
+              )
+                ? "Settings"
+                : navigationItem
+            }
             onNavigate={selectItem}
             onPrefetch={preloadPage}
           />

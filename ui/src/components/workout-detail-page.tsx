@@ -419,10 +419,7 @@ export function WorkoutDetailPage({
   const [athleteZones, setAthleteZones] = useState(
     cachedTrainingContext().athlete.zones
   )
-  const [mobileMapAvailable, setMobileMapAvailable] = useState(
-    workout.status === "completed" &&
-      Boolean(workout.activity_id || workout.id.startsWith("activity:"))
-  )
+  const [mobileMapAvailable, setMobileMapAvailable] = useState(false)
   const [mapReveal, setMapReveal] = useState(0)
   useEffect(() => { setMapReveal(0) }, [workout.id])
   const completed = completedMinutes(workout)
@@ -432,6 +429,8 @@ export function WorkoutDetailPage({
       : workout.workout_summary?.planned
   const swim = /swim/i.test(workout.sport),
     bike = /bike|ride/i.test(workout.sport)
+  // Loading, absent GPS and map errors all retain this same reserved slot.
+  const mobileMapSlot = workout.status === "completed" && !swim
   const numeric = (value: number | null | undefined, digits = 0) =>
     value != null && Number.isFinite(value)
       ? value.toLocaleString("en-US", { maximumFractionDigits: digits })
@@ -891,7 +890,7 @@ export function WorkoutDetailPage({
         </div>
       )}
 
-      {mobile && workout.status === "completed" && !swim && (
+      {mobile && mobileMapSlot && (
         <div className="workout-mobile-map sticky z-0 transform-gpu will-change-transform md:hidden">
           <WorkoutRouteMap
             workout={workout}
@@ -910,7 +909,7 @@ export function WorkoutDetailPage({
           onClose={onBack}
           mapReveal={mapReveal}
           onMapRevealChange={mobileMapAvailable && !swim ? setMapReveal : undefined}
-          className={`relative z-10 flex w-full min-w-0 transform-gpu flex-col ${workout.status === "completed" ? "gap-5 bg-background px-5 shadow-[0_-12px_30px_rgba(0,0,0,0.08)] sm:px-7" : "mobile-dashboard planned-workout-mobile-cards gap-4 bg-transparent px-4"} pb-[calc(2rem+env(safe-area-inset-bottom))] will-change-transform md:px-0 md:pt-5 md:pb-10 md:shadow-none ${mobileMapAvailable && !swim ? "-mt-7 rounded-t-[28px] pt-3" : "pt-[60px]"}`}
+          className={`relative z-10 flex w-full min-w-0 transform-gpu flex-col ${workout.status === "completed" ? "gap-5 bg-background px-5 shadow-[0_-12px_30px_rgba(0,0,0,0.08)] sm:px-7" : "mobile-dashboard planned-workout-mobile-cards gap-4 bg-transparent px-4"} pb-[calc(2rem+env(safe-area-inset-bottom))] will-change-transform md:px-0 md:pt-5 md:pb-10 md:shadow-none ${mobileMapSlot ? "-mt-7 rounded-t-[28px] pt-3" : "pt-[60px]"}`}
         >
           <section
             data-workout-sheet-title

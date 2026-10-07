@@ -1,10 +1,16 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { apiFetch } from "./api-client"
-import { deviceCacheScope, readDeviceCache, writeDeviceCache, deleteDeviceCachePrefix } from "./device-cache"
+import {
+  deviceCacheScope,
+  readDeviceCache,
+  writeDeviceCache,
+  deleteDeviceCachePrefix,
+} from "./device-cache"
 import { cachedTrainingContext } from "./training-context"
 import { dashboardToday } from "./dashboard-metrics"
 import { completedWorkoutCalories } from "./nutrition-math"
 import { randomId } from "./random-id"
+import { withRequestDeadline } from "./request-deadline"
 
 export const meals = ["breakfast", "lunch", "dinner", "snacks"] as const
 export type Meal = (typeof meals)[number]
@@ -155,7 +161,9 @@ type RecentFood = { entry: FoodEntry; loggedAt: number }
 const recentFoodsKey = () => `nutrition-search-recents:${deviceCacheScope()}`
 export function recentFoodsForMeal(meal: Meal): SavedFood[] {
   try {
-    const rows = JSON.parse(localStorage.getItem(recentFoodsKey()) || "[]") as RecentFood[]
+    const rows = JSON.parse(
+      localStorage.getItem(recentFoodsKey()) || "[]"
+    ) as RecentFood[]
     const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000
     const seen = new Set<string>()
     return rows
@@ -181,16 +189,27 @@ export function recentFoodsForMeal(meal: Meal): SavedFood[] {
 }
 export function recordRecentFoods(entries: FoodEntry[]) {
   try {
-    const rows = JSON.parse(localStorage.getItem(recentFoodsKey()) || "[]") as RecentFood[]
+    const rows = JSON.parse(
+      localStorage.getItem(recentFoodsKey()) || "[]"
+    ) as RecentFood[]
     const loggedAt = Date.now()
     const added = entries.map((entry) => ({ entry, loggedAt }))
     const keys = new Set(
-      added.map(({ entry }) => `${entry.source}:${entry.foodId || entry.name.toLowerCase()}:${entry.servingId || entry.unit}`)
+      added.map(
+        ({ entry }) =>
+          `${entry.source}:${entry.foodId || entry.name.toLowerCase()}:${entry.servingId || entry.unit}`
+      )
     )
-    const retained = rows.filter(({ entry }) =>
-      !keys.has(`${entry.source}:${entry.foodId || entry.name.toLowerCase()}:${entry.servingId || entry.unit}`)
+    const retained = rows.filter(
+      ({ entry }) =>
+        !keys.has(
+          `${entry.source}:${entry.foodId || entry.name.toLowerCase()}:${entry.servingId || entry.unit}`
+        )
     )
-    localStorage.setItem(recentFoodsKey(), JSON.stringify([...added, ...retained].slice(0, 60)))
+    localStorage.setItem(
+      recentFoodsKey(),
+      JSON.stringify([...added, ...retained].slice(0, 60))
+    )
   } catch {
     // Search suggestions are best-effort and never block saving food.
   }
@@ -283,59 +302,148 @@ export async function nutritionRequest<T>(
   payload?: unknown,
   signal?: AbortSignal
 ): Promise<T> {
-  const response = await apiFetch(`/api/nutrition${path}`, {
-    signal: signal || AbortSignal.timeout(path === "/estimate" ? 65000 : 22000),
-    ...(payload === undefined
-      ? {}
-      : {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Coach-Request": "1",
-          },
-          body: JSON.stringify(payload),
-        }),
-  })
-  let data
-  try {
-    data = await response.json()
-  } catch {
-    throw Error("Nutrition is unavailable. Please try again.")
-  }
-  if (!response.ok)
-    throw Error(data.error || "Nutrition couldn’t complete this request.")
-  return data as T
+  return withRequestDeadline(
+    async (requestSignal) => {
+      const response = await apiFetch(`/api/nutrition${path}`, {
+        signal: requestSignal,
+        ...(payload === undefined
+          ? {}
+          : {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Coach-Request": "1",
+              },
+              body: JSON.stringify(payload),
+            }),
+      })
+      let data
+      try {
+        data = await response.json()
+      } catch {
+        throw Error("Nutrition is unavailable. Please try again.")
+      }
+      if (!response.ok)
+        throw Error(
+          typeof data?.error === "string"
+            ? data.error
+            : "Nutrition couldn’t complete this request."
+        )
+      return data as T
+    },
+    path === "/estimate" ? 65000 : 22000,
+    signal,
+    "Nutrition took too long to respond. Please retry."
+  )
+}
+
+const object = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+const nutrientValue = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0
+const validTargets = (value: unknown) =>
+  object(value) &&
+  nutrientKeys.every((key) => value[key] === null || nutrientValue(value[key]))
+export function validatedNutritionView(
+  value: unknown,
+  date: string
+): NutritionView {
+  if (
+    !object(value) ||
+    value.date !== date ||
+    !object(value.day) ||
+    !Number.isSafeInteger(value.day.revision) ||
+    !Array.isArray(value.day.entries) ||
+    !value.day.entries.every(
+      (entry) =>
+        object(entry) &&
+        typeof entry.id === "string" &&
+        typeof entry.name === "string" &&
+        typeof entry.unit === "string" &&
+        meals.includes(entry.meal as Meal) &&
+        nutrientValue(entry.quantity) &&
+        Number(entry.quantity) > 0 &&
+        nutrientKeys.every(
+          (key) =>
+            (key === "fiber" && entry[key] === null) ||
+            nutrientValue(entry[key])
+        )
+    ) ||
+    !validTargets(value.targets) ||
+    !Number.isSafeInteger(value.targetsRevision) ||
+    !Array.isArray(value.week) ||
+    !value.week.every(
+      (row) =>
+        object(row) &&
+        typeof row.date === "string" &&
+        validTargets(row.targets) &&
+        object(row.totals) &&
+        nutrientKeys.every((key) =>
+          nutrientValue((row.totals as Record<string, unknown>)[key])
+        )
+    )
+  )
+    throw Error("Your food log is incomplete. Please retry.")
+  return value as NutritionView
 }
 const cache = new Map<string, { time: number; view: NutritionView }>(),
   pending = new Map<string, Promise<NutritionView>>()
 let generation = 0
-const SNAPSHOT_KEY='training-agent-nutrition-startup-v1'
-const SNAPSHOT_TTL=15*60_000
-export function cachedNutrition(date: string): NutritionView|null {
-  const saved=cache.get(`${deviceCacheScope()}:${date}`)
-  if(saved && Date.now()-saved.time<SNAPSHOT_TTL)return saved.view
+const SNAPSHOT_KEY = "training-agent-nutrition-startup-v1"
+const SNAPSHOT_TTL = 15 * 60_000
+export function cachedNutrition(date: string): NutritionView | null {
+  const key = `${deviceCacheScope()}:${date}`,
+    saved = cache.get(key)
+  if (saved && Date.now() - saved.time < SNAPSHOT_TTL) {
+    cache.delete(key)
+    cache.set(key, saved)
+    return saved.view
+  }
   try {
-    const snapshot=JSON.parse(localStorage.getItem(SNAPSHOT_KEY)||'null')
-    if(snapshot?.scope===deviceCacheScope() && snapshot.view.date===date && Date.now()-snapshot.time<SNAPSHOT_TTL)return snapshot.view
-    if(snapshot && Date.now()-snapshot.time>=SNAPSHOT_TTL)localStorage.removeItem(SNAPSHOT_KEY)
-  }catch{/* Storage is optional. */}
+    const snapshot = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || "null")
+    if (
+      snapshot?.scope === deviceCacheScope() &&
+      Date.now() - snapshot.time >= 0 &&
+      Date.now() - snapshot.time < SNAPSHOT_TTL
+    )
+      return validatedNutritionView(snapshot.view, date)
+    if (snapshot && Date.now() - snapshot.time >= SNAPSHOT_TTL)
+      localStorage.removeItem(SNAPSHOT_KEY)
+  } catch {
+    /* Storage is optional. */
+  }
   return null
 }
-export function prefetchNutrition(date=nutritionToday()) {return load(date)}
+export function prefetchNutrition(date = nutritionToday()) {
+  return load(date)
+}
 function load(date: string, refresh = false) {
-  const key = `${deviceCacheScope()}:${date}`,
+  const scope = deviceCacheScope(),
+    key = `${scope}:${date}`,
     saved = cache.get(key)
   if (!refresh && saved && Date.now() - saved.time < 30000)
     return Promise.resolve(saved.view)
   const underway = pending.get(key)
   if (underway) return underway
   const version = generation
-  const request = nutritionRequest<NutritionView>(`?date=${date}`)
-    .then((view) => {
+  const request = nutritionRequest<NutritionView>(
+    `?date=${encodeURIComponent(date)}`
+  )
+    .then((value) => {
+      if (generation !== version || scope !== deviceCacheScope())
+        throw new DOMException("Aborted", "AbortError")
+      const view = validatedNutritionView(value, date)
       if (generation === version) {
         cache.set(key, { time: Date.now(), view })
-        void writeDeviceCache(`nutrition:${key}`,view)
-        try{localStorage.setItem(SNAPSHOT_KEY,JSON.stringify({scope:deviceCacheScope(),time:Date.now(),view}))}catch{/* Storage is optional. */}
+        void writeDeviceCache(`nutrition:${key}`, view)
+        try {
+          localStorage.setItem(
+            SNAPSHOT_KEY,
+            JSON.stringify({ scope, time: Date.now(), view })
+          )
+        } catch {
+          /* Storage is optional. */
+        }
         if (cache.size > 14) cache.delete(cache.keys().next().value!)
       }
       return view
@@ -346,60 +454,112 @@ function load(date: string, refresh = false) {
   pending.set(key, request)
   return request
 }
-for (const event of [
-  "training-cache-reset",
-  "device-cache-cleared",
-  "app-auth-required",
-])
-  window.addEventListener(event, () => {
-    generation++
-    cache.clear()
-    pending.clear()
-    try{localStorage.removeItem(SNAPSHOT_KEY)}catch{/* Storage is optional. */}
-  })
+if (typeof window !== "undefined")
+  for (const event of [
+    "training-cache-reset",
+    "device-cache-cleared",
+    "app-auth-required",
+  ])
+    window.addEventListener(event, () => {
+      generation++
+      cache.clear()
+      pending.clear()
+      try {
+        localStorage.removeItem(SNAPSHOT_KEY)
+      } catch {
+        /* Storage is optional. */
+      }
+    })
 export function nutritionChanged() {
   generation++
   cache.clear()
   pending.clear()
-  void deleteDeviceCachePrefix('nutrition:')
-  try{localStorage.removeItem(SNAPSHOT_KEY)}catch{/* Storage is optional. */}
+  void deleteDeviceCachePrefix("nutrition:")
+  try {
+    localStorage.removeItem(SNAPSHOT_KEY)
+  } catch {
+    /* Storage is optional. */
+  }
   window.dispatchEvent(new Event("nutrition-updated"))
 }
 export function useNutrition(date: string) {
-  const [data, setData] = useState<NutritionView | null>(()=>cachedNutrition(date)),
+  const [data, setData] = useState<NutritionView | null>(() =>
+      cachedNutrition(date)
+    ),
     [error, setError] = useState(""),
-    [loading, setLoading] = useState(()=>!cachedNutrition(date)),
+    [loading, setLoading] = useState(() => !cachedNutrition(date)),
     [retry, setRetry] = useState(0)
+  const displayed = useRef(data)
+  displayed.current = data
   useEffect(() => {
     let active = true
     let sequence = 0
     const read = (refresh = false) => {
-      const version = ++sequence
+      const version = ++sequence,
+        cacheGeneration = generation,
+        scope = deviceCacheScope()
+      const current = () =>
+        active &&
+        version === sequence &&
+        generation === cacheGeneration &&
+        scope === deviceCacheScope()
       setError("")
-      const cached=refresh?null:cachedNutrition(date)
-      if(cached)setData(cached)
-      setLoading(!cached)
-      if(!refresh)void readDeviceCache<NutritionView>(`nutrition:${deviceCacheScope()}:${date}`,SNAPSHOT_TTL).then(saved=>{
-        if(saved && active && version===sequence && !cache.has(`${deviceCacheScope()}:${date}`)){setData(saved);setLoading(false)}
-      })
+      const cached = refresh ? null : cachedNutrition(date)
+      if (cached) setData(cached)
+      setLoading(!cached && displayed.current?.date !== date)
+      if (!refresh)
+        void readDeviceCache<NutritionView>(
+          `nutrition:${scope}:${date}`,
+          SNAPSHOT_TTL
+        ).then((saved) => {
+          if (saved && current() && !cache.has(`${scope}:${date}`))
+            try {
+              setData(validatedNutritionView(saved, date))
+              setLoading(false)
+            } catch {
+              /* Ignore malformed device snapshots. */
+            }
+        })
       void load(date, refresh)
         .then((value) => {
-          if (active && version === sequence) setData(value)
+          if (current()) setData(value)
         })
         .catch((problem) => {
-          if (active && version === sequence)
-            setError(problem.message || "Your food log could not load.")
+          if (current() && problem?.name !== "AbortError")
+            setError(problem?.message || "Your food log could not load.")
         })
         .finally(() => {
-          if (active && version === sequence) setLoading(false)
+          if (current()) setLoading(false)
         })
     }
     read()
     const update = () => read(true)
+    const reset = () => {
+      sequence++
+      displayed.current = null
+      setData(null)
+      setError("")
+      setLoading(false)
+    }
+    const connectionChanged = () => {
+      reset()
+      const version = sequence
+      // Connection updates can clear both cache layers in the same tick.
+      // Only the final reset needs a request.
+      queueMicrotask(() => {
+        if (active && version === sequence) read(true)
+      })
+    }
     window.addEventListener("nutrition-updated", update)
+    window.addEventListener("app-auth-required", reset)
+    window.addEventListener("device-cache-cleared", connectionChanged)
+    window.addEventListener("training-cache-reset", connectionChanged)
     return () => {
       active = false
       window.removeEventListener("nutrition-updated", update)
+      window.removeEventListener("app-auth-required", reset)
+      window.removeEventListener("device-cache-cleared", connectionChanged)
+      window.removeEventListener("training-cache-reset", connectionChanged)
     }
   }, [date, retry])
   return {
@@ -408,8 +568,8 @@ export function useNutrition(date: string) {
     loading,
     setData,
     reload: useCallback(() => {
-      cache.clear()
+      cache.delete(`${deviceCacheScope()}:${date}`)
       setRetry((v) => v + 1)
-    }, []),
+    }, [date]),
   }
 }

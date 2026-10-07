@@ -1,5 +1,4 @@
 import { apiFetch } from "@/lib/api-client"
-/* eslint-disable react-refresh/only-export-components */
 import * as React from "react"
 
 type Theme = "dark" | "light" | "system"
@@ -33,11 +32,19 @@ function isTheme(value: string | null): value is Theme {
 }
 
 function getSystemTheme(): ResolvedTheme {
-  if (window.matchMedia(COLOR_SCHEME_QUERY).matches) {
+  if (window.matchMedia?.(COLOR_SCHEME_QUERY).matches) {
     return "dark"
   }
 
   return "light"
+}
+
+function storeTheme(storageKey: string, theme: Theme) {
+  try {
+    localStorage.setItem(storageKey, theme)
+  } catch {
+    // A blocked/quota-limited browser cache must not undo saved appearance.
+  }
 }
 
 function disableTransitionsTemporarily() {
@@ -86,9 +93,11 @@ export function ThemeProvider({
   ...props
 }: ThemeProviderProps) {
   const [theme, setThemeState] = React.useState<Theme>(() => {
-    const storedTheme = localStorage.getItem(storageKey)
-    if (isTheme(storedTheme)) {
-      return storedTheme
+    try {
+      const storedTheme = localStorage.getItem(storageKey)
+      if (isTheme(storedTheme)) return storedTheme
+    } catch {
+      // Browsers may deny storage in private or embedded sessions.
     }
 
     return defaultTheme
@@ -103,7 +112,7 @@ export function ThemeProvider({
         if (!response.ok) return
         const saved = await response.json() as { theme?: string }
         if (active && revision === themeRevision.current && isTheme(saved.theme ?? null)) {
-          localStorage.setItem(storageKey, saved.theme!)
+          storeTheme(storageKey, saved.theme as Theme)
           setThemeState(saved.theme as Theme)
         }
       }).catch(() => undefined)
@@ -120,7 +129,7 @@ export function ThemeProvider({
       const result = await response.json() as { error?: string }
       if (!response.ok) throw new Error(result.error || "Appearance could not be saved to Supabase.")
       if (revision !== themeRevision.current) return
-      localStorage.setItem(storageKey, nextTheme)
+      storeTheme(storageKey, nextTheme)
       setThemeState(nextTheme)
     },
     [storageKey]
@@ -137,6 +146,7 @@ export function ThemeProvider({
 
       root.classList.remove("light", "dark")
       root.classList.add(resolvedTheme)
+      root.style.colorScheme = resolvedTheme
 
       if (restoreTransitions) {
         restoreTransitions()
@@ -145,10 +155,10 @@ export function ThemeProvider({
     [disableTransitionOnChange]
   )
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     applyTheme(theme)
 
-    if (theme !== "system") {
+    if (theme !== "system" || typeof window.matchMedia !== "function") {
       return undefined
     }
 
@@ -205,9 +215,9 @@ export function ThemeProvider({
 
   React.useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {
-      if (event.storageArea !== localStorage) {
-        return
-      }
+      try {
+        if (event.storageArea !== localStorage) return
+      } catch { return }
 
       if (event.key !== storageKey) {
         return

@@ -15,7 +15,9 @@ export function createIntervalsClient(config, fetchImpl = fetch) {
       throw new Error("Invalid Intervals.icu path");
     const response = await fetchImpl(`https://intervals.icu/api/v1${pathname}`, {
       ...options,
-      signal: AbortSignal.timeout(30_000),
+      signal: options.signal
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(30_000)])
+        : AbortSignal.timeout(30_000),
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
@@ -55,7 +57,7 @@ export function validDate(value) {
 }
 
 export function eventId(id) {
-  const match = String(id).match(/^event:(\d+)$/);
+  const match = String(id).match(/^event:([1-9]\d*)$/);
   if (!match)
     throw new Error(
       "Only Intervals.icu calendar events can be changed; completed activities are read-only."
@@ -334,6 +336,7 @@ export async function fetchIntervalsContext(
     repairWorkoutLinks = false,
     onProgress,
     cachedAthlete,
+    withWorkoutWrite,
   } = {}
 ) {
   const syncStartedAt = new Date().toISOString();
@@ -398,7 +401,8 @@ export async function fetchIntervalsContext(
       allEvents,
       activities || [],
       matches,
-      onProgress
+      onProgress,
+      withWorkoutWrite
     );
     if (result.failed) {
       onProgress?.({
@@ -550,7 +554,14 @@ export function pairIntervalsWorkouts(events, activities) {
   return matches;
 }
 
-async function persistInferredWorkoutLinks(request, events, activities, matches, onProgress) {
+async function persistInferredWorkoutLinks(
+  request,
+  events,
+  activities,
+  matches,
+  onProgress,
+  withWorkoutWrite = (_id, write) => write(request)
+) {
   const eventById = new Map(events.map((event) => [String(event.id), event]));
   const candidates = [...matches].filter(([eventId, activity]) => {
     const event = eventById.get(String(eventId));
@@ -566,41 +577,45 @@ async function persistInferredWorkoutLinks(request, events, activities, matches,
       const activityPath = `/activity/${encodeURIComponent(activity.id)}`;
       const eventPath = `/athlete/0/events/${encodeURIComponent(eventId)}`;
       try {
-        const [currentActivity, currentEvent] = await Promise.all([
-          request(activityPath),
-          request(eventPath),
-        ]);
-        const activityPair = currentActivity?.paired_event_id;
-        const eventPair = currentEvent?.paired_activity_id;
-        if (
-          !currentActivity ||
-          !currentEvent ||
-          String(currentActivity.id) !== String(activity.id) ||
-          (activityPair != null && String(activityPair) !== String(eventId)) ||
-          (eventPair != null && String(eventPair) !== String(activity.id))
-        ) {
-          result.skipped += 1;
-        } else if (String(activityPair) === String(eventId)) {
-          result.skipped += 1;
-        } else {
-          const saved = await request(activityPath, {
-            method: "PUT",
-            body: JSON.stringify({ ...currentActivity, paired_event_id: Number(eventId) }),
-          });
-          const verified =
-            String(saved?.id) === String(activity.id) &&
-            String(saved?.paired_event_id) === String(eventId)
-              ? saved
-              : await request(activityPath);
+        await withWorkoutWrite(`activity:${activity.id}`, async (request) => {
+          const [currentActivity, currentEvent] = await Promise.all([
+            request(activityPath),
+            request(eventPath),
+          ]);
+          const activityPair = currentActivity?.paired_event_id;
+          const eventPair = currentEvent?.paired_activity_id;
           if (
-            String(verified?.id) !== String(activity.id) ||
-            String(verified?.paired_event_id) !== String(eventId)
+            !currentActivity ||
+            !currentEvent ||
+            String(currentActivity.id) !== String(activity.id) ||
+            (activityPair != null && String(activityPair) !== String(eventId)) ||
+            (eventPair != null && String(eventPair) !== String(activity.id))
           ) {
-            result.failed += 1;
+            result.skipped += 1;
+          } else if (String(activityPair) === String(eventId)) {
+            result.skipped += 1;
           } else {
-            result.linked += 1;
+            const saved = await request(activityPath, {
+              method: "PUT",
+              body: JSON.stringify({ paired_event_id: Number(eventId) }),
+            });
+            const verified =
+              String(saved?.id) === String(activity.id) &&
+              String(saved?.paired_event_id) === String(eventId)
+                ? saved
+                : await request(activityPath);
+            if (
+              String(verified?.id) !== String(activity.id) ||
+              String(verified?.paired_event_id) !== String(eventId)
+            ) {
+              throw Error(
+                "Intervals.icu did not confirm the workout pairing. Refresh before trying again."
+              );
+            } else {
+              result.linked += 1;
+            }
           }
-        }
+        });
       } catch {
         result.failed += 1;
       }

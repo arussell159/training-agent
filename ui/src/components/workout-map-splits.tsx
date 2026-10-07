@@ -1,7 +1,7 @@
 import { TableSkeleton } from "@/components/loading-layouts"
 import { METERS_PER_100_YARDS } from "../../../app-backend/lib/swim-units.mjs"
 import { useEffect, useMemo, useState } from "react"
-import { apiFetch } from "@/lib/api-client"
+import { loadActivityAnalysis } from "@/lib/activity-analysis"
 import type { PlannedWorkout } from "@/lib/training-context"
 import type { RecordedPoint } from "@/lib/segment-statistics"
 import { distanceSplits, type DistanceSplit } from "@/lib/distance-splits"
@@ -37,14 +37,7 @@ export function WorkoutMapSplits({
     setLoadError(false)
     setLoaded(null)
     const controller = new AbortController()
-    void apiFetch(
-      `/api/activities/${encodeURIComponent(id)}/analysis?schema=8&v=${encodeURIComponent(revision)}`,
-      { signal: controller.signal }
-    )
-      .then(async (response) => {
-        if (!response.ok) throw Error()
-        return (await response.json()) as Analysis
-      })
+    void loadActivityAnalysis(id, revision, controller.signal)
       .then((value) => {
         if (!controller.signal.aborted) setLoaded(value)
       })

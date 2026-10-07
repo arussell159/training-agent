@@ -26,6 +26,8 @@ import { WorkoutReportCompare } from "@/components/workout-report-compare"
 import { useIsMobile } from "@/hooks/use-mobile"
 import "./workout-reports.css"
 import { apiFetch } from "@/lib/api-client"
+import { validatedTrainingContext } from "@/lib/training-context-validation"
+import { withRequestDeadline } from "@/lib/request-deadline"
 import {
   cachedTrainingContext,
   type PlannedWorkout,
@@ -369,33 +371,36 @@ export function WorkoutReportsPage({
   const [reportTableWidth, setReportTableWidth] = useState(0)
   const tableRef = useRef<HTMLDivElement>(null),
     latestRequest = useRef(0),
-    restored = useRef(false),
-    lastQuery = useRef({ filters: view.filters, sort: view.sort })
+    activeRequest = useRef<AbortController | null>(null),
+    restored = useRef(false)
   const timeZone = context?.athlete.time_zone || "America/Chicago"
   const patchView = (patch: Partial<View>) =>
     setView((current) => ({ ...current, ...patch }))
   const load = useCallback((refresh = false) => {
     const request = ++latestRequest.current
+    activeRequest.current?.abort()
     if (refresh) setRefreshing(true)
     else setLoading(true)
     setLoadError("")
     const controller = new AbortController()
-    void apiFetch("/api/training-context?scope=full", {
-      signal: controller.signal,
-      cache: refresh ? "no-store" : "default",
-    })
-      .then(async (response) => {
+    activeRequest.current=controller
+    void withRequestDeadline(async signal=>{
+        const response=await apiFetch("/api/training-context?scope=full", {
+          signal,
+          cache: refresh ? "no-store" : "default",
+        })
         const result = (await response.json()) as TrainingContext & {
           error?: string
         }
         if (!response.ok)
           throw Error(
-            result.error || `History request failed (${response.status}).`
+            result?.error || `History request failed (${response.status}).`
           )
-        if (result.context_scope !== "full")
+        const context=validatedTrainingContext(result)
+        if (context.context_scope !== "full")
           throw Error("Complete retained history is unavailable.")
-        return result
-      })
+        return context
+      },20_000,controller.signal)
       .then((result) => {
         if (request === latestRequest.current) setContext(result)
       })
@@ -407,28 +412,22 @@ export function WorkoutReportsPage({
       })
       .finally(() => {
         if (request === latestRequest.current) {
+          activeRequest.current=null
           setLoading(false)
           setRefreshing(false)
         }
       })
     return controller
   }, [])
+  const cancelLoad=useCallback(()=>{
+    ++latestRequest.current
+    activeRequest.current?.abort()
+    activeRequest.current=null
+  },[])
   useEffect(() => {
-    const controller = load()
-    return () => {
-      ++latestRequest.current
-      controller.abort()
-    }
-  }, [load])
-  useEffect(() => {
-    if (lastQuery.current.filters === view.filters && lastQuery.current.sort === view.sort) return
-    lastQuery.current = { filters: view.filters, sort: view.sort }
-    const controller = load(true)
-    return () => {
-      ++latestRequest.current
-      controller.abort()
-    }
-  }, [view.filters, view.sort, load])
+    load()
+    return cancelLoad
+  }, [load,cancelLoad])
   useEffect(() => {
     const controller = new AbortController()
     void apiFetch("/api/training-preferences", { signal: controller.signal })
@@ -1167,4 +1166,3 @@ export function WorkoutReportsPage({
     </section>
   )
 }
-
