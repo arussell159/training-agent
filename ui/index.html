@@ -17,6 +17,13 @@
         document.documentElement.style.colorScheme = dark ? "dark" : "light";
       })();
     </script>
+    <script>
+      // Start session verification alongside assets, before React is downloaded.
+      // Consumed once, never persisted, and validated by the normal auth client.
+      window.__trainingSessionRequest = fetch('/api/handler?__api_route=auth%2Fsession', {
+        credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(20000)
+      }).catch(() => null);
+    </script>
     <style>
       html { background: #fff; color-scheme: light; }
       html.dark { background: #0a0a0a; color-scheme: dark; }

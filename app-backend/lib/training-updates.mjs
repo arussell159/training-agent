@@ -2,6 +2,7 @@ import { athleteLocalDate } from "./athlete-date.mjs";
 import { fetchIntervalsContext } from "./intervals.mjs";
 import { mergeTrainingSnapshot, providerConnection } from "./completed-workout-store.mjs";
 import { prepareFastView, projectTrainingContext } from "./fast-context.mjs";
+import { changedTrainingRange } from './intervals-change-hints.mjs';
 
 // A foreground check bypasses the broad sync, file archive and GitHub worker.
 // Only changed content is written. Concurrent opens share the provider check.
@@ -17,7 +18,7 @@ export function createTrainingUpdates({
 }) {
   const checks = new Map();
   const profiles = new Map();
-  return async (config, { durable = false, full = false } = {}) => {
+  return async (config, { durable = false, full = false, hints } = {}) => {
     const key = providerConnection(config),
       time = now();
     const current = checks.get(key);
@@ -30,10 +31,13 @@ export function createTrainingUpdates({
       const today = athleteLocalDate(time, zone);
       const shift = (n) =>
         new Date(Date.parse(`${today}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
-      const range = saved && !full ? { start: shift(-7), end: shift(60) } : undefined;
+      const changedRange = changedTrainingRange(saved, hints);
+      const range = changedRange || (saved && !full ? { start: shift(-7), end: shift(60) } : undefined);
       const provider = request(config);
       let profile = profiles.get(key);
-      if (!profile || full || time.getTime() - profile.at >= 300_000) {
+      if (changedRange) {
+        profile = { promise: Promise.resolve(saved.athlete) };
+      } else if (!profile || full || time.getTime() - profile.at >= 300_000) {
         profile = { at: time.getTime(), promise: provider("/athlete/0") };
         profiles.set(key, profile);
         if (profiles.size > 8) profiles.delete(profiles.keys().next().value);
@@ -49,7 +53,8 @@ export function createTrainingUpdates({
         now: time,
         timeZone: zone,
         range,
-        includeFutureRaces: true,
+        includeFutureRaces: !changedRange,
+        wellnessLookbackDays: changedRange ? 0 : 29,
         cachedAthlete: athlete,
       });
       const merged = mergeTrainingSnapshot(saved, incoming, range);

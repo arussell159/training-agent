@@ -1,4 +1,5 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { changeHint } from './intervals-change-hints.mjs';
 
 export const WEBHOOK_TYPES = new Set([
   "ACTIVITY_UPLOADED",
@@ -24,7 +25,7 @@ export const freshWebhookState = () => ({ revision: 0, completed: 0, deliveries:
 // Acknowledgement follows a durable inbox write. A lease serializes refreshes
 // across instances; revisions retain events arriving while a refresh is running.
 // Payloads are hints only: re-read the API so delayed updates cannot resurrect deletes.
-export function createWebhookSync({ store, refresh, now = Date.now, reconcileMs = 300_000 }) {
+export function createWebhookSync({ store, refresh, now = Date.now, reconcileMs = 900_000 }) {
   return {
     async accept(events, athleteId) {
       const relevant = events.filter(
@@ -41,6 +42,10 @@ export function createWebhookSync({ store, refresh, now = Date.now, reconcileMs 
         const added = [...new Set(hashes)].filter((id) => !seen.has(id));
         if (added.length) {
           state.revision++;
+          const hints = relevant.filter((_, index) => added.includes(hashes[index])).map(changeHint);
+          state.changes = [...(state.changes || []), { revision: state.revision, hints }];
+          if (state.changes.reduce((n, change) => n + change.hints.length, 0) > 100)
+            state.changes = [{ revision: state.revision, hints: [{ full: true }] }];
           state.lastReceivedAt = new Date(time).toISOString();
           state.deliveries.push(...added.map((id) => ({ id, at: time })));
           state.deliveries = state.deliveries.slice(-512);
@@ -55,20 +60,23 @@ export function createWebhookSync({ store, refresh, now = Date.now, reconcileMs 
       const current = await store.read();
       const due = (state) =>
         state.revision > state.completed || now() - (state.lastChecked || 0) >= reconcileMs;
-      if (!due(current) || current.retryAt > now() || current.lease?.until > now()) return;
+      if (!due(current) || current.lease?.until > now()) return;
+      if (current.retryAt > now()) return { retryAt: current.retryAt };
       for (let pass = 0; pass < 3; pass++) {
         const token = randomUUID();
         const claim = await store.update((state) => {
           if (!due(state) || state.retryAt > now() || state.lease?.until > now()) return null;
           state.lease = { token, until: now() + 240_000 };
-          return { revision: state.revision };
+          return { revision: state.revision, hints: (state.changes || [])
+            .filter(change => change.revision > state.completed).flatMap(change => change.hints) };
         });
         if (!claim) return;
         try {
-          await refresh();
+          await refresh({ hints: claim.hints });
           const more = await store.update((state) => {
             if (state.lease?.token !== token) return false;
             state.completed = Math.max(state.completed, claim.revision);
+            state.changes = (state.changes || []).filter(change => change.revision > state.completed);
             state.lastChecked = now();
             state.lastSyncedAt = new Date(now()).toISOString();
             state.lastError = null;
@@ -79,7 +87,7 @@ export function createWebhookSync({ store, refresh, now = Date.now, reconcileMs 
           });
           if (!more) return;
         } catch {
-          await store.update((state) => {
+          const retryAt = await store.update((state) => {
             if (state.lease?.token !== token) return;
             state.lease = null;
             state.failures = (state.failures || 0) + 1;
@@ -87,10 +95,12 @@ export function createWebhookSync({ store, refresh, now = Date.now, reconcileMs 
               now() + Math.min(300_000, 15_000 * 2 ** Math.min(state.failures - 1, 5));
             state.lastError =
               "Intervals.icu refresh failed. Saved data is available; the next delivery or app check will retry.";
+            return state.retryAt;
           });
-          return;
+          return retryAt ? { retryAt } : undefined;
         }
       }
+      return { retryAt: now() + 1000 };
     },
     async status() {
       const state = await store.read();

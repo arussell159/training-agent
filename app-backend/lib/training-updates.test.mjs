@@ -9,6 +9,22 @@ const clock = new Date("2026-10-06T18:00:00Z");
 const range = { start: "2026-09-29", end: "2026-12-05" };
 const config = { INTERVALS_API_KEY: "fixture" };
 
+test('a workout webhook refreshes the affected three days, without reloading profile or annual races', async () => {
+  const f = await fixture(); f.complete();
+  const tasks = [];
+  const check = createTrainingUpdates({ readSnapshot: async () => f.saved, request: () => f.request,
+    persist: async () => {}, warm: async () => {}, exportGithub: async () => {},
+    waitUntil: task => tasks.push(task), now: () => clock,
+  });
+  const result = await check(config, { durable: true, full: true, hints: [{ id: 'i10', date: '2026-10-06' }] });
+  assert.equal(result.context.history[0].activity_id, 'i10');
+  assert.equal(f.calls.length, 4);
+  assert.ok(f.calls.every(path => path !== '/athlete/0'));
+  assert.ok(f.calls.some(path => path === '/athlete/0/activities?oldest=2026-10-05&newest=2026-10-07'));
+  assert.ok(f.calls.some(path => path === '/athlete/0/wellness?oldest=2026-10-05&newest=2026-10-07'));
+  await Promise.all(tasks);
+});
+
 test("provider ordering of same-day planned workouts does not trigger an export", () => {
   const a = { id: "event:1", workout_date: "2026-10-10", title: "Run", completed: false };
   const b = { id: "event:2", workout_date: "2026-10-10", title: "Swim", completed: false };

@@ -13,6 +13,13 @@ export type AppSession = {
 }
 
 let pendingSession: Promise<unknown> | null = null
+function takeStartupSession() {
+  if (typeof window === 'undefined') return undefined
+  const target = window as Window & { __trainingSessionRequest?: Promise<Response | null> }
+  const pending = target.__trainingSessionRequest
+  delete target.__trainingSessionRequest
+  return pending
+}
 const REQUEST_TIMEOUT_MS = 20_000
 
 function validSession(value: unknown): value is AppSession {
@@ -72,7 +79,9 @@ async function request(endpoint: string, body?: unknown): Promise<unknown> {
     return await Promise.race([
       timeout,
       (async () => {
-        const response = await fetch(toFunctionUrl(`/api/auth/${endpoint}`), {
+        const startupRequest = endpoint === 'session' && body === undefined ? takeStartupSession() : undefined
+        const startup = startupRequest ? await startupRequest : null
+        const response = startup || await fetch(toFunctionUrl(`/api/auth/${endpoint}`), {
           method: body === undefined ? "GET" : "POST",
           credentials: "same-origin",
           cache: "no-store",
@@ -114,6 +123,7 @@ export function authRequest<T = AppSession>(
   body?: unknown
 ): Promise<T> {
   if (endpoint !== "session" || body !== undefined) {
+    takeStartupSession()
     // A session read started before a sign-in or logout cannot represent it.
     pendingSession = null
     return request(endpoint, body) as Promise<T>

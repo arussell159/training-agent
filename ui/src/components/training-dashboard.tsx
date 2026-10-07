@@ -3,6 +3,7 @@ import { fallbackTrainingContext } from "@/lib/training-context"
 import { lazy, Suspense, useEffect, useState } from "react"
 
 import { SectionCards } from "@/components/section-cards"
+import { performanceProbe } from '@/lib/performance-probe'
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
   loadFullTrainingContext,
@@ -32,6 +33,9 @@ export function TrainingDashboard({
   onWorkoutOpen?: (workout: PlannedWorkout) => void
 }) {
   const [context, setContext] = useState(cachedTrainingContext)
+  useEffect(() => {
+    if (context !== fallbackTrainingContext) performanceProbe('dashboard-visible')
+  }, [context])
   const [selectedWorkout, setSelectedWorkout] =
     useState<PlannedWorkout | null>(null)
   const isMobile = useIsMobile()

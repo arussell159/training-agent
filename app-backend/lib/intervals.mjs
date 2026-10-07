@@ -336,6 +336,7 @@ export async function fetchIntervalsContext(
     repairWorkoutLinks = false,
     onProgress,
     cachedAthlete,
+    wellnessLookbackDays = 29,
     withWorkoutWrite,
   } = {}
 ) {
@@ -378,7 +379,7 @@ export async function fetchIntervalsContext(
       : Promise.resolve([]),
     track(
       request(
-        `/athlete/0/wellness?oldest=${range ? new Date(Date.parse(`${range.start}T12:00:00Z`) - 29 * 86400000).toISOString().slice(0, 10) : shift(-89)}&newest=${range?.end || today}`
+        `/athlete/0/wellness?oldest=${range ? new Date(Date.parse(`${range.start}T12:00:00Z`) - wellnessLookbackDays * 86400000).toISOString().slice(0, 10) : shift(-89)}&newest=${range?.end || today}`
       ),
       "Loaded wellness history"
     ),

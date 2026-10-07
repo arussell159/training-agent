@@ -2,6 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run ui:build",
   "outputDirectory": "ui/dist",
+  "regions": ["pdx1"],
   "functions": {
     "api/handler.mjs": {
       "includeFiles": "app-backend/**",

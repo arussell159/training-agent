@@ -68,6 +68,19 @@ const context = (version = "one", patch = {}) => ({
   version,
   ...patch,
 })
+
+test('a returning full cache validates its version without downloading the snapshot again', async () => {
+  window.dispatchEvent(new Event('training-cache-reset'));
+  setApiAuthenticated(true);
+  training.rememberLiveTrainingContext(context('returning', { context_scope: 'full' }));
+  let path;
+  globalThis.fetch = async url => { path = url; return json({ unchanged: true, version: 'returning' }); };
+  const loaded = await training.loadFullTrainingContext(false, true);
+  assert.match(path, /version=returning/);
+  assert.match(path, /training-updates/);
+  assert.equal(loaded.version, 'returning');
+  window.dispatchEvent(new Event('training-cache-reset'));
+});
 const targets = {
   calories: 2000,
   protein: 150,

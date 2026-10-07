@@ -744,12 +744,14 @@ export async function loadTrainingContext(
       const query = new URLSearchParams({ scope })
       if (forceRefresh) query.set("refresh", "1")
       const context = await withRequestDeadline(async (signal) => {
-        const response = await apiFetch(`/api/training-context?${query}`, {
-          signal,
-          headers: { Accept: "application/json" },
-        })
+        const saved = cachedTrainingContext() as CachedContext
+        const compare = !forceRefresh && saved.context_scope === 'full' && saved.version
+        const response = await apiFetch(compare
+          ? `/api/training-updates?${new URLSearchParams({ version: saved.version! })}`
+          : `/api/training-context?${query}`, { signal })
         if (!response.ok) throw new Error(`Training context ${response.status}`)
-        return validatedTrainingContext(await response.json())
+        const body = await response.json()
+        return validatedTrainingContext(compare ? (body.unchanged ? saved : body.context) : body)
       }, 20_000)
       if (revision !== contextRevision) {
         // Never return our own registered promise or start another database read
@@ -762,7 +764,7 @@ export async function loadTrainingContext(
       ) {
         window.dispatchEvent(new CustomEvent("intervals-auth-expired"))
       }
-      rememberTrainingContext(context, scope)
+      rememberTrainingContext(context, context.context_scope === 'full' ? 'full' : scope)
       networkLoadedScopes.add(scope)
       if (scope === "full") networkLoadedScopes.add("week")
       return context

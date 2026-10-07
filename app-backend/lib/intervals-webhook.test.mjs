@@ -33,6 +33,17 @@ const event = (id = "a", athlete_id = "1") => ({
   timestamp: "2026-10-07T12:00:00Z",
 });
 
+test('revision claims retain a second workout hint arriving during a refresh', async () => {
+  const gate = Promise.withResolvers(), received = [];
+  const f = fixture(async ({ hints }) => { received.push(hints); if (received.length === 1) await gate.promise; });
+  const activity = id => ({ ...event(id), type: 'ACTIVITY_UPLOADED', activity: { id, start_date_local: '2026-10-07T10:00:00' } });
+  await f.sync.accept([activity('i1')], '1');
+  const running = f.sync.drain(); await new Promise(resolve => setImmediate(resolve));
+  await f.sync.accept([activity('i2')], '1'); gate.resolve(); await running;
+  assert.deepEqual(received.map(hints => hints.map(h => h.id)), [['i1'], ['i2']]);
+  assert.equal(f.state.changes.length, 0);
+});
+
 test("secret comparison fails closed, including absent and non-string secrets", () => {
   for (const value of [null, undefined, {}, "", "wrong"])
     assert.equal(secretMatches(value, "secret"), false);
@@ -92,7 +103,7 @@ test("failed persistence retains pending work and retries after backoff", async 
   assert.equal(f.state.completed, 1);
   assert.equal(f.state.lastError, null);
 });
-test("expired worker leases recover and missed webhooks reconcile every five minutes", async () => {
+test("expired worker leases recover and missed webhooks reconcile every fifteen minutes", async () => {
   let runs = 0;
   const f = fixture(async () => {
     runs++;
@@ -102,7 +113,7 @@ test("expired worker leases recover and missed webhooks reconcile every five min
   assert.equal(runs, 0);
   f.advance(2);
   await f.sync.drain();
-  f.advance(299_999);
+  f.advance(899_999);
   await f.sync.drain();
   assert.equal(runs, 1);
   f.advance(1);

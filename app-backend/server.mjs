@@ -11,6 +11,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createWebhookSync, freshWebhookState, secretMatches } from './lib/intervals-webhook.mjs';
 import { createIntervalsOAuth, freshIntervalsOAuth, intervalsOrigin } from './lib/intervals-oauth.mjs';
 import { cachedTrainingUpdates } from './lib/cached-training-updates.mjs';
+import { createTrainingLive } from './lib/training-live.mjs';
 import { createCoachHttp } from './lib/coach-http.mjs';
 import { createNutritionHttp } from './lib/nutrition-http.mjs';
 import { createNutritionStore } from './lib/nutrition-model.mjs';
@@ -232,6 +233,7 @@ const CONFIG_ENV_KEYS = [
   'INTERVALS_WEBHOOK_AUTHORIZATION',
   'SUPABASE_URL',
   'SUPABASE_SECRET_KEY',
+  'SUPABASE_PUBLISHABLE_KEY',
   'SETTINGS_ENCRYPTION_KEY',
   'SETTINGS_SCOPE',
 ];
@@ -273,7 +275,7 @@ function webhookSync(config) {
     store:createEncryptedRecordStore(config,providerConnection(config),{
       namespace:'intervals-webhook',name:'INTERVALS_WEBHOOK',fresh:freshWebhookState,timestampCas:true,
     }),
-    refresh:()=>checkTrainingUpdates(config,{durable:true,full:true}),
+    refresh:({hints}={})=>checkTrainingUpdates(config,{durable:true,full:true,hints}),
   });
 }
 const reconciliationTasks=new Map();
@@ -281,7 +283,18 @@ function scheduleTrainingReconciliation(config) {
   if(!config.INTERVALS_API_KEY || !config.SUPABASE_URL || !config.SUPABASE_SECRET_KEY)return;
   const key=providerConnection(config);
   if(reconciliationTasks.has(key))return;
-  const task=Promise.resolve().then(()=>webhookSync(config).drain())
+  const task=Promise.resolve().then(async()=>{
+    // Short transient failures retry within the same durable server invocation,
+    // even if the browser is closed. Bound retries well below Vercel's deadline.
+    const sync=webhookSync(config);
+    for(let attempt=0;attempt<3;attempt++) {
+      const result=await sync.drain();
+      if(!result?.retryAt || attempt===2)break;
+      const delay=Math.max(0,result.retryAt-Date.now());
+      if(delay>30_000)break;
+      await new Promise(resolve=>setTimeout(resolve,delay));
+    }
+  })
     .catch(()=>updateLogs('Background Intervals.icu reconciliation will retry on the next app check.'))
     .finally(()=>reconciliationTasks.delete(key));
   reconciliationTasks.set(key,task);
@@ -1083,14 +1096,20 @@ export async function handleRequest(req, res) {
       const context=job.state==='synced'?projectTrainingContext(snapshot,'full'):await createMutationProjection(config,store).pending(job);
       sendJson(req,res,{queued:job.state!=='synced',verified:job.state==='synced',state:job.state,context,operationId:mutation.operationId});return;
     }
+    if(pathname==='/api/training-live' && req.method==='POST') {
+      const config=await readConfig();
+      sendJson(req,res,await createTrainingLive(config,createContextStore(config),{sessionExpiresAt:req.appSession?.expires}));return;
+    }
     if(pathname==='/api/training-updates' && req.method==='GET') {
       if(await localEditCacheEnabled(req)) {
         const cached=await readIntervalsCache();
         sendJson(req,res,{context:await scopedTrainingContext(cached,'full'),sourceChanged:false});return;
       }
       const config=await readConfig();
+      const store=createContextStore(config);
       sendJson(req,res,await cachedTrainingUpdates({
-        readView:()=>createContextStore(config).getSyncRecord(fastViewId(config)),
+        readVersion:()=>store.getSyncVersion(fastViewId(config)),
+        readView:()=>store.getSyncRecord(fastViewId(config),{fresh:true}),
         refresh:()=>scheduleTrainingReconciliation(config),schedule:task=>task(),
         version:requestUrl.searchParams.get('version'),
       }));return;

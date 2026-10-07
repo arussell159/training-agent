@@ -11,6 +11,20 @@ const session = {
 const json = (value) =>
   new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json" } });
 
+test('early HTML session verification is consumed once and still validated', async (t) => {
+  const previous = globalThis.window;
+  globalThis.window = { __trainingSessionRequest: Promise.resolve(json(session)) };
+  t.after(() => { if (previous === undefined) delete globalThis.window; else globalThis.window = previous; });
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => { calls++; return json(session); });
+  assert.deepEqual(await authRequest('session'), session);
+  assert.equal(calls, 0);
+  assert.equal(window.__trainingSessionRequest, undefined);
+  await authRequest('session'); assert.equal(calls, 1);
+  window.__trainingSessionRequest = Promise.resolve(json({ authenticated: true }));
+  await assert.rejects(authRequest('session'), /invalid session/);
+});
+
 test("concurrent session checks share one request but a settled result is never cached", async (t) => {
   let finish,
     calls = 0;

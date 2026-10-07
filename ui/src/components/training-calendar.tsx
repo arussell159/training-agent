@@ -1,4 +1,5 @@
 import { fallbackTrainingContext } from "@/lib/training-context"
+import { performanceProbe } from '@/lib/performance-probe'
 import { CalendarSkeleton, ChartSkeleton } from "@/components/loading-layouts"
 import { SavedReportButton } from "@/components/saved-report-button"
 import { planReportBlocks } from "../../../app-backend/lib/report-blocks.mjs"
@@ -661,6 +662,9 @@ export function TrainingCalendar({
   onScrollRestored?: () => void
 }) {
   const [context, setContext] = useState(cachedTrainingContext)
+  useEffect(() => {
+    if (context !== fallbackTrainingContext) performanceProbe('calendar-visible')
+  }, [context])
   const [calendarReady, setCalendarReady] = useState(() => context !== fallbackTrainingContext)
   const [annualPlan, setAnnualPlan] = useState<AnnualPlan | null>(null)
   const [historyReady, setHistoryReady] = useState(false)

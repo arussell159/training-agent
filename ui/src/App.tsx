@@ -90,6 +90,13 @@ function preloadPage(item: string) {
   if (load) void load().catch(() => {})
   if (item === "Nutrition") void prefetchNutrition().catch(() => {})
 }
+// Fetch the requested page's code while authentication is in flight. Importing
+// components does not fetch private data; the auth gate still controls rendering.
+if (typeof window !== 'undefined') {
+  const page = routeItem(window.location.pathname)
+  const load = pageImports[page as keyof typeof pageImports]
+  if (load) void load().catch(() => {})
+}
 const TermsReferenceDialog = lazy(() =>
   import("@/components/terms-reference-dialog").then((module) => ({
     default: module.TermsReferenceDialog,

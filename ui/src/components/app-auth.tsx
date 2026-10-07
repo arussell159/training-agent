@@ -21,6 +21,7 @@ import {
 } from "@/lib/app-auth"
 import { clearDeviceCache } from "@/lib/device-cache"
 import { setApiAuthenticated } from "@/lib/api-client"
+import { performanceProbe } from '@/lib/performance-probe'
 
 type AuthContextValue = {
   session: AppSession
@@ -64,6 +65,7 @@ export function AppAuth({ children }: { children: ReactNode }) {
   const operationBusy = useRef(false)
   const logoutPending = useRef<Promise<void> | null>(null)
   const update = useCallback((value: AppSession, newSession = false) => {
+    if (value.authenticated) performanceProbe('authenticated')
     revision.current++
     sessionRef.current = value
     setApiAuthenticated(value.authenticated, newSession)
