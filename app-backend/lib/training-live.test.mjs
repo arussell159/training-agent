@@ -3,6 +3,17 @@ import assert from 'node:assert/strict';
 import { createTrainingLive } from './training-live.mjs';
 import { cachedTrainingUpdates } from './cached-training-updates.mjs';
 import { changeHint, changedTrainingRange } from './intervals-change-hints.mjs';
+import { createSettingsService } from './settings-store.mjs';
+
+test('hosted configuration preserves the publishable key through settings loading', async () => {
+  const settings = createSettingsService({ hosted: true,
+    readBootstrap: async () => ({ SUPABASE_URL: 'https://test.supabase.co', SUPABASE_SECRET_KEY: 'a'.repeat(40), SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_fixture' }),
+    writeBootstrap: async () => {}, fetchImpl: async () => new Response('[]'),
+  });
+  const grant = await createTrainingLive(await settings.read(), { ready: true, registerTrainingLive: async () => {} });
+  assert.equal(grant.available, true);
+  assert.equal(grant.key, 'sb_publishable_fixture');
+});
 
 test('an unchanged version check never reads the full snapshot', async () => {
   let reads = 0, scheduled = 0;
