@@ -145,7 +145,7 @@ function RecoveryTrendCard({
   )
 
   return (
-    <Card className="dashboard-recovery-card min-w-0 overflow-hidden [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-2">
+    <Card className={`dashboard-recovery-card min-w-0 overflow-hidden [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-2 lg:row-start-1 ${isHrv ? "lg:col-start-13" : "lg:col-start-15"}`}>
       <CardHeader className="pb-0">
         <CardDescription className="flex items-center gap-1.5 font-semibold text-rose-500">
           <Heart className="size-3.5 fill-current" aria-hidden="true" />
@@ -328,7 +328,7 @@ function SleepCard({ context }: { context: TrainingContext }) {
       values.findIndex((candidate) => candidate.label === item.label) === index
   )
   return (
-    <Card className="dashboard-sleep-card min-w-0 [--card-spacing:--spacing(3)]">
+    <Card className="dashboard-sleep-card min-w-0 [--card-spacing:--spacing(3)] lg:col-span-2 lg:col-start-9 lg:row-start-2">
       <CardHeader>
         <CardDescription className="flex items-center gap-1.5 font-semibold text-teal-500">
           <BedDouble className="size-4" aria-hidden="true" />
@@ -391,7 +391,7 @@ export function SectionCards({
     context.metrics.form == null ? "—" : Math.round(context.metrics.form)
 
   return (
-    <div className="dashboard-card-grid grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-12">
+    <div className="dashboard-card-grid grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-16">
       <MobileDailySessions context={context} onWorkoutOpen={onWorkoutOpen} />
       <Card
         role={onWorkoutOpen && visibleTodayWorkout ? "button" : undefined}
@@ -404,7 +404,7 @@ export function SectionCards({
           event.preventDefault()
           if (visibleTodayWorkout) onWorkoutOpen(visibleTodayWorkout)
         }}
-        className="dashboard-session-card col-span-2 hidden min-w-0 md:flex lg:col-span-6 lg:row-span-2"
+        className="dashboard-session-card col-span-2 hidden min-w-0 md:flex lg:col-span-8 lg:row-span-2 lg:col-start-1 lg:row-start-1"
       >
         <CardHeader className="relative gap-3">
           <CardDescription className={multipleToday ? "pr-16" : undefined}>
@@ -469,9 +469,9 @@ export function SectionCards({
       <RecoveryTrendCard context={context} metric="hrv" />
       <RecoveryTrendCard context={context} metric="resting_hr" />
       <NutritionHomeCard date={dashboardToday(context)} />
-      <div className="col-span-2 grid min-w-0 grid-cols-2 gap-3 sm:gap-4 lg:col-span-6 lg:col-start-7">
+      <div className="col-span-2 grid min-w-0 grid-cols-2 gap-3 sm:gap-4 lg:contents">
         <SleepCard context={context} />
-        <Card className="dashboard-fitness-card min-w-0 [--card-spacing:--spacing(3)]">
+        <Card className="dashboard-fitness-card min-w-0 [--card-spacing:--spacing(3)] lg:col-span-2 lg:col-start-11 lg:row-start-2">
           <CardHeader>
             <CardDescription className="flex items-center gap-1.5 font-semibold text-violet-500">
               <PersonStanding className="size-4" aria-hidden="true" />

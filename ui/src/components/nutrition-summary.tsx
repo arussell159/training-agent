@@ -77,13 +77,13 @@ export function NutritionHomeCard({ date }: { date: string }) {
   return (
     <div
       data-slot="card"
-      className="dashboard-nutrition-card group relative col-span-2 rounded-[22px] border bg-card p-4 text-left shadow-sm transition-shadow hover:shadow-md lg:col-span-6 lg:col-start-7"
+      className="dashboard-nutrition-card group relative col-span-2 rounded-[22px] border bg-card p-4 text-left shadow-sm transition-shadow hover:shadow-md lg:col-span-4 lg:col-start-13 lg:row-start-2 lg:flex lg:flex-col lg:gap-(--card-spacing) lg:overflow-hidden lg:rounded-xl lg:border-0 lg:bg-card lg:py-4 lg:text-sm lg:text-card-foreground lg:shadow-none lg:ring-1 lg:ring-foreground/10 lg:hover:shadow-none lg:[--card-spacing:--spacing(4)]"
     >
       <button
         type="button"
         aria-label="Open nutrition tracker"
         onClick={openNutrition}
-        className="absolute inset-0 z-10 rounded-[22px] focus-visible:outline-2 focus-visible:outline-ring"
+        className="absolute inset-0 z-10 rounded-[22px] focus-visible:outline-2 focus-visible:outline-ring lg:rounded-xl"
       >
         <span className="sr-only">Open nutrition tracker</span>
       </button>

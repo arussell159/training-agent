@@ -214,22 +214,24 @@ export function NutritionDashboardSkeleton() {
             </div>
           </Card>
         </div>
-        <Skeleton className="h-7 w-28" />
-        {[0, 1, 2, 3].map((i) => (
-          <Card key={i} className="gap-4 rounded-2xl p-4">
-            <div className="flex justify-between">
-              <Skeleton className="h-7 w-24" />
-              <Skeleton className="size-8 rounded-full" />
-            </div>
-            <div className="grid w-48 grid-cols-2 gap-2">
-              <Skeleton className="h-3" />
-              <Skeleton className="h-3" />
-              <Skeleton className="h-3" />
-              <Skeleton className="h-3" />
-            </div>
-            <Skeleton className="h-12 w-full" />
-          </Card>
-        ))}
+        <div className="grid gap-3 lg:grid-cols-2 lg:gap-5">
+          <Skeleton className="h-7 w-28 lg:col-span-2" />
+          {[0, 1, 2, 3].map((i) => (
+            <Card key={i} className="gap-4 p-4">
+              <div className="flex justify-between">
+                <Skeleton className="h-7 w-24" />
+                <Skeleton className="size-8 rounded-full" />
+              </div>
+              <div className="grid w-48 grid-cols-2 gap-2">
+                <Skeleton className="h-3" />
+                <Skeleton className="h-3" />
+                <Skeleton className="h-3" />
+                <Skeleton className="h-3" />
+              </div>
+              <Skeleton className="h-12 w-full" />
+            </Card>
+          ))}
+        </div>
       </div>
     </LoadingRegion>
   )
@@ -238,8 +240,8 @@ export function NutritionDashboardSkeleton() {
 export function HomeCardsSkeleton() {
   return (
     <LoadingRegion label="Loading dashboard">
-      <div className="dashboard-card-grid grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-12">
-        <Card className="dashboard-session-card col-span-2 justify-between p-4 lg:col-span-6 lg:row-span-2">
+      <div className="dashboard-card-grid grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-16">
+        <Card className="dashboard-session-card col-span-2 justify-between p-4 lg:col-span-8 lg:row-span-2 lg:col-start-1 lg:row-start-1">
           <div className="space-y-3">
             <Skeleton className="h-4 w-24" />
             <Skeleton className="h-8 w-3/4" />
@@ -251,7 +253,7 @@ export function HomeCardsSkeleton() {
             ))}
           </div>
         </Card>
-        <Card className="dashboard-events-card col-span-2 justify-between p-4 lg:col-span-2">
+        <Card className="dashboard-events-card col-span-2 justify-between p-4 lg:col-span-4 lg:col-start-9 lg:row-start-1">
           <div className="flex justify-between">
             <Skeleton className="size-14" />
             <Skeleton className="h-12 w-16" />
@@ -261,7 +263,10 @@ export function HomeCardsSkeleton() {
         {[0, 1].map((i) => (
           <Card
             key={i}
-            className="dashboard-recovery-card justify-between p-4 lg:col-span-2"
+            className={cn(
+              "dashboard-recovery-card justify-between p-4 lg:col-span-2 lg:row-start-1",
+              i === 0 ? "lg:col-start-13" : "lg:col-start-15"
+            )}
           >
             <Skeleton className="h-4 w-16" />
             <Skeleton className="h-8 w-20" />
@@ -272,7 +277,7 @@ export function HomeCardsSkeleton() {
             </div>
           </Card>
         ))}
-        <Card className="dashboard-nutrition-card col-span-2 justify-between p-4 lg:col-span-6 lg:col-start-7">
+        <Card className="dashboard-nutrition-card col-span-2 justify-between p-4 lg:col-span-4 lg:col-start-13 lg:row-start-2">
           <Skeleton className="h-5 w-28" />
           <div className="flex justify-between">
             <Skeleton className="h-7 w-24" />
@@ -284,7 +289,7 @@ export function HomeCardsSkeleton() {
             ))}
           </div>
         </Card>
-        <div className="col-span-2 grid grid-cols-2 gap-3 sm:gap-4 lg:col-span-6 lg:col-start-7">
+        <div className="col-span-2 grid grid-cols-2 gap-3 sm:gap-4 lg:col-span-4 lg:col-start-9 lg:row-start-2">
           {[0, 1].map((i) => (
             <Card
               key={i}
@@ -415,7 +420,7 @@ export function PageSkeleton({ page }: { page: string }) {
     return (
       <div className="nutrition-dashboard w-full">
         <HeaderSkeleton />
-        <div className="mobile-dashboard mx-auto max-w-5xl px-4 pt-4 pb-8 md:px-8">
+        <div className="mobile-dashboard mx-auto w-full max-w-7xl px-4 pt-4 pb-8 md:px-8 lg:pt-6">
           <NutritionDashboardSkeleton />
         </div>
       </div>

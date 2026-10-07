@@ -23,7 +23,11 @@
 }
 
 @media (width >= 64rem) {
-  .dashboard-events-card { height: 195px; }
+  .dashboard-events-card,
+  .dashboard-recovery-card,
+  .dashboard-sleep-card,
+  .dashboard-fitness-card,
+  .dashboard-nutrition-card { height: 184.5px; }
 }
 
 @media (width < 48rem) {

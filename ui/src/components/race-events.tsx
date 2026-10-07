@@ -193,7 +193,7 @@ export function EventsCard({ context }: { context: TrainingContext }) {
   const countdown = nextA ? countdownDetails(nextA.date, today) : null
 
   return (
-    <Card role="region" aria-label="Upcoming race events" tabIndex={0} className="dashboard-events-card col-span-2 min-w-0 gap-0 bg-card py-0 [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-2">
+    <Card role="region" aria-label="Upcoming race events" tabIndex={0} className="dashboard-events-card col-span-2 min-w-0 gap-0 bg-card py-0 [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-4 lg:col-start-9 lg:row-start-1">
       <CardContent className="space-y-3 px-0">
         {nextA ? (
           <>
@@ -202,7 +202,7 @@ export function EventsCard({ context }: { context: TrainingContext }) {
                 <DateFlag date={nextA.date} />
               </div>
               <div className="min-w-0 flex-1 pt-3">
-                <p title={nextA.name} className="line-clamp-2 min-w-0 text-base font-black uppercase leading-tight">{nextA.name}</p>
+                <p title={nextA.name} className="line-clamp-2 min-w-0 text-base font-black uppercase leading-tight lg:text-sm">{nextA.name}</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">{dateLabel(nextA.date, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</p>
               </div>
               {countdown&&<div className="shrink-0 pt-2 text-center sm:hidden" aria-label={`${countdown.value} ${countdown.unit.toLowerCase()}${countdown.value===1?'':'s'} left`}>
@@ -211,8 +211,14 @@ export function EventsCard({ context }: { context: TrainingContext }) {
                 </div>
                 <p className="mt-1 text-[8px] font-black uppercase leading-none">{countdown.unit}{countdown.value===1?'':'S'} LEFT</p>
               </div>}
+              {countdown&&<div className="hidden shrink-0 pt-2 text-center lg:block" aria-label={`${countdown.value} ${countdown.unit.toLowerCase()}${countdown.value===1?'':'s'} left`}>
+                <div className="flex justify-center gap-1">
+                  {String(countdown.value).padStart(2,"0").split("").map((digit,index)=><span key={`${digit}-${index}`} className="relative flex h-12 w-9 items-center justify-center overflow-hidden rounded-md border border-zinc-700 bg-zinc-900 text-4xl font-black leading-none text-white shadow-sm after:absolute after:inset-x-0 after:top-1/2 after:border-t after:border-black/70">{digit}</span>)}
+                </div>
+                <p className="mt-1 text-sm font-black uppercase tracking-tight">{countdown.unit}{countdown.value===1?'':'S'} LEFT</p>
+              </div>}
             </div>
-            {countdown&&<div className="hidden px-3 text-center sm:block sm:px-4" aria-label={`${countdown.value} ${countdown.unit.toLowerCase()}${countdown.value===1?'':'s'} left`}>
+            {countdown&&<div className="hidden px-3 text-center sm:block sm:px-4 lg:hidden" aria-label={`${countdown.value} ${countdown.unit.toLowerCase()}${countdown.value===1?'':'s'} left`}>
               <div className="flex justify-center gap-1">
                 {String(countdown.value).padStart(2,"0").split("").map((digit,index)=><span key={`${digit}-${index}`} className="relative flex h-16 w-11 items-center justify-center overflow-hidden rounded-md border border-zinc-700 bg-zinc-900 text-5xl font-black leading-none text-white shadow-sm after:absolute after:inset-x-0 after:top-1/2 after:border-t after:border-black/70">{digit}</span>)}
               </div>

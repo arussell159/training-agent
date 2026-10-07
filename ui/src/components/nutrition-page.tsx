@@ -340,7 +340,7 @@ export function NutritionPage({
         disabled={mutating}
         onTargets={() => setTargetsOpen(true)}
       />
-      <div className="mobile-dashboard mx-auto max-w-5xl space-y-5 px-4 pt-4 pb-8 md:px-8">
+      <div className="mobile-dashboard mx-auto w-full max-w-7xl space-y-5 px-4 pt-4 pb-8 md:px-8 lg:pt-6">
         {error && (
           <div
             role="alert"
@@ -355,7 +355,7 @@ export function NutritionPage({
         {!data && !error && <NutritionDashboardSkeleton />}
         {data && (
           <>
-            <div className="grid gap-5 lg:grid-cols-[1.15fr_1fr]">
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] xl:gap-6">
               <Card
                 className="nutrition-progress-card order-1 min-h-[368px] gap-5 p-5 touch-pan-y md:touch-auto"
                 onPointerDown={startNutritionSwipe}
@@ -441,7 +441,7 @@ export function NutritionPage({
                   </p>
                 )}
               </Card>
-              <Card className="order-3 min-h-[383px] gap-4 rounded-3xl border p-5 shadow-sm lg:order-2">
+              <Card className="order-3 min-h-[383px] gap-4 p-5 lg:order-2">
                 <div className="flex items-start justify-between">
                   <div>
                     <h2 className="text-sm font-semibold">Last 7 days</h2>
@@ -538,8 +538,8 @@ export function NutritionPage({
                 </div>
               </Card>
             </div>
-            <section className="space-y-3" aria-label="Daily meals">
-              <div className="pt-1">
+            <section className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-5 lg:space-y-0 xl:gap-6" aria-label="Daily meals">
+              <div className="pt-1 lg:col-span-2 lg:pb-1">
                 <h2 className="text-lg font-semibold">Your meals</h2>
               </div>
               {meals.map((meal) => {
@@ -548,7 +548,7 @@ export function NutritionPage({
                 return (
                   <Card
                     key={meal}
-                    className="gap-0 overflow-hidden rounded-2xl py-0 shadow-sm"
+                    className="gap-0 overflow-hidden py-0"
                   >
                     <div className="nutrition-meal-header p-4">
                       <h3 className="text-lg font-semibold">

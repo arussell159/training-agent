@@ -2,8 +2,9 @@ import "@/lib/framework7-calendar"
 import { useEffect, useRef, useState } from "react"
 import { f7ready } from "framework7-react"
 import type { Calendar } from "framework7/types"
-import { ChevronDown, ChevronLeft, ChevronRight, Ellipsis } from "lucide-react"
+import { ChevronDown, ChevronLeft, ChevronRight, Ellipsis, Target } from "lucide-react"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
+import { Button } from "@/components/ui/button"
 import { nutritionToday } from "@/lib/nutrition"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Calendar as DateCalendar } from "@/components/ui/calendar"
@@ -137,7 +138,7 @@ export function NutritionDateHeader({
   const desktopTitle = (
     <button
       type="button"
-      className="calendar-month-title-button justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold hover:bg-muted/70"
+      className="calendar-month-title-button appearance-none justify-center gap-2 rounded-lg border-0 bg-transparent px-3 py-2 text-sm font-semibold hover:bg-muted/70"
       aria-label={open ? "Close nutrition calendar" : "Choose nutrition date"}
       aria-expanded={open}
       aria-controls="nutrition-date-picker"
@@ -200,12 +201,58 @@ export function NutritionDateHeader({
         right={right}
         className={visible ? "calendar-picker-navbar-open" : ""}
       />
-      <header className="hidden h-14 grid-cols-[44px_1fr_44px] items-center gap-3 px-4 md:grid">
-        <div>{left}</div>
-        <div className="text-center">{desktopTitle}</div>
-        {right}
-      </header>
-      {visible && (
+      <div className="nutrition-date-desktop-controls mx-auto hidden w-full max-w-7xl px-4 md:block md:px-8">
+        <div className="nutrition-date-toolbar flex min-h-14 items-center justify-between gap-4 border-b py-2">
+          {desktopTitle}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled}
+            onClick={onTargets}
+          >
+            <Target className="size-4" />
+            Daily targets
+          </Button>
+        </div>
+        {visible && !mobile && (
+          <div
+            id="nutrition-date-picker"
+            className={`mobile-calendar-picker-panel nutrition-date-panel nutrition-date-panel-desktop ${closing ? "is-closing" : ""}`}
+            role="region"
+            aria-label="Choose date"
+          >
+            <DateCalendar
+              className="mx-auto [--cell-size:2.5rem]"
+              classNames={{ month_caption: "hidden" }}
+              hideNavigation
+              weekStartsOn={1}
+              mode="single"
+              month={month}
+              onMonthChange={setMonth}
+              selected={new Date(`${date}T12:00:00`)}
+              onSelect={(value) => {
+                if (value) {
+                  onSelect(
+                    `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
+                  )
+                  close()
+                }
+              }}
+            />
+            <button
+              className="mb-3 w-full py-2 text-sm font-medium"
+              onClick={() => {
+                onSelect(nutritionToday())
+                close()
+              }}
+            >
+              Today
+            </button>
+          </div>
+        )}
+      </div>
+      {visible && mobile && (
         <>
           <button
             tabIndex={-1}
@@ -215,32 +262,11 @@ export function NutritionDateHeader({
           />
           <div
             id="nutrition-date-picker"
-            className={`mobile-calendar-picker-panel nutrition-date-panel ${mobile ? "nutrition-date-panel-mobile" : "nutrition-date-panel-desktop"} ${closing ? "is-closing" : ""}`}
+            className={`mobile-calendar-picker-panel nutrition-date-panel nutrition-date-panel-mobile ${closing ? "is-closing" : ""}`}
             role="region"
             aria-label="Choose date"
           >
-            {mobile ? (
-              <div ref={container} />
-            ) : (
-              <DateCalendar
-                className="mx-auto [--cell-size:2.5rem]"
-                classNames={{ month_caption: "hidden" }}
-                hideNavigation
-                weekStartsOn={1}
-                mode="single"
-                month={month}
-                onMonthChange={setMonth}
-                selected={new Date(`${date}T12:00:00`)}
-                onSelect={(value) => {
-                  if (value) {
-                    onSelect(
-                      `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
-                    )
-                    close()
-                  }
-                }}
-              />
-            )}
+            <div ref={container} />
             <button
               className="mb-3 w-full py-2 text-sm font-medium"
               onClick={() => {

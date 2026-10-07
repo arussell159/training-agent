@@ -6,14 +6,61 @@ import path from "node:path";
 const root = path.resolve("ui/dist");
 const port = Number(process.env.INTERVALS_PREVIEW_PORT || 5178);
 const calls = [];
+const today = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Chicago",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+}).format(new Date());
+const raceDate = new Date(`${today}T12:00:00Z`);
+raceDate.setUTCDate(raceDate.getUTCDate() + 60);
+const raceDay = raceDate.toISOString().slice(0, 10);
 const context = {
   athlete: { name: "Browser test athlete", time_zone: "America/Chicago", zones: {} },
-  metrics: {},
-  wellness: {},
+  metrics: { fitness: 77, fatigue: 68, form: 9 },
+  wellness: { hrv: 59, resting_hr: 54, sleep: 26040 },
   history: [],
-  planned: [],
-  wellness_history: [],
-  source: "supabase-cache",
+  planned: [
+    {
+      id: "event:fixture-today",
+      day: today,
+      date: today,
+      workout_date: today,
+      sport: "Run",
+      title: "Easy aerobic run",
+      duration: "45m",
+      plannedDurationMinutes: 45,
+      goal: "Keep the effort conversational and finish feeling fresh.",
+      status: "today",
+      category: "WORKOUT",
+      planned: { duration_minutes: 45, tss: 42 },
+    },
+    {
+      id: "event:fixture-a-race",
+      day: raceDay,
+      date: raceDay,
+      workout_date: raceDay,
+      sport: "Triathlon",
+      title: "Texas City Triathlon",
+      duration: "Race",
+      goal: "A race",
+      status: "upcoming",
+      category: "RACE_A",
+      raw: { category: "RACE_A", priority: "A", name: "Texas City Triathlon" },
+    },
+  ],
+  wellness_history: Array.from({ length: 14 }, (_, index) => {
+    const date = new Date(`${today}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() - 13 + index);
+    return {
+      date: date.toISOString().slice(0, 10),
+      hrv: 54 + ((index * 7) % 13),
+      resting_hr: 52 + ((index * 3) % 7),
+      sleepSecs: 25200 + ((index * 23) % 1800),
+      sleepScore: 74 + ((index * 5) % 20),
+    };
+  }),
+  source: "isolated-browser-fixture",
   context_scope: "full",
   version: "fixture-v1",
   cache_scope: "webhook-browser-fixture",
@@ -44,7 +91,7 @@ const server = http.createServer(async (req, res) => {
         }
         configured = true;
       }
-      return json({ theme: "light", intervalsConnected: true, supabaseConnected: true });
+      return json({ theme: "light", intervalsConnected: true, supabaseConnected: false });
     }
     if (api === "intervals/status")
       return json({
@@ -62,8 +109,24 @@ const server = http.createServer(async (req, res) => {
         pending: false,
       });
     if (api === "training-context") return json(context);
+    if (api === "training-live")
+      return json({ available: false, url: "", key: "", topic: "", expiresAt: 0 });
     if (api === "training-updates") return json({ unchanged: true, version: context.version });
+    if (api === "annual-plans") return json({ plans: [], activeId: null });
     if (api === "race-events") return json({ events: [] });
+    if (api.startsWith("nutrition")) {
+      const date = url.searchParams.get("date") || today;
+      const targets = { calories: 2400, protein: 150, carbs: 280, fat: 75, fiber: 30 };
+      return json({
+        date,
+        day: { revision: 1, entries: [] },
+        targets,
+        targetsRevision: 1,
+        aiAvailable: false,
+        localPreview: true,
+        week: [],
+      });
+    }
     if (api === "training-history") return json({ weeks: [] });
     if (api === "section11-sync") return json({ status: "idle" });
     if (api === "intervals/oauth/start")
