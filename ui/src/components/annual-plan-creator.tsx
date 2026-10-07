@@ -1,3 +1,4 @@
+import "@/lib/framework7-sheet"
 import { readPageSnapshot, writePageSnapshot, pageSnapshotFresh, pageSnapshotRevision } from "@/lib/page-snapshots"
 import { AnnualPlanSkeleton } from "@/components/loading-layouts"
 import { SavedReportButton } from "@/components/saved-report-button"

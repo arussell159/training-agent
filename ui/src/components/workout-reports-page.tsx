@@ -26,8 +26,7 @@ import { WorkoutReportCompare } from "@/components/workout-report-compare"
 import { useIsMobile } from "@/hooks/use-mobile"
 import "./workout-reports.css"
 import { apiFetch } from "@/lib/api-client"
-import { validatedTrainingContext } from "@/lib/training-context-validation"
-import { withRequestDeadline } from "@/lib/request-deadline"
+import { loadWorkoutHistoryPage } from "@/lib/training-history-range"
 import {
   cachedTrainingContext,
   type PlannedWorkout,
@@ -357,6 +356,8 @@ export function WorkoutReportsPage({
   })
   const [loading, setLoading] = useState(true),
     [refreshing, setRefreshing] = useState(false)
+  const [nextBefore, setNextBefore] = useState<string | null>(null)
+  const [visibleRows, setVisibleRows] = useState(100)
   const [loadError, setLoadError] = useState(""),
     [preferenceError, setPreferenceError] = useState("")
   const [saved, setSaved] = useState<Record<string, string[]>>({}),
@@ -373,37 +374,40 @@ export function WorkoutReportsPage({
     latestRequest = useRef(0),
     activeRequest = useRef<AbortController | null>(null),
     restored = useRef(false)
+  const latestTrainingVersion = useRef((cachedTrainingContext() as TrainingContext & { version?: string }).version)
   const timeZone = context?.athlete.time_zone || "America/Chicago"
+  const historyBounds = dateBounds(view.filters, new Date(), timeZone)
+  const historyStart = historyBounds.start, historyEnd = historyBounds.end
   const patchView = (patch: Partial<View>) =>
     setView((current) => ({ ...current, ...patch }))
-  const load = useCallback((refresh = false) => {
+  const load = useCallback((refresh = false, before?: string) => {
     const request = ++latestRequest.current
     activeRequest.current?.abort()
-    if (refresh) setRefreshing(true)
+    if (refresh || before) setRefreshing(true)
     else setLoading(true)
     setLoadError("")
     const controller = new AbortController()
     activeRequest.current=controller
-    void withRequestDeadline(async signal=>{
-        const response=await apiFetch("/api/training-context?scope=full", {
-          signal,
-          cache: refresh ? "no-store" : "default",
-        })
-        const result = (await response.json()) as TrainingContext & {
-          error?: string
-        }
-        if (!response.ok)
-          throw Error(
-            result?.error || `History request failed (${response.status}).`
-          )
-        const context=validatedTrainingContext(result)
-        if (context.context_scope !== "full")
-          throw Error("Complete retained history is unavailable.")
-        return context
-      },20_000,controller.signal)
-      .then((result) => {
-        if (request === latestRequest.current) setContext(result)
-      })
+    void (async () => {
+      let cursor = before
+      let first = true
+      do {
+        const result = await loadWorkoutHistoryPage({ start: historyStart, end: historyEnd, before: cursor }, { signal: controller.signal, force: refresh })
+        if (request !== latestRequest.current) return
+        const replace = first && !before
+        setContext((previous) => ({
+          ...(previous || cachedTrainingContext()),
+          history: [...new Map([...(replace ? [] : previous?.history || []), ...result.workouts].map((row) => [(row as PlannedWorkout).activity_id || (row as PlannedWorkout).id, row])).values()],
+          planned: [],
+        }))
+        setNextBefore(result.next_before)
+        setLoading(false)
+        cursor = result.next_before || undefined
+        first = false
+        // Explicit date reports finish the selected range. All dates stays paged.
+        if (cursor && historyStart) setRefreshing(true)
+      } while (cursor && historyStart)
+    })()
       .catch((error) => {
         if (request === latestRequest.current && error.name !== "AbortError")
           setLoadError(
@@ -418,16 +422,27 @@ export function WorkoutReportsPage({
         }
       })
     return controller
-  }, [])
+  }, [historyStart, historyEnd])
   const cancelLoad=useCallback(()=>{
     ++latestRequest.current
     activeRequest.current?.abort()
     activeRequest.current=null
   },[])
   useEffect(() => {
+    setVisibleRows(100)
     load()
     return cancelLoad
   }, [load,cancelLoad])
+  useEffect(() => {
+    const update = () => {
+      const version = (cachedTrainingContext() as TrainingContext & { version?: string }).version
+      if (!version || version === latestTrainingVersion.current) return
+      latestTrainingVersion.current = version
+      load(true)
+    }
+    window.addEventListener("training-context-updated", update)
+    return () => window.removeEventListener("training-context-updated", update)
+  }, [load])
   useEffect(() => {
     const controller = new AbortController()
     void apiFetch("/api/training-preferences", { signal: controller.signal })
@@ -682,7 +697,7 @@ export function WorkoutReportsPage({
             Workout Reports
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Completed workouts in your available training history.
+            Your Intervals.icu history. Choose any dates, or load older workouts as needed.
           </p>
         </div>
         <div className="mb-4 grid min-w-0 grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
@@ -780,7 +795,7 @@ export function WorkoutReportsPage({
           <div aria-live="polite" className="font-medium">
             {loading
               ? <Skeleton className="h-5 w-40" />
-              : `${matching.length.toLocaleString()} matching workout${matching.length === 1 ? "" : "s"}`}
+              : `${matching.length.toLocaleString()} matching workout${matching.length === 1 ? "" : "s"}${nextBefore ? " loaded" : ""}`}
             {refreshing && <span className="ml-2 text-xs font-normal text-muted-foreground">Updating…</span>}
             {!mobile && visibleIds.length < selectedIds.length && (
               <span className="ml-2 text-xs font-normal text-muted-foreground">
@@ -893,7 +908,7 @@ export function WorkoutReportsPage({
                 </tr>
               </thead>
               <tbody>
-                {ordered.map((w) => (
+                {ordered.slice(0, visibleRows).map((w) => (
                   <tr key={w.id} className="group hover:bg-muted/40">
                     <th
                       scope="row"
@@ -972,6 +987,17 @@ export function WorkoutReportsPage({
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {(ordered.length > visibleRows || nextBefore) && (
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+            <Button variant="outline" disabled={loading || refreshing} onClick={() => {
+              if (ordered.length > visibleRows) setVisibleRows((count) => count + 100)
+              else if (nextBefore) { setVisibleRows((count) => count + 100); load(false, nextBefore) }
+            }}>
+              {refreshing ? "Loading history…" : ordered.length > visibleRows ? "Show more workouts" : "Load older workouts"}
+            </Button>
+            {nextBefore && <span className="text-xs text-muted-foreground">Counts and totals cover loaded workouts. Select dates to load a complete report.</span>}
           </div>
         )}
       </div>

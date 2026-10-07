@@ -5,6 +5,14 @@ import { createMutationProjection } from "./mutation-projection.mjs";
 import { providerConnection } from "./completed-workout-store.mjs";
 import { fastViewId, saveFastView } from "./fast-context.mjs";
 import { preserveQueuedSnapshot } from "./queued-snapshot.mjs";
+
+test("a stale refresh cannot roll back historical webhook cache invalidation", () => {
+  const current = { athlete: {}, history: [], planned: [], history_revision: "new", history_revision_source_at: "2026-10-07T13:00:00.000Z" };
+  const stale = { ...current, history_revision: "old", history_revision_source_at: "2026-10-07T12:00:00.000Z" };
+  assert.equal(preserveQueuedSnapshot(current, stale).history_revision, "new");
+  assert.equal(preserveQueuedSnapshot(current, { ...stale, history_revision: undefined, history_revision_source_at: undefined }).history_revision, "new");
+  assert.equal(preserveQueuedSnapshot(current, { ...stale, history_revision: "newest", history_revision_source_at: "2026-10-07T14:00:00.000Z" }).history_revision, "newest");
+});
 import { syncRevision } from './sync-record-revision.mjs';
 
 const operation = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;

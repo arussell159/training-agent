@@ -1,3 +1,4 @@
+import "@/lib/framework7-searchbar"
 import { ListSkeleton } from "@/components/loading-layouts"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { flushSync } from "react-dom"

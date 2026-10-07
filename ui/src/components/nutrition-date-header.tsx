@@ -1,3 +1,4 @@
+import "@/lib/framework7-calendar"
 import { useEffect, useRef, useState } from "react"
 import { f7ready } from "framework7-react"
 import type { Calendar } from "framework7/types"

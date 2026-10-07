@@ -1,5 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
+import { historyMonths } from "../src/lib/training-history-range-policy.ts"
 import {
   automaticColumns,
   availability,
@@ -35,6 +36,18 @@ const workout = (id, overrides = {}) => ({
     planned: null,
   },
   ...overrides,
+})
+test("adjacent calendar history requests share bounded month pages across leap years", () => {
+  assert.deepEqual(historyMonths("2024-02-27", "2024-03-03"), [
+    { start: "2024-02-01", end: "2024-02-29" },
+    { start: "2024-03-01", end: "2024-03-31" },
+  ])
+  assert.deepEqual(historyMonths("1999-12-31", "2000-01-02"), [
+    { start: "1999-12-01", end: "1999-12-31" },
+    { start: "2000-01-01", end: "2000-01-31" },
+  ])
+  assert.throws(() => historyMonths("2023-02-29", "2023-03-01"))
+  assert.throws(() => historyMonths("2024-03-02", "2024-03-01"))
 })
 const filter = (rows, changes) =>
   filterActivities(

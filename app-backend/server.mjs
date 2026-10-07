@@ -41,6 +41,7 @@ import {loadActivityBundle,loadActivityView} from './lib/activity-bundle.mjs';
 import {saveFastView,fastViewId,projectTrainingContext} from './lib/fast-context.mjs';
 import {retainRecentTrainingContext,twelveWeekStart} from './lib/training-retention.mjs';
 import {buildTwelveWeekTrainingHistory} from './lib/training-history.mjs';
+import {fetchHistoricalCalendar,fetchWorkoutHistoryPage,fetchHistoricalWorkout} from './lib/intervals-history.mjs';
 import {createMutationQueue,validateMutation} from './lib/mutation-queue.mjs';
 import {createMutationProjection} from './lib/mutation-projection.mjs';
 import {withDirectWorkoutWrite,reconcileDirectWorkoutWrite} from './lib/direct-workout-write.mjs';
@@ -170,6 +171,7 @@ const serverState = {
 
 let intervalsMemoryCache = null;
 const providerReads=createRequestCache({ttl:60000,maxEntries:32});
+const historicalReads=createRequestCache({ttl:15*60_000,maxEntries:96});
 let recentActivityStatsCache = null;
 let personalActivityStatsCache = null;
 function sendJson(req,res,value,cacheControl='no-store'){
@@ -264,7 +266,7 @@ const checkTrainingUpdates = createTrainingUpdates({
   readSnapshot: (config,options)=>loadSupabaseTrainingSnapshot(config,null,options),
   // These few small reads must see a workout uploaded just before app open.
   request: config => createIntervalsClient(config),
-  persist: (config, context) => {providerReads.clear();return persistTrainingContext(config, context, {archiveActivities:false});},
+  persist: (config, context) => {providerReads.clear();historicalReads.clear();return persistTrainingContext(config, context, {archiveActivities:false});},
   warm: warmRecentActivities,
   exportGithub: ensureSection11Export,
   waitUntil,
@@ -443,6 +445,8 @@ export async function persistTrainingContext(config, context, {archiveActivities
           provider_connection:providerConnection(config),
           queue_snapshot_revision:context.queue_snapshot_revision,
           cached_ranges:context.cached_ranges || [],
+          history_revision:context.history_revision,
+          history_revision_source_at:context.history_revision_source_at,
           archived_activity_versions:archivedVersions,
           app_deleted_workouts:context.app_deleted_workouts || {},
           sync_started_at:context.sync_started_at,
@@ -682,7 +686,7 @@ async function scopedTrainingContext(context, scope, today = new Date()) {
   if (scope && typeof scope === 'object') {
     const within = w => w.workout_date >= scope.start && w.workout_date <= scope.end;
     const trendStart = isoDate(shiftDate(new Date(`${scope.start}T12:00:00Z`),-29));
-    return {...context,history:(context.history || []).filter(within),workouts:(context.workouts || context.history || []).filter(within),planned:(context.planned || []).filter(within),wellness_history:(context.wellness_history || []).filter(w => w.date >= trendStart && w.date <= scope.end),context_scope:'range',full_history_available:true};
+    return {...context,display_range:scope,history:(context.history || []).filter(within),workouts:(context.workouts || context.history || []).filter(within),planned:(context.planned || []).filter(within),wellness_history:(context.wellness_history || []).filter(w => w.date >= trendStart && w.date <= scope.end),context_scope:'range',full_history_available:true};
   }
   if (scope !== 'week') return {...context,context_scope:'full',full_history_available:true};
   const todayDate = isoDate(today);
@@ -1196,7 +1200,7 @@ export async function handleRequest(req, res) {
       }
       return;
     }
-    if(pathname==='/api/training-context' && req.method==='GET' && requestUrl.searchParams.get('refresh')!=='1') {
+    if(pathname==='/api/training-context' && req.method==='GET' && (requestUrl.searchParams.get('refresh')!=='1' || requestUrl.searchParams.get('scope')==='range')) {
       if (await localEditCacheEnabled(req)) {
         const local = await readLocalContext();
         const cached = await readIntervalsCache();
@@ -1218,8 +1222,6 @@ export async function handleRequest(req, res) {
       }
       const config=await readConfig(),store=createContextStore(config);
       const requestedScope=requestUrl.searchParams.get('scope') || 'week';
-      let view=store.ready?await store.getSyncRecord(fastViewId(config,requestedScope)):null;
-      if(!view){const saved=await loadSupabaseTrainingSnapshot(config);if(saved)view=await saveFastView(config,store,saved);}
       const scope=requestUrl.searchParams.get('scope') || 'week';
       let range;
       if(scope==='range') {
@@ -1227,12 +1229,57 @@ export async function handleRequest(req, res) {
         if(end<start || new Date(end)-new Date(start)>31*86400000)throw Error('Calendar range must be between 1 and 32 days.');
         range={start,end};
       }
+      if(range && range.end < twelveWeekStart(new Date(),'America/Chicago')) {
+        // These dates cannot be in the retained view. Go straight to the
+        // provider cache instead of downloading a full database snapshot.
+        const historyRequest=historicalReads.wrap(createIntervalsClient(config),`${providerConnection(config)}:${requestUrl.searchParams.get('version') || ''}`);
+        sendJson(req,res,await fetchHistoricalCalendar(historyRequest,range));
+        return;
+      }
+      let view=store.ready?await store.getSyncRecord(fastViewId(config,requestedScope)):null;
+      if(!view){const saved=await loadSupabaseTrainingSnapshot(config);if(saved)view=await saveFastView(config,store,saved);}
+      if(range) {
+        if(view && snapshotCoversRange(view,range)) {
+          const projected=projectTrainingContext(view,'full');
+          const {version,queue_snapshot_revision,...historical}=projected;
+          sendJson(req,res,{...historical,context_scope:'range',display_range:range,cached_ranges:[range],history:projected.history.filter(w=>w.workout_date>=range.start && w.workout_date<=range.end),planned:projected.planned.filter(w=>w.workout_date>=range.start && w.workout_date<=range.end),wellness_history:(projected.wellness_history || []).filter(w=>w.date>=range.start && w.date<=range.end)});
+        } else {
+          const historyRequest=historicalReads.wrap(createIntervalsClient(config),`${providerConnection(config)}:${requestUrl.searchParams.get('version') || view?.version || ''}`);
+          sendJson(req,res,await fetchHistoricalCalendar(historyRequest,range,{context:view}));
+        }
+        return;
+      }
       if(view && snapshotCoversRange(view,range)) {
         let projected=projectTrainingContext(view,scope==='week'?'week':'full');
         if(range)projected={...projected,display_range:range,history:projected.history.filter(w=>w.workout_date>=range.start && w.workout_date<=range.end),planned:projected.planned.filter(w=>w.workout_date>=range.start && w.workout_date<=range.end)};
         scheduleTrainingReconciliation(config);
         sendJson(req,res,projected);return;
       }
+    }
+    const historicalWorkoutRoute=pathname.match(/^\/api\/workout-history\/([^/]+)$/);
+    if(historicalWorkoutRoute && req.method==='GET') {
+      const config=await readConfig();
+      const request=historicalReads.wrap(createIntervalsClient(config),`${providerConnection(config)}:${requestUrl.searchParams.get('version') || ''}`);
+      try { sendJson(req,res,{workout:await fetchHistoricalWorkout(request,decodeURIComponent(historicalWorkoutRoute[1]))}); }
+      catch(error) {
+        if(![400,404].includes(error.status))throw error;
+        res.writeHead(error.status,{'Content-Type':'application/json','Cache-Control':'no-store'});
+        res.end(JSON.stringify({error:error.status===404?'This workout is unavailable from Intervals.icu.':error.message}));
+      }
+      return;
+    }
+    if(pathname==='/api/workout-history' && req.method==='GET') {
+      const config=await readConfig();
+      const options={start:requestUrl.searchParams.get('start') || undefined,end:requestUrl.searchParams.get('end') || undefined,before:requestUrl.searchParams.get('before') || undefined};
+      if(await localEditCacheEnabled(req)) {
+        const cached=await readIntervalsCache();
+        const rows=(cached?.history || []).filter(w=>w.completed && (!options.start || w.workout_date>=options.start) && (!options.end || w.workout_date<=options.end) && (!options.before || w.workout_date<=options.before));
+        sendJson(req,res,{workouts:rows.map(({raw,raw_activity,...w})=>w),next_before:null,complete:true,range:options});
+      } else {
+        const historyRequest=historicalReads.wrap(createIntervalsClient(config),`${providerConnection(config)}:${requestUrl.searchParams.get('version') || ''}`);
+        sendJson(req,res,await fetchWorkoutHistoryPage(historyRequest,options));
+      }
+      return;
     }
     if(pathname==='/api/training-history' && req.method==='GET') {
       const config=await readConfig(),store=createContextStore(config);

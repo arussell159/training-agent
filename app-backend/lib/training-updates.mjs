@@ -3,6 +3,8 @@ import { fetchIntervalsContext } from "./intervals.mjs";
 import { mergeTrainingSnapshot, providerConnection } from "./completed-workout-store.mjs";
 import { prepareFastView, projectTrainingContext } from "./fast-context.mjs";
 import { changedTrainingRange } from './intervals-change-hints.mjs';
+import { contentFingerprint } from './content-fingerprint.mjs';
+import { twelveWeekStart } from './training-retention.mjs';
 
 // A foreground check bypasses the broad sync, file archive and GitHub worker.
 // Only changed content is written. Concurrent opens share the provider check.
@@ -60,6 +62,19 @@ export function createTrainingUpdates({
         cachedAthlete: athlete,
       });
       const merged = mergeTrainingSnapshot(saved, incoming, range);
+      if (changedRange && changedRange.start < twelveWeekStart(time, zone)) {
+        // Old records stay out of the hot snapshot, but their corrections must
+        // still change its pushed version so every browser/instance drops cached pages.
+        // Hash provider content, never event delivery time: duplicate webhooks stay quiet.
+        const ordered = rows => [...(rows || [])].sort((a, b) => String(a.id || a.date).localeCompare(String(b.id || b.date)));
+        merged.history_revision = contentFingerprint({
+          range: changedRange,
+          history: ordered(incoming.history),
+          planned: ordered(incoming.planned),
+          wellness: ordered(incoming.wellness_history),
+        });
+        merged.history_revision_source_at = incoming.sync_started_at;
+      }
       const context = prepareFastView(config, merged);
       const previous = saved ? prepareFastView(config, saved) : null;
       const changed = !previous || previous.version !== context.version;

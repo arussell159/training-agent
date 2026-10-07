@@ -1,10 +1,4 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import {
-  generateRegistrationOptions,
-  verifyRegistrationResponse,
-  generateAuthenticationOptions,
-  verifyAuthenticationResponse,
-} from "@simplewebauthn/server";
 import { createAuthStore } from "./app-auth-store.mjs";
 
 const DAY = 86400000;
@@ -288,6 +282,7 @@ export function createAppAuth({
         if (authenticate && !state.credentials.length)
           throw new AuthError("Sign in with your password to add your first passkey.");
         const current = await store.read();
+        const { generateRegistrationOptions, generateAuthenticationOptions } = await import("@simplewebauthn/server");
         const options = register
           ? await generateRegistrationOptions({
               rpName: "AR Performance",
@@ -344,6 +339,7 @@ export function createAppAuth({
       )
         throw new AuthError("This passkey request expired or was already used. Please try again.");
       try {
+        const { verifyRegistrationResponse, verifyAuthenticationResponse } = await import("@simplewebauthn/server");
         if (register) {
           const result = await verifyRegistrationResponse({
             response: body.response,

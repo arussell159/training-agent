@@ -76,6 +76,8 @@ window.fetch = async (input, init) => {
       }),
       { headers: { "Content-Type": "application/json" } }
     )
+  if (path.includes("workout-history"))
+    return new Response(JSON.stringify({workouts:rows,next_before:null,complete:true}), {headers:{"Content-Type":"application/json"}})
   if (path.includes("training-preferences"))
     return new Response(JSON.stringify({ training_preferences: {} }), {
       headers: { "Content-Type": "application/json" },

@@ -1,15 +1,7 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import Framework7 from "framework7/lite"
-import Picker from "framework7/components/picker"
-import Searchbar from "framework7/components/searchbar"
-import Sheet from "framework7/components/sheet"
-import Accordion from "framework7/components/accordion"
-import Actions from "framework7/components/actions"
-import Calendar from "framework7/components/calendar"
 import Dialog from "framework7/components/dialog"
-import Progressbar from "framework7/components/progressbar"
-import Range from "framework7/components/range"
 import Sortable from "framework7/components/sortable"
 import Framework7React, { App as Framework7App } from "framework7-react"
 
@@ -24,21 +16,11 @@ import { ThemeProvider } from "@/components/theme-provider.tsx"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppToastProvider } from "@/components/ui/toast"
 
+// Sortable installs its touch handlers during app init. Other feature modules
+// register with their lazy route before its controls render.
 // Framework7's plugin registration method is not a React Hook.
 // eslint-disable-next-line react-hooks/rules-of-hooks
-Framework7.use([
-  Framework7React,
-  Picker,
-  Searchbar,
-  Sheet,
-  Accordion,
-  Actions,
-  Calendar,
-  Dialog,
-  Progressbar,
-  Range,
-  Sortable,
-])
+Framework7.use([Framework7React, Dialog, Sortable])
 
 // Keep gestures as scrolling/inspection rather than changing the app scale.
 document.addEventListener("gesturestart", (event) => event.preventDefault(), {

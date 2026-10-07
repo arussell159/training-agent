@@ -1,3 +1,4 @@
+import "@/lib/framework7-searchbar"
 import {
   useCallback,
   useEffect,

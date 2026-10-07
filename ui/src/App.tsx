@@ -2,7 +2,6 @@ import { PageSkeleton } from "@/components/loading-layouts"
 import { appRouteItem as routeItem } from "@/lib/app-route"
 import { restoreReportReader } from "@/lib/report-navigation"
 import { BackgroundSync } from "@/components/background-sync"
-import { GithubSyncIndicator } from "@/components/github-sync-indicator"
 import { prefetchWorkoutRecording } from "@/lib/activity-analysis"
 import { prefetchNutrition } from "@/lib/nutrition"
 import { flushSync } from "react-dom"
@@ -65,7 +64,6 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
   cachedTrainingContext,
   refreshRecentIntervals,
-  loadFullTrainingContext,
   type PlannedWorkout,
 } from "@/lib/training-context"
 import {
@@ -89,13 +87,6 @@ function preloadPage(item: string) {
   const load = pageImports[item as keyof typeof pageImports]
   if (load) void load().catch(() => {})
   if (item === "Nutrition") void prefetchNutrition().catch(() => {})
-}
-// Fetch the requested page's code while authentication is in flight. Importing
-// components does not fetch private data; the auth gate still controls rendering.
-if (typeof window !== 'undefined') {
-  const page = routeItem(window.location.pathname)
-  const load = pageImports[page as keyof typeof pageImports]
-  if (load) void load().catch(() => {})
 }
 const TermsReferenceDialog = lazy(() =>
   import("@/components/terms-reference-dialog").then((module) => ({
@@ -208,30 +199,8 @@ function RouteScrollReset({
 function AppWorkspace() {
   useMobileViewport()
   const mobileTerms = useIsMobile()
-  useEffect(() => {
-    let active = true
-    const warm = async () => {
-      for (const item of [routeItem() === "Home" ? "Calendar" : "Home"]) {
-        if (!active) return
-        if (item !== routeItem())
-          await pageImports[item as keyof typeof pageImports]().catch(() => {})
-      }
-    }
-    if ("requestIdleCallback" in window) {
-      const id = window.requestIdleCallback(() => void warm(), {
-        timeout: 5000,
-      })
-      return () => {
-        active = false
-        window.cancelIdleCallback(id)
-      }
-    }
-    const id = setTimeout(() => void warm(), 3000)
-    return () => {
-      active = false
-      clearTimeout(id)
-    }
-  }, [])
+  // Preload navigation on intent (hover/focus/touch), rather than downloading
+  // another page and its chart runtime during every calendar startup.
   const [selectedReport, setSelectedReport] = useState(() =>
     workoutRouteId() ? null : restoreReportReader()
   )
@@ -350,12 +319,11 @@ function AppWorkspace() {
     if (!id) return
     let active = true
     setWorkoutLoadError(null)
-    void loadFullTrainingContext(false, workoutLoadAttempt > 0)
-      .then((context) => {
+    const controller = new AbortController()
+    void import("@/lib/training-history-range")
+      .then(({ loadHistoricalWorkout }) => loadHistoricalWorkout(id, { signal: controller.signal, force: workoutLoadAttempt > 0 }))
+      .then((workout) => {
         if (!active || workoutRouteId() !== id) return
-        const workout = [...context.history, ...context.planned].find(
-          (item) => (item as PlannedWorkout).id === id
-        )
         if (workout) {
           setSelectedWorkout(workout as PlannedWorkout)
           setPendingWorkoutId(null)
@@ -372,6 +340,7 @@ function AppWorkspace() {
       })
     return () => {
       active = false
+      controller.abort()
     }
   }, [pendingWorkoutId, workoutLoadAttempt])
 
@@ -545,7 +514,6 @@ function AppWorkspace() {
         }}
       >
         <BackgroundSync />
-        <GithubSyncIndicator />
         {termsOpen && mobileTerms && (
           <Suspense fallback={null}>
             <MobileTermsPage open onOpenChange={setTermsOpen} />

@@ -12,8 +12,10 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             {
-              name: "framework7",
-              test: /node_modules[\\/]framework7(?:-react)?[\\/]/,
+              name: "framework7-core",
+              // Group only the shared runtime. Including every Framework7
+              // component here pulls lazy editor/picker code into startup.
+              test: /node_modules[\\/](?:framework7[\\/](?:framework7-lite\.esm\.js|(?:shared|modules)[\\/]|components[\\/](?:app|statusbar|view|navbar|toolbar|subnavbar|touch-ripple|touch-highlight|modal|dialog|sortable)[\\/])|framework7-react[\\/](?:shared[\\/]|components[\\/](?:app|routable-modals|navbar|nav-left|nav-right|nav-title|toolbar|toolbar-pane|tabs|tab|link|icon|badge|button|preloader)\.js))/,
             },
           ],
         },

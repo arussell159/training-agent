@@ -90,7 +90,7 @@ export async function apiFetch(
     })
   const share =
     (!options?.method || options.method.toUpperCase() === "GET") &&
-    /^\/api\/(config|annual-plans|training-history)(?:\?|$)/.test(path) &&
+    /^\/api\/(config|annual-plans|training-history|training-updates|training-context)(?:\?|$)/.test(path) &&
     !options?.body &&
     !options?.mode &&
     !options?.integrity &&

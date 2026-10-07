@@ -1,3 +1,4 @@
+import "@/lib/framework7-workout-controls"
 import { Skeleton } from "@/components/ui/skeleton"
 import { canEditWorkout } from "@/lib/workout-permissions"
 import {

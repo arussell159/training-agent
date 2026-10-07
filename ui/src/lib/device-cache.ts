@@ -156,7 +156,13 @@ export async function writeDeviceCache(key: string, value: unknown) {
         ? "activity:"
         : key.startsWith("nutrition:")
           ? "nutrition:"
-          : null
+          : key.startsWith("history-range:")
+            ? "history-range:"
+            : key.startsWith("history-report:")
+              ? "history-report:"
+              : key.startsWith("history-workout:")
+                ? "history-workout:"
+                : null
       if (!kind) return
       const request = store.openCursor()
       const charts: { key: IDBValidKey; savedAt: number }[] = []
@@ -176,7 +182,7 @@ export async function writeDeviceCache(key: string, value: unknown) {
         } else {
           charts
             .sort((a, b) => b.savedAt - a.savedAt)
-            .slice(kind === "activity:" ? 40 : 14)
+            .slice(kind === "activity:" || kind === "history-workout:" ? 40 : kind === "history-range:" ? 36 : kind === "history-report:" ? 24 : 14)
             .forEach((row) => store.delete(row.key))
         }
       }

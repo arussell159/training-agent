@@ -12,6 +12,7 @@ import {
 import { randomId } from "@/lib/random-id"
 import { validatedTrainingContext } from "./training-context-validation"
 import { withRequestDeadline, waitForRequestDelay } from "./request-deadline"
+import { twelveWeekStart } from "../../../app-backend/lib/training-retention.mjs"
 export interface TrainingHistoryItem {
   workout_date: string
   planned?: { duration_minutes?: number; tss?: number }
@@ -352,7 +353,9 @@ export function mergeCalendarContext(
   previous: TrainingContext,
   incoming: CachedContext
 ): TrainingContext {
-  const range = incoming.display_range
+  const range = incoming.context_scope === "full" && incoming.retention_days && incoming.display_range?.start === "0000-01-01"
+    ? { start: twelveWeekStart(new Date(), incoming.athlete.time_zone), end: "9999-12-31" }
+    : incoming.display_range
   const merge = <T extends { workout_date?: string }>(old: T[], next: T[]) => {
     const rows = new Map<string | T, T>()
     for (const row of [
@@ -371,7 +374,9 @@ export function mergeCalendarContext(
   }
   return {
     ...previous,
-    ...incoming,
+    // A historical page describes only its date range. Its cache/version,
+    // athlete and wellness summary must never replace the current live view.
+    ...(incoming.context_scope === "range" ? {} : incoming),
     history: merge(previous.history, incoming.history),
     planned: merge(previous.planned, incoming.planned),
     wellness_history: [
@@ -743,7 +748,7 @@ export async function loadTrainingContext(
     try {
       const query = new URLSearchParams({ scope })
       if (forceRefresh) query.set("refresh", "1")
-      const context = await withRequestDeadline(async (signal) => {
+      const result = await withRequestDeadline(async (signal) => {
         const saved = cachedTrainingContext() as CachedContext
         const compare = !forceRefresh && saved.context_scope === 'full' && saved.version
         const response = await apiFetch(compare
@@ -751,20 +756,25 @@ export async function loadTrainingContext(
           : `/api/training-context?${query}`, { signal })
         if (!response.ok) throw new Error(`Training context ${response.status}`)
         const body = await response.json()
-        return validatedTrainingContext(compare ? (body.unchanged ? saved : body.context) : body)
+        if (compare && body.unchanged) return { context: saved, unchanged: true }
+        return { context: validatedTrainingContext(compare ? body.context : body), unchanged: false }
       }, 20_000)
       if (revision !== contextRevision) {
         // Never return our own registered promise or start another database read
         // merely because a mutation superseded this request.
         return cachedTrainingContext()
       }
+      const { context, unchanged } = result
       if (
         context.sync_error &&
         /authentication|401|403|expired|credential/i.test(context.sync_error)
       ) {
         window.dispatchEvent(new CustomEvent("intervals-auth-expired"))
       }
-      rememberTrainingContext(context, context.context_scope === 'full' ? 'full' : scope)
+      // Version validation isn't new content: preserve object identity, avoid
+      // another IndexedDB/localStorage write, and don't move the calendar.
+      if (!unchanged)
+        rememberTrainingContext(context, context.context_scope === 'full' ? 'full' : scope)
       networkLoadedScopes.add(scope)
       if (scope === "full") networkLoadedScopes.add("week")
       return context

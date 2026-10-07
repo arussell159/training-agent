@@ -94,6 +94,7 @@ export function projectTrainingContext(context, scope = "week", now = new Date()
       .map((w) => ({ workoutDay: w.workoutDay, ctl: w.ctl, atl: w.atl, tsb: w.tsb })),
     cached_ranges: context.cached_ranges || [],
     synced_at: context.synced_at,
+    ...(context.history_revision ? { history_revision: context.history_revision } : {}),
     source: "supabase-cache",
     context_scope: scope,
     retention_days: context.retention_days,

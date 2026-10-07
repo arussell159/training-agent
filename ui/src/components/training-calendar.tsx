@@ -1,4 +1,7 @@
 import { fallbackTrainingContext } from "@/lib/training-context"
+import "@/lib/framework7-calendar"
+import { calendarAnchorAdjustment, calendarRange, extendCalendarRange, indexCalendarWorkouts } from "@/lib/calendar-viewport"
+import { loadTrainingHistoryRange } from "@/lib/training-history-range"
 import { performanceProbe } from '@/lib/performance-probe'
 import { CalendarSkeleton, ChartSkeleton } from "@/components/loading-layouts"
 import { SavedReportButton } from "@/components/saved-report-button"
@@ -31,7 +34,9 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type Dispatch,
   type ReactNode,
+  type SetStateAction,
 } from "react"
 import {
   DndContext,
@@ -63,7 +68,6 @@ import {
 } from "lucide-react"
 import { f7ready } from "framework7-react"
 import type { Calendar as Framework7Calendar } from "framework7/types"
-import { Pie, PieChart } from "recharts"
 
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -86,12 +90,6 @@ import {
 import { Card, CardTitle } from "@/components/ui/card"
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
 import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from "@/components/ui/chart"
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -105,7 +103,6 @@ import {
   hydrateDeviceHistory,
   loadFullTrainingContext,
   mergeCalendarContext,
-  rememberTrainingContext,
   moveWorkoutDate,
   changeWorkout,
   changeWorkoutDay,
@@ -115,7 +112,6 @@ import {
 } from "@/lib/training-context"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { validatedTrainingContext } from "@/lib/training-context-validation"
-import { withRequestDeadline } from "@/lib/request-deadline"
 const WorkoutAnalysis = lazy(() =>
   import("@/components/workout-analysis").then((m) => ({
     default: m.WorkoutAnalysis,
@@ -652,6 +648,89 @@ function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
 }
 
+// Keep the last calendar visit in memory for a workout-detail round trip.
+// Offscreen weeks occupy their measured height without mounting cards, charts,
+// menus, drag sensors or mobile headings. Session resets discard the visit.
+const calendarWeekHeights = new Map<string, number>()
+let previousCalendarRange: ReturnType<typeof calendarRange> | null = null
+let previousCalendarContext: TrainingContext | null = null
+let previousCalendarPosition: { date: string; top: number } | null = null
+function rememberCalendarVisit(context: TrainingContext, range: ReturnType<typeof calendarRange>, position: typeof previousCalendarPosition) {
+  previousCalendarContext = context
+  previousCalendarRange = range
+  previousCalendarPosition = position
+}
+if (typeof window !== 'undefined') {
+  const resetCalendar = () => {
+    calendarWeekHeights.clear()
+    previousCalendarRange = null
+    previousCalendarContext = null
+    previousCalendarPosition = null
+  }
+  window.addEventListener('training-cache-reset', resetCalendar)
+  window.addEventListener('app-auth-required', resetCalendar)
+  window.addEventListener('device-cache-cleared', resetCalendar)
+}
+
+function CalendarWeekViewport({ weekKey, mobile, summaryOpen, forceMounted, register, captureAnchor, restoreAnchor, children }: {
+  weekKey: string
+  mobile: boolean
+  summaryOpen: boolean
+  forceMounted: boolean
+  register: (key: string, element: HTMLElement | null) => void
+  captureAnchor: () => void
+  restoreAnchor: () => void
+  children: () => ReactNode
+}) {
+  const elementRef = useRef<HTMLElement>(null)
+  const [nearViewport, setNearViewport] = useState(forceMounted)
+  const nearViewportRef = useRef(forceMounted)
+  const mounted = forceMounted || nearViewport
+  const heightKey = `${mobile ? 'mobile' : summaryOpen ? 'wide' : 'compact'}:${weekKey}`
+  const measuredHeight = useRef(calendarWeekHeights.get(heightKey) ?? (mobile ? 840 : 300))
+
+  useLayoutEffect(() => {
+    if (forceMounted) { nearViewportRef.current = true; setNearViewport(true) }
+  }, [forceMounted])
+  useLayoutEffect(() => {
+    const element = elementRef.current
+    if (mounted && element) {
+      measuredHeight.current = element.getBoundingClientRect().height
+      calendarWeekHeights.set(heightKey, measuredHeight.current)
+    }
+    restoreAnchor()
+  })
+  useEffect(() => {
+    const element = elementRef.current
+    if (!element) return
+    const observer = new IntersectionObserver(([entry]) => {
+      const next = entry.isIntersecting
+      if (nearViewportRef.current === next) return
+      captureAnchor()
+      if (!next) {
+        measuredHeight.current = element.getBoundingClientRect().height
+        calendarWeekHeights.set(heightKey, measuredHeight.current)
+      }
+      nearViewportRef.current = next
+      setNearViewport(next)
+    }, { rootMargin: '900px 0px' })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [captureAnchor, heightKey])
+
+  return (
+    <section
+      ref={(element) => { elementRef.current = element; register(weekKey, element) }}
+      data-calendar-week={weekKey}
+      data-calendar-mounted={mounted ? 'true' : 'false'}
+      className="h-auto min-h-0 scroll-mt-14 bg-background"
+      style={mounted ? undefined : { height: calendarWeekHeights.get(heightKey) ?? measuredHeight.current }}
+    >
+      {mounted ? children() : null}
+    </section>
+  )
+}
+
 export function TrainingCalendar({
   onWorkoutOpen,
   restoreScrollTop = null,
@@ -661,7 +740,22 @@ export function TrainingCalendar({
   restoreScrollTop?: number | null
   onScrollRestored?: () => void
 }) {
-  const [context, setContext] = useState(cachedTrainingContext)
+  const [context, updateContext] = useState(() => {
+    const current = cachedTrainingContext()
+    return restoreScrollTop !== null && previousCalendarContext
+      ? mergeCalendarContext(previousCalendarContext, current)
+      : current
+  })
+  useEffect(() => { previousCalendarContext = context }, [context])
+  const anchorOperations = useRef({ capture: () => {}, restore: () => {} })
+  const setContext = useCallback<Dispatch<SetStateAction<TrainingContext>>>((update) => {
+    anchorOperations.current.capture()
+    updateContext(update)
+  }, [])
+  const [dateRange, setDateRange] = useState(() => restoreScrollTop !== null && previousCalendarRange ? previousCalendarRange : calendarRange(new Date()))
+  const [pendingDateJump, setPendingDateJump] = useState<Date | null>(null)
+  const restoredPosition = useRef(restoreScrollTop !== null ? previousCalendarPosition : null)
+  useEffect(() => { previousCalendarRange = dateRange }, [dateRange])
   useEffect(() => {
     if (context !== fallbackTrainingContext) performanceProbe('calendar-visible')
   }, [context])
@@ -676,6 +770,7 @@ export function TrainingCalendar({
     [datePickerOpen, setDatePickerOpen] = useState(false),
     [visibleMonth, setVisibleMonth] = useState(""),
     [pickerMonthLabel, setPickerMonthLabel] = useState("")
+  const [pickerMonth, setPickerMonth] = useState(() => ({ year: new Date().getFullYear(), month: new Date().getMonth() }))
   const [dragging, setDragging] = useState<PlannedWorkout | null>(null)
   const [moving, setMoving] = useState(false)
   const [moveNotice, setMoveNotice] = useState("")
@@ -716,13 +811,18 @@ export function TrainingCalendar({
       }
     }
     markCoveredWeeks(cached)
-    void Promise.all([hydrateDeviceHistory(), loadFullTrainingContext()]).then(([device, full]) => {
+    void hydrateDeviceHistory().then((device) => {
+      if (!active || !device) return
+      markCoveredWeeks(device)
+      setContext((current) => mergeCalendarContext(device, current))
+      setCalendarReady(true)
+    }).catch(() => {})
+    void loadFullTrainingContext().then((full) => {
       if (!active) return
       markCoveredWeeks(full)
-      const loaded = device ? mergeCalendarContext(device, full) : full
-      setContext((current) => mergeCalendarContext(current, loaded))
+      setContext((current) => current === full ? current : mergeCalendarContext(current, full))
       setCalendarReady(true)
-    })
+    }).catch(() => { if (active) setCalendarReady(true) })
     const update = (event: Event) => {
       if (active)
         setContext((current) =>
@@ -737,7 +837,7 @@ export function TrainingCalendar({
       active = false
       window.removeEventListener("training-context-updated", update)
     }
-  }, [])
+  }, [setContext])
   useEffect(() => {
     let active = true
     const load = () =>
@@ -750,12 +850,14 @@ export function TrainingCalendar({
           }>
         })
         .then((result) => {
-          if (active)
+          if (active) {
+            anchorOperations.current.capture()
             setAnnualPlan(
               result.plans.find((item) => item.id === result.activeId) ||
                 result.plans[0] ||
                 null
             )
+          }
         })
         .catch(() => {})
     load()
@@ -956,13 +1058,13 @@ export function TrainingCalendar({
     window.addEventListener("workout-description-updated", update)
     return () =>
       window.removeEventListener("workout-description-updated", update)
-  }, [])
+  }, [setContext])
   useEffect(() => {
     let active = true
     void apiFetch("/api/config")
       .then((r) => r.json())
       .then((c) => {
-        if (active) setSummaryOpen(c.calendarSummaryOpen !== false)
+        if (active) { anchorOperations.current.capture(); setSummaryOpen(c.calendarSummaryOpen !== false) }
       })
       .catch(() => {})
     return () => {
@@ -978,6 +1080,7 @@ export function TrainingCalendar({
       })
       const c = await r.json()
       if (!r.ok) throw new Error(c.error || "Could not save preference")
+      anchorOperations.current.capture()
       setSummaryOpen(open)
     } catch (e) {
       setMoveNotice(
@@ -1085,6 +1188,31 @@ export function TrainingCalendar({
     top: number
     scrollY: number
   } | null>(null)
+  const captureViewportAnchor = useCallback(() => {
+    // Refresh the capture even when a previous no-op state update did not commit.
+    if (!initialAlignmentDone.current) return
+    const header = window.matchMedia("(max-width: 767px)").matches ? 56 : 84
+    const visible = (selector: string) => Array.from(calendarRef.current?.querySelectorAll(selector) ?? [])
+      .map((element) => ({ element, bounds: element.getBoundingClientRect() }))
+      .filter(({ bounds }) => bounds.bottom > header && bounds.top < window.innerHeight)
+      .sort((a, b) => Math.abs(a.bounds.top - header) - Math.abs(b.bounds.top - header))
+    // A large scrollbar/date jump can land in an unmounted placeholder.
+    const anchor = visible('[data-calendar-date]')[0] ?? visible('[data-calendar-week]')[0]
+    if (anchor) viewportAnchor.current = { element: anchor.element, top: anchor.bounds.top, scrollY: window.scrollY }
+  }, [])
+  const restoreViewportAnchor = useCallback(() => {
+    const anchor = viewportAnchor.current
+    viewportAnchor.current = null
+    if (!anchor || !anchor.element.isConnected) return
+    const adjustment = calendarAnchorAdjustment(anchor, anchor.element.getBoundingClientRect().top, window.scrollY)
+    if (Math.abs(adjustment) > 0.5) {
+      performanceProbe('calendar-anchor-adjust', { before: anchor.element.getBoundingClientRect().top, expected: anchor.top, adjustment, scrollY: window.scrollY })
+      window.scrollTo({ top: window.scrollY + adjustment, behavior: 'instant' })
+    }
+  }, [])
+  useLayoutEffect(() => {
+    anchorOperations.current = { capture: captureViewportAnchor, restore: restoreViewportAnchor }
+  }, [captureViewportAnchor, restoreViewportAnchor])
 
   useEffect(() => {
     const mark = () => {
@@ -1130,9 +1258,21 @@ export function TrainingCalendar({
   useLayoutEffect(() => {
     if (restoreScrollTop !== null) {
       if (!calendarReady) return
-      window.scrollTo({ top: Math.max(0, restoreScrollTop), behavior: "instant" })
+      const position = restoredPosition.current
+      const element = position ? calendarRef.current?.querySelector(`[data-calendar-date="${position.date}"]`) : null
+      const top = position && element
+        ? window.scrollY + element.getBoundingClientRect().top - position.top
+        : restoreScrollTop
+      viewportAnchor.current = null
+      performanceProbe('calendar-position-restore', { found: !!element, savedTop: position?.top ?? -1, topBefore: element?.getBoundingClientRect().top ?? -1, scrollY: window.scrollY, target: top, fallback: restoreScrollTop })
+      window.scrollTo({ top: Math.max(0, top), behavior: "instant" })
       initialAlignmentDone.current = true
-      const frame = requestAnimationFrame(() => onScrollRestored?.())
+      calendarUserScrolled.current = true
+      if (position) setActiveWeekKey(dateKey(startOfMonday(new Date(`${position.date}T12:00:00`))))
+      const frame = requestAnimationFrame(() => {
+        performanceProbe('calendar-position-settled', { top: element?.getBoundingClientRect().top ?? -1, scrollY: window.scrollY })
+        onScrollRestored?.()
+      })
       return () => cancelAnimationFrame(frame)
     }
     if (initialAlignmentDone.current || calendarUserScrolled.current || calendarWasDragged.current) return
@@ -1153,22 +1293,13 @@ export function TrainingCalendar({
       ),
       behavior: "instant",
     })
+    setActiveWeekKey(dateKey(startOfMonday(today)))
     initialAlignmentDone.current = true
   }, [context, summaryOpen, isMobile, calendarReady, restoreScrollTop, onScrollRestored])
 
   // Correct layout growth before paint, rather than letting newly loaded rows
   // move the day the user was reading. Retain any intervening user scrolling.
-  useLayoutEffect(() => {
-    const anchor = viewportAnchor.current
-    viewportAnchor.current = null
-    if (!anchor || !anchor.element.isConnected) return
-    const shift =
-      anchor.element.getBoundingClientRect().top -
-      anchor.top +
-      (window.scrollY - anchor.scrollY)
-    if (Math.abs(shift) > 0.5)
-      window.scrollTo({ top: window.scrollY + shift, behavior: "instant" })
-  }, [context])
+  useLayoutEffect(restoreViewportAnchor, [context, dateRange, restoreViewportAnchor])
 
   useEffect(() => {
     // Wait until initial date alignment finishes before observing the actual viewport.
@@ -1192,26 +1323,10 @@ export function TrainingCalendar({
   }, [context.history, context.planned])
 
   const weeks = useMemo(() => {
-    // Dates exist independently of sessions: an empty account still has a calendar.
-    const today = new Date()
-    const earliest = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate() - 90
-    )
-    const latest = new Date(
-      today.getFullYear() + 1,
-      today.getMonth(),
-      today.getDate()
-    )
-    const firstWorkout = workoutDate(workouts[0]?.workout_date)
-    const lastWorkout = workoutDate(workouts[workouts.length - 1]?.workout_date)
-    const first = startOfMonday(
-      firstWorkout && firstWorkout < earliest ? firstWorkout : earliest
-    )
-    const last = startOfMonday(
-      lastWorkout && lastWorkout > latest ? lastWorkout : latest
-    )
+    // Date bounds belong to navigation, not the volume of saved history.
+    const first = new Date(`${dateRange.start}T12:00:00`)
+    const last = new Date(`${dateRange.end}T12:00:00`)
+    const workoutsByWeek = indexCalendarWorkouts(workouts)
     const result: Array<{
       key: string
       start: Date
@@ -1237,26 +1352,34 @@ export function TrainingCalendar({
             start.getDate() + index
           )
       )
-      const keys = new Set(days.map(dateKey))
       result.push({
         key: dateKey(start),
         start,
         days,
-        workouts: workouts.filter((workout) =>
-          keys.has(workout.workout_date ?? "")
-        ),
+        workouts: workoutsByWeek.get(dateKey(start)) ?? [],
       })
     }
     return result
-  }, [workouts])
+  }, [workouts, dateRange])
 
   const weekKeys = weeks.map((week) => week.key).join("|")
+  const contextVersion = String((context as TrainingContext & { version?: string }).version || '')
+  const historyVersion = useRef(contextVersion)
+  useEffect(() => {
+    if (historyVersion.current === contextVersion) return
+    historyVersion.current = contextVersion
+    loadedWeeks.current.clear()
+    const ranges = (context as TrainingContext & { cached_ranges?: Array<{ start: string; end: string }> }).cached_ranges ?? []
+    for (const week of weeks) {
+      if (ranges.some((range) => range.start <= week.key && range.end >= dateKey(week.days[6]))) loadedWeeks.current.add(week.key)
+    }
+  }, [contextVersion, context, weeks])
   useEffect(() => {
     if (!historyReady) return
     let active = true
     const controller = new AbortController()
     let busy = false
-    let scrolled = false
+    let scrolled = calendarUserScrolled.current
     const queue = new Set<string>()
     const pendingWeeks = new Set<string>()
     const pump = async () => {
@@ -1275,72 +1398,11 @@ export function TrainingCalendar({
       )
       pendingWeeks.add(start)
       const revision = calendarRevision.current
-      const query = new URLSearchParams({ scope: "range", start, end })
-      await withRequestDeadline(async signal => {
-          const response=await apiFetch(`/api/training-context?${query}`, {signal})
-          if (!response.ok) throw new Error("Could not load calendar week")
-          return validatedTrainingContext(await response.json())
-        },20_000,controller.signal)
+      await loadTrainingHistoryRange(start, end, { signal: controller.signal })
         .then((next) => {
           if (!active || revision !== calendarRevision.current) return
-          const mobileViewport=window.matchMedia("(max-width: 767px)").matches
-          if (scrolled) {
-            const header = mobileViewport ? 56 : 84
-            const visible = Array.from(
-              calendarRef.current?.querySelectorAll("[data-calendar-date]") ||
-                []
-            )
-              .map((element) => ({
-                element,
-                bounds: element.getBoundingClientRect(),
-              }))
-              .filter(
-                ({ bounds }) =>
-                  bounds.bottom > header && bounds.top < window.innerHeight
-              )
-              .sort(
-                (a, b) =>
-                  Math.abs(a.bounds.top - header) -
-                  Math.abs(b.bounds.top - header)
-              )
-            const anchor = visible[0]
-            if (anchor)
-              viewportAnchor.current = {
-                element: anchor.element,
-                top: anchor.bounds.top,
-                scrollY: window.scrollY,
-              }
-          }
           loadedWeeks.current.add(start)
-          void hydrateDeviceHistory().then((cachedFull) => {
-            if (active && revision === calendarRevision.current)
-              rememberTrainingContext(
-                {
-                  ...mergeCalendarContext(cachedFull || cachedTrainingContext(), next),
-                  display_range: { start: "0000-01-01", end: "9999-12-31" },
-                },
-                "full"
-              )
-          })
           setContext((previous) => mergeCalendarContext(previous, next))
-          if (!scrolled && !initialAlignmentDone.current)
-            requestAnimationFrame(() => {
-              const element = mobileViewport
-                ? calendarRef.current?.querySelector(
-                    `[data-calendar-date="${dateKey(new Date())}"]`
-                  )
-                : weekRefs.current.get(start)
-              if (active && element?.isConnected && !scrolled)
-                window.scrollTo({
-                  top: Math.max(
-                    0,
-                    window.scrollY +
-                      element.getBoundingClientRect().top -
-                      (mobileViewport ? 56 : 84)
-                  ),
-                  behavior: "instant",
-                })
-            })
         })
         .catch((error) => {
           if (active && error.name !== "AbortError")
@@ -1356,6 +1418,19 @@ export function TrainingCalendar({
     }
     const loadVisible = () => {
       if (!scrolled) return
+      const first = weekRefs.current.get(dateRange.start)?.getBoundingClientRect()
+      const last = weekRefs.current.get(dateRange.end)?.getBoundingClientRect()
+      if (first && first.top > -900 && first.top < window.innerHeight + 900) {
+        const earlier = new Date(`${dateRange.start}T12:00:00`)
+        earlier.setDate(earlier.getDate() - 84)
+        captureViewportAnchor()
+        setDateRange((current) => extendCalendarRange(current, earlier))
+      } else if (last && last.bottom < window.innerHeight + 900 && last.bottom > -900) {
+        const later = new Date(`${dateRange.end}T12:00:00`)
+        later.setDate(later.getDate() + 84)
+        captureViewportAnchor()
+        setDateRange((current) => extendCalendarRange(current, later))
+      }
       queue.clear()
       for (const [key, element] of weekRefs.current) {
         const bounds = element.getBoundingClientRect()
@@ -1382,8 +1457,10 @@ export function TrainingCalendar({
       threshold: 0,
     })
     for (const element of weekRefs.current.values()) observer.observe(element)
-    queue.add(dateKey(startOfMonday(new Date())))
+    const todayKey = dateKey(startOfMonday(new Date()))
+    if (weekRefs.current.has(todayKey)) queue.add(todayKey)
     void pump()
+    loadVisible()
     window.addEventListener("scroll", onScroll, { passive: true })
     return () => {
       active = false
@@ -1393,80 +1470,16 @@ export function TrainingCalendar({
       window.removeEventListener("scroll", onScroll)
       pendingWeeks.clear()
     }
-  }, [weekKeys, historyReady])
-
-  useLayoutEffect(() => {
-    const keys = weekKeys ? weekKeys.split("|") : []
-    if (
-      restoreScrollTop !== null ||
-      initialAlignmentDone.current ||
-      !keys.length ||
-      calendarWasDragged.current ||
-      calendarUserScrolled.current
-    )
-      return
-    const todayWeek = dateKey(startOfMonday(new Date()))
-    const target = keys.includes(todayWeek)
-      ? todayWeek
-      : keys[keys.length - 1]
-    const alignToday = () => {
-      if (initialAlignmentDone.current || calendarWasDragged.current || calendarUserScrolled.current) return
-      const mobileViewport = window.matchMedia("(max-width: 767px)").matches
-      setActiveWeekKey(target)
-      const element = mobileViewport
-        ? calendarRef.current?.querySelector(
-            `[data-calendar-date="${dateKey(new Date())}"]`
-          ) || weekRefs.current.get(target)
-        : weekRefs.current.get(target)
-      if (!element) return
-      window.scrollTo({
-        top: Math.max(
-          0,
-          window.scrollY +
-            element.getBoundingClientRect().top -
-            (mobileViewport ? 56 : 84)
-        ),
-        behavior: "instant",
-      })
-      initialAlignmentDone.current = true
-    }
-    alignToday()
-    let secondFrame = 0
-    const firstFrame = requestAnimationFrame(() => {
-      alignToday()
-      secondFrame = requestAnimationFrame(alignToday)
-    })
-    const timer = window.setTimeout(alignToday, 250)
-    return () => {
-      cancelAnimationFrame(firstFrame)
-      cancelAnimationFrame(secondFrame)
-      window.clearTimeout(timer)
-    }
-  }, [weekKeys, isMobile, restoreScrollTop])
-
-  const scrollToWeek = useCallback(
-    (key: string, behavior: ScrollBehavior = "smooth") => {
-      const element = weekRefs.current.get(key)
-      if (!element) return
-      window.scrollTo({
-        top:
-          window.scrollY +
-          element.getBoundingClientRect().top -
-          (isMobile ? 56 : 84),
-        behavior,
-      })
-      setActiveWeekKey(key)
-    },
-    [isMobile]
-  )
+  }, [weekKeys, historyReady, dateRange, contextVersion, captureViewportAnchor, setContext])
 
   useEffect(() => {
     let frame = 0
     const trackVisibleWeek = () => {
+      const header = isMobile ? 56 : 84
       let visibleKey = activeWeekKey
       for (const week of weeks) {
         const bounds = weekRefs.current.get(week.key)?.getBoundingClientRect()
-        if (bounds && bounds.bottom > 57) {
+        if (bounds && bounds.bottom > header + 1) {
           visibleKey = week.key
           break
         }
@@ -1479,7 +1492,7 @@ export function TrainingCalendar({
           Math.max(
             0,
             Math.min(bounds.bottom, window.innerHeight) -
-              Math.max(bounds.top, 57)
+              Math.max(bounds.top, header)
           ) / 7
         if (!weight) continue
         week.days.forEach((day) => {
@@ -1508,35 +1521,15 @@ export function TrainingCalendar({
       cancelAnimationFrame(frame)
       window.removeEventListener("scroll", onScroll)
     }
-  }, [activeWeekKey, weeks])
+  }, [activeWeekKey, weeks, isMobile])
 
   const goToToday = useCallback(() => {
-    const target = dateKey(startOfMonday(new Date()))
     calendarWasDragged.current = true
+    calendarUserScrolled.current = true
     setDatePickerOpen(false)
-    const scrollToToday = () => {
-      if (!calendarRef.current?.isConnected) return
-      setActiveWeekKey(target)
-      if (!isMobile) {
-        scrollToWeek(target, "instant")
-        return
-      }
-      const element = calendarRef.current?.querySelector(
-        `[data-calendar-date="${dateKey(new Date())}"]`
-      ) || weekRefs.current.get(target)
-      if (!element) return
-      window.scrollTo({
-        top: Math.max(
-          0,
-          window.scrollY + element.getBoundingClientRect().top - 56
-        ),
-        behavior: "instant",
-      })
-      initialAlignmentDone.current = true
-    }
-    scrollToToday()
-    requestAnimationFrame(() => requestAnimationFrame(scrollToToday))
-  }, [isMobile, scrollToWeek])
+    setDateRange(calendarRange(new Date()))
+    setPendingDateJump(new Date())
+  }, [])
 
   useEffect(() => {
     window.addEventListener("calendar-go-today", goToToday)
@@ -1552,36 +1545,29 @@ export function TrainingCalendar({
       year: "numeric",
     }) ||
     "Calendar"
-  const jumpToDate = useCallback(
-    (date?: Date) => {
-      if (!date) return
-      const key = dateKey(startOfMonday(date))
-      const selectedDateKey = dateKey(date)
-      calendarWasDragged.current = true
-      setDatePickerOpen(false)
-      setActiveWeekKey(key)
-      requestAnimationFrame(() => {
-        if (!calendarRef.current?.isConnected) return
-        if (!isMobile) {
-          scrollToWeek(key, "smooth")
-          return
-        }
-        const element = calendarRef.current?.querySelector(
-          `[data-calendar-date="${selectedDateKey}"]`
-        )
-        if (!element) return
-        const headerOffset = selectedDateKey === dateKey(new Date()) ? 0 : 56
-        window.scrollTo({
-          top: Math.max(
-            0,
-            window.scrollY + element.getBoundingClientRect().top - headerOffset
-          ),
-          behavior: "smooth",
-        })
-      })
-    },
-    [isMobile, scrollToWeek]
-  )
+  const jumpToDate = useCallback((date?: Date) => {
+    if (!date) return
+    calendarWasDragged.current = true
+    calendarUserScrolled.current = true
+    setDatePickerOpen(false)
+    setDateRange(calendarRange(date))
+    setPendingDateJump(date)
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!pendingDateJump || !calendarReady) return
+    const key = dateKey(startOfMonday(pendingDateJump))
+    const element = isMobile
+      ? calendarRef.current?.querySelector(`[data-calendar-date="${dateKey(pendingDateJump)}"]`)
+      : weekRefs.current.get(key)
+    if (!element) return
+    viewportAnchor.current = null
+    window.scrollTo({ top: Math.max(0, window.scrollY + element.getBoundingClientRect().top - (isMobile ? 56 : 84)), behavior: 'instant' })
+    initialAlignmentDone.current = true
+    setActiveWeekKey(key)
+    setVisibleMonth(pendingDateJump.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))
+    setPendingDateJump(null)
+  }, [pendingDateJump, calendarReady, isMobile, weekKeys])
 
   useEffect(() => {
     if (!isMobile || !datePickerOpen || !mobilePickerContainerRef.current)
@@ -1597,6 +1583,7 @@ export function TrainingCalendar({
         currentMonth: number
         currentYear: number
       }) => {
+        setPickerMonth({ year: calendar.currentYear, month: calendar.currentMonth })
         setPickerMonthLabel(
           new Date(
             calendar.currentYear,
@@ -1608,8 +1595,7 @@ export function TrainingCalendar({
       picker = app.calendar.create({
         containerEl: container,
         value: [selected],
-        minDate: weeks[0]?.days[0] ?? null,
-        maxDate: weeks[weeks.length - 1]?.days[6] ?? null,
+        minDate: new Date(1900, 0, 1),
         firstDay: 1,
         locale: "en-US",
         toolbar: false,
@@ -1653,9 +1639,23 @@ export function TrainingCalendar({
 
   const displayedMonth =
     datePickerOpen && pickerMonthLabel ? pickerMonthLabel : activeMonth
+  const registerWeek = useCallback((key: string, element: HTMLElement | null) => {
+    if (element) weekRefs.current.set(key, element)
+    else weekRefs.current.delete(key)
+  }, [])
+  const reportBlocks = useMemo(() => planReportBlocks(annualPlan), [annualPlan])
+  const todayWeekKey = dateKey(startOfMonday(new Date()))
+  const jumpWeekKey = pendingDateJump ? dateKey(startOfMonday(pendingDateJump)) : null
+  const restoredWeekKey = restoredPosition.current ? dateKey(startOfMonday(new Date(`${restoredPosition.current.date}T12:00:00`))) : null
 
   const openWorkout = (workout: PlannedWorkout) => {
     if (onWorkoutOpen) {
+      captureViewportAnchor()
+      const anchor = viewportAnchor.current
+      const date = anchor?.element.getAttribute('data-calendar-date') || anchor?.element.getAttribute('data-calendar-week')
+      rememberCalendarVisit(context, dateRange, date && anchor ? { date, top: anchor.top } : null)
+      performanceProbe('calendar-position-save', { found: !!date, top: anchor?.top ?? -1, scrollY: window.scrollY })
+      viewportAnchor.current = null
       onWorkoutOpen(workout)
       return
     }
@@ -1759,6 +1759,14 @@ export function TrainingCalendar({
                 pickerSwipeStartRef.current = null
               }}
             >
+              <div className="flex justify-center gap-3 px-4 pt-3">
+                <select aria-label="Calendar month" className="min-h-10 rounded-md bg-background px-3 text-sm" value={pickerMonth.month} onChange={(event) => mobilePickerRef.current?.setYearMonth(pickerMonth.year, Number(event.target.value), 0)}>
+                  {Array.from({ length: 12 }, (_, month) => <option key={month} value={month}>{new Date(2026, month, 1).toLocaleDateString('en-US', { month: 'long' })}</option>)}
+                </select>
+                <select aria-label="Calendar year" className="min-h-10 rounded-md bg-background px-3 text-sm" value={pickerMonth.year} onChange={(event) => mobilePickerRef.current?.setYearMonth(Number(event.target.value), pickerMonth.month, 0)}>
+                  {Array.from({ length: new Date().getFullYear() + 11 - 1900 }, (_, index) => 1900 + index).map((year) => <option key={year} value={year}>{year}</option>)}
+                </select>
+              </div>
               <div ref={mobilePickerContainerRef} />
             </div>
           </div>
@@ -1772,6 +1780,10 @@ export function TrainingCalendar({
               <PopoverContent align="start" className="w-auto p-0">
                 <Calendar
                   mode="single"
+                  captionLayout="dropdown"
+                  startMonth={new Date(1900, 0)}
+                  endMonth={new Date(new Date().getFullYear() + 10, 11)}
+                  defaultMonth={activeWeek?.start}
                   selected={activeWeek?.start}
                   onSelect={jumpToDate}
                 />
@@ -1837,15 +1849,17 @@ export function TrainingCalendar({
                     (item) => item.startDate === week.key
                   ) || null
                 return (
-                  <section
+                  <CalendarWeekViewport
                     key={week.key}
-                    data-calendar-week={week.key}
-                    ref={(element) => {
-                      if (element) weekRefs.current.set(week.key, element)
-                      else weekRefs.current.delete(week.key)
-                    }}
-                    className="h-auto min-h-0 scroll-mt-14 bg-background"
+                    weekKey={week.key}
+                    mobile={isMobile}
+                    summaryOpen={summaryOpen}
+                    forceMounted={week.key === todayWeekKey || week.key === jumpWeekKey || week.key === restoredWeekKey}
+                    register={registerWeek}
+                    captureAnchor={captureViewportAnchor}
+                    restoreAnchor={restoreViewportAnchor}
                   >
+                    {() => (
                     <div className="flex h-auto min-h-0 w-full flex-col items-stretch xl:flex-row">
                       <div className="grid h-auto min-h-0 w-full min-w-0 flex-1 grid-cols-1 items-stretch md:min-h-60 md:grid-cols-7 md:divide-x md:divide-y-0">
                         {week.days.map((day) => {
@@ -1957,7 +1971,7 @@ export function TrainingCalendar({
                               planWeek={planWeek}
                               startDate={week.key}
                               blockStart={
-                                planReportBlocks(annualPlan).find(
+                                reportBlocks.find(
                                   (block) => block.endDate === dateKey(end)
                                 )?.startDate
                               }
@@ -1966,7 +1980,8 @@ export function TrainingCalendar({
                         </Collapsible>
                       </aside>
                     </div>
-                  </section>
+                    )}
+                  </CalendarWeekViewport>
                 )
               })}
             </div>
@@ -2013,7 +2028,7 @@ const disciplineChartConfig = {
   run: { label: "Run", color: "var(--color-lime-600)" },
   strength: { label: "Strength", color: "var(--color-orange-600)" },
   other: { label: "Other", color: "var(--color-slate-500)" },
-} satisfies ChartConfig
+}
 
 function WeekSummary({
   title,
@@ -2063,34 +2078,13 @@ function WeekSummary({
     <div className="space-y-3">
       <CardTitle className="text-center text-sm">{title}</CardTitle>
       <div className="relative">
-        <ChartContainer
-          config={disciplineChartConfig}
-          className="mx-auto aspect-square max-h-40 w-full"
-        >
-          <PieChart accessibilityLayer>
-            <ChartTooltip
-              cursor={false}
-              wrapperStyle={{ zIndex: 999 }}
-              content={
-                <ChartTooltipContent
-                  pointOnly
-                  hideLabel
-                  formatter={(value) => (
-                    <span>{formatDuration(Number(value))}</span>
-                  )}
-                />
-              }
-            />
-            <Pie
-              data={chartData}
-              dataKey="minutes"
-              nameKey="discipline"
-              innerRadius={38}
-              outerRadius={64}
-              strokeWidth={2}
-            />
-          </PieChart>
-        </ChartContainer>
+        <svg viewBox="0 0 160 160" className="mx-auto size-40" role="img" aria-label="Completed duration by sport">
+          {chartData.map((item, index) => {
+            const percent = completedTotalMinutes > 0 ? item.minutes / completedTotalMinutes * 100 : 0
+            const before = chartData.slice(0, index).reduce((sum, part) => sum + part.minutes, 0)
+            return <circle key={item.discipline} cx="80" cy="80" r="51" fill="none" stroke={item.fill} strokeWidth="26" pathLength="100" strokeDasharray={`${percent} ${100 - percent}`} strokeDashoffset={-before / completedTotalMinutes * 100} transform="rotate(-90 80 80)"><title>{item.label}: {formatDuration(item.minutes)}</title></circle>
+          })}
+        </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <strong className="text-base tabular-nums">
             {formatDuration(completedTotalMinutes)}

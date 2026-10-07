@@ -6,6 +6,18 @@ const { apiFetch, setApiAuthenticated } = await import("../src/lib/api-client.ts
 const json = (value, status = 200) =>
   new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 
+test('calendar validation and push recovery share an overlapping version check', async (t) => {
+  let finish, calls = 0;
+  t.mock.method(globalThis, 'fetch', () => { calls++; return new Promise(resolve => { finish = resolve; }); });
+  setApiAuthenticated(true, true);
+  const a = apiFetch('/api/training-updates?version=one');
+  const b = apiFetch('/api/training-updates?version=one');
+  await Promise.resolve();
+  assert.equal(calls, 1);
+  finish(json({ unchanged: true, version: 'one' }));
+  for (const response of await Promise.all([a, b])) assert.equal((await response.json()).unchanged, true);
+});
+
 test("a late 401 from a previous session cannot sign out the current session", async (t) => {
   let finish,
     expired = 0;

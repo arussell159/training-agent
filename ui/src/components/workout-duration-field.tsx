@@ -1,3 +1,4 @@
+import "@/lib/framework7-picker"
 import { useEffect, useId, useRef, useState } from "react"
 import { f7, f7ready } from "framework7-react"
 import type { Picker } from "framework7/types"

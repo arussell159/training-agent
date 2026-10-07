@@ -4,10 +4,40 @@ import { createTrainingUpdates } from "./training-updates.mjs";
 import { fetchIntervalsContext } from "./intervals.mjs";
 import { contentFingerprint } from "./content-fingerprint.mjs";
 import { prepareFastView } from "./fast-context.mjs";
+import { retainRecentTrainingContext } from "./training-retention.mjs";
 
 const clock = new Date("2026-10-06T18:00:00Z");
 const range = { start: "2026-09-29", end: "2026-12-05" };
 const config = { INTERVALS_API_KEY: "fixture" };
+
+test('historical edits and deletions invalidate pushed versions without retaining old workout data', async () => {
+  const f = await fixture();
+  let saved = f.saved, name = 'Historical run', removed = false;
+  const check = createTrainingUpdates({
+    readSnapshot: async () => saved,
+    request: () => async path => path.includes('/activities?') && !removed ? [{id:'old',type:'Run',name,start_date_local:'2012-02-29T08:00:00',moving_time:1800,distance:5000}] : [],
+    persist: async (_config, next) => { saved = retainRecentTrainingContext(next, clock); },
+    warm: async () => {}, exportGithub: async () => {}, waitUntil: () => {}, now: () => clock,
+  });
+  const options = { durable:true, full:true, hints:[{id:'old',date:'2012-02-29'}] };
+  const first = await check(config, options);
+  assert.match(saved.history_revision, /^[a-f0-9]{64}$/);
+  assert.equal(saved.history.length, 0);
+  assert.equal(first.context.history.length, 0);
+  assert.equal(first.context.history_revision, saved.history_revision);
+  const duplicate = await check(config, options);
+  assert.equal(duplicate.context.version, first.context.version);
+  assert.equal(duplicate.sourceChanged, false);
+  name = 'Corrected historical run';
+  const edited = await check(config, options);
+  assert.notEqual(edited.context.version, first.context.version);
+  assert.equal(saved.history.length, 0);
+  removed = true;
+  const deleted = await check(config, options);
+  assert.notEqual(deleted.context.version, edited.context.version);
+  assert.equal(saved.history.length, 0);
+  assert.equal(saved.cached_ranges.some(range => range.start < '2026-01-01'), false);
+});
 
 test('a workout webhook refreshes the affected three days, without reloading profile or annual races', async () => {
   const f = await fixture(); f.complete();

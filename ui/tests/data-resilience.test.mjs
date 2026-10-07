@@ -73,13 +73,48 @@ test('a returning full cache validates its version without downloading the snaps
   window.dispatchEvent(new Event('training-cache-reset'));
   setApiAuthenticated(true);
   training.rememberLiveTrainingContext(context('returning', { context_scope: 'full' }));
+  const before = training.cachedTrainingContext();
+  const persisted = storage.get('training-agent-startup-v2');
+  let changes = 0;
+  const changed = () => changes++;
+  window.addEventListener('training-context-updated', changed);
   let path;
   globalThis.fetch = async url => { path = url; return json({ unchanged: true, version: 'returning' }); };
   const loaded = await training.loadFullTrainingContext(false, true);
   assert.match(path, /version=returning/);
   assert.match(path, /training-updates/);
   assert.equal(loaded.version, 'returning');
+  assert.equal(loaded, before);
+  assert.equal(changes, 0);
+  assert.equal(storage.get('training-agent-startup-v2'), persisted);
+  window.removeEventListener('training-context-updated', changed);
   window.dispatchEvent(new Event('training-cache-reset'));
+});
+
+test('historical range merges retain current version and current athlete metrics', () => {
+  const current = context('live', { context_scope: 'full', metrics: { fitness: 90 }, planned: [workout('current', '2026-10-07')] });
+  const incoming = context('old-page', {
+    context_scope: 'range', cache_scope: 'unrelated-metadata', metrics: { fitness: 10 },
+    display_range: { start: '2020-01-01', end: '2020-01-31' },
+    history: [workout('old', '2020-01-03')], planned: [],
+  });
+  const merged = training.mergeCalendarContext(current, incoming);
+  assert.equal(merged.version, 'live');
+  assert.equal(merged.cache_scope, 'fixture');
+  assert.equal(merged.context_scope, 'full');
+  assert.deepEqual(merged.metrics, { fitness: 90 });
+  assert.equal(merged.athlete.name, 'live');
+  assert.equal(merged.history[0].id, 'old');
+  assert.equal(merged.planned[0].id, 'current');
+});
+
+test('a bounded live snapshot preserves loaded older history but removes deleted recent workouts', () => {
+  const old = workout('historical', '2020-01-03');
+  const current = context('before', { history: [old, workout('deleted', '2090-01-01')], planned: [] });
+  const fresh = context('live', { context_scope: 'full', retention_days: 90, display_range: { start: '0000-01-01', end: '9999-12-31' }, history: [], planned: [] });
+  const merged = training.mergeCalendarContext(current, fresh);
+  assert.deepEqual(merged.history.map(row => row.id), ['historical']);
+  assert.equal(merged.version, 'live');
 });
 const targets = {
   calories: 2000,
