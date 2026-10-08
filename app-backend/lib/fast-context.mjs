@@ -142,10 +142,14 @@ export async function saveFastView(config, store, context, { atomic = true } = {
   ];
   if (atomic && store.savePreparedViews) {
     const saved = await store.savePreparedViews(rows);
-    if (saved?.version === full.version && saved.revision === (full.queue_snapshot_revision || null)) return full;
+    if (
+      saved?.version === full.version &&
+      saved.revision === (full.queue_snapshot_revision || null)
+    )
+      return full;
     // A newer mutation won. Return its actual view rather than our stale input.
     const current = await store.getSyncRecord(fastViewId(config), { fresh: true });
-    if (!current) throw Error('The saved training view is unavailable.');
+    if (!current) throw Error("The saved training view is unavailable.");
     return current;
   }
   if (atomic && store.updateSyncRecord) {

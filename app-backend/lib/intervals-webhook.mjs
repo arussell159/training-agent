@@ -1,5 +1,5 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { changeHint } from './intervals-change-hints.mjs';
+import { changeHint } from "./intervals-change-hints.mjs";
 
 export const WEBHOOK_TYPES = new Set([
   "ACTIVITY_UPLOADED",
@@ -42,7 +42,9 @@ export function createWebhookSync({ store, refresh, now = Date.now, reconcileMs 
         const added = [...new Set(hashes)].filter((id) => !seen.has(id));
         if (added.length) {
           state.revision++;
-          const hints = relevant.filter((_, index) => added.includes(hashes[index])).map(changeHint);
+          const hints = relevant
+            .filter((_, index) => added.includes(hashes[index]))
+            .map(changeHint);
           state.changes = [...(state.changes || []), { revision: state.revision, hints }];
           if (state.changes.reduce((n, change) => n + change.hints.length, 0) > 100)
             state.changes = [{ revision: state.revision, hints: [{ full: true }] }];
@@ -67,8 +69,12 @@ export function createWebhookSync({ store, refresh, now = Date.now, reconcileMs 
         const claim = await store.update((state) => {
           if (!due(state) || state.retryAt > now() || state.lease?.until > now()) return null;
           state.lease = { token, until: now() + 240_000 };
-          return { revision: state.revision, hints: (state.changes || [])
-            .filter(change => change.revision > state.completed).flatMap(change => change.hints) };
+          return {
+            revision: state.revision,
+            hints: (state.changes || [])
+              .filter((change) => change.revision > state.completed)
+              .flatMap((change) => change.hints),
+          };
         });
         if (!claim) return;
         try {
@@ -76,7 +82,9 @@ export function createWebhookSync({ store, refresh, now = Date.now, reconcileMs 
           const more = await store.update((state) => {
             if (state.lease?.token !== token) return false;
             state.completed = Math.max(state.completed, claim.revision);
-            state.changes = (state.changes || []).filter(change => change.revision > state.completed);
+            state.changes = (state.changes || []).filter(
+              (change) => change.revision > state.completed
+            );
             state.lastChecked = now();
             state.lastSyncedAt = new Date(now()).toISOString();
             state.lastError = null;

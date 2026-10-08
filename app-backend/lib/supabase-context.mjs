@@ -72,15 +72,24 @@ export function createContextStore(config, log = () => {}, fetchImpl = fetch) {
   return {
     ready,
     async savePreparedViews(rows) {
-      return request('rpc/save_training_views', { method: 'POST', body: JSON.stringify({ p_rows: rows }) });
+      return request("rpc/save_training_views", {
+        method: "POST",
+        body: JSON.stringify({ p_rows: rows }),
+      });
     },
     async registerTrainingLive(topic, viewId, expiresAt) {
-      return request('rpc/register_training_live', { method: 'POST', body: JSON.stringify({
-        p_topic: topic, p_view_id: viewId, p_expires_at: expiresAt,
-      }) });
+      return request("rpc/register_training_live", {
+        method: "POST",
+        body: JSON.stringify({
+          p_topic: topic,
+          p_view_id: viewId,
+          p_expires_at: expiresAt,
+        }),
+      });
     },
     async getSyncVersion(id) {
-      const rows = await request('sync_state', { fresh: true,
+      const rows = await request("sync_state", {
+        fresh: true,
         query: `?athlete_id=eq.${encodeURIComponent(id)}&limit=1&select=view_version`,
       });
       return rows?.[0]?.view_version || null;

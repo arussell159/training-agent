@@ -10,16 +10,35 @@ const clock = new Date("2026-10-06T18:00:00Z");
 const range = { start: "2026-09-29", end: "2026-12-05" };
 const config = { INTERVALS_API_KEY: "fixture" };
 
-test('historical edits and deletions invalidate pushed versions without retaining old workout data', async () => {
+test("historical edits and deletions invalidate pushed versions without retaining old workout data", async () => {
   const f = await fixture();
-  let saved = f.saved, name = 'Historical run', removed = false;
+  let saved = f.saved,
+    name = "Historical run",
+    removed = false;
   const check = createTrainingUpdates({
     readSnapshot: async () => saved,
-    request: () => async path => path.includes('/activities?') && !removed ? [{id:'old',type:'Run',name,start_date_local:'2012-02-29T08:00:00',moving_time:1800,distance:5000}] : [],
-    persist: async (_config, next) => { saved = retainRecentTrainingContext(next, clock); },
-    warm: async () => {}, exportGithub: async () => {}, waitUntil: () => {}, now: () => clock,
+    request: () => async (path) =>
+      path.includes("/activities?") && !removed
+        ? [
+            {
+              id: "old",
+              type: "Run",
+              name,
+              start_date_local: "2012-02-29T08:00:00",
+              moving_time: 1800,
+              distance: 5000,
+            },
+          ]
+        : [],
+    persist: async (_config, next) => {
+      saved = retainRecentTrainingContext(next, clock);
+    },
+    warm: async () => {},
+    exportGithub: async () => {},
+    waitUntil: () => {},
+    now: () => clock,
   });
-  const options = { durable:true, full:true, hints:[{id:'old',date:'2012-02-29'}] };
+  const options = { durable: true, full: true, hints: [{ id: "old", date: "2012-02-29" }] };
   const first = await check(config, options);
   assert.match(saved.history_revision, /^[a-f0-9]{64}$/);
   assert.equal(saved.history.length, 0);
@@ -28,7 +47,7 @@ test('historical edits and deletions invalidate pushed versions without retainin
   const duplicate = await check(config, options);
   assert.equal(duplicate.context.version, first.context.version);
   assert.equal(duplicate.sourceChanged, false);
-  name = 'Corrected historical run';
+  name = "Corrected historical run";
   const edited = await check(config, options);
   assert.notEqual(edited.context.version, first.context.version);
   assert.equal(saved.history.length, 0);
@@ -36,25 +55,42 @@ test('historical edits and deletions invalidate pushed versions without retainin
   const deleted = await check(config, options);
   assert.notEqual(deleted.context.version, edited.context.version);
   assert.equal(saved.history.length, 0);
-  assert.equal(saved.cached_ranges.some(range => range.start < '2026-01-01'), false);
+  assert.equal(
+    saved.cached_ranges.some((range) => range.start < "2026-01-01"),
+    false
+  );
 });
 
-test('a workout webhook refreshes the affected three days, without reloading profile or annual races', async () => {
-  const f = await fixture(); f.complete();
+test("a workout webhook refreshes the affected three days, without reloading profile or annual races", async () => {
+  const f = await fixture();
+  f.complete();
   const tasks = [];
-  const check = createTrainingUpdates({ readSnapshot: async (_config, options) => {
-    assert.equal(options.fresh, true, 'targeted jobs must merge the newest durable snapshot');
-    return f.saved;
-  }, request: () => f.request,
-    persist: async () => {}, warm: async () => {}, exportGithub: async () => {},
-    waitUntil: task => tasks.push(task), now: () => clock,
+  const check = createTrainingUpdates({
+    readSnapshot: async (_config, options) => {
+      assert.equal(options.fresh, true, "targeted jobs must merge the newest durable snapshot");
+      return f.saved;
+    },
+    request: () => f.request,
+    persist: async () => {},
+    warm: async () => {},
+    exportGithub: async () => {},
+    waitUntil: (task) => tasks.push(task),
+    now: () => clock,
   });
-  const result = await check(config, { durable: true, full: true, hints: [{ id: 'i10', date: '2026-10-06' }] });
-  assert.equal(result.context.history[0].activity_id, 'i10');
+  const result = await check(config, {
+    durable: true,
+    full: true,
+    hints: [{ id: "i10", date: "2026-10-06" }],
+  });
+  assert.equal(result.context.history[0].activity_id, "i10");
   assert.equal(f.calls.length, 4);
-  assert.ok(f.calls.every(path => path !== '/athlete/0'));
-  assert.ok(f.calls.some(path => path === '/athlete/0/activities?oldest=2026-10-05&newest=2026-10-07'));
-  assert.ok(f.calls.some(path => path === '/athlete/0/wellness?oldest=2026-10-05&newest=2026-10-07'));
+  assert.ok(f.calls.every((path) => path !== "/athlete/0"));
+  assert.ok(
+    f.calls.some((path) => path === "/athlete/0/activities?oldest=2026-10-05&newest=2026-10-07")
+  );
+  assert.ok(
+    f.calls.some((path) => path === "/athlete/0/wellness?oldest=2026-10-05&newest=2026-10-07")
+  );
   await Promise.all(tasks);
 });
 

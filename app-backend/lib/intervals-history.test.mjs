@@ -172,27 +172,48 @@ test("completed cursors and invalid dates do not issue provider requests", async
 });
 
 test("a full report page on the first requested day includes every equal-day record", async () => {
-  const result = await fetchWorkoutHistoryPage(async (path) =>
-    new URL(`https://test.invalid${path}`).searchParams.has("limit")
-      ? [activity("one", "2001-01-03")]
-      : [activity("one", "2001-01-03"), activity("two", "2001-01-03")],
-    { start: "2001-01-03", end: "2001-01-03", pageSize: 1 });
+  const result = await fetchWorkoutHistoryPage(
+    async (path) =>
+      new URL(`https://test.invalid${path}`).searchParams.has("limit")
+        ? [activity("one", "2001-01-03")]
+        : [activity("one", "2001-01-03"), activity("two", "2001-01-03")],
+    { start: "2001-01-03", end: "2001-01-03", pageSize: 1 }
+  );
   assert.equal(result.workouts.length, 2);
   assert.equal(result.complete, true);
   assert.equal(result.next_before, null);
 });
 
 test("compact report fields retain optional scalar metrics without requesting streams", async () => {
-  const result = await fetchWorkoutHistoryPage(async path => {
-    const fields = new URL(`https://test.invalid${path}`).searchParams.get('fields').split(',');
-    for (const field of ['max_watts','max_cadence','start_latlng','average_humidity','average_weather_temp']) assert.ok(fields.includes(field));
-    assert.ok(!fields.includes('streams'));
-    return [{ ...activity('one','2001-01-03'), max_watts:420, max_cadence:98, start_latlng:[1,2], average_humidity:70, average_weather_temp:21 }];
-  }, { start:'2001-01-03',end:'2001-01-03' });
-  const metrics=result.workouts[0].workout_summary.completed;
-  assert.equal(metrics.max_power,420);
-  assert.equal(metrics.max_cadence,98);
-  assert.equal(metrics.latitude,1);
-  assert.equal(metrics.humidity_percent,70);
-  assert.equal(metrics.temperature_c,21);
+  const result = await fetchWorkoutHistoryPage(
+    async (path) => {
+      const fields = new URL(`https://test.invalid${path}`).searchParams.get("fields").split(",");
+      for (const field of [
+        "max_watts",
+        "max_cadence",
+        "start_latlng",
+        "average_humidity",
+        "average_weather_temp",
+      ])
+        assert.ok(fields.includes(field));
+      assert.ok(!fields.includes("streams"));
+      return [
+        {
+          ...activity("one", "2001-01-03"),
+          max_watts: 420,
+          max_cadence: 98,
+          start_latlng: [1, 2],
+          average_humidity: 70,
+          average_weather_temp: 21,
+        },
+      ];
+    },
+    { start: "2001-01-03", end: "2001-01-03" }
+  );
+  const metrics = result.workouts[0].workout_summary.completed;
+  assert.equal(metrics.max_power, 420);
+  assert.equal(metrics.max_cadence, 98);
+  assert.equal(metrics.latitude, 1);
+  assert.equal(metrics.humidity_percent, 70);
+  assert.equal(metrics.temperature_c, 21);
 });

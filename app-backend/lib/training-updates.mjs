@@ -2,9 +2,9 @@ import { athleteLocalDate } from "./athlete-date.mjs";
 import { fetchIntervalsContext } from "./intervals.mjs";
 import { mergeTrainingSnapshot, providerConnection } from "./completed-workout-store.mjs";
 import { prepareFastView, projectTrainingContext } from "./fast-context.mjs";
-import { changedTrainingRange } from './intervals-change-hints.mjs';
-import { contentFingerprint } from './content-fingerprint.mjs';
-import { twelveWeekStart } from './training-retention.mjs';
+import { changedTrainingRange } from "./intervals-change-hints.mjs";
+import { contentFingerprint } from "./content-fingerprint.mjs";
+import { twelveWeekStart } from "./training-retention.mjs";
 
 // A foreground check bypasses the broad sync, file archive and GitHub worker.
 // Only changed content is written. Concurrent opens share the provider check.
@@ -35,7 +35,8 @@ export function createTrainingUpdates({
       const shift = (n) =>
         new Date(Date.parse(`${today}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
       const changedRange = changedTrainingRange(saved, hints);
-      const range = changedRange || (saved && !full ? { start: shift(-7), end: shift(60) } : undefined);
+      const range =
+        changedRange || (saved && !full ? { start: shift(-7), end: shift(60) } : undefined);
       const provider = request(config);
       let profile = profiles.get(key);
       if (changedRange) {
@@ -65,7 +66,10 @@ export function createTrainingUpdates({
         // Old records stay out of the hot snapshot, but their corrections must
         // still change its pushed version so every browser/instance drops cached pages.
         // Hash provider content, never event delivery time: duplicate webhooks stay quiet.
-        const ordered = rows => [...(rows || [])].sort((a, b) => String(a.id || a.date).localeCompare(String(b.id || b.date)));
+        const ordered = (rows) =>
+          [...(rows || [])].sort((a, b) =>
+            String(a.id || a.date).localeCompare(String(b.id || b.date))
+          );
         merged.history_revision = contentFingerprint({
           range: changedRange,
           history: ordered(incoming.history),

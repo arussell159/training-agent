@@ -254,7 +254,12 @@ export function mapIntervalsWorkout(
       average_hr: value.average_heartrate ?? null,
       max_hr: value.max_heartrate ?? null,
       average_cadence: value.average_cadence ?? null,
-      temperature_c: value.average_temp ?? value.average_weather_temp ?? value.average_temperature ?? value.temperature ?? null,
+      temperature_c:
+        value.average_temp ??
+        value.average_weather_temp ??
+        value.average_temperature ??
+        value.temperature ??
+        null,
       humidity_percent: value.average_humidity ?? value.relative_humidity ?? value.humidity ?? null,
       latitude: value.start_latlng?.[0] ?? value.start_latitude ?? value.latitude ?? null,
       longitude: value.start_latlng?.[1] ?? value.start_longitude ?? value.longitude ?? null,

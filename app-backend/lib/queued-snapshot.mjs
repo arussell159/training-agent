@@ -7,10 +7,16 @@ export function preserveQueuedSnapshot(current, incoming, { verifiedIds = [] } =
   if (!current) return incoming;
   // An unrelated refresh started before an old-workout webhook must not undo
   // its history cache invalidation while preserving the newer workout rows.
-  if (current.history_revision && (!incoming.history_revision_source_at ||
-    String(current.history_revision_source_at || '') > incoming.history_revision_source_at)) {
-    incoming = { ...incoming, history_revision: current.history_revision,
-      history_revision_source_at: current.history_revision_source_at };
+  if (
+    current.history_revision &&
+    (!incoming.history_revision_source_at ||
+      String(current.history_revision_source_at || "") > incoming.history_revision_source_at)
+  ) {
+    incoming = {
+      ...incoming,
+      history_revision: current.history_revision,
+      history_revision_source_at: current.history_revision_source_at,
+    };
   }
   const verified = new Set(verifiedIds.map(String));
   const deleted = { ...current.app_deleted_workouts };

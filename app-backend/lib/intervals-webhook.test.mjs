@@ -33,14 +33,28 @@ const event = (id = "a", athlete_id = "1") => ({
   timestamp: "2026-10-07T12:00:00Z",
 });
 
-test('revision claims retain a second workout hint arriving during a refresh', async () => {
-  const gate = Promise.withResolvers(), received = [];
-  const f = fixture(async ({ hints }) => { received.push(hints); if (received.length === 1) await gate.promise; });
-  const activity = id => ({ ...event(id), type: 'ACTIVITY_UPLOADED', activity: { id, start_date_local: '2026-10-07T10:00:00' } });
-  await f.sync.accept([activity('i1')], '1');
-  const running = f.sync.drain(); await new Promise(resolve => setImmediate(resolve));
-  await f.sync.accept([activity('i2')], '1'); gate.resolve(); await running;
-  assert.deepEqual(received.map(hints => hints.map(h => h.id)), [['i1'], ['i2']]);
+test("revision claims retain a second workout hint arriving during a refresh", async () => {
+  const gate = Promise.withResolvers(),
+    received = [];
+  const f = fixture(async ({ hints }) => {
+    received.push(hints);
+    if (received.length === 1) await gate.promise;
+  });
+  const activity = (id) => ({
+    ...event(id),
+    type: "ACTIVITY_UPLOADED",
+    activity: { id, start_date_local: "2026-10-07T10:00:00" },
+  });
+  await f.sync.accept([activity("i1")], "1");
+  const running = f.sync.drain();
+  await new Promise((resolve) => setImmediate(resolve));
+  await f.sync.accept([activity("i2")], "1");
+  gate.resolve();
+  await running;
+  assert.deepEqual(
+    received.map((hints) => hints.map((h) => h.id)),
+    [["i1"], ["i2"]]
+  );
   assert.equal(f.state.changes.length, 0);
 });
 
