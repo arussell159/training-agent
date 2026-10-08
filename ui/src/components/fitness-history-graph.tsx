@@ -2,7 +2,6 @@ import {
   useEffect,
   useId,
   useMemo,
-  useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react"
@@ -22,10 +21,8 @@ import {
   defaultFitnessAnchors,
   fitnessAnchorLabel,
   fitnessPeriodLabel,
-  fitnessPeakEffortTarget,
   type FitnessAnchor,
   type FitnessHistory,
-  type FitnessPeak,
   type FitnessSport,
 } from "@/lib/fitness-history"
 import {
@@ -47,7 +44,6 @@ export function FitnessHistoryGraph({
   selection,
   onAnchorChange,
   onPointSelect,
-  onEffortOpen,
 }: {
   history: FitnessHistory | null
   sport: FitnessSport
@@ -55,7 +51,6 @@ export function FitnessHistoryGraph({
   selection: Partial<Record<FitnessSport, string>>
   onAnchorChange: (key: string) => void
   onPointSelect: (point: FitnessGraphPoint) => void
-  onEffortOpen?: (peak: FitnessPeak, sport: FitnessSport) => void
 }) {
   const isMobile = useIsMobile()
   const anchors = history?.anchors ?? defaultFitnessAnchors(sport)
@@ -68,12 +63,8 @@ export function FitnessHistoryGraph({
     [rows, anchor, sport]
   )
   const [inspectIndex, setInspectIndex] = useState<number | null>(null)
-  const pointPointer = useRef<{ x: number; y: number; moved: boolean } | null>(
-    null
-  )
   useEffect(() => {
     setInspectIndex(null)
-    pointPointer.current = null
   }, [sport, anchor.duration_seconds, anchor.distance_meters])
   const latestValueIndex = points.reduce(
     (latest, point, index) => (point.value != null ? index : latest),
@@ -101,8 +92,8 @@ export function FitnessHistoryGraph({
   const inspectHistory = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!points.length) return
     const bounds = event.currentTarget.getBoundingClientRect()
-    const plotStart = 12
-    const plotEndInset = 56 + 2 + 12
+    const plotStart = 0
+    const plotEndInset = 32
     const plotWidth = bounds.width - plotStart - plotEndInset
     if (plotWidth <= 0) return
     const ratio = Math.max(
@@ -122,31 +113,20 @@ export function FitnessHistoryGraph({
     setInspectIndex(closestIndex)
     onPointSelect(points[closestIndex])
   }
-  const openPoint = (point: FitnessGraphPoint) => {
-    if (
-      point.value == null ||
-      !point.peak ||
-      !fitnessPeakEffortTarget(point.peak, sport)
-    )
-      return
-    onPointSelect(point)
-    onEffortOpen?.(point.peak, sport)
-  }
   const renderPoint = (
     props: {
       cx?: number
       cy?: number
       index?: number
       payload?: FitnessGraphPoint
-    },
-    active = false
+    }
   ) => {
     const cx = Number(props.cx),
       cy = Number(props.cy),
       point = props.payload
     if (!Number.isFinite(cx) || !Number.isFinite(cy) || point?.value == null)
       return null
-    const selected = active || props.index === selectedIndex
+    const selected = props.index === selectedIndex
     const circle = (
       <circle
         cx={cx}
@@ -162,65 +142,7 @@ export function FitnessHistoryGraph({
         }
       />
     )
-    // Recharts inserts the active dot after pointer-down. Keep it visual so the
-    // browser releases on the same stable source button that received the press.
-    if (active) return <g pointerEvents="none">{circle}</g>
-    if (
-      !onEffortOpen ||
-      !point.peak ||
-      !fitnessPeakEffortTarget(point.peak, sport)
-    )
-      return circle
-    return (
-      <g
-        role="button"
-        tabIndex={0}
-        aria-label={`Open ${effort} effort ${formatFitnessGraphValue(point.value, sport)} from ${fitnessPeriodLabel(point.date)}`}
-        className="cursor-pointer outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-        onPointerDown={(event) => {
-          event.stopPropagation()
-          pointPointer.current = {
-            x: event.clientX,
-            y: event.clientY,
-            moved: false,
-          }
-        }}
-        onPointerMove={(event) => {
-          const pointer = pointPointer.current
-          if (
-            pointer &&
-            event.buttons &&
-            Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 6
-          )
-            pointer.moved = true
-        }}
-        onPointerCancel={() => {
-          pointPointer.current = null
-        }}
-        onClick={(event) => {
-          event.stopPropagation()
-          const dragged = event.detail !== 0 && pointPointer.current?.moved
-          pointPointer.current = null
-          if (dragged) return
-          openPoint(point)
-        }}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter" && event.key !== " ") return
-          event.preventDefault()
-          event.stopPropagation()
-          if (!event.repeat) openPoint(point)
-        }}
-      >
-        <rect
-          x={cx - 12}
-          y={cy - 12}
-          width={24}
-          height={24}
-          fill="transparent"
-        />
-        {circle}
-      </g>
-    )
+    return <g pointerEvents="none">{circle}</g>
   }
 
   return (
@@ -287,7 +209,7 @@ export function FitnessHistoryGraph({
             <AreaChart
               data={points}
               accessibilityLayer
-              margin={{ top: 12, right: 2, left: 0, bottom: 4 }}
+              margin={{ top: 16, right: 0, left: 0, bottom: 8 }}
             >
               <defs>
                 <linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1">
@@ -318,7 +240,6 @@ export function FitnessHistoryGraph({
                 dataKey="time"
                 domain={timeDomain}
                 ticks={ticks}
-                padding={{ left: 12, right: 12 }}
                 axisLine={false}
                 tickLine={false}
                 tickMargin={8}
@@ -333,7 +254,7 @@ export function FitnessHistoryGraph({
                 reversed={sport !== "Ride"}
                 axisLine={false}
                 tickLine={false}
-                width={56}
+                width={isMobile ? 32 : 56}
                 tickCount={4}
                 tick={{ fontSize: 11 }}
                 tickFormatter={(value) =>
@@ -365,13 +286,6 @@ export function FitnessHistoryGraph({
                       <div className="mt-1 text-sm font-semibold text-foreground tabular-nums">
                         {formatFitnessGraphValue(value, sport)}
                       </div>
-                      {point?.payload?.source && (
-                        <div className="mt-1 text-[10px] text-muted-foreground">
-                          {point.payload.source === "calculated-activity-curves"
-                            ? "Intervals.icu · calculated from activity curves"
-                            : "Intervals.icu recorded curve"}
-                        </div>
-                      )}
                     </div>
                   )
                 }}
@@ -388,7 +302,7 @@ export function FitnessHistoryGraph({
                 fill={`url(#${gradient})`}
                 isAnimationActive={false}
                 dot={(props) => renderPoint(props)}
-                activeDot={(props) => renderPoint(props, true)}
+                activeDot={(props) => renderPoint(props)}
               />
             </AreaChart>
           </ChartContainer>

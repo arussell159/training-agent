@@ -120,21 +120,6 @@ export function FitnessHistoryCard({
   const loading = !data && !error
   const anchors = data?.anchors ?? defaultFitnessAnchors(sport)
   const columns = 3 + anchors.length
-  const calculatedPeaks =
-    data &&
-    [...data.weeks, ...data.months].some((period) =>
-      period.peaks.some((peak) => peak.source === "calculated-activity-curves")
-    )
-  const sourceNotice = !data?.configured
-    ? ""
-    : data.source === "synthetic-local-preview"
-      ? "Fake data · local preview"
-      : calculatedPeaks
-        ? "Intervals.icu · calculated from activity curves"
-        : "Intervals.icu · recorded performance curves"
-  const partialCoverage = data?.configured && data.peakCoverage === "partial"
-  const sourceTitle =
-    sourceNotice + (partialCoverage ? " · Partial peak coverage" : "")
   const anchorKey = (anchor: (typeof anchors)[number]) =>
     `${anchor.duration_seconds}:${anchor.distance_meters}`
   const selectedAnchor =
@@ -201,8 +186,15 @@ export function FitnessHistoryCard({
     formatted === "—"
       ? formatted
       : formatted + (period.incomplete[key] ? "+" : "")
+  const hasExplicitGraphSelection =
+    activeGraphPoint?.sport === sport &&
+    activeGraphPoint.anchor === selectedAnchorKey &&
+    activeGraphPoint.point.period === selectedGraphPoint?.period
   const canOpenPeak = (peak: FitnessPeak | undefined) =>
-    !!onEffortOpen && !!peak && !!fitnessPeakEffortTarget(peak, sport)
+    hasExplicitGraphSelection &&
+    !!onEffortOpen &&
+    !!peak &&
+    !!fitnessPeakEffortTarget(peak, sport)
   const openPeak = (peak: FitnessPeak | undefined) => {
     if (peak && fitnessPeakEffortTarget(peak, sport))
       onEffortOpen?.(peak, sport)
@@ -394,16 +386,6 @@ export function FitnessHistoryCard({
             </div>
           )}
         </section>
-        <div
-          className="flex h-4 min-h-4 shrink-0 items-center gap-1 px-3 text-[10px] leading-4 text-muted-foreground md:px-[18px]"
-          title={sourceTitle || undefined}
-          aria-label={sourceTitle || undefined}
-        >
-          <span className="min-w-0 truncate">{sourceNotice}</span>
-          {partialCoverage && (
-            <span className="shrink-0">· Partial peak coverage</span>
-          )}
-        </div>
         {error ? (
           <div
             role="status"
@@ -455,7 +437,6 @@ export function FitnessHistoryCard({
                     })
                   }
                   onAnchorChange={changeAnchor}
-                  onEffortOpen={onEffortOpen}
                 />
               </Suspense>
             </PageErrorBoundary>
