@@ -146,6 +146,7 @@ const server = http.createServer(async (req, res) => {
         {
           ".html": "text/html",
           ".js": "text/javascript",
+          ".json": "application/json",
           ".css": "text/css",
           ".woff2": "font/woff2",
           ".png": "image/png",

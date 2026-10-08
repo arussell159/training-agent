@@ -21,13 +21,44 @@
       // Start session verification alongside assets, before React is downloaded.
       // Consumed once, never persisted, and validated by the normal auth client.
       window.__trainingSessionRequest = fetch('/api/handler?__api_route=auth%2Fsession', {
-        credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(20000)
+        credentials: 'same-origin', cache: 'no-store', priority: 'high', signal: AbortSignal.timeout(20000)
       }).catch(() => null);
     </script>
     <style>
       html { background: #fff; color-scheme: light; }
       html.dark { background: #0a0a0a; color-scheme: dark; }
       body { margin: 0; }
+      /* This public shell can paint without fonts, stylesheets, React or auth. */
+      #root { visibility: hidden; }
+      html[data-app-ready] #root { visibility: visible; }
+      #app-boot { --boot-bg: #f5f5f7; --boot-card: #fff; --boot-line: #e8e8ed; position: fixed; inset: 0; z-index: 10000; overflow: hidden; color: #18181b; background: var(--boot-bg); font: 14px system-ui, sans-serif; }
+      .dark #app-boot { --boot-bg: #111318; --boot-card: #1b1d23; --boot-line: #30333b; color: #fafafa; }
+      #app-boot * { box-sizing: border-box; }
+      #app-boot header { height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; }
+      #app-boot strong { font-size: 20px; font-style: italic; letter-spacing: -1px; }
+      #app-boot .boot-dot { width: 40px; height: 40px; border-radius: 50%; background: var(--boot-card); }
+      #app-boot .boot-content { display: grid; gap: 12px; padding: 16px; }
+      #app-boot .boot-card { display: flex; flex-direction: column; justify-content: space-between; padding: 20px; height: 160px; border: 1px solid var(--boot-line); border-radius: 20px; background: var(--boot-card); }
+      #app-boot .boot-card:first-child { height: 320px; }
+      #app-boot .boot-line { display: block; height: 12px; width: 65%; border-radius: 6px; background: var(--boot-line); }
+      #app-boot .boot-title { height: 24px; width: 75%; margin-top: 16px; }
+      #app-boot .boot-chart { height: 72px; width: 100%; }
+      #app-boot .boot-metrics { display: flex; gap: 24px; }
+      #app-boot .boot-metrics .boot-line { height: 28px; flex: 1; }
+      #app-boot footer { position: absolute; left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); height: 64px; display: flex; align-items: center; justify-content: space-around; border: 1px solid var(--boot-line); border-radius: 30px; background: var(--boot-card); }
+      #app-boot footer span { width: 24px; height: 24px; border: 2px solid var(--boot-line); border-radius: 7px; }
+      #boot-retry { position: absolute; inset: auto 20px 96px; padding: 16px; border-radius: 16px; background: var(--boot-card); text-align: center; }
+      #boot-retry[hidden] { display: none; }
+      #boot-retry button { color: inherit; background: var(--boot-line); border: 0; border-radius: 8px; padding: 10px 18px; font: inherit; cursor: pointer; }
+      #app-boot[data-page="Calendar"] .boot-card:first-child { height: 210px; }
+      #app-boot[data-page="Calendar"] .boot-card { height: 210px; }
+      @media (min-width: 768px) {
+        #app-boot { padding-left: 72px; }
+        #app-boot::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 71px; border-right: 1px solid var(--boot-line); }
+        #app-boot .boot-content { max-width: 1500px; grid-template-columns: 1fr 1fr; gap: 24px; padding: 24px; }
+        #app-boot .boot-card:first-child { grid-row: span 2; height: 385px; }
+        #app-boot footer { display: none; }
+      }
     </style>
     <link rel="preload" href="/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/src/assets/fonts/alphacorsa-italic.ttf" as="font" type="font/ttf" crossorigin media="(width < 48rem)" />
@@ -38,6 +69,48 @@
     <title>AR Performance</title>
   </head>
   <body>
+    <div id="app-boot" role="status" aria-label="Opening AR Performance" aria-busy="true">
+      <div aria-hidden="true">
+        <header><span class="boot-dot"></span><strong>AR Performance</strong><span class="boot-dot"></span></header>
+        <div class="boot-content">
+          <div class="boot-card"><div><span class="boot-line"></span><span class="boot-line boot-title"></span></div><span class="boot-line boot-chart"></span><div class="boot-metrics"><span class="boot-line"></span><span class="boot-line"></span><span class="boot-line"></span></div></div>
+          <div class="boot-card"><span class="boot-line boot-title"></span><span class="boot-line"></span></div>
+          <div class="boot-card"><span class="boot-line boot-title"></span><span class="boot-line"></span></div>
+        </div>
+        <footer><span></span><span></span><span></span><span></span><span></span></footer>
+      </div>
+      <div id="boot-retry" hidden><p>Taking longer than usual. Reload to try again.</p><button type="button" onclick="location.reload()">Reload</button></div>
+      <noscript>Enable JavaScript to open your training app.</noscript>
+    </div>
+    <script id="app-boot-script">
+      (() => {
+        const shell = document.getElementById('app-boot');
+        shell.dataset.page = /^\/(calendar|week)\/?$/.test(location.pathname) ? 'Calendar' : 'Home';
+        const retry = () => { document.getElementById('boot-retry').hidden = false; };
+        const timer = setTimeout(retry, 15000);
+        let mounted = false;
+        const finish = () => {
+          const styles = [...document.querySelectorAll('link[data-app-style]')];
+          if (styles.some(link => link.dataset.failed)) { retry(); return; }
+          if (!mounted || styles.some(link => link.dataset.ready !== 'true')) return;
+          clearTimeout(timer);
+          document.documentElement.setAttribute('data-app-ready', '');
+          shell.remove();
+          window.removeEventListener('training-styles-ready', finish);
+          delete window.__trainingFinishBoot;
+        };
+        window.__trainingFinishBoot = () => { mounted = true; finish(); };
+        window.addEventListener('training-styles-ready', finish);
+        if (new URLSearchParams(location.search).get('performance') === '1') {
+          try {
+            const observer = new PerformanceObserver(list => {
+              for (const entry of list.getEntries()) console.info('[training-performance]', JSON.stringify({phase: entry.name, ms: Math.round(entry.startTime)}));
+            });
+            observer.observe({type: 'paint', buffered: true});
+          } catch { /* Paint diagnostics are optional on older browsers. */ }
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

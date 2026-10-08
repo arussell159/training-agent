@@ -1,6 +1,6 @@
 import { HomeCardsSkeleton, ChartSkeleton } from "@/components/loading-layouts"
 import { fallbackTrainingContext } from "@/lib/training-context"
-import { lazy, Suspense, useEffect, useState } from "react"
+import { lazy, Suspense, useEffect, useRef, useState } from "react"
 
 import { SectionCards } from "@/components/section-cards"
 import { performanceProbe } from '@/lib/performance-probe'
@@ -40,6 +40,20 @@ export function TrainingDashboard({
     useState<PlannedWorkout | null>(null)
   const isMobile = useIsMobile()
   const [settled, setSettled] = useState(() => context !== fallbackTrainingContext)
+  const chartRegion = useRef<HTMLDivElement>(null)
+  const [chartVisible, setChartVisible] = useState(false)
+  useEffect(() => {
+    const element = chartRegion.current
+    if (!element) return
+    if (typeof IntersectionObserver === 'undefined') { setChartVisible(true); return }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return
+      setChartVisible(true)
+      observer.disconnect()
+    }, { rootMargin: '400px 0px' })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   const openWorkout = (workout: PlannedWorkout) => {
     if (isMobile && onWorkoutOpen) {
@@ -85,9 +99,9 @@ export function TrainingDashboard({
   return (
     <div className="mobile-dashboard flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:gap-4 md:gap-6 md:p-6">
       {settled ? <SectionCards context={context} onWorkoutOpen={openWorkout} /> : <HomeCardsSkeleton />}
-      <div className="grid w-full min-w-0 grid-cols-1 gap-3 sm:gap-4">
+      <div ref={chartRegion} className="grid w-full min-w-0 grid-cols-1 gap-3 sm:gap-4">
         <Suspense fallback={<ChartSkeleton className="dashboard-history-card training-history-card rounded-2xl border bg-background" />}>
-          {settled ? <ChartAreaInteractive context={context} compactDesktop /> : <ChartSkeleton className="dashboard-history-card training-history-card rounded-2xl border bg-card" />}
+          {settled && chartVisible ? <ChartAreaInteractive context={context} compactDesktop /> : <ChartSkeleton className="dashboard-history-card training-history-card rounded-2xl border bg-card" />}
         </Suspense>
       </div>
       {selectedWorkout ? (

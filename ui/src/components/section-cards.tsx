@@ -7,14 +7,7 @@ import {
   Heart,
   PersonStanding,
 } from "lucide-react"
-import {
-  Area,
-  CartesianGrid,
-  ComposedChart,
-  Line,
-  XAxis,
-  YAxis,
-} from "recharts"
+import { RecoveryTrendChart } from "@/components/recovery-trend-chart"
 
 import {
   Card,
@@ -23,12 +16,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from "@/components/ui/chart"
 import type { PlannedWorkout, TrainingContext } from "@/lib/training-context"
 import { WorkoutProfile } from "@/components/workout-profile"
 import { EventsCard } from "@/components/race-events"
@@ -36,13 +23,6 @@ import { MobileDailySessions } from "@/components/mobile-daily-sessions"
 import { hasWorkoutStructure } from "@/lib/workout-structure"
 import { formatWorkoutTss, workoutTime } from "@/lib/workout-metrics"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
-
-const recoveryChartConfig = {
-  value: { label: "Daily value", color: "var(--primary)" },
-  average: { label: "7-day average", color: "var(--muted-foreground)" },
-  baselineHigh: { label: "Baseline high", color: "var(--muted)" },
-  baselineLow: { label: "Baseline low", color: "var(--card)" },
-} satisfies ChartConfig
 
 function latestRecoverySeries(
   context: TrainingContext,
@@ -135,14 +115,6 @@ function RecoveryTrendCard({
   const isHrv = metric === "hrv"
   const liveValue = isHrv ? context.wellness?.hrv : context.wellness?.resting_hr
   const current = liveValue ?? data.at(-1)?.value
-  const low = Math.min(
-    ...data.map((item) => Math.min(item.baselineLow, item.value)),
-    current ?? 0
-  )
-  const high = Math.max(
-    ...data.map((item) => Math.max(item.baselineHigh, item.value)),
-    current ?? 1
-  )
 
   return (
     <Card className={`dashboard-recovery-card min-w-0 overflow-hidden [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-2 lg:row-start-1 ${isHrv ? "lg:col-start-13" : "lg:col-start-15"}`}>
@@ -159,71 +131,7 @@ function RecoveryTrendCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="px-1 pb-2 sm:px-2 sm:pb-3">
-        <ChartContainer
-          config={recoveryChartConfig}
-          className="h-20 w-full sm:h-24"
-        >
-          <ComposedChart
-            data={data}
-            margin={{ top: 8, right: 8, bottom: 4, left: 8 }}
-          >
-            <CartesianGrid vertical={false} strokeDasharray="3 3" />
-            <XAxis dataKey="date" hide />
-            <YAxis domain={[low - 2, high + 2]} hide />
-            <Area
-              isAnimationActive={false}
-              dataKey="baselineHigh"
-              type="monotone"
-              fill="var(--color-baselineHigh)"
-              fillOpacity={0.8}
-              stroke="none"
-              tooltipType="none"
-            />
-            <Area
-              isAnimationActive={false}
-              dataKey="baselineLow"
-              type="monotone"
-              fill="var(--color-baselineLow)"
-              fillOpacity={1}
-              stroke="none"
-              tooltipType="none"
-            />
-            <Line
-              isAnimationActive={false}
-              dataKey="average"
-              type="monotone"
-              stroke="var(--color-average)"
-              strokeDasharray="3 3"
-              strokeWidth={1}
-              dot={false}
-              tooltipType="none"
-            />
-            <ChartTooltip
-              cursor={false}
-              content={
-                <ChartTooltipContent
-                  pointOnly
-                  formatter={(value) => {
-                    const unit = isHrv ? "ms" : "bpm"
-                    return (
-                      <span>
-                        {Number(value).toFixed(0)} {unit}
-                      </span>
-                    )
-                  }}
-                />
-              }
-            />
-            <Line
-              isAnimationActive={false}
-              dataKey="value"
-              type="monotone"
-              stroke="var(--color-value)"
-              strokeWidth={2}
-              dot={{ r: 2, fill: "var(--color-value)", strokeWidth: 0 }}
-            />
-          </ComposedChart>
-        </ChartContainer>
+        <RecoveryTrendChart data={data} current={current} metric={metric} />
         {data.length > 0 && (
           <div
             className="flex flex-nowrap justify-between gap-0.5 px-1 pt-0 text-[9px] text-muted-foreground md:flex-wrap md:gap-1 md:px-3 md:pt-1 md:text-[11px]"

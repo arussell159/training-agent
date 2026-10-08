@@ -2,10 +2,12 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { fileURLToPath } from "node:url"
 import { defineConfig } from "vite"
+import { instantPaint } from "./instant-paint-plugin"
+import { shellManifestPlugin } from "./shell-manifest-plugin.mjs"
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), instantPaint(), shellManifestPlugin()],
   build: {
     rolldownOptions: {
       output: {
