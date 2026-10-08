@@ -1,10 +1,5 @@
 import { apiFetch } from "@/lib/api-client"
 import {
-  syncSection11Export,
-  waitForSection11Export,
-  type Section11Sync,
-} from "@/lib/section11-export"
-import {
   readDeviceCache,
   writeDeviceCache,
   clearDeviceCache,
@@ -439,7 +434,6 @@ export type MutationQueueStatus = {
 }
 type RefreshResult = {
   context: TrainingContext
-  githubSync: Promise<void>
   queue: MutationQueueStatus
 }
 type RefreshOperation = {
@@ -495,7 +489,6 @@ async function runRecentRefresh(operation: RefreshOperation) {
     pending: 0,
     unknown: 0,
   }
-  let exportStatus: Section11Sync | undefined
   const request = withRequestDeadline(
     async (signal) => {
       const trainingResponse = await apiFetch(
@@ -510,7 +503,6 @@ async function runRecentRefresh(operation: RefreshOperation) {
         context?: TrainingContext
         sync_error?: string
         error?: string
-        section11Sync?: Section11Sync
         queue?: Partial<MutationQueueStatus>
       }
       signal.throwIfAborted()
@@ -528,7 +520,6 @@ async function runRecentRefresh(operation: RefreshOperation) {
             : 0
       }
       training.context = validatedTrainingContext(training.context)
-      exportStatus = training.section11Sync
       training.context = acceptMutationContext(training.context, revision)
       return training.context
     },
@@ -579,18 +570,13 @@ async function runRecentRefresh(operation: RefreshOperation) {
     mutationsInFlight--
   }
   operation.controller.signal.throwIfAborted()
-  // The server has already started the export. Only its status depends on the
-  // page staying open; the fast training context is ready immediately.
-  const githubSync = exportStatus
-    ? waitForSection11Export(exportStatus)
-    : syncSection11Export(syncId)
   report({
     phase: "complete",
     label: "Training data ready",
     completed: 1,
     total: 1,
   })
-  return { context, githubSync, queue }
+  return { context, queue }
 }
 
 export async function moveWorkoutDate(id: string, date: string) {

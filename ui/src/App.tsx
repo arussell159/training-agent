@@ -259,7 +259,7 @@ function AppWorkspace() {
     setIsRefreshing(true)
     const request = (async () => {
       try {
-        const { queue, githubSync } = await refreshRecentIntervals()
+        const { queue } = await refreshRecentIntervals()
         if (queue.unknown > 0) {
           toastManager.add({
             type: "warning",
@@ -277,20 +277,6 @@ function AppWorkspace() {
             timeout: 10000,
           })
         }
-        void githubSync
-          .then(() => window.dispatchEvent(new Event("github-sync-check")))
-          .catch((error) => {
-            toastManager.add({
-              type: "error",
-              title: "Training data loaded; GitHub sync needs attention",
-              description:
-                error instanceof Error
-                  ? error.message
-                  : "Please refresh to check again.",
-              timeout: 6000,
-            })
-          })
-        window.dispatchEvent(new Event("github-sync-check"))
       } catch (error) {
         toastManager.add({
           type: "error",

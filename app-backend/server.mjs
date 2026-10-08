@@ -268,7 +268,6 @@ const checkTrainingUpdates = createTrainingUpdates({
   request: config => createIntervalsClient(config),
   persist: (config, context) => {providerReads.clear();historicalReads.clear();return persistTrainingContext(config, context, {archiveActivities:false});},
   warm: warmRecentActivities,
-  exportGithub: ensureSection11Export,
   waitUntil,
   log: updateLogs,
 });
@@ -1180,17 +1179,13 @@ export async function handleRequest(req, res) {
         const {context,sourceChanged}=await syncRecentTraining(config,{force:forceIntervals,onProgress:reportProgress});
         const remaining=await createMutationQueue(config,createContextStore(config)).summary();
         Object.assign(queue,remaining,{synced:queue.synced});
-        // Compare with the last exported version, not just this request's source
-        // delta: another page may already have saved the new Intervals data.
-        const section11Sync=await ensureSection11Export(config,context,{force:forceIntervals,requestId:syncId});
         if(trainingOnly){
-          if(section11Sync.status==='complete')void triggerDueReports(config);
           await progressWrites;
-          sendJson(req,res,{context,queue,sourceChanged,section11Sync,checked_at:new Date().toISOString()});return;
+          sendJson(req,res,{context,queue,sourceChanged,checked_at:new Date().toISOString()});return;
         }
         void triggerDueReports(config);
         await progressWrites;
-        sendJson(req,res,{context,queue,section11Sync,checked_at:new Date().toISOString()});
+        sendJson(req,res,{context,queue,checked_at:new Date().toISOString()});
       }catch(error){
         reportProgress({phase:'error',label:'Intervals.icu refresh failed',error:error.message,completed:0,total:0});
         await progressWrites;

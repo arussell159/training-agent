@@ -13,7 +13,6 @@ export function createTrainingUpdates({
   request,
   persist,
   warm,
-  exportGithub,
   waitUntil,
   now = () => new Date(),
   log = () => {},
@@ -79,12 +78,12 @@ export function createTrainingUpdates({
       const previous = saved ? prepareFastView(config, saved) : null;
       const changed = !previous || previous.version !== context.version;
       // Webhook jobs must not mark their revision complete until persistence
-      // succeeds. Optional recording preparation/GitHub export stay off that path.
+      // succeeds. Recording preparation stays off that path.
       if (durable) await persist(config, merged);
       const task = (async () => {
         if (!durable && changed) await persist(config, merged);
         // New/corrected recordings are prepared before they are opened.
-        await Promise.all([warm(config, merged), exportGithub(config, context)]);
+        await warm(config, merged);
       })().catch((error) => log(`Background training preparation: ${error.message}`));
       waitUntil(task);
       return { context: projectTrainingContext(context, "full"), sourceChanged: changed };

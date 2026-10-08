@@ -96,13 +96,12 @@ async function fixture() {
     },
   };
 }
-test("opening checks new workouts directly and returns before database writes or GitHub finish", async () => {
+test("opening checks new workouts directly and returns before database writes finish", async () => {
   const f = await fixture();
   f.complete();
   const gate = Promise.withResolvers(),
     tasks = [];
-  let persisted = 0,
-    exported = 0;
+  let persisted = 0;
   const check = createTrainingUpdates({
     readSnapshot: async () => f.saved,
     request: () => f.request,
@@ -111,9 +110,6 @@ test("opening checks new workouts directly and returns before database writes or
       await gate.promise;
     },
     warm: async () => {},
-    exportGithub: async () => {
-      exported++;
-    },
     waitUntil: (task) => tasks.push(task),
     now: () => clock,
   });
@@ -124,10 +120,8 @@ test("opening checks new workouts directly and returns before database writes or
   assert.equal(f.calls.length, 6);
   assert.equal(f.calls.filter((path) => path === "/athlete/0").length, 1);
   assert.equal(persisted, 1);
-  assert.equal(exported, 0);
   gate.resolve();
   await tasks[0];
-  assert.equal(exported, 1);
 });
 test("unchanged foreground checks do not write training data", async () => {
   const f = await fixture(),
