@@ -225,6 +225,14 @@ export function FitnessHistoryGraph({
         onPointerMove={(event) => {
           if (isMobile ? event.buttons : true) inspectHistory(event)
         }}
+        onClick={(event) => {
+          if (isMobile) return
+          if ((event.target as Element).closest(".recharts-cartesian-axis"))
+            return
+          const point =
+            inspectIndex == null ? undefined : points[inspectIndex]
+          if (point) openPoint(point)
+        }}
         onPointerUp={(event) => {
           if (!isMobile) return
           if (event.currentTarget.hasPointerCapture(event.pointerId))
