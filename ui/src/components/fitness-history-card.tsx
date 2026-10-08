@@ -186,10 +186,11 @@ export function FitnessHistoryCard({
     activeGraphPoint.anchor === selectedAnchorKey &&
     activeGraphPoint.point.period === selectedGraphPoint?.period
   const canOpenPeak = (peak: FitnessPeak | undefined) =>
-    hasExplicitGraphSelection &&
     !!onEffortOpen &&
     !!peak &&
     !!fitnessPeakEffortTarget(peak, sport)
+  const canOpenSelectedGraphPeak = (peak: FitnessPeak | undefined) =>
+    hasExplicitGraphSelection && canOpenPeak(peak)
   const openPeak = (peak: FitnessPeak | undefined) => {
     if (peak && fitnessPeakEffortTarget(peak, sport))
       onEffortOpen?.(peak, sport)
@@ -350,7 +351,7 @@ export function FitnessHistoryCard({
               <div>
                 <span>Date</span>
                 <strong>
-                  {canOpenPeak(selectedGraphPoint?.peak) ? (
+                  {canOpenSelectedGraphPeak(selectedGraphPoint?.peak) ? (
                     <button
                       type="button"
                       className="relative !inline !h-auto !min-h-0 !w-auto !min-w-0 !rounded-sm !border-0 !bg-transparent !p-0 !text-inherit underline decoration-primary/40 underline-offset-2 before:absolute before:-inset-x-1 before:-inset-y-1 hover:!text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
