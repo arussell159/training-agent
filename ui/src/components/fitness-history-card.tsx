@@ -27,6 +27,7 @@ import {
 import {
   fitnessGraphSeries,
   formatFitnessGraphValue,
+  formatFitnessGraphDate,
   type FitnessGraphPoint,
 } from "@/lib/fitness-history-graph"
 
@@ -35,11 +36,6 @@ const sports = [
   { type: "Run", label: "Run", icon: Footprints },
   { type: "Swim", label: "Swim", icon: Waves },
 ] as const
-const shortPeriodLabel = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  year: "2-digit",
-  timeZone: "UTC",
-})
 const FitnessHistoryGraph = lazy(() =>
   import("@/components/fitness-history-graph").then((module) => ({
     default: module.FitnessHistoryGraph,
@@ -172,11 +168,10 @@ export function FitnessHistoryCard({
   const graphValueLabel = (value: number | null | undefined) =>
     formatFitnessGraphValue(value ?? null, sport)
   const selectedPointLabel = selectedGraphPoint
-    ? selectedGraphPoint.date === selectedGraphPoint.period
-      ? shortPeriodLabel.format(
-          new Date(`${selectedGraphPoint.period}T12:00:00Z`)
-        )
-      : fitnessPeriodLabel(selectedGraphPoint.date)
+    ? formatFitnessGraphDate(
+        Date.parse(`${selectedGraphPoint.period.slice(0, 7)}-01T12:00:00Z`),
+        "months"
+      )
     : "—"
   const total = (
     period: FitnessPeriod,
@@ -353,12 +348,7 @@ export function FitnessHistoryCard({
           {view === "graph" && (
             <div className="training-history-totals">
               <div>
-                <span>
-                  {selectedGraphPoint &&
-                  selectedGraphPoint.date !== selectedGraphPoint.period
-                    ? "Date"
-                    : "Period"}
-                </span>
+                <span>Date</span>
                 <strong>
                   {canOpenPeak(selectedGraphPoint?.peak) ? (
                     <button
@@ -437,6 +427,7 @@ export function FitnessHistoryCard({
                     })
                   }
                   onAnchorChange={changeAnchor}
+                  onEffortOpen={onEffortOpen}
                 />
               </Suspense>
             </PageErrorBoundary>

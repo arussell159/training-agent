@@ -49,7 +49,7 @@ export function fitnessGraphSeries(
       return {
         date,
         period: period.start,
-        time: Date.parse(`${date}T12:00:00Z`),
+        time: Date.parse(`${period.start.slice(0, 7)}-01T12:00:00Z`),
         value,
         source: peak?.source,
         activity_id: peak?.activity_id,
@@ -97,7 +97,6 @@ export function formatFitnessGraphValue(
 
 const monthFormat = new Intl.DateTimeFormat("en-US", {
   month: "short",
-  year: "2-digit",
   timeZone: "UTC",
 })
 const weekFormat = new Intl.DateTimeFormat("en-US", {
@@ -111,5 +110,8 @@ export function formatFitnessGraphDate(
 ): string {
   if (!Number.isFinite(time) || !Number.isFinite(new Date(time).getTime()))
     return "—"
-  return (period === "months" ? monthFormat : weekFormat).format(new Date(time))
+  const date = new Date(time)
+  if (period === "months")
+    return `${monthFormat.format(date)} '${String(date.getUTCFullYear()).slice(-2)}`
+  return weekFormat.format(date)
 }

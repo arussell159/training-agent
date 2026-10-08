@@ -20,9 +20,10 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import {
   defaultFitnessAnchors,
   fitnessAnchorLabel,
-  fitnessPeriodLabel,
+  fitnessPeakEffortTarget,
   type FitnessAnchor,
   type FitnessHistory,
+  type FitnessPeak,
   type FitnessSport,
 } from "@/lib/fitness-history"
 import {
@@ -44,6 +45,7 @@ export function FitnessHistoryGraph({
   selection,
   onAnchorChange,
   onPointSelect,
+  onEffortOpen,
 }: {
   history: FitnessHistory | null
   sport: FitnessSport
@@ -51,6 +53,7 @@ export function FitnessHistoryGraph({
   selection: Partial<Record<FitnessSport, string>>
   onAnchorChange: (key: string) => void
   onPointSelect: (point: FitnessGraphPoint) => void
+  onEffortOpen?: (peak: FitnessPeak, sport: FitnessSport) => void
 }) {
   const isMobile = useIsMobile()
   const anchors = history?.anchors ?? defaultFitnessAnchors(sport)
@@ -113,6 +116,16 @@ export function FitnessHistoryGraph({
     setInspectIndex(closestIndex)
     onPointSelect(points[closestIndex])
   }
+  const openPoint = (point: FitnessGraphPoint) => {
+    if (
+      point.value == null ||
+      !point.peak ||
+      !fitnessPeakEffortTarget(point.peak, sport)
+    )
+      return
+    onPointSelect(point)
+    onEffortOpen?.(point.peak, sport)
+  }
   const renderPoint = (
     props: {
       cx?: number
@@ -142,7 +155,40 @@ export function FitnessHistoryGraph({
         }
       />
     )
-    return <g pointerEvents="none">{circle}</g>
+    if (
+      isMobile ||
+      !onEffortOpen ||
+      !point.peak ||
+      !fitnessPeakEffortTarget(point.peak, sport)
+    )
+      return <g pointerEvents="none">{circle}</g>
+    return (
+      <g
+        role="button"
+        tabIndex={0}
+        aria-label={`Open ${effort} effort ${formatFitnessGraphValue(point.value, sport)} from ${formatFitnessGraphDate(point.time, "months")}`}
+        className="cursor-pointer outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        onClick={(event) => {
+          event.stopPropagation()
+          openPoint(point)
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return
+          event.preventDefault()
+          event.stopPropagation()
+          if (!event.repeat) openPoint(point)
+        }}
+      >
+        <rect
+          x={cx - 12}
+          y={cy - 12}
+          width={24}
+          height={24}
+          fill="transparent"
+        />
+        {circle}
+      </g>
+    )
   }
 
   return (
@@ -173,12 +219,11 @@ export function FitnessHistoryGraph({
       <div
         className="relative min-h-0 flex-1 touch-pan-y select-none"
         onPointerDown={(event) => {
-          if (!isMobile) return
-          event.currentTarget.setPointerCapture(event.pointerId)
+          if (isMobile) event.currentTarget.setPointerCapture(event.pointerId)
           inspectHistory(event)
         }}
         onPointerMove={(event) => {
-          if (isMobile && event.buttons) inspectHistory(event)
+          if (isMobile ? event.buttons : true) inspectHistory(event)
         }}
         onPointerUp={(event) => {
           if (!isMobile) return
@@ -226,7 +271,7 @@ export function FitnessHistoryGraph({
                 </linearGradient>
               </defs>
               <CartesianGrid vertical={false} />
-              {isMobile && selectedPoint && (
+              {(isMobile || inspectIndex != null) && selectedPoint && (
                 <ReferenceLine
                   x={selectedPoint.time}
                   stroke="var(--foreground)"
@@ -254,7 +299,7 @@ export function FitnessHistoryGraph({
                 reversed={sport !== "Ride"}
                 axisLine={false}
                 tickLine={false}
-                width={isMobile ? 32 : 56}
+                width={32}
                 tickCount={4}
                 tick={{ fontSize: 11 }}
                 tickFormatter={(value) =>
@@ -278,10 +323,7 @@ export function FitnessHistoryGraph({
                   return (
                     <div className="pointer-events-none rounded-lg border border-border/60 bg-background px-3 py-2 shadow-lg">
                       <div className="text-xs text-muted-foreground">
-                        {point?.payload?.date &&
-                        point.payload.date !== point.payload.period
-                          ? fitnessPeriodLabel(point.payload.date)
-                          : formatFitnessGraphDate(Number(label), "months")}
+                        {formatFitnessGraphDate(Number(label), "months")}
                       </div>
                       <div className="mt-1 text-sm font-semibold text-foreground tabular-nums">
                         {formatFitnessGraphValue(value, sport)}
