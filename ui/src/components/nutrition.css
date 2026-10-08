@@ -1,10 +1,81 @@
+/* Keep nutrition text and its backing in the same palette, including portals. */
+.nutrition-page-main,
+.nutrition-surface {
+  --nutrition-background: #f5f6f8;
+  --nutrition-control: #e8edf3;
+  --nutrition-action: #fff;
+  --nutrition-chart-line: #526779;
+  --nutrition-chart-target: #8492a6;
+  --nutrition-chart-bar: #16815f;
+  --nutrition-chart-selected: #056347;
+  --nutrition-calories: #1879c9;
+  --nutrition-protein: #7850cf;
+  --nutrition-fat: #b86212;
+  --nutrition-carbs: #087e8b;
+  --foreground: #17212f;
+  --card: #fff;
+  --card-foreground: #17212f;
+  --muted: #e8edf3;
+  --muted-foreground: #465467;
+  --border: #d8dee7;
+  --input: #d8dee7;
+  --secondary: #e8edf3;
+  --secondary-foreground: #17212f;
+  --f7-text-color: #17212f;
+  color: var(--foreground);
+}
+.dark .nutrition-page-main,
+.dark .nutrition-surface {
+  --nutrition-background: #111820;
+  --nutrition-control: #2b3745;
+  --nutrition-action: #243140;
+  --nutrition-chart-line: #c0d4ce;
+  --nutrition-chart-target: #73869c;
+  --nutrition-chart-bar: #36b991;
+  --nutrition-chart-selected: #6ee7b7;
+  --nutrition-calories: #60a5fa;
+  --nutrition-protein: #b794ff;
+  --nutrition-fat: #fbbf24;
+  --nutrition-carbs: #4dd6e8;
+  --foreground: #f3f6fb;
+  --card: #1c2734;
+  --card-foreground: #f3f6fb;
+  --muted: #2b3745;
+  --muted-foreground: #bdcbdc;
+  --border: #425064;
+  --input: #425064;
+  --secondary: #2b3745;
+  --secondary-foreground: #f3f6fb;
+  --f7-text-color: #f3f6fb;
+}
 /* Restore utility sizing beneath Framework7's unlayered button reset. */
 .nutrition-surface button {
   width: revert-layer;
 }
 .nutrition-dashboard {
-  background: #f5f5f7;
+  background: var(--nutrition-background);
   min-height: 100dvh;
+}
+.nutrition-surface.nutrition-dashboard.home-dashboard-shell {
+  background: var(--nutrition-background);
+}
+.nutrition-week-target {
+  background: color-mix(
+    in srgb,
+    var(--nutrition-chart-target) 12%,
+    var(--card)
+  );
+  border: 1px solid var(--nutrition-chart-target);
+}
+.nutrition-week-bar {
+  background: var(--nutrition-chart-bar);
+}
+.nutrition-week-bar.is-selected {
+  background: var(--nutrition-chart-selected);
+}
+.nutrition-surface button[aria-current="date"] > span:last-child {
+  color: var(--foreground);
+  font-weight: 700;
 }
 .nutrition-screen {
   position: fixed;
@@ -12,7 +83,7 @@
   z-index: 300;
   display: flex;
   flex-direction: column;
-  background: #f5f5f7;
+  background: var(--nutrition-background);
   color: var(--foreground);
   padding-top: env(safe-area-inset-top);
   outline: none;
@@ -25,7 +96,7 @@
   gap: 8px;
   padding: 8px 16px;
   text-align: center;
-  background: rgb(245 245 247 / 94%);
+  background: color-mix(in srgb, var(--nutrition-background) 94%, transparent);
   flex-shrink: 0;
 }
 .nutrition-screen-header .mobile-navbar-action,
@@ -37,7 +108,7 @@
   height: 42px;
   border-radius: 50%;
   border: 1px solid rgb(0 0 0 / 5%);
-  background: rgb(255 255 255 / 80%);
+  background: var(--nutrition-action);
   box-shadow: 0 1px 3px rgb(0 0 0 / 5%);
 }
 .nutrition-action-group {
@@ -46,7 +117,7 @@
   height: 42px;
   border: 1px solid rgb(0 0 0 / 5%);
   border-radius: 24px;
-  background: rgb(255 255 255 / 80%);
+  background: var(--nutrition-action);
   overflow: hidden;
   box-shadow: 0 1px 3px rgb(0 0 0 / 5%);
 }
@@ -72,7 +143,7 @@
   padding: 0;
   box-shadow: none;
   background: transparent;
-  --f7-searchbar-input-bg-color: #e8e8ed;
+  --f7-searchbar-input-bg-color: var(--nutrition-control);
   --f7-searchbar-bg-color: transparent;
   --f7-searchbar-input-border-radius: 14px;
 }
@@ -99,7 +170,8 @@
   padding: 0 40px;
   border: 0;
   border-radius: 14px;
-  background: #e8e8ed;
+  background: var(--nutrition-control);
+  color: var(--foreground);
   font-size: 15px;
   outline: none;
 }
@@ -175,6 +247,7 @@
   border-radius: 20px;
   padding: 16px;
   background: var(--card);
+  color: var(--foreground);
   font-size: 14px;
   line-height: 1.6;
   resize: vertical;
@@ -196,7 +269,9 @@
   background: #3b82f6;
   color: white;
   box-shadow: 0 1px 3px rgb(15 23 42 / 18%);
-  transition: background-color 120ms ease, opacity 120ms ease;
+  transition:
+    background-color 120ms ease,
+    opacity 120ms ease;
 }
 .nutrition-type-submit:hover:not(:disabled) {
   background: #2563eb;
@@ -252,7 +327,7 @@
   position: sticky;
   bottom: -1px;
   padding: 16px 0;
-  background: rgb(245 245 247 / 96%);
+  background: color-mix(in srgb, var(--nutrition-background) 96%, transparent);
   backdrop-filter: blur(12px);
   z-index: 2;
 }
@@ -272,7 +347,7 @@
   position: sticky;
   top: 0;
   z-index: 60;
-  background: rgb(245 245 247 / 94%);
+  background: color-mix(in srgb, var(--nutrition-background) 94%, transparent);
 }
 .nutrition-date-header .calendar-month-title-button {
   display: inline-flex;
@@ -303,7 +378,7 @@
   z-index: 2;
   max-width: 440px;
   margin: auto;
-  background: rgb(255 255 255 / 96%);
+  background: var(--nutrition-action);
   border-radius: 0 0 24px 24px;
   box-shadow: 0 18px 36px rgb(0 0 0 / 12%);
 }
@@ -325,7 +400,10 @@ body.nutrition-flow-open .mobile-navbar {
 .nutrition-date-header {
   background: transparent;
 }
-.nutrition-date-toolbar { position: relative; z-index: 3; }
+.nutrition-date-toolbar {
+  position: relative;
+  z-index: 3;
+}
 .nutrition-date-dismiss {
   inset: 56px 0 0;
 }
@@ -377,7 +455,12 @@ body.nutrition-flow-open .mobile-navbar {
   animation: nutrition-control-in 200ms ease;
 }
 .nutrition-save-bar {
-  background: linear-gradient(to bottom, transparent, #f5f5f7 24px, #f5f5f7);
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--nutrition-background) 24px,
+    var(--nutrition-background)
+  );
   padding-top: 32px;
   backdrop-filter: none;
 }
@@ -419,7 +502,14 @@ body.nutrition-flow-open .mobile-navbar {
 }
 .nutrition-screen .nutrition-searchbar input[type="search"] {
   box-shadow: 0 1px 3px rgb(0 0 0 / 5%);
-  background: #e8e8ed;
+  background: var(--nutrition-control);
+  color: var(--foreground);
+  --f7-searchbar-input-text-color: var(--foreground);
+  --f7-searchbar-placeholder-color: var(--muted-foreground);
+}
+.nutrition-screen .nutrition-searchbar input[type="search"]::placeholder {
+  color: var(--muted-foreground);
+  opacity: 1;
 }
 @keyframes nutrition-calendar-in {
   from {
@@ -462,7 +552,7 @@ body.nutrition-flow-open .mobile-navbar {
     padding-bottom: calc(6rem + env(safe-area-inset-bottom));
   }
   .nutrition-page-main {
-    background: #f5f5f7;
+    background: var(--nutrition-background);
   }
   .nutrition-screen-scroll {
     margin-top: 0;
@@ -485,11 +575,25 @@ body.nutrition-flow-open .mobile-navbar {
     z-index: -1;
     inset: 0 0 -32px;
     pointer-events: none;
-    background: rgb(245 245 247 / 78%);
+    background: color-mix(
+      in srgb,
+      var(--nutrition-background) 94%,
+      transparent
+    );
     -webkit-backdrop-filter: blur(18px);
     backdrop-filter: blur(18px);
-    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 32px), transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 32px), transparent 100%);
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      #000 0%,
+      #000 calc(100% - 32px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      #000 0%,
+      #000 calc(100% - 32px),
+      transparent 100%
+    );
   }
   .nutrition-screen .nutrition-search-host {
     padding-top: 0;
@@ -527,7 +631,7 @@ body.nutrition-flow-open .mobile-navbar {
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background: #f5f5f7;
+    background: var(--nutrition-background);
   }
   .nutrition-date-header::before {
     content: "";
@@ -536,23 +640,23 @@ body.nutrition-flow-open .mobile-navbar {
     pointer-events: none;
     background: linear-gradient(
       to bottom,
-      #f5f5f7 20%,
-      rgb(245 245 247 / 94%) 68%,
+      var(--nutrition-background) 20%,
+      color-mix(in srgb, var(--nutrition-background) 94%, transparent) 68%,
       transparent
     );
   }
   .nutrition-date-header.is-open::before {
     bottom: 0;
-    background: #f5f5f7;
+    background: var(--nutrition-background);
   }
   .nutrition-date-panel.mobile-calendar-picker-panel {
-    background: #f5f5f7;
+    background: var(--nutrition-background);
   }
   .nutrition-action-group {
     height: 43px;
     border-radius: 999px;
     transform: translateY(-1px);
-    background: rgb(255 255 255 / 96%);
+    background: var(--nutrition-action);
   }
   .nutrition-action-group button {
     width: 40px;
@@ -594,13 +698,13 @@ body.nutrition-flow-open .mobile-navbar {
     padding: 14px 16px 8px;
     border: 1px solid rgb(15 23 42 / 9%);
     border-radius: 20px;
-    background: #fff !important;
+    background: var(--nutrition-action) !important;
     box-shadow: 0 16px 40px rgb(15 23 42 / 12%);
   }
   .nutrition-date-panel-desktop .calendar,
   .nutrition-date-panel-desktop .calendar .calendar-months,
   .nutrition-date-panel-desktop .calendar .calendar-month {
-    background: #fff;
+    background: var(--nutrition-action);
   }
 }
 
@@ -696,7 +800,7 @@ body.nutrition-flow-open .mobile-navbar {
   height: 44px;
   overflow: hidden;
   border-radius: 12px;
-  background: #f1f2f4;
+  background: var(--muted);
   font-size: 27px;
   line-height: 1;
 }
@@ -713,17 +817,20 @@ body.nutrition-flow-open .mobile-navbar {
 .nutrition-date-header.is-open,
 .nutrition-date-header.is-open .navbar-bg,
 .nutrition-date-panel.mobile-calendar-picker-panel {
-  background: #f5f5f7 !important;
+  background: var(--nutrition-background) !important;
 }
 .nutrition-date-header.is-open .navbar-bg::before,
 .nutrition-date-header.is-open .navbar-bg::after {
-  background: #f5f5f7 !important;
+  background: var(--nutrition-background) !important;
   backdrop-filter: none !important;
   mask-image: none !important;
 }
 .nutrition-date-panel .calendar {
-  --f7-calendar-bg-color: #f5f5f7;
-  background: #f5f5f7;
+  --f7-calendar-bg-color: var(--nutrition-background);
+  background: var(--nutrition-background);
+}
+.nutrition-surface .nutrition-date-panel .calendar-jump-inline {
+  --f7-calendar-prev-next-text-color: var(--muted-foreground);
 }
 .nutrition-screen .mobile-filter-tabs-inline {
   display: grid;
@@ -774,13 +881,79 @@ body.nutrition-flow-open .mobile-navbar {
 /* Match the Coach toolbar's geometry and neutral border. */
 .nutrition-screen .mobile-filter-tabs-inline {
   border-color: rgb(48 65 76 / 18%);
-  background: rgb(255 255 255 / 88%);
+  background: var(--muted);
   box-shadow: none;
 }
 .nutrition-screen .mobile-filter-tab-pill.is-active {
-  background: #fff;
+  background: var(--card);
+  font-weight: 600;
   box-shadow: 0 1px 4px rgb(0 0 0 / 8%);
   border-color: rgb(48 65 76 / 15%);
+}
+
+@media (width < 48rem) {
+  /* Opaque panels keep small text crisp instead of inheriting dashboard glass. */
+  .nutrition-dashboard .mobile-dashboard [data-slot="card"],
+  .dark .nutrition-dashboard .mobile-dashboard [data-slot="card"] {
+    background: var(--card);
+    background-image: none;
+    color: var(--card-foreground);
+    border-color: var(--border);
+    box-shadow: 0 2px 10px rgb(15 23 42 / 6%);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .nutrition-surface .text-xs {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .nutrition-progress-detail {
+    font-weight: 500;
+  }
+  .nutrition-field {
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .nutrition-field input,
+  .nutrition-field select {
+    font-size: 16px;
+    font-weight: 400;
+  }
+  .nutrition-surface input::placeholder,
+  .nutrition-surface textarea::placeholder {
+    color: var(--muted-foreground);
+    opacity: 1;
+  }
+  .nutrition-screen .mobile-filter-tabs-inline,
+  .nutrition-screen .mobile-filter-tab-pill.is-active,
+  .nutrition-screen-header .mobile-navbar-action,
+  .nutrition-date-header .mobile-navbar-action {
+    border-color: var(--border);
+  }
+  .nutrition-screen .nutrition-result-list,
+  .nutrition-screen .nutrition-photo-picker {
+    border-color: var(--border);
+  }
+  .nutrition-screen
+    .mobile-site-navbar
+    .mobile-navbar-action:hover:not(:disabled),
+  .nutrition-screen
+    .mobile-site-navbar
+    .mobile-navbar-action:active:not(:disabled),
+  .nutrition-screen-header .mobile-navbar-action:hover:not(:disabled),
+  .nutrition-screen-header .mobile-navbar-action:active:not(:disabled),
+  .nutrition-date-header
+    .mobile-site-navbar
+    .mobile-navbar-action:hover:not(:disabled),
+  .nutrition-date-header
+    .mobile-site-navbar
+    .mobile-navbar-action:active:not(:disabled) {
+    background: var(--muted);
+    color: var(--foreground);
+  }
+  .dark .nutrition-surface .text-emerald-700 {
+    color: #6ee7b7;
+  }
 }
 
 @media (min-width: 768px) {
@@ -805,12 +978,12 @@ body.nutrition-flow-open .mobile-navbar {
     padding: 14px 16px 8px;
     border: 1px solid rgb(15 23 42 / 9%);
     border-radius: 20px;
-    background: #fff !important;
+    background: var(--nutrition-action) !important;
     box-shadow: 0 16px 40px rgb(15 23 42 / 12%);
   }
   .nutrition-date-panel-desktop .calendar,
   .nutrition-date-panel-desktop .calendar .calendar-months,
   .nutrition-date-panel-desktop .calendar .calendar-month {
-    background: #fff;
+    background: var(--nutrition-action);
   }
 }

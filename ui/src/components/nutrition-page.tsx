@@ -1,11 +1,7 @@
 import { NutritionDashboardSkeleton } from "@/components/loading-layouts"
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import "./nutrition.css"
-import {
-  LoaderCircle,
-  Pencil,
-  Plus,
-} from "lucide-react"
+import { LoaderCircle, Pencil, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { randomId } from "@/lib/random-id"
@@ -40,10 +36,20 @@ import {
 } from "@/lib/nutrition-math"
 
 const progressMetrics = [
-  { key: "calories", label: "Calories", short: "Cal", color: "#3896f6" },
-  { key: "protein", label: "Protein", short: "P", color: "#9368f7" },
-  { key: "fat", label: "Fat", short: "F", color: "#ff9d32" },
-  { key: "carbs", label: "Carbs", short: "C", color: "#35c3d3" },
+  {
+    key: "calories",
+    label: "Calories",
+    short: "Cal",
+    color: "var(--nutrition-calories)",
+  },
+  {
+    key: "protein",
+    label: "Protein",
+    short: "P",
+    color: "var(--nutrition-protein)",
+  },
+  { key: "fat", label: "Fat", short: "F", color: "var(--nutrition-fat)" },
+  { key: "carbs", label: "Carbs", short: "C", color: "var(--nutrition-carbs)" },
 ] as const
 function TargetEditor({
   date,
@@ -226,7 +232,9 @@ export function NutritionPage({
       mode: EntryMode
       meal: Meal
       existing?: FoodEntry
-    } | null>(() => quickAddRequest > 0 ? { mode: "write", meal: suggestedMeal() } : null),
+    } | null>(() =>
+      quickAddRequest > 0 ? { mode: "write", meal: suggestedMeal() } : null
+    ),
     [targetsOpen, setTargetsOpen] = useState(false),
     [mutationError, setMutationError] = useState(""),
     [mutating, setMutating] = useState(false),
@@ -319,11 +327,13 @@ export function NutritionPage({
       return
     const next = new Date(date + "T12:00:00")
     next.setDate(next.getDate() + (deltaX < 0 ? 1 : -1))
-    selectDate([
-      next.getFullYear(),
-      String(next.getMonth() + 1).padStart(2, "0"),
-      String(next.getDate()).padStart(2, "0"),
-    ].join("-"))
+    selectDate(
+      [
+        next.getFullYear(),
+        String(next.getMonth() + 1).padStart(2, "0"),
+        String(next.getDate()).padStart(2, "0"),
+      ].join("-")
+    )
   }
   const maximum = Math.max(
     ...weekGoals.map((goal) => goal || 0),
@@ -357,7 +367,7 @@ export function NutritionPage({
           <>
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] xl:gap-6">
               <Card
-                className="nutrition-progress-card order-1 min-h-[368px] gap-5 p-5 touch-pan-y md:touch-auto"
+                className="nutrition-progress-card order-1 min-h-[368px] touch-pan-y gap-5 p-5 md:touch-auto"
                 onPointerDown={startNutritionSwipe}
                 onPointerUp={finishNutritionSwipe}
                 onPointerCancel={() => {
@@ -367,7 +377,8 @@ export function NutritionPage({
                 {progressMetrics.map(({ key, label, color }) => {
                   const goal = resolvedTargets![key]
                   const left = goal == null ? null : goal - totals[key]
-                  const overGoal = goal != null && goal > 0 && totals[key] > goal
+                  const overGoal =
+                    goal != null && goal > 0 && totals[key] > goal
                   const goalPosition = overGoal
                     ? (goal / totals[key]) * 100
                     : Math.min(100, goal ? (totals[key] / goal) * 100 : 0)
@@ -375,7 +386,7 @@ export function NutritionPage({
                     <div key={key} className="nutrition-progress-row">
                       <div className="flex items-baseline gap-2 text-[15px]">
                         <span className="font-semibold">{label}</span>
-                        <span className="text-xs text-muted-foreground">
+                        <span className="nutrition-progress-detail text-xs text-muted-foreground">
                           {left == null
                             ? "No target set"
                             : `${displayNutrient(Math.abs(left))}${key === "calories" ? "" : " g"} ${left < 0 ? "over" : "remaining"}`}
@@ -391,7 +402,9 @@ export function NutritionPage({
                             goal ? Math.min(totals[key], goal) : undefined
                           }
                           className="nutrition-progress-track"
-                          style={{ background: `${color}18` }}
+                          style={{
+                            background: `color-mix(in srgb, ${color} 16%, var(--card))`,
+                          }}
                         >
                           <span
                             className={`nutrition-progress-fill ${overGoal ? "nutrition-progress-fill-before-goal" : ""}`}
@@ -417,7 +430,7 @@ export function NutritionPage({
                             </>
                           )}
                         </div>
-                        <span className="text-[14px] tabular-nums">
+                        <span className="text-[14px] font-semibold tabular-nums">
                           {displayNutrient(totals[key])} /{" "}
                           {displayNutrient(goal)}
                           {key === "calories" ? "" : " g"}
@@ -469,9 +482,8 @@ export function NutritionPage({
                         )
                         .join(" ")}
                       fill="none"
-                      stroke="#66756e"
-                      strokeOpacity="0.5"
-                      strokeWidth="1.5"
+                      stroke="var(--nutrition-chart-line)"
+                      strokeWidth="2"
                       vectorEffect="non-scaling-stroke"
                       strokeLinejoin="round"
                       strokeLinecap="round"
@@ -481,12 +493,13 @@ export function NutritionPage({
                     <button
                       key={day.date}
                       type="button"
+                      aria-current={day.date === date ? "date" : undefined}
                       onClick={() => selectDate(day.date)}
                       disabled={mutating}
                       aria-label={`${day.date}: ${day.logged ? Math.round(day.totals.calories) + " calories" : "no food logged"}${weekGoals[index] != null ? `, target ${Math.round(weekGoals[index]!)} calories` : ""}`}
                       className="relative grid h-full w-full grid-rows-[16px_112px_16px] justify-items-center gap-2"
                     >
-                      <span className="text-[9px] text-muted-foreground tabular-nums">
+                      <span className="nutrition-week-total text-[11px] font-medium text-muted-foreground tabular-nums">
                         {day.logged
                           ? displayNutrient(day.totals.calories)
                           : "—"}
@@ -494,7 +507,7 @@ export function NutritionPage({
                       <span className="relative h-28 w-full max-w-6">
                         {weekGoals[index] != null && (
                           <span
-                            className="absolute inset-x-0 bottom-0 rounded-full bg-zinc-200/75"
+                            className="nutrition-week-target absolute inset-x-0 bottom-0 rounded-full"
                             style={{
                               height: `${(weekGoals[index]! / maximum) * 108}px`,
                             }}
@@ -502,14 +515,14 @@ export function NutritionPage({
                         )}
                         {day.logged && (
                           <span
-                            className={`absolute inset-x-0 bottom-0 rounded-full ${day.date === date ? "bg-emerald-500" : "bg-emerald-200"}`}
+                            className={`nutrition-week-bar absolute inset-x-0 bottom-0 rounded-full ${day.date === date ? "is-selected" : ""}`}
                             style={{
                               height: `${Math.max(3, (day.totals.calories / maximum) * 108)}px`,
                             }}
                           />
                         )}
                       </span>
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-xs font-medium text-muted-foreground">
                         {new Date(`${day.date}T12:00:00`).toLocaleDateString(
                           undefined,
                           { weekday: "short" }
@@ -530,15 +543,23 @@ export function NutritionPage({
                   ].map(({ key, label, unit }) => (
                     <div key={key} className="min-w-0">
                       <p className="font-semibold tabular-nums">
-                        {displayNutrient(averageDaily(key as keyof typeof totals))}{unit}
+                        {displayNutrient(
+                          averageDaily(key as keyof typeof totals)
+                        )}
+                        {unit}
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground">{label}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {label}
+                      </p>
                     </div>
                   ))}
                 </div>
               </Card>
             </div>
-            <section className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-5 lg:space-y-0 xl:gap-6" aria-label="Daily meals">
+            <section
+              className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-5 lg:space-y-0 xl:gap-6"
+              aria-label="Daily meals"
+            >
               <div className="pt-1 lg:col-span-2 lg:pb-1">
                 <h2 className="text-lg font-semibold">Your meals</h2>
               </div>
@@ -546,10 +567,7 @@ export function NutritionPage({
                 const entries = data.day.entries.filter((e) => e.meal === meal),
                   subtotal = foodTotals(entries)
                 return (
-                  <Card
-                    key={meal}
-                    className="gap-0 overflow-hidden py-0"
-                  >
+                  <Card key={meal} className="gap-0 overflow-hidden py-0">
                     <div className="nutrition-meal-header p-4">
                       <h3 className="text-lg font-semibold">
                         {titleCase(meal)}
@@ -608,21 +626,45 @@ export function NutritionPage({
                                   {portionLabel(entry)}
                                   {entry.source === "ai" ? " · estimated" : ""}
                                 </span>
-                                <span className="mt-1 flex min-w-0 max-w-full flex-nowrap items-center gap-x-2 overflow-hidden whitespace-nowrap text-[13px] tabular-nums text-muted-foreground">
-                                  <span className="inline-flex shrink-0 items-center gap-1.5">
-                                    <span className="size-2 rounded-full bg-[#3896f6]" aria-hidden="true" />
+                                <span className="nutrition-food-macros mt-1 flex max-w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-medium tabular-nums">
+                                  <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                                    <span
+                                      className="size-2 rounded-full"
+                                      style={{
+                                        background: "var(--nutrition-calories)",
+                                      }}
+                                      aria-hidden="true"
+                                    />
                                     {displayNutrient(entry.calories)} Cal
                                   </span>
-                                  <span className="inline-flex shrink-0 items-center gap-1.5">
-                                    <span aria-hidden="true" className="size-2 rounded-full bg-rose-500" />
+                                  <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                                    <span
+                                      aria-hidden="true"
+                                      className="size-2 rounded-full"
+                                      style={{
+                                        background: "var(--nutrition-protein)",
+                                      }}
+                                    />
                                     {displayNutrient(entry.protein)} P
                                   </span>
-                                  <span className="inline-flex shrink-0 items-center gap-1.5">
-                                    <span aria-hidden="true" className="size-2 rounded-full bg-amber-500" />
+                                  <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                                    <span
+                                      aria-hidden="true"
+                                      className="size-2 rounded-full"
+                                      style={{
+                                        background: "var(--nutrition-carbs)",
+                                      }}
+                                    />
                                     {displayNutrient(entry.carbs)} C
                                   </span>
-                                  <span className="inline-flex shrink-0 items-center gap-1.5">
-                                    <span aria-hidden="true" className="size-2 rounded-full bg-blue-500" />
+                                  <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                                    <span
+                                      aria-hidden="true"
+                                      className="size-2 rounded-full"
+                                      style={{
+                                        background: "var(--nutrition-fat)",
+                                      }}
+                                    />
                                     {displayNutrient(entry.fat)} F
                                   </span>
                                 </span>
