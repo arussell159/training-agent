@@ -226,7 +226,7 @@ export function loadHistoricalWorkout(
   id: string,
   options: Options = {}
 ): Promise<PlannedWorkout> {
-  if (!/^(activity:i[1-9]\d*|event:[1-9]\d*)$/.test(id))
+  if (!/^(activity:i?[1-9]\d*|event:[1-9]\d*)$/.test(id))
     return Promise.reject(Error("Choose a valid Intervals.icu workout."))
   return cachedRead(
     "history-workout",

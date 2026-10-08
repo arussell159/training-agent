@@ -40,6 +40,7 @@
       #app-boot .boot-content { display: grid; gap: 12px; padding: 16px; }
       #app-boot .boot-card { display: flex; flex-direction: column; justify-content: space-between; padding: 20px; height: 160px; border: 1px solid var(--boot-line); border-radius: 20px; background: var(--boot-card); }
       #app-boot .boot-card:first-child { height: 320px; }
+      #app-boot .boot-desktop-card { display: none; }
       #app-boot .boot-line { display: block; height: 12px; width: 65%; border-radius: 6px; background: var(--boot-line); }
       #app-boot .boot-title { height: 24px; width: 75%; margin-top: 16px; }
       #app-boot .boot-chart { height: 72px; width: 100%; }
@@ -53,11 +54,41 @@
       #app-boot[data-page="Calendar"] .boot-card:first-child { height: 210px; }
       #app-boot[data-page="Calendar"] .boot-card { height: 210px; }
       @media (min-width: 768px) {
-        #app-boot { padding-left: 72px; }
+        html { scrollbar-gutter: stable; }
+        #app-boot { --boot-bg: #fff; padding-left: 72px; }
+        .dark #app-boot { --boot-bg: #0a0a0a; --boot-card: #171717; --boot-line: #303030; }
+        #app-boot[data-page="Calendar"] { --boot-line: #d3dce7; color: #172b46; }
+        .dark #app-boot[data-page="Calendar"] { --boot-bg: #111820; --boot-card: #1a2430; --boot-line: #3a4b60; color: #edf3fb; }
         #app-boot::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 71px; border-right: 1px solid var(--boot-line); }
         #app-boot .boot-content { max-width: 1500px; grid-template-columns: 1fr 1fr; gap: 24px; padding: 24px; }
+        #app-boot .boot-card { border-radius: 12px; }
         #app-boot .boot-card:first-child { grid-row: span 2; height: 385px; }
+        #app-boot[data-page="Home"] .boot-content { max-width: none; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+        #app-boot[data-page="Home"] .boot-card:first-child { grid-column: 1 / -1; grid-row: 1; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(2) { grid-column: 1 / -1; grid-row: 2; height: 240px; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(3) { grid-column: 1; grid-row: 3; height: 195px; }
+        #app-boot[data-page="Home"] .boot-desktop-card { display: flex; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(4) { grid-column: 2; grid-row: 3; height: 195px; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(5) { grid-column: 1; grid-row: 5; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(6) { grid-column: 2; grid-row: 5; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(7) { grid-column: 1 / -1; grid-row: 4; height: 174px; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(8) { grid-column: 1; grid-row: 6; height: 408px; margin-top: 8px; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(9) { grid-column: 2; grid-row: 6; height: 408px; margin-top: 8px; }
         #app-boot footer { display: none; }
+      }
+      @media (min-width: 1024px) {
+        #app-boot[data-page="Home"] .boot-content { max-width: none; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 16px; }
+        #app-boot[data-page="Home"] .boot-card { min-width: 0; height: 184.5px; }
+        #app-boot[data-page="Home"] .boot-card:first-child { grid-column: 1 / span 8; grid-row: 1 / span 2; height: 385px; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(2) { grid-column: 9 / span 4; grid-row: 1; height: 184.5px; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(3) { grid-column: 13 / span 2; grid-row: 1; height: 184.5px; }
+        #app-boot[data-page="Home"] .boot-desktop-card { display: flex; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(4) { grid-column: 15 / span 2; grid-row: 1; height: 184.5px; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(5) { grid-column: 9 / span 2; grid-row: 2; height: 184.5px; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(6) { grid-column: 11 / span 2; grid-row: 2; height: 184.5px; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(7) { grid-column: 13 / span 4; grid-row: 2; height: 184.5px; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(8) { grid-column: 1 / span 8; grid-row: 3; height: 408px; margin-top: 8px; }
+        #app-boot[data-page="Home"] .boot-card:nth-child(9) { grid-column: 9 / span 8; grid-row: 3; height: 408px; margin-top: 8px; }
       }
     </style>
     <link rel="preload" href="/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
@@ -76,6 +107,12 @@
           <div class="boot-card"><div><span class="boot-line"></span><span class="boot-line boot-title"></span></div><span class="boot-line boot-chart"></span><div class="boot-metrics"><span class="boot-line"></span><span class="boot-line"></span><span class="boot-line"></span></div></div>
           <div class="boot-card"><span class="boot-line boot-title"></span><span class="boot-line"></span></div>
           <div class="boot-card"><span class="boot-line boot-title"></span><span class="boot-line"></span></div>
+          <div class="boot-card boot-desktop-card"><span class="boot-line boot-title"></span><span class="boot-line"></span></div>
+          <div class="boot-card boot-desktop-card"><span class="boot-line boot-title"></span><span class="boot-line"></span></div>
+          <div class="boot-card boot-desktop-card"><span class="boot-line boot-title"></span><span class="boot-line"></span></div>
+          <div class="boot-card boot-desktop-card"><span class="boot-line boot-title"></span><span class="boot-line"></span></div>
+          <div class="boot-card boot-desktop-card"><span class="boot-line boot-title"></span><span class="boot-line boot-chart"></span><span class="boot-line"></span></div>
+          <div class="boot-card boot-desktop-card"><span class="boot-line boot-title"></span><span class="boot-line boot-chart"></span><span class="boot-line"></span></div>
         </div>
         <footer><span></span><span></span><span></span><span></span><span></span></footer>
       </div>

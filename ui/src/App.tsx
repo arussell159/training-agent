@@ -1,6 +1,13 @@
 import { PageSkeleton } from "@/components/loading-layouts"
 import { appRouteItem as routeItem } from "@/lib/app-route"
 import { restoreReportReader } from "@/lib/report-navigation"
+import {
+  ACTIVITY_EFFORT_OPEN_EVENT,
+  ACTIVITY_EFFORT_SELECTION_EVENT,
+  activityEffortRoute,
+  clearActivityEffortParams,
+  normalizeActivityEffortTarget,
+} from "@/lib/activity-effort-navigation"
 import { BackgroundSync } from "@/components/background-sync"
 import { prefetchWorkoutRecording } from "@/lib/activity-analysis"
 import { prefetchNutrition } from "@/lib/nutrition"
@@ -475,6 +482,48 @@ function AppWorkspace() {
     startTransition(() => setSelectedWorkout(workout))
   }
 
+  useEffect(() => {
+    const open = (event: Event) => {
+      const target = normalizeActivityEffortTarget((event as CustomEvent).detail)
+      if (!target) return
+      const route = activityEffortRoute(target, window.location.href)
+      if (route === `${window.location.pathname}${window.location.search}${window.location.hash}`) return
+      const id = `activity:${target.activityId}`
+      workoutReturnRoute.current = activeItem
+      workoutReturnScroll.current = window.scrollY
+      routeScrollTarget.current = 0
+      window.history.pushState({}, "", route)
+      window.dispatchEvent(new Event(ACTIVITY_EFFORT_SELECTION_EVENT))
+      const context = cachedTrainingContext()
+      const workout = restoreOpenWorkout([...context.planned, ...context.history])
+      if (workout) prefetchWorkoutRecording(workout)
+      startTransition(() => {
+        setSelectedReport(null)
+        setSelectedWorkout(workout)
+        setPendingWorkoutId(workout ? null : id)
+        setWorkoutLoadError(null)
+        setWorkoutLoadAttempt(0)
+        setCalendarReturnScroll(null)
+      })
+    }
+    const reset = () => {
+      const url = new URL(window.location.href)
+      clearActivityEffortParams(url)
+      window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
+      window.dispatchEvent(new Event(ACTIVITY_EFFORT_SELECTION_EVENT))
+    }
+    window.addEventListener(ACTIVITY_EFFORT_OPEN_EVENT, open)
+    window.addEventListener("training-cache-reset", reset)
+    window.addEventListener("device-cache-cleared", reset)
+    window.addEventListener("app-auth-required", reset)
+    return () => {
+      window.removeEventListener(ACTIVITY_EFFORT_OPEN_EVENT, open)
+      window.removeEventListener("training-cache-reset", reset)
+      window.removeEventListener("device-cache-cleared", reset)
+      window.removeEventListener("app-auth-required", reset)
+    }
+  }, [activeItem])
+
   const closeWorkout = () => {
     if (workoutReturnRoute.current === "Workout Reports") {
       workoutReturnRoute.current = null
@@ -491,6 +540,7 @@ function AppWorkspace() {
     setWorkoutLoadError(null)
     if (returnToCalendar) setCalendarReturnScroll(returnTo)
   }
+  const workoutReturnLabel = workoutReturnRoute.current || activeItem
 
   return (
     <MobileDefinitionsOpen.Provider value={mobileTerms && termsOpen}>
@@ -594,7 +644,7 @@ function AppWorkspace() {
                 }
               />
             )}
-          <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:flex">
+          <header className="desktop-app-header sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:flex">
             {selectedWorkout?.status === "completed" && (
               <Button
                 type="button"
@@ -602,16 +652,10 @@ function AppWorkspace() {
                 variant="ghost"
                 onClick={closeWorkout}
                 className="mr-2 shrink-0 rounded-lg"
-                aria-label={
-                  workoutReturnRoute.current === "Workout Reports"
-                    ? "Back to workout reports"
-                    : "Back to calendar"
-                }
+                aria-label={`Back to ${workoutReturnLabel.toLowerCase()}`}
               >
                 <ArrowLeft className="size-4" />
-                {workoutReturnRoute.current === "Workout Reports"
-                  ? "Workout Reports"
-                  : "Calendar"}
+                {workoutReturnLabel}
               </Button>
             )}
             <h1 className="min-w-0 truncate text-sm font-semibold">

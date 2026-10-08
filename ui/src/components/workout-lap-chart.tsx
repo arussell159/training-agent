@@ -16,6 +16,7 @@ export function WorkoutLapChart({
   selected,
   onSelect,
   expanded = false,
+  highlightRange,
 }: {
   points: RecordedPoint[]
   laps: RecordedLap[]
@@ -23,6 +24,7 @@ export function WorkoutLapChart({
   selected: RecordedLap | null
   onSelect: (lap: RecordedLap) => void
   expanded?: boolean
+  highlightRange?: [number, number] | null
 }) {
   const scroll = useRef<HTMLDivElement>(null)
   const [hovered, setHovered] = useState<string | null>(null)
@@ -79,6 +81,16 @@ export function WorkoutLapChart({
           }))
         )
       : ""
+  const highlights = !selected && highlightRange
+    ? bars.flatMap((bar) => {
+        const start = Math.max(bar.lap.start, highlightRange[0])
+        const end = Math.min(bar.lap.end, highlightRange[1])
+        if (end <= start) return []
+        const position = positions.get(bar.lap.id)!
+        const span = bar.lap.end - bar.lap.start
+        return [{ left: position.left + (start - bar.lap.start) / span * position.width, width: (end - start) / span * position.width }]
+      })
+    : []
   const minimum = Math.min(...bars.map((bar) => bar.value)),
     maximum = Math.max(...bars.map((bar) => bar.value))
   const low = pace ? Math.max(0, minimum - 10) : 0,
@@ -228,6 +240,9 @@ export function WorkoutLapChart({
                   aria-label="Recorded heart rate over laps"
                 />
               )}
+              {highlights.map((highlight, index) => (
+                <rect key={index} data-selected-effort-highlight x={highlight.left} y="0" width={Math.max(1, highlight.width)} height="200" fill="#a21caf" fillOpacity=".2" stroke="#a21caf" strokeWidth="1" pointerEvents="none" />
+              ))}
             </svg>
           </div>
         </div>

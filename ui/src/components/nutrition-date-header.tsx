@@ -7,7 +7,8 @@ import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { Button } from "@/components/ui/button"
 import { nutritionToday } from "@/lib/nutrition"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { Calendar as DateCalendar } from "@/components/ui/calendar"
+import { DatePickerCalendar } from "@/components/date-picker-calendar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
 export function NutritionDateHeader({
   date,
@@ -136,32 +137,64 @@ export function NutritionDateHeader({
     </button>
   )
   const desktopTitle = (
-    <button
-      type="button"
-      className="calendar-month-title-button appearance-none justify-center gap-2 rounded-lg border-0 bg-transparent px-3 py-2 text-sm font-semibold hover:bg-muted/70"
-      aria-label={open ? "Close nutrition calendar" : "Choose nutrition date"}
-      aria-expanded={open}
-      aria-controls="nutrition-date-picker"
-      disabled={disabled}
-      onClick={() => {
-        if (open) close()
-        else {
+    <Popover
+      open={!mobile && open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) {
           setMonth(new Date(`${date}T12:00:00`))
           setClosing(false)
           setOpen(true)
+        } else {
+          setOpen(false)
         }
       }}
     >
-      {open
-        ? month.toLocaleDateString("en-US", { month: "long", year: "numeric" })
-        : new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
-            weekday: "short",
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          })}
-      <ChevronDown className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} />
-    </button>
+      <PopoverTrigger
+        className="calendar-month-title-button appearance-none justify-center gap-2 rounded-lg border-0 bg-transparent px-3 py-2 text-sm font-semibold hover:bg-muted/70"
+        aria-label={open ? "Close nutrition calendar" : "Choose nutrition date"}
+        disabled={disabled}
+      >
+        {open
+          ? month.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+          : new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })}
+        <ChevronDown className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} />
+      </PopoverTrigger>
+      <PopoverContent
+        id="nutrition-date-picker"
+        aria-label="Choose nutrition date"
+        align="start"
+        className="nutrition-date-popover w-auto p-0"
+      >
+        <DatePickerCalendar
+          defaultMonth={month}
+          month={month}
+          onMonthChange={setMonth}
+          selected={new Date(`${date}T12:00:00`)}
+          onSelect={(value) => {
+            if (value) {
+              onSelect(
+                `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
+              )
+              setOpen(false)
+            }
+          }}
+        />
+        <button
+          className="mb-3 w-full py-2 text-sm font-medium"
+          onClick={() => {
+            onSelect(nutritionToday())
+            setOpen(false)
+          }}
+        >
+          Today
+        </button>
+      </PopoverContent>
+    </Popover>
   )
   const left = (
     <button
@@ -215,42 +248,6 @@ export function NutritionDateHeader({
             Daily targets
           </Button>
         </div>
-        {visible && !mobile && (
-          <div
-            id="nutrition-date-picker"
-            className={`mobile-calendar-picker-panel nutrition-date-panel nutrition-date-panel-desktop ${closing ? "is-closing" : ""}`}
-            role="region"
-            aria-label="Choose date"
-          >
-            <DateCalendar
-              className="mx-auto [--cell-size:2.5rem]"
-              classNames={{ month_caption: "hidden" }}
-              hideNavigation
-              weekStartsOn={1}
-              mode="single"
-              month={month}
-              onMonthChange={setMonth}
-              selected={new Date(`${date}T12:00:00`)}
-              onSelect={(value) => {
-                if (value) {
-                  onSelect(
-                    `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
-                  )
-                  close()
-                }
-              }}
-            />
-            <button
-              className="mb-3 w-full py-2 text-sm font-medium"
-              onClick={() => {
-                onSelect(nutritionToday())
-                close()
-              }}
-            >
-              Today
-            </button>
-          </div>
-        )}
       </div>
       {visible && mobile && (
         <>

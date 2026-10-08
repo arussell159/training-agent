@@ -28,7 +28,7 @@ export function SidebarNavigationSlim({
       onPointerEnter={() => onPrefetch?.(label)}
       onFocus={() => onPrefetch?.(label)}
       className={cn(
-        "size-11 rounded-lg text-muted-foreground hover:text-foreground",
+        "desktop-navigation-button size-11 rounded-lg text-muted-foreground hover:text-foreground",
         activeItem === label && "bg-accent text-foreground"
       )}
     >
@@ -39,7 +39,7 @@ export function SidebarNavigationSlim({
     <div className="relative hidden w-[72px] shrink-0 md:block">
       <aside
         aria-label="Desktop sidebar"
-        className="fixed inset-y-0 left-0 z-40 flex w-[72px] border-r bg-background"
+        className="desktop-navigation-rail fixed inset-y-0 left-0 z-40 flex w-[72px] border-r bg-background"
       >
         <nav
           aria-label="Primary navigation"
@@ -58,7 +58,12 @@ export function SidebarNavigationSlim({
               className="h-5 w-10 object-contain"
             />
           </Button>
-          {items.filter((item) => item.label !== "Settings").map(navButton)}
+          {items
+            .filter(
+              (item) =>
+                !["Settings", "Coach", "Library"].includes(item.label)
+            )
+            .map(navButton)}
           <div className="mt-auto">
             {items.filter((item) => item.label === "Settings").map(navButton)}
           </div>

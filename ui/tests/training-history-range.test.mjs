@@ -31,7 +31,7 @@ globalThis.localStorage = {
 globalThis.window = new EventTarget()
 const { setApiAuthenticated } = await import("../src/lib/api-client.ts")
 const training = await import("../src/lib/training-context.ts")
-const { loadTrainingHistoryRange, loadWorkoutHistoryPage } =
+const { loadTrainingHistoryRange, loadWorkoutHistoryPage, loadHistoricalWorkout } =
   await import("../src/lib/training-history-range.ts")
 const context = (version = "one") => ({
   athlete: { name: "Test", time_zone: "America/Chicago" },
@@ -151,4 +151,17 @@ test("invalid historical responses are not retained as empty successful pages", 
     true
   )
   assert.equal(calls, 2)
+})
+
+test("a clicked old numeric activity loads by ID without replacing the live context or reading month pages", async () => {
+  reset()
+  const old = { id: "activity:123", activity_id: "123", sport: "Bike", title: "Historic recorded ride", duration: "1h", status: "completed", workout_date: "2001-04-07" }
+  const calls = []
+  globalThis.fetch = async url => { calls.push(String(url)); return json({ workout: old }) }
+  assert.deepEqual(await loadHistoricalWorkout("activity:123"), old)
+  assert.deepEqual(await loadHistoricalWorkout("activity:123"), old)
+  assert.equal(calls.length, 1)
+  assert.match(calls[0], /workout-history/)
+  assert.doesNotMatch(calls[0], /history-range/)
+  assert.equal(training.cachedTrainingContext().version, "one")
 })

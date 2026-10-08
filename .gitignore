@@ -22,3 +22,6 @@ tools/trainingpeaks-mcp-server/
 app-backend/local-edit-cache.enabled
 artifacts/reliability/
 app-backend/supabase/.temp/
+
+.vercel
+.env*

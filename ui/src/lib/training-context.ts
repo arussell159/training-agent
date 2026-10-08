@@ -634,7 +634,11 @@ export async function queueWorkoutMutation(input: {
   }
 }
 
-export async function changeWorkout(id: string, action: "copy" | "delete") {
+export async function changeWorkout(
+  id: string,
+  action: "copy" | "delete",
+  date?: string
+) {
   const revision = beginMutation()
   try {
     const { response, result } = await readMutationResponse<{
@@ -645,7 +649,11 @@ export async function changeWorkout(id: string, action: "copy" | "delete") {
       `/api/workouts/${encodeURIComponent(id)}${action === "copy" ? "/copy" : ""}`,
       {
         method: action === "copy" ? "POST" : "DELETE",
-        headers: { Accept: "application/json" },
+        headers: {
+          Accept: "application/json",
+          ...(action === "copy" && date ? { "Content-Type": "application/json" } : {}),
+        },
+        ...(action === "copy" && date ? { body: JSON.stringify({ date }) } : {}),
       },
       180_000,
       `The workout ${action} could not be confirmed. Refresh your calendar to check the result before repeating it.`

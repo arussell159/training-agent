@@ -809,6 +809,34 @@
   }
 }
 
+.training-history-filters.fitness-history-filters {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.fitness-history-filter-bar-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fitness-history-filter-bar-controls .training-history-filters.fitness-history-filters {
+  width: min(360px, 100%);
+  min-width: 0;
+  flex: 0 1 360px;
+}
+
+.fitness-history-view-toggle {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+}
+
 .training-history-summary,
 .training-history-chart {
   padding-inline: 12px;
@@ -912,7 +940,6 @@
       }
     }
   }
-
   .training-history-summary,
   .training-history-chart {
     padding-inline: 16px;

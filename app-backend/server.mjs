@@ -41,6 +41,7 @@ import {loadActivityBundle,loadActivityView} from './lib/activity-bundle.mjs';
 import {saveFastView,fastViewId,projectTrainingContext} from './lib/fast-context.mjs';
 import {retainRecentTrainingContext,twelveWeekStart} from './lib/training-retention.mjs';
 import {buildTwelveWeekTrainingHistory} from './lib/training-history.mjs';
+import {createPerformanceHistory,performanceType,performanceWindow,performanceActivityId,performanceEffortSelection} from './lib/performance-curves.mjs';
 import {fetchHistoricalCalendar,fetchWorkoutHistoryPage,fetchHistoricalWorkout} from './lib/intervals-history.mjs';
 import {createMutationQueue,validateMutation} from './lib/mutation-queue.mjs';
 import {createMutationProjection} from './lib/mutation-projection.mjs';
@@ -173,7 +174,7 @@ let intervalsMemoryCache = null;
 const providerReads=createRequestCache({ttl:60000,maxEntries:32});
 const historicalReads=createRequestCache({ttl:15*60_000,maxEntries:96});
 let recentActivityStatsCache = null;
-let personalActivityStatsCache = null;
+const performanceHistory=createPerformanceHistory({request:config=>intervalsClient(config)});
 function sendJson(req,res,value,cacheControl='no-store'){
  const payload=compressAsset(Buffer.from(JSON.stringify(value)),'.js',req.headers['accept-encoding']);
  res.writeHead(200,{'Content-Type':'application/json','Cache-Control':cacheControl,...payload.headers});res.end(payload.body);
@@ -266,7 +267,7 @@ const checkTrainingUpdates = createTrainingUpdates({
   readSnapshot: (config,options)=>loadSupabaseTrainingSnapshot(config,null,options),
   // These few small reads must see a workout uploaded just before app open.
   request: config => createIntervalsClient(config),
-  persist: (config, context) => {providerReads.clear();historicalReads.clear();return persistTrainingContext(config, context, {archiveActivities:false});},
+  persist: (config, context) => {providerReads.clear();historicalReads.clear();performanceHistory.clear();return persistTrainingContext(config, context, {archiveActivities:false});},
   warm: warmRecentActivities,
   waitUntil,
   log: updateLogs,
@@ -1136,7 +1137,7 @@ export async function handleRequest(req, res) {
     }
     if(pathname==='/api/sync' && req.method==='POST') {
       recentActivityStatsCache = null;
-      personalActivityStatsCache = null;
+      performanceHistory.clear();
       if (await localEditCacheEnabled(req)) {
         const local = await readLocalContext();
         const cached = await readIntervalsCache();
@@ -1288,6 +1289,15 @@ export async function handleRequest(req, res) {
       sendJson(req,res,{weeks:buildTwelveWeekTrainingHistory(source),synced_at:source.synced_at});
       return;
     }
+    if(pathname==='/api/performance-history' && req.method==='GET') {
+      const type=performanceType(requestUrl.searchParams.get('type') || 'Ride');
+      if(await localEditCacheEnabled(req))throw Object.assign(Error('Power and pace curves are unavailable in the local edit cache.'),{status:503});
+      const config=await readConfig();
+      const cachedIntervals=await readIntervalsCache();
+      const timeZone=cachedIntervals?.athlete?.time_zone || 'America/Chicago';
+      sendJson(req,res,await performanceHistory.history(config,type,{timeZone}),'private,max-age=300');
+      return;
+    }
     if(pathname==='/api/training-stats' && req.method==='GET') {
       const cachedIntervals = await readIntervalsCache();
       const timeZone = cachedIntervals?.athlete?.time_zone || 'America/Chicago';
@@ -1337,62 +1347,14 @@ export async function handleRequest(req, res) {
       return;
     }
     if(pathname==='/api/personal-statistics' && req.method==='GET') {
+      const oldest=requestUrl.searchParams.get('oldest') || undefined;
+      const newest=requestUrl.searchParams.get('newest') || undefined;
+      // Reject malformed scopes before any credential or provider read.
+      performanceWindow(oldest,newest,athleteLocalDate(new Date(),'Pacific/Kiritimati'));
       const config = await readConfig();
-      const account = createHash('sha256').update(config.INTERVALS_API_KEY || '').digest('hex');
-      if (personalActivityStatsCache?.account === account && personalActivityStatsCache.expiresAt > Date.now()) {
-        sendJson(req,res,personalActivityStatsCache.value,'private,max-age=900');
-        return;
-      }
       const cachedIntervals = await readIntervalsCache();
       const timeZone = cachedIntervals?.athlete?.time_zone || 'America/Chicago';
-      const today = athleteLocalDate(new Date(), timeZone);
-      const firstYear = 2000;
-      const currentYear = Number(today.slice(0, 4));
-      const ranges = [];
-      for (let year = firstYear; year <= currentYear; year += 5) {
-        const startYear = year;
-        const endYear = Math.min(year + 4, currentYear);
-        ranges.push({
-          oldest: `${startYear}-01-01`,
-          newest: endYear === currentYear ? today : `${endYear}-12-31`,
-        });
-      }
-      const fields = 'id,type,start_date_local,name,sub_type,distance,moving_time,elapsed_time,total_elevation_gain,icu_achievements';
-      const request = intervalsClient(config);
-      const batches = [];
-      for (let index = 0; index < ranges.length; index += 3) {
-        batches.push(await Promise.all(ranges.slice(index, index + 3).map(({ oldest, newest }) =>
-          request(`/athlete/0/activities?oldest=${oldest}&newest=${newest}&fields=${fields}`)
-        )));
-      }
-      const activities = batches.flat(2);
-      const seen = new Set();
-      const records = activities.filter(item => {
-        const id = String(item?.id ?? '');
-        if (!id || seen.has(id) || !item?.start_date_local || !(Number(item.moving_time || item.elapsed_time) > 0)) return false;
-        seen.add(id);
-        return true;
-      }).map(item => ({
-        id: String(item.id),
-        date: String(item.start_date_local).slice(0, 10),
-        sport: item.type || 'Other',
-        name: item.name || '',
-        subtype: item.sub_type || '',
-        distance_meters: Number(item.distance) || 0,
-        duration_seconds: Number(item.moving_time || item.elapsed_time) || 0,
-        elevation_meters: Number(item.total_elevation_gain) || 0,
-        achievements: (Array.isArray(item.icu_achievements) ? item.icu_achievements : []).map(achievement => ({
-          type: achievement.type,
-          distance: achievement.distance,
-          secs: achievement.secs,
-          watts: achievement.watts,
-          pace: achievement.pace,
-          value: achievement.value,
-        })),
-      })).sort((a, b) => a.date.localeCompare(b.date));
-      const value = { records, today, source: 'intervals', synced_at: new Date().toISOString() };
-      personalActivityStatsCache = { account, expiresAt: Date.now() + 30 * 60_000, value };
-      sendJson(req,res,value,'private,max-age=900');
+      sendJson(req,res,await performanceHistory.personal(config,{oldest,newest,timeZone}),'private,max-age=900');
       return;
     }
     if (pathname === '/api/config') {
@@ -1716,6 +1678,18 @@ export async function handleRequest(req, res) {
       sendJson(req,res,summary);return;
     }
 
+    const effortRoute=pathname.match(/^\/api\/activities\/(i\d+|\d+)\/performance-effort$/);
+    if(effortRoute && req.method==='GET'){
+      const id=performanceActivityId(effortRoute[1]);
+      const selection=performanceEffortSelection(requestUrl.searchParams.get('type'),requestUrl.searchParams.get('duration'),requestUrl.searchParams.get('distance'));
+      const revision=requestUrl.searchParams.get('v') || '';
+      if(revision.length>256)throw Object.assign(new Error('Invalid activity revision'),{status:400});
+      const config=await readConfig(),request=intervalsClient(config);
+      const archive=createCompletedWorkoutStore(config,createContextStore(config,updateLogs));
+      const effort=await performanceHistory.effort(config,id,{...selection,revision,loadBundle:()=>loadActivityBundle(archive,config,request,id,{revision:revision || undefined})});
+      sendJson(req,res,effort,effort.available?'private,max-age=300':'no-store');return;
+    }
+
     const analysisRoute=pathname.match(/^\/api\/activities\/(i\d+|\d+)\/analysis$/);
     if(analysisRoute && req.method==='GET'){
       const config=await readConfig(),id=analysisRoute[1],request=intervalsClient(config);
@@ -1757,11 +1731,11 @@ export async function handleRequest(req, res) {
       const id = decodeURIComponent((calendarAction || calendarDelete)[1]);
       const request = intervalsClient(config);
       const action = calendarAction?.[2] || 'delete';
-      const payload = action === 'move' ? await readBody(req) : {};
+      const payload = action === 'move' || action === 'copy' ? await readBody(req) : {};
       const apply=async(request)=>{
       const result = action === 'move'
         ? await moveIntervalsEvent(request,id,payload.date)
-        : await changeIntervalsEvent(request,id,action);
+        : await changeIntervalsEvent(request,id,action,{date:payload.date});
       intervalsMemoryCache = null;
       const snapshot=await loadSupabaseTrainingSnapshot(config);
       const context=snapshot?await saveVerifiedSnapshot(config,applyVerifiedEvent(snapshot,id,result,action),{verifiedIds:action==='copy'?[]:[id]}):null;

@@ -588,7 +588,13 @@ export function ChartAreaInteractive({
 
   return (
     <Card className="dashboard-history-card training-history-card m-0 min-w-0">
-      <CardContent className="p-0">
+      <CardContent
+        className={
+          compactDesktop
+            ? "dashboard-training-history-content flex min-h-0 flex-1 flex-col p-0"
+            : "p-0"
+        }
+      >
         <div
           className="training-history-filter-scroll"
           aria-label="Filter training history by sport"
@@ -654,7 +660,7 @@ export function ChartAreaInteractive({
         </section>
 
         <section
-          className="training-history-chart"
+          className={`training-history-chart ${compactDesktop ? "dashboard-training-history-chart" : ""}`}
           aria-label={`Completed training ${historyMetric} over the past 12 weeks`}
         >
           <div className="training-history-chart-heading">
@@ -683,7 +689,7 @@ export function ChartAreaInteractive({
             )}
           </div>
           <div
-            className="relative touch-pan-y select-none"
+            className={`relative touch-pan-y select-none ${compactDesktop ? "dashboard-training-history-plot-region" : ""}`}
             onPointerDown={(event) => {
               if (!isMobile) return
               event.currentTarget.setPointerCapture(event.pointerId)
@@ -730,7 +736,7 @@ export function ChartAreaInteractive({
             )}
             <ChartContainer
               config={historyChartConfig}
-              className={`w-full ${isMobile ? "h-[170px]" : compactDesktop ? "h-[190px]" : "h-[320px]"}`}
+              className={`w-full ${isMobile ? "h-[170px]" : compactDesktop ? "dashboard-training-history-plot" : "h-[320px]"}`}
             >
               <AreaChart
                 data={chartHistory}

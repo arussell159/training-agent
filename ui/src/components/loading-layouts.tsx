@@ -67,6 +67,22 @@ export function ChartSkeleton({ className }: { className?: string }) {
   )
 }
 
+export function FitnessHistorySkeleton() {
+  return (
+    <LoadingRegion label="Loading fitness history">
+      <Card className="fitness-history-card dashboard-fitness-history-card m-0 h-[390px] min-w-0 shrink-0 px-4 md:h-[448px]">
+        <Skeleton className="h-5 w-32" />
+        <div className="flex gap-2">
+          {[0, 1, 2].map((index) => <Skeleton key={index} className="h-7 w-16" />)}
+        </div>
+        <div className="min-h-0 flex-1 space-y-4 overflow-hidden">
+          {Array.from({ length: 16 }, (_, index) => <Skeleton key={index} className="h-3 w-full" />)}
+        </div>
+      </Card>
+    </LoadingRegion>
+  )
+}
+
 export function ListSkeleton({
   rows = 5,
   food = false,
@@ -413,7 +429,10 @@ export function PageSkeleton({ page }: { page: string }) {
     return (
       <div className="mobile-dashboard flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:gap-4 md:gap-6 md:p-6">
         <HomeCardsSkeleton />
-        <ChartSkeleton className="dashboard-history-card training-history-card rounded-2xl border bg-card" />
+        <div className="dashboard-history-grid grid w-full min-w-0 grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2">
+          <ChartSkeleton className="dashboard-history-card training-history-card rounded-2xl border bg-card" />
+          <FitnessHistorySkeleton />
+        </div>
       </div>
     )
   if (page === "Nutrition")

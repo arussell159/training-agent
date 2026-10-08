@@ -10,6 +10,8 @@ import { MobileWorkoutSignals } from "@/components/mobile-workout-signals"
 import { WorkoutMapSplits } from "@/components/workout-map-splits"
 import { Button } from "@/components/ui/button"
 import { cachedActivityAnalysis, loadActivityAnalysis, cachedActivitySummary, loadActivitySummary } from "@/lib/activity-analysis"
+import { loadActivityEffort } from "@/lib/activity-effort"
+import { ACTIVITY_EFFORT_SELECTION_EVENT, activityEffortPlotRange, readActivityEffortTarget, type ActivityEffortTarget } from "@/lib/activity-effort-navigation"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { distanceSplits } from "@/lib/distance-splits"
 import { formatDuration, formatPace } from "@/lib/duration"
@@ -240,13 +242,52 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
   const mobile = useIsMobile()
   const sport=workout.sport
   const [data,setData]=useState<Analysis|null>(analysisOverride||cachedActivityAnalysis(id,revision)||null),[error,setError]=useState(""),[retry,setRetry]=useState(0),[totals,setTotals]=useState<WorkoutSummaryValues|null>(()=>cachedActivitySummary(id,revision)||summary||null)
-  const [range,setRange]=useState<[number,number]|null>(null),[cursor,setCursor]=useState<number|null>(null),[selection,setSelection]=useState<[number,number]|null>(null),[selected,setSelected]=useState(""),[hovered,setHovered]=useState<Segment|null>(null)
+  const [chartRange,setRange]=useState<[number,number]|null>(null),[cursor,setCursor]=useState<number|null>(null),[selection,setSelection]=useState<[number,number]|null>(null),[selected,setSelected]=useState(""),[hovered,setHovered]=useState<Segment|null>(null)
   const [hiddenTracks,setHiddenTracks]=useState<string[]>([])
+  const [effortTarget,setEffortTarget]=useState<ActivityEffortTarget|null>(()=>comparisonMode?null:readActivityEffortTarget(window.location.search,id))
+  const [effortRange,setEffortRange]=useState<[number,number]|null>(null),[effortMessage,setEffortMessage]=useState(""),[effortLoading,setEffortLoading]=useState(false),[effortRetry,setEffortRetry]=useState(0)
+  const [resolvedEffortKey,setResolvedEffortKey]=useState("")
+  const effortIdentity=JSON.stringify([effortTarget,revision,effortRetry])
+  const range=selected==="requested-effort"&&(!effortTarget||resolvedEffortKey!==effortIdentity||!activityEffortPlotRange(chartRange,data?.duration??0))?null:chartRange
+  const effortEdited=useRef(false),appliedEffort=useRef("")
+  useEffect(()=>{
+    const update=()=>setEffortTarget(current=>{
+      const next=comparisonMode?null:readActivityEffortTarget(window.location.search,id)
+      return JSON.stringify(current)===JSON.stringify(next)?current:next
+    })
+    window.addEventListener("popstate",update)
+    window.addEventListener(ACTIVITY_EFFORT_SELECTION_EVENT,update)
+    return()=>{window.removeEventListener("popstate",update);window.removeEventListener(ACTIVITY_EFFORT_SELECTION_EVENT,update)}
+  },[id,comparisonMode])
+  useEffect(()=>{
+    const controller=new AbortController()
+    effortEdited.current=false;appliedEffort.current=""
+    setResolvedEffortKey("");setEffortRange(null);setRange(null);setSelected("");setSelection(null);setHovered(null);setCursor(null)
+    setEffortMessage("");setEffortLoading(Boolean(effortTarget))
+    if(effortTarget)void loadActivityEffort(effortTarget,revision,controller.signal,effortRetry).then(result=>{
+      if(controller.signal.aborted)return
+      setResolvedEffortKey(effortIdentity);setEffortRange(result.range);setEffortMessage(result.reason);setEffortLoading(false)
+    }).catch(reason=>{
+      if(controller.signal.aborted)return
+      setResolvedEffortKey(effortIdentity);setEffortMessage(reason instanceof Error?reason.message:"Exact recorded bounds are unavailable for this effort.");setEffortLoading(false)
+    })
+    return()=>controller.abort()
+  },[effortTarget,revision,effortRetry,effortIdentity])
+  useEffect(()=>{
+    if(!data||!effortRange||resolvedEffortKey!==effortIdentity)return
+    const key=JSON.stringify([effortTarget,effortRange,effortRetry])
+    if(appliedEffort.current===key)return
+    appliedEffort.current=key
+    if(!activityEffortPlotRange(effortRange,data.duration)){setEffortMessage("Exact bounds fall outside the loaded recording chart.");return}
+    if(effortEdited.current)return
+    setRange(effortRange);setSelected("requested-effort");setSelection(null);setHovered(null);setCursor(null)
+  },[data,effortRange,effortTarget,effortRetry,resolvedEffortKey,effortIdentity])
   const gesture=useRef<{x:number;time:number;range:[number,number];overview:boolean;pan:boolean}|null>(null)
   const draggedChart=useRef(false)
   useEffect(()=>{if(analysisOverride)return;const controller=new AbortController();void loadActivitySummary(id,revision,controller.signal).then(values=>{if(!controller.signal.aborted)setTotals({...summary,...values})}).catch(()=>{});return()=>controller.abort()},[id,revision,summary,analysisOverride])
   useEffect(()=>{if(analysisOverride){setData(analysisOverride);return}const controller=new AbortController();setError("");void loadActivityAnalysis(id,revision,controller.signal).then(value=>{if(!controller.signal.aborted)setData(value)}).catch(reason=>{if(!controller.signal.aborted)setError(reason instanceof Error?reason.message:"Workout analysis could not be loaded.")});return()=>controller.abort()},[id,retry,revision,analysisOverride])
   const duration=data?.duration||1,view:[number,number]=range||[0,duration],swim=sport.toLowerCase().includes("swim"),run=sport.toLowerCase().includes("run"),bike=/bike|ride|cycl/i.test(sport)
+  const visibleEffortRange=resolvedEffortKey===effortIdentity?activityEffortPlotRange(effortRange,duration):null
   const available=useMemo(()=>({elevation:Boolean(data?.points.some(point=>point.elevation!=null)),power:Boolean(data?.points.some(point=>point.power!=null)),speed:Boolean(data?.points.some(point=>point.speed!=null)),heartRate:Boolean(data?.points.some(point=>point.heartRate!=null)),cadence:Boolean(data?.points.some(point=>point.cadence!=null))}),[data])
   const paceDistance=swim?METERS_PER_100_YARDS:1609.344
   const allSignalTracks=[...(available.speed?[run||swim?"pace":"speed"]:[]),...(available.power?["power"]:[]),...(available.heartRate?["heartRate"]:[]),...(available.cadence?["cadence"]:[])]
@@ -274,7 +315,8 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
   const swimIntervals=useMemo(()=>swim?intervalSignals(data?.points||[],data?.laps||[]):[],[data,swim])
   const routePoints=useMemo(()=>createRouteCursorIndex(data?.points||[]),[data])
   const routeCursorPoint=nearestRouteCursorPoint(routePoints,cursor)
-  const selectedSegment=[...laps,...splits,...terrain,...peaks].find(segment=>segment.id===selected)
+  const requestedSegment:Segment|null=visibleEffortRange?{id:"requested-effort",label:"Selected peak effort",start:visibleEffortRange[0],end:visibleEffortRange[1],kind:"effort"}:null
+  const selectedSegment=[...laps,...splits,...terrain,...peaks,...(requestedSegment?[requestedSegment]:[])].find(segment=>segment.id===selected)
   const highlight=selection?{start:Math.min(...selection),end:Math.max(...selection)}:hovered||selectedSegment||(range?{start:range[0],end:range[1]}:null)
   const graphHover=hovered&&hovered.end>viewStart&&hovered.start<viewEnd?{start:Math.max(viewStart,hovered.start),end:Math.min(viewEnd,hovered.end)}:null
   useEffect(()=>onLapSelection?.(range),[range,onLapSelection])
@@ -288,14 +330,14 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
     const stats=rangeStatistics(data.points,start,end)
     onComparisonStats(workout.id,{selected,start,end,distance:stats.distance,speed:stats.speed,power:stats.power,heartRate:stats.heartRate,cadence:stats.cadence})
   },[comparisonMode,onComparisonStats,workout.id,data,duration,comparisonStart,comparisonEnd])
-  const selectSegment=(segment:Segment)=>{const start=Math.max(0,segment.start),end=Math.min(duration,segment.end);if(end<=start)return;setRange([start,end]);setSelected(segment.id);setSelection(null);setCursor(null)}
-  const reset=()=>{setRange(null);setSelected("");setHovered(null);setSelection(null);setCursor(null)}
+  const selectSegment=(segment:Segment)=>{const start=Math.max(0,segment.start),end=Math.min(duration,segment.end);if(end<=start)return;effortEdited.current=true;setRange([start,end]);setSelected(segment.id);setSelection(null);setCursor(null)}
+  const reset=()=>{effortEdited.current=true;setRange(null);setSelected("");setHovered(null);setSelection(null);setCursor(null)}
   const resetFromChartClick=()=>{if(draggedChart.current){draggedChart.current=false;return}reset()}
   const plotLeft=comparisonMode?12:136,plotWidth=comparisonMode?1056:812,plotRight=plotLeft+plotWidth
   const x=(time:number,overview=false)=>plotLeft+(time-(overview?0:view[0]))/(overview?duration:Math.max(1,view[1]-view[0]))*plotWidth
   const timeAt=(event:PointerEvent<SVGSVGElement>,overview=false)=>{const bounds=event.currentTarget.getBoundingClientRect(),fraction=Math.max(0,Math.min(1,((event.clientX-bounds.left)/bounds.width*1080-plotLeft)/plotWidth));return (overview?0:view[0])+fraction*(overview?duration:view[1]-view[0])}
   const move=(event:PointerEvent<SVGSVGElement>,overview=false)=>{const time=timeAt(event,overview);setCursor(time);const active=gesture.current;if(!active)return;if(active.pan){const bounds=event.currentTarget.getBoundingClientRect(),delta=(active.overview?1:-1)*(event.clientX-active.x)/bounds.width*1080/plotWidth*(active.overview?duration:active.range[1]-active.range[0]),width=active.range[1]-active.range[0],start=Math.max(0,Math.min(duration-width,active.range[0]+delta));setRange([start,start+width])}else setSelection([active.time,time])}
-  const down=(event:PointerEvent<SVGSVGElement>,overview=false)=>{if(event.button!==0)return;draggedChart.current=false;event.currentTarget.setPointerCapture(event.pointerId);const time=timeAt(event,overview),pan=overview&&Boolean(range)&&time>=view[0]&&time<=view[1];gesture.current={x:event.clientX,time,range:[view[0],view[1]],overview,pan};if(!pan)setSelection([time,time]);setSelected("")}
+  const down=(event:PointerEvent<SVGSVGElement>,overview=false)=>{if(event.button!==0)return;effortEdited.current=true;draggedChart.current=false;event.currentTarget.setPointerCapture(event.pointerId);const time=timeAt(event,overview),pan=overview&&Boolean(range)&&time>=view[0]&&time<=view[1];gesture.current={x:event.clientX,time,range:[view[0],view[1]],overview,pan};if(!pan)setSelection([time,time]);setSelected("")}
   const up=(event:PointerEvent<SVGSVGElement>)=>{const active=gesture.current;if(!active)return;const time=timeAt(event,active.overview),moved=Math.abs(event.clientX-active.x)>5;if(moved){draggedChart.current=true;window.setTimeout(()=>{draggedChart.current=false},0)}if(!active.pan&&moved&&Math.abs(time-active.time)>=2)setRange([Math.min(time,active.time),Math.max(time,active.time)]);gesture.current=null;setSelection(null);if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId)}
   if(error&&!data)return <div role="alert" className={`flex min-h-[350px] items-center justify-center gap-3 border p-4 text-sm ${!comparisonMode?"md:min-h-[682px]":""}`}><span>{error}</span><Button variant="outline" size="sm" onClick={()=>setRetry(value=>value+1)}>Retry</Button></div>
   if(!data){
@@ -314,7 +356,9 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
     </section></>
   }
   if(!data.points.length||(!allSignalTracks.length&&!data.dfa))return <div className={`flex min-h-[350px] items-center justify-center border border-dashed p-5 text-sm text-muted-foreground ${!comparisonMode?"md:min-h-[682px]":""}`}>No recorded signal stream is available for this activity.</div>
-  if(mobile)return <MobileWorkoutSignals points={data.points} laps={data.laps} duration={duration} sport={sport} summary={totals} dfa={data.dfa} onLapSelect={lap=>setSelected(lap?.id||"")} afterLaps={<WorkoutMapSplits workout={workout} analysis={data}/>}/>
+  const effortPending=effortLoading||resolvedEffortKey!==effortIdentity
+  const effortNotice=effortTarget?<div role="status" aria-live="polite" data-selected-activity-effort className="flex min-h-9 items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs"><span>{effortPending?"Finding exact selected effort…":effortMessage|| (visibleEffortRange?`Selected effort · ${clock(visibleEffortRange[0])}–${clock(visibleEffortRange[1])}`:"Exact recorded bounds are unavailable for this effort.")}</span>{!effortPending&&effortMessage&&<Button variant="outline" size="sm" onClick={()=>setEffortRetry(value=>value+1)}>Retry effort</Button>}</div>:null
+  if(mobile)return <>{effortNotice}<MobileWorkoutSignals points={data.points} laps={data.laps} duration={duration} sport={sport} summary={totals} dfa={data.dfa} highlightRange={effortMessage?null:visibleEffortRange} onLapSelect={lap=>setSelected(lap?.id||"")} afterLaps={<WorkoutMapSplits workout={workout} analysis={data}/>}/></>
   const laneHeight=92,height=comparisonMode?176:signalTracks.length*laneHeight+8,graphHeight=comparisonMode?142:58
   const elevationProfile=data.points.map((point,index)=>{const nearby=data.points.slice(Math.max(0,index-3),index+4).map(entry=>value(entry,"elevation")).filter(finite);return {...point,smoothedElevation:nearby.length?nearby.reduce((sum,entry)=>sum+entry,0)/nearby.length:null}})
   const elevationValues=elevationProfile.map(point=>point.smoothedElevation).filter(finite),elevationMin=elevationValues.reduce((a,b)=>Math.min(a,b),Infinity),elevationMax=elevationValues.reduce((a,b)=>Math.max(a,b),-Infinity),elevationSpan=Math.max(1,elevationMax-elevationMin),elevationY=(entry:number)=>92-(entry-elevationMin)/elevationSpan*66
@@ -359,7 +403,8 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
     return {key,rawMin,rawMax,min,max,span,top,graphBottom,average,peak:key==="pace"?rawMin:rawMax,live:livePoint?value(livePoint,key):null,lapAveraged}
   })
   return <>
-    <section aria-label="Recorded workout analysis" className={`workout-analysis-desktop hidden min-w-0 space-y-3 md:block ${comparisonMode?"workout-analysis-comparison":""}`}>
+    {effortNotice}
+    <section aria-label="Recorded workout analysis" data-selected-effort-start={selected==="requested-effort"?range?.[0]:undefined} data-selected-effort-end={selected==="requested-effort"?range?.[1]:undefined} className={`workout-analysis-desktop hidden min-w-0 space-y-3 md:block ${comparisonMode?"workout-analysis-comparison":""}`}>
       {!comparisonMode&&<section className={`analysis-overview grid ${routePoints.length>1||swim?"analysis-overview-with-map lg:grid-cols-2":"grid-cols-1"}`} aria-label="Workout overview">
         {routePoints.length>1
           ? <div className="analysis-route min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} timedPoints={routePoints} highlightRange={highlight?[highlight.start,highlight.end]:null} cursorPoint={routeCursorPoint} compact/></div>

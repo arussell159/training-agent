@@ -355,6 +355,23 @@
   gap: 8px;
   font-weight: 600;
 }
+.nutrition-date-popover {
+  --nutrition-action: #fff;
+  width: min(340px, calc(100vw - 32px));
+  padding: 14px 16px 8px;
+  border: 1px solid rgb(15 23 42 / 9%);
+  border-radius: 20px;
+  background: var(--nutrition-action) !important;
+  box-shadow: 0 16px 40px rgb(15 23 42 / 12%);
+}
+.dark .nutrition-date-popover {
+  --nutrition-action: #243140;
+}
+.nutrition-date-popover .calendar,
+.nutrition-date-popover .calendar .calendar-months,
+.nutrition-date-popover .calendar .calendar-month {
+  background: var(--nutrition-action) !important;
+}
 .nutrition-date-header .nutrition-title-transition {
   appearance: none;
   border: 0;

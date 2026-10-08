@@ -663,7 +663,7 @@ export async function moveIntervalsEvent(request, id, date) {
   return { workoutId: id, date, verified: true, event: verified };
 }
 
-export async function changeIntervalsEvent(request, id, action) {
+export async function changeIntervalsEvent(request, id, action, { date } = {}) {
   const path = `/athlete/0/events/${eventId(id)}`;
   if (!["copy", "delete"].includes(action)) throw new Error("Invalid calendar action");
   const original = await request(path);
@@ -691,6 +691,24 @@ export async function changeIntervalsEvent(request, id, action) {
   const body = Object.fromEntries(
     fields.filter((f) => Object.hasOwn(original, f)).map((f) => [f, original[f]])
   );
+  if (date) {
+    validDate(date);
+    const originalDate = String(original.start_date_local).slice(0, 10);
+    validDate(originalDate);
+    const dayDelta = Math.round(
+      (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${originalDate}T00:00:00Z`)) /
+        86400000
+    );
+    body.start_date_local = date + String(original.start_date_local).slice(10);
+    if (original.end_date_local) {
+      const endDate = String(original.end_date_local).slice(0, 10);
+      validDate(endDate);
+      body.end_date_local =
+        new Date(Date.parse(`${endDate}T00:00:00Z`) + dayDelta * 86400000)
+          .toISOString()
+          .slice(0, 10) + String(original.end_date_local).slice(10);
+    }
+  }
   const created = await request("/athlete/0/events", {
     method: "POST",
     body: JSON.stringify(body),
@@ -698,7 +716,7 @@ export async function changeIntervalsEvent(request, id, action) {
   if (!created?.id || String(created.id) === eventId(id))
     throw new Error("Copy could not be confirmed. Refresh before retrying.");
   const verified = await request(`/athlete/0/events/${created.id}`);
-  if (verified.name !== original.name || verified.start_date_local !== original.start_date_local)
+  if (verified.name !== original.name || verified.start_date_local !== body.start_date_local)
     throw new Error("Copy could not be confirmed. Refresh before retrying.");
   return { workoutId: `event:${created.id}`, verified: true, action, event: verified };
 }

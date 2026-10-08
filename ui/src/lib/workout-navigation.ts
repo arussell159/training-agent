@@ -1,5 +1,6 @@
 import type { PlannedWorkout } from "@/lib/training-context"
 import { validatedTrainingWorkout } from "./training-context-validation.ts"
+import { clearActivityEffortParams, ACTIVITY_EFFORT_SELECTION_EVENT } from "./activity-effort-navigation.ts"
 
 const STORAGE_KEY = "training-agent-open-workout-v1"
 
@@ -45,8 +46,10 @@ export function rememberOpenWorkout(workout: PlannedWorkout) {
     /* URL restoration still works from loaded context. */
   }
   const url = new URL(window.location.href)
+  clearActivityEffortParams(url)
   url.searchParams.set("workout", workout.id)
   window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`)
+  window.dispatchEvent(new Event(ACTIVITY_EFFORT_SELECTION_EVENT))
 }
 
 export function forgetOpenWorkout() {
@@ -57,5 +60,7 @@ export function forgetOpenWorkout() {
   }
   const url = new URL(window.location.href)
   url.searchParams.delete("workout")
+  clearActivityEffortParams(url)
   window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
+  window.dispatchEvent(new Event(ACTIVITY_EFFORT_SELECTION_EVENT))
 }

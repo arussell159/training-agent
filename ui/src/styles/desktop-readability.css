@@ -1,0 +1,96 @@
+/* Calendar and shell readability stay scoped away from other card surfaces. */
+@media (width >= 48rem) {
+  .training-calendar,
+  .calendar-workout-card,
+  .calendar-race-card,
+  .desktop-app-header,
+  .desktop-navigation-rail {
+    --background: #fff;
+    --foreground: #172b46;
+    --card: #fff;
+    --card-foreground: #172b46;
+    --popover: #fff;
+    --popover-foreground: #172b46;
+    --muted: #f2f5f9;
+    --muted-foreground: #465970;
+    --border: #d3dce7;
+    --input: #c1cede;
+    --primary: #2256c4;
+    --primary-foreground: #fff;
+    --accent: #eaf0fa;
+    --accent-foreground: #172b46;
+    --ring: #2256c4;
+  }
+
+  .dark .training-calendar,
+  .dark .calendar-workout-card,
+  .dark .calendar-race-card,
+  .dark .desktop-app-header,
+  .dark .desktop-navigation-rail {
+    --background: #111820;
+    --foreground: #edf3fb;
+    --card: #1a2430;
+    --card-foreground: #edf3fb;
+    --popover: #1a2430;
+    --popover-foreground: #edf3fb;
+    --muted: #22303f;
+    --muted-foreground: #b8c6d8;
+    --border: #3a4b60;
+    --input: #52647b;
+    --primary: #8db4ff;
+    --primary-foreground: #142237;
+    --accent: #283c59;
+    --accent-foreground: #edf3fb;
+    --ring: #8db4ff;
+  }
+
+  .desktop-app-header {
+    background: var(--background);
+    border-color: var(--border);
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .desktop-app-header h1 {
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 600;
+  }
+
+  .desktop-navigation-rail {
+    background: var(--card);
+    border-color: var(--border);
+  }
+
+  .desktop-navigation-rail nav {
+    border-right: 0;
+  }
+
+  .desktop-navigation-button {
+    position: relative;
+    color: var(--muted-foreground);
+    border-radius: 6px;
+  }
+
+  .desktop-navigation-button:hover,
+  .desktop-navigation-button:focus-visible {
+    color: var(--foreground);
+    background: var(--accent);
+  }
+
+  .desktop-navigation-button[aria-current="page"] {
+    color: var(--primary);
+    background: var(--accent);
+  }
+
+  .desktop-navigation-button[aria-current="page"]::before {
+    position: absolute;
+    top: 10px;
+    bottom: 10px;
+    left: -14px;
+    width: 3px;
+    background: var(--primary);
+    content: "";
+  }
+}

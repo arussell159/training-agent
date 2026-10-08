@@ -6,7 +6,7 @@
 .dashboard-sleep-card, .dashboard-fitness-card { height: 160px; }
 .dashboard-card-grid .dashboard-events-card[data-slot="card"],
 .dashboard-card-grid .dashboard-sleep-card[data-slot="card"] { overflow-y: auto; }
-.dashboard-history-card { height: 350px; min-height: 350px; flex-shrink: 0; }
+.dashboard-history-card { height: 390px; min-height: 390px; flex-shrink: 0; }
 .dashboard-history-card[data-slot="card"] { padding-block: 0; }
 .dashboard-nutrition-card .grid p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dashboard-events-card [data-slot="card-content"] { flex-shrink: 0; }
@@ -18,8 +18,31 @@
 @media (width >= 48rem) {
   .dashboard-session-card { height: 385px; }
   .dashboard-events-card { height: 240px; }
-  .dashboard-history-card { height: 408px; min-height: 408px; }
+  .dashboard-history-card { height: 448px; min-height: 448px; }
   .dashboard-events-card, .dashboard-sleep-card { scrollbar-gutter: stable; }
+}
+
+@media (width < 48rem) {
+  .dashboard-history-card:not(.dashboard-fitness-history-card) {
+    height: 350px;
+    min-height: 350px;
+  }
+
+  .mobile-dashboard .dashboard-fitness-history-card {
+    height: auto;
+    min-height: 0;
+  }
+
+  .mobile-dashboard .dashboard-fitness-history-card [data-slot="card-content"] {
+    flex: none;
+    min-height: auto;
+  }
+
+  .mobile-dashboard .fitness-history-table-region {
+    flex: none;
+    min-height: auto;
+    overflow-y: visible;
+  }
 }
 
 @media (width >= 64rem) {
@@ -28,6 +51,44 @@
   .dashboard-sleep-card,
   .dashboard-fitness-card,
   .dashboard-nutrition-card { height: 184.5px; }
+}
+
+@media (width >= 48rem) {
+  .dashboard-history-grid > .training-history-card,
+  .dashboard-history-grid .dashboard-fitness-history-card {
+    height: auto;
+    min-height: 448px;
+  }
+
+  .dashboard-history-grid .dashboard-fitness-history-card.fitness-history-table-view > [data-slot="card-content"] {
+    flex: none;
+    min-height: auto;
+  }
+
+  .dashboard-history-grid .dashboard-fitness-history-card .fitness-history-table-region {
+    flex: none;
+    min-height: auto;
+    max-height: none;
+    overflow-y: visible;
+  }
+
+  .dashboard-training-history-content .dashboard-training-history-chart {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+  }
+
+  .dashboard-training-history-content .dashboard-training-history-plot-region {
+    min-height: 190px;
+    flex: 1 1 auto;
+  }
+
+  .dashboard-training-history-content .dashboard-training-history-plot {
+    height: 100%;
+    min-height: 190px;
+    aspect-ratio: auto;
+  }
 }
 
 @media (width < 48rem) {
@@ -264,11 +325,21 @@
     background: transparent !important;
   }
 
+  .framework7-root .mobile-dashboard .fitness-history-filter-bar-controls .training-history-mobile-filters.toolbar {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 0;
+  }
+
   .framework7-root .mobile-dashboard .training-history-mobile-filters.toolbar .toolbar-inner {
     position: relative;
     width: 100%;
     padding: 0;
     justify-content: flex-start !important;
+  }
+
+  .framework7-root .mobile-dashboard .fitness-history-filter-bar-controls .training-history-mobile-filters.toolbar .toolbar-inner {
+    min-width: 0;
   }
 
   .framework7-root .mobile-dashboard .training-history-mobile-filters.toolbar .toolbar-pane {
@@ -285,6 +356,12 @@
     box-shadow: none !important;
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
+  }
+
+  .framework7-root .mobile-dashboard .fitness-history-filter-bar-controls .training-history-mobile-filters.toolbar .toolbar-pane {
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-start;
   }
 
   .framework7-root .mobile-dashboard .training-history-mobile-filters.toolbar .tab-link-highlight {

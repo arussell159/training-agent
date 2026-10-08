@@ -145,6 +145,50 @@ function activeTimeline(points, movingTime) {
   };
 }
 
+/** Map source curve indices through the same full-resolution timeline as charts. */
+export function recordedEffortBounds(activity, streams, startIndex, endIndex) {
+  if (!Array.isArray(streams)) return null;
+  const times = streams?.find((stream) => stream?.type === "time")?.data;
+  if (
+    !Array.isArray(times) ||
+    times.length > 500_000 ||
+    !Number.isSafeInteger(startIndex) ||
+    !Number.isSafeInteger(endIndex) ||
+    startIndex < 0 ||
+    endIndex <= startIndex ||
+    endIndex >= times.length
+  )
+    return null;
+  const points = [],
+    positions = new Map();
+  let previous = -Infinity;
+  for (let index = 0; index < times.length; index++) {
+    const time = times[index];
+    if (typeof time !== "number" || !Number.isFinite(time)) continue;
+    if (time < 0 || time <= previous) return null;
+    previous = time;
+    positions.set(index, points.length);
+    points.push({ time });
+  }
+  const startPosition = positions.get(startIndex),
+    endPosition = positions.get(endIndex);
+  if (startPosition === undefined || endPosition === undefined) return null;
+  const movingTime =
+    typeof activity?.moving_time === "number" && Number.isFinite(activity.moving_time)
+      ? activity.moving_time
+      : null;
+  const timeline = activeTimeline(points, movingTime);
+  const start = timeline.points[startPosition].time,
+    end = timeline.points[endPosition].time;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  return {
+    start_seconds: times[startIndex],
+    end_seconds: times[endIndex],
+    chart_start_seconds: start,
+    chart_end_seconds: end,
+  };
+}
+
 export function normalizeAnalysis(activity, streams, fitLaps = [], fitSwimLengths = []) {
   const byType = new Map(streams.map((s) => [s.type, s.data || []])),
     times = byType.get("time") || [];

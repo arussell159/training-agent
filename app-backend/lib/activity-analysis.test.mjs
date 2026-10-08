@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { gzipSync } from "node:zlib";
-import { normalizeAnalysis, readFitLaps } from "./activity-analysis.mjs";
+import { normalizeAnalysis, readFitLaps, recordedEffortBounds } from "./activity-analysis.mjs";
 test("swim falls back to whole recorded work repeats when FIT laps are unavailable", () => {
   const start = "2026-09-15T21:22:49Z";
   const result = normalizeAnalysis(
@@ -78,6 +78,26 @@ test("analysis compresses pauses and uses moving time for every chart boundary",
   );
   assert.equal(result.intervals[0].start, 1);
   assert.equal(result.intervals[0].end, 3);
+});
+
+test("effort bounds preserve original stream positions through missing samples and compressed pauses", () => {
+  const streams = [{ type: "time", data: [0, 1, null, 12, 13, 14] }];
+  assert.deepEqual(recordedEffortBounds({ moving_time: 4 }, streams, 1, 3), {
+    start_seconds: 1,
+    end_seconds: 12,
+    chart_start_seconds: 1,
+    chart_end_seconds: 2,
+  });
+  assert.equal(recordedEffortBounds({ moving_time: 4 }, streams, 2, 3), null);
+  assert.equal(recordedEffortBounds({ moving_time: 4 }, streams, 1, 6), null);
+  assert.equal(recordedEffortBounds({}, [{ type: "time", data: [0, 10, 5] }], 0, 1), null);
+  assert.equal(recordedEffortBounds({}, null, 0, 1), null);
+  assert.deepEqual(recordedEffortBounds({ moving_time: "4" }, streams, 1, 3), {
+    start_seconds: 1,
+    end_seconds: 12,
+    chart_start_seconds: 1,
+    chart_end_seconds: 12,
+  });
 });
 test("reads recorded FIT lap fields from gzipped binary", () => {
   const payload = Buffer.from([

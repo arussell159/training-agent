@@ -2,7 +2,7 @@ import { TableSkeleton } from "@/components/loading-layouts"
 import { IntervalsConnection } from "@/components/intervals-connection"
 import { apiFetch } from "@/lib/api-client"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
 import { Utensils, Activity, Bike, BookOpen, ChevronDown, ChevronRight, Footprints, Gauge, LoaderCircle, SunMoon, TableProperties, Trophy, Waves } from "lucide-react"
 
@@ -11,7 +11,9 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { SettingsList, SettingsListItem } from "@/components/ui/settings-list"
 import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
-import { loadLocalPerformancePreview, type PerformanceData, type PerformanceRecord } from "@/lib/personal-statistics-preview"
+import type { PerformanceRecord } from "@/lib/personal-statistics-preview"
+import { BIKE_PERSONAL_BESTS, RUN_PERSONAL_BESTS, SWIM_PERSONAL_BESTS, bestCurveEffort, formatEffortPace, formatEffortTime, normalizedPersonalStatistics, personalBestWindow, samePersonalBestWindow, type PersonalBestEffort, type PersonalBestRange, type PersonalBestWindow, type PersonalStatisticsData, type PerformanceSport } from "@/lib/personal-statistics"
+import { withRequestDeadline } from "@/lib/request-deadline"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -24,7 +26,6 @@ import { validatedTrainingContext } from "@/lib/training-context-validation"
 type SettingsSection = "nutrition" | "zones" | "race" | "performance" | "library" | "appearance" | "intervals"
 type SettingsItem = { id: SettingsSection; label: string; description: string; icon: LucideIcon }
 type RaceEvent = { id: string; name: string; date: string; priority: string }
-type PerformanceSport = "Run" | "Bike" | "Swim"
 const performanceSports: Array<{ value: PerformanceSport; label: string; icon?: LucideIcon }> = [
   { value: "Run", label: "Run", icon: Footprints },
   { value: "Bike", label: "Bike", icon: Bike },
@@ -64,32 +65,6 @@ function PerformanceSection({ title, children }: {
     <h2 className="mb-2 px-1 text-sm text-muted-foreground">{title}</h2>
     <SettingsList>{children}</SettingsList>
   </section>
-}
-
-const RUN_PERSONAL_BESTS = [
-  { meters: 400, label: "400 m" }, { meters: 804.672, label: "½ mile" },
-  { meters: 1000, label: "1 km" }, { meters: 1609.344, label: "1 mile" },
-  { meters: 3218.688, label: "2 miles" }, { meters: 5000, label: "5 km" },
-  { meters: 10000, label: "10 km" }, { meters: 15000, label: "15 km" },
-  { meters: 16093.44, label: "10 miles" }, { meters: 20000, label: "20 km" },
-  { meters: 21097.5, label: "Half marathon" }, { meters: 30000, label: "30 km" },
-  { meters: 42195, label: "Marathon" },
-]
-const BIKE_PERSONAL_BESTS = [
-  { seconds: 5, label: "5 sec" }, { seconds: 10, label: "10 sec" },
-  { seconds: 30, label: "30 sec" }, { seconds: 60, label: "1 min" },
-  { seconds: 300, label: "5 min" }, { seconds: 600, label: "10 min" },
-  { seconds: 1200, label: "20 min" }, { seconds: 3600, label: "1 hour" },
-]
-const SWIM_PERSONAL_BESTS = [
-  { meters: 91.44, label: "100 yd" }, { meters: 182.88, label: "200 yd" },
-  { meters: 365.76, label: "400 yd" }, { meters: 548.64, label: "600 yd" },
-  { meters: 731.52, label: "800 yd" }, { meters: 914.4, label: "1,000 yd" },
-  { meters: 1931.2128, label: "1.2 miles" }, { meters: 3862.4256, label: "2.4 miles" },
-]
-const effortSets: Partial<Record<PerformanceSport, typeof RUN_PERSONAL_BESTS>> = {
-  Run: RUN_PERSONAL_BESTS,
-  Swim: SWIM_PERSONAL_BESTS,
 }
 
 function recordMatchesSport(record: PerformanceRecord, sport: PerformanceSport) {
@@ -141,69 +116,85 @@ function activityWorkout(record: PerformanceRecord): PlannedWorkout {
   }
 }
 
-function bestPaceEffort(records: PerformanceRecord[], meters: number) {
-  let best: { seconds: number; record: PerformanceRecord } | null = null
-  for (const record of records) {
-    for (const achievement of record.achievements || []) {
-      const distance = Number(achievement.distance)
-      const seconds = Number(achievement.secs)
-      if (achievement.type?.toUpperCase() !== "BEST_PACE" || !(distance > 0 && seconds > 0)) continue
-      if (Math.abs(distance - meters) > Math.max(5, meters * 0.01)) continue
-      if (!best || seconds < best.seconds) best = { seconds, record }
-    }
+function curveWorkout(effort: PersonalBestEffort, records: PerformanceRecord[]): PlannedWorkout | null {
+  if (!effort.activity_id) return null
+  const record = records.find(record => record.id === effort.activity_id)
+  if (record) return activityWorkout(record)
+  // An effort is a slice of an activity; it cannot supply that activity's totals.
+  return {
+    id: `activity:${effort.activity_id}`, activity_id: effort.activity_id,
+    day: effort.date || "", date: effort.date || "", ...(effort.date ? { workout_date: effort.date } : {}),
+    sport: effort.sport, title: effort.name || `${effort.sport} activity`,
+    duration: "—", goal: "Completed activity", status: "completed",
+    workout_summary: { planned: null, completed: null },
   }
-  return best
 }
 
-function bestPowerEffort(records: PerformanceRecord[], seconds: number) {
-  let best: { watts: number; record: PerformanceRecord } | null = null
-  for (const record of records) {
-    for (const achievement of record.achievements || []) {
-      const duration = Number(achievement.secs)
-      const watts = Number(achievement.watts ?? achievement.value)
-      if (achievement.type?.toUpperCase() !== "BEST_POWER" || !(duration > 0 && watts > 0)) continue
-      if (Math.abs(duration - seconds) > Math.max(2, seconds * 0.01)) continue
-      if (!best || watts > best.watts) best = { watts, record }
-    }
-  }
-  return best
+function PerformanceRideRecords({ records, onActivityOpen }: { records: PerformanceRecord[]; onActivityOpen?: (workout: PlannedWorkout) => void }) {
+  const sportRecords = records.filter(record => recordMatchesSport(record, "Bike"))
+  const longestRide = sportRecords.reduce<PerformanceRecord | null>((best, record) => !best || record.distance_meters > best.distance_meters ? record : best, null)
+  const biggestClimb = sportRecords.reduce<PerformanceRecord | null>((best, record) => !best || record.elevation_meters > best.elevation_meters ? record : best, null)
+  const totalElevation = sportRecords.reduce((total, record) => total + record.elevation_meters, 0)
+  return <>
+    {longestRide ? <SettingsListItem icon={Trophy} label="Longest ride" description={`${longestRide.name} · ${formatStatDate(longestRide.date)}`} value={formatStatDistance(longestRide.distance_meters, "Bike")} onClick={onActivityOpen && longestRide.id ? () => onActivityOpen(activityWorkout(longestRide)) : undefined} /> : <SettingRow label="Longest ride" value="—" />}
+    {biggestClimb ? <SettingsListItem icon={Trophy} label="Biggest climb" description={`${biggestClimb.name} · ${formatStatDate(biggestClimb.date)}`} value={`${Math.round(biggestClimb.elevation_meters / 0.3048).toLocaleString("en-US")} ft`} onClick={onActivityOpen && biggestClimb.id ? () => onActivityOpen(activityWorkout(biggestClimb)) : undefined} /> : <SettingRow label="Biggest climb" value="—" />}
+    <SettingRow label="All-time elevation gain" value={`${Math.round(totalElevation / 0.3048).toLocaleString("en-US")} ft`} />
+  </>
 }
 
-function PerformanceEffortRows({ sport, records, onActivityOpen }: { sport: PerformanceSport; records: PerformanceRecord[]; onActivityOpen?: (workout: PlannedWorkout) => void }) {
-  const sportRecords = records.filter(record => recordMatchesSport(record, sport))
-  const bikeRows = BIKE_PERSONAL_BESTS.map(effort => ({ ...effort, result: bestPowerEffort(sportRecords, effort.seconds) }))
-  const paceRows = sport === "Bike" ? [] : effortSets[sport]!.map(effort => ({ ...effort, result: bestPaceEffort(sportRecords, effort.meters) }))
+function PerformanceEffortRows({ sport, efforts, records, onActivityOpen }: { sport: PerformanceSport; efforts: PersonalBestEffort[]; records: PerformanceRecord[]; onActivityOpen?: (workout: PlannedWorkout) => void }) {
+  function row(key: number, label: string, effort: PersonalBestEffort | null) {
+    if (!effort) return <SettingRow key={key} label={label} value="—" />
+    const workout = curveWorkout(effort, records)
+    const description = [effort.name || "Intervals.icu activity", effort.date ? formatStatDate(effort.date) : ""].filter(Boolean).join(" · ")
+    const value = sport === "Bike"
+      ? <span className="flex flex-col items-end"><span>{Math.round(effort.value).toLocaleString("en-US")} W</span>{effort.watts_per_kg != null && <span>{effort.watts_per_kg.toLocaleString("en-US", { maximumFractionDigits: 2 })} W/kg</span>}</span>
+      : <span className="flex flex-col items-end"><span>{formatEffortTime(effort.duration_seconds!)}</span><span>{formatEffortPace(effort)}</span></span>
+    return <SettingsListItem key={key} icon={Trophy} label={label} description={description} value={value} onClick={onActivityOpen && workout ? () => onActivityOpen(workout) : undefined} />
+  }
   return <div>
-    {sport === "Bike" && (() => {
-      const longestRide = sportRecords.reduce<PerformanceRecord | null>((best, record) => !best || record.distance_meters > best.distance_meters ? record : best, null)
-      const biggestClimb = sportRecords.reduce<PerformanceRecord | null>((best, record) => !best || record.elevation_meters > best.elevation_meters ? record : best, null)
-      const totalElevation = sportRecords.reduce((total, record) => total + record.elevation_meters, 0)
-      return <>
-        {longestRide ? <SettingsListItem icon={Trophy} label="Longest ride" description={`${longestRide.name} · ${formatStatDate(longestRide.date)}`} value={formatStatDistance(longestRide.distance_meters, "Bike")} onClick={() => onActivityOpen?.(activityWorkout(longestRide))} /> : <SettingRow label="Longest ride" value="—" />}
-        {biggestClimb ? <SettingsListItem icon={Trophy} label="Biggest climb" description={`${biggestClimb.name} · ${formatStatDate(biggestClimb.date)}`} value={`${Math.round(biggestClimb.elevation_meters / 0.3048).toLocaleString("en-US")} ft`} onClick={() => onActivityOpen?.(activityWorkout(biggestClimb))} /> : <SettingRow label="Biggest climb" value="—" />}
-        <SettingRow label="All-time elevation gain" value={`${Math.round(totalElevation / 0.3048).toLocaleString("en-US")} ft`} />
-      </>
-    })()}
     {sport === "Bike"
-      ? bikeRows.map(({ seconds, label, result }) => result ? <SettingsListItem key={seconds} icon={Trophy} label={label} description={`${result.record.name || "Activity"} · ${formatStatDate(result.record.date)}`} value={`${Math.round(result.watts).toLocaleString("en-US")} W`} onClick={() => onActivityOpen?.(activityWorkout(result.record))} /> : <SettingRow key={seconds} label={label} value="—" />)
-      : paceRows.map(({ meters, label, result }) => result ? <SettingsListItem key={meters} icon={Trophy} label={label} description={`${result.record.name || "Activity"} · ${formatStatDate(result.record.date)}`} value={formatStatTime(result.seconds)} onClick={() => onActivityOpen?.(activityWorkout(result.record))} /> : <SettingRow key={meters} label={label} value="—" />)}
+      ? BIKE_PERSONAL_BESTS.map(({ seconds, label }) => row(seconds, label, bestCurveEffort(efforts, sport, seconds)))
+      : (sport === "Run" ? RUN_PERSONAL_BESTS : SWIM_PERSONAL_BESTS).map(({ meters, label }) => row(meters, label, bestCurveEffort(efforts, sport, meters)))}
   </div>
 }
 
-function PerformanceStatsPanel({ data, loading, error, notice, sport, onSportChange, onRetry, onActivityOpen }: {
-  data: PerformanceData | null
+function PersonalBestDateControls({ today, range, window, onChange }: { today: string; range: PersonalBestRange; window: PersonalBestWindow | null; onChange: (range: PersonalBestRange, window: PersonalBestWindow | null) => void }) {
+  const [oldest, setOldest] = useState(window?.oldest || `${today.slice(0, 4)}-01-01`)
+  const [newest, setNewest] = useState(window?.newest || today)
+  const custom = personalBestWindow("custom", today, { oldest, newest })
+  return <div className="space-y-3">
+    <SettingsSelectField id="personal-best-range" label="Personal best date range" value={range} options={[{ value: "all", label: "All time" }, { value: "recent", label: "Last 4 weeks" }, { value: "year", label: "Year to date" }, { value: "custom", label: "Custom dates" }]} onChange={value => {
+      const next = value as PersonalBestRange
+      onChange(next, next === "custom" ? window : personalBestWindow(next, today))
+    }} />
+    {range === "custom" && <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-3"><SettingsInputField id="personal-best-oldest" label="From" type="date" value={oldest} onChange={setOldest} /><SettingsInputField id="personal-best-newest" label="Through" type="date" value={newest} onChange={setNewest} /></div>
+      {!custom && <p className="text-xs text-muted-foreground">Choose valid dates through {formatStatDate(today)}, with the start before the end.</p>}
+      <Button variant="outline" size="sm" disabled={!custom} onClick={() => onChange("custom", custom)}>Apply dates</Button>
+    </div>}
+  </div>
+}
+
+function PerformanceStatsPanel({ data, loading, error, sport, range, window, onRangeChange, onSportChange, onRetry, onActivityOpen }: {
+  data: PersonalStatisticsData | null
   loading: boolean
   error: string
-  notice: string
   sport: PerformanceSport
+  range: PersonalBestRange
+  window: PersonalBestWindow | null
+  onRangeChange: (range: PersonalBestRange, window: PersonalBestWindow | null) => void
   onSportChange: (sport: PerformanceSport) => void
   onRetry: () => void
   onActivityOpen?: (workout: PlannedWorkout) => void
 }) {
   const mobile = useIsMobile()
-  if (loading) return <TableSkeleton />
-  if (error) return <div role="alert" className="space-y-3 py-6"><p className="text-sm text-destructive">{error}</p><Button variant="outline" onClick={onRetry}>Try again</Button></div>
+  if (!data && loading) return <TableSkeleton />
+  if (!data && error) return <div role="alert" className="space-y-3 py-6"><p className="text-sm text-destructive">{error}</p><Button variant="outline" onClick={onRetry}>Try again</Button></div>
   if (!data) return null
+  const requestedWindow = window || { oldest: null, newest: data.today }
+  const currentCurves = samePersonalBestWindow(data.bestEffortsWindow, requestedWindow)
+  const curveError = error || (currentCurves ? data.bestEffortsError : "")
   const records = data.records.filter(record => recordMatchesSport(record, sport))
   const recentStart = new Date(`${data.today}T12:00:00Z`)
   recentStart.setUTCDate(recentStart.getUTCDate() - 27)
@@ -222,9 +213,8 @@ function PerformanceStatsPanel({ data, loading, error, notice, sport, onSportCha
   const all = totals(records)
   const mean = (value: number) => (value / 4).toLocaleString("en-US", { maximumFractionDigits: 1 })
   const rowGroup = (items: Array<[string, string]>) => items.map(([label, value]) => <SettingRow key={label} label={label} value={value} />)
-  const localHost = typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname.toLowerCase())
   return <div className="space-y-6">
-    {data.source === "local-placeholder" && !localHost && <p role="status" className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground">Sample data is stored in this browser only. {notice || "It is not sent to Supabase."}</p>}
+    {data.source === "synthetic-local-preview" && <p role="status" className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground">Local preview · Synthetic activity and best-effort data.</p>}
     {!mobile && <MobileFilterTabs label="Filter performance by sport" items={performanceSports} value={sport} onChange={onSportChange} inline className="performance-sport-tabs mb-1" />}
     <PerformanceSection title="Activity">
       {rowGroup([
@@ -248,9 +238,16 @@ function PerformanceStatsPanel({ data, loading, error, notice, sport, onSportCha
         ["Elevation gain", `${Math.round(all.elevation / 0.3048).toLocaleString("en-US")} ft`],
       ])}
     </PerformanceSection>
-    <PerformanceSection title="Personal bests">
-      <PerformanceEffortRows sport={sport} records={data.records} onActivityOpen={onActivityOpen} />
-    </PerformanceSection>
+    {sport === "Bike" && <PerformanceSection title="Ride records · All time"><PerformanceRideRecords records={data.records} onActivityOpen={onActivityOpen} /></PerformanceSection>}
+    <section className="space-y-3" aria-busy={loading}>
+      <h2 className="px-1 text-sm text-muted-foreground">Personal bests</h2>
+      <PersonalBestDateControls today={data.today} range={range} window={window} onChange={onRangeChange} />
+      <p className="px-1 text-xs text-muted-foreground">{requestedWindow.oldest ? `${formatStatDate(requestedWindow.oldest)} – ${formatStatDate(requestedWindow.newest)}` : "All time"} · {data.source === "synthetic-local-preview" ? "Synthetic local curve preview" : `Recorded ${sport === "Bike" ? "power" : "pace"} curves from Intervals.icu`}</p>
+      {loading && <p role="status" className="flex items-center gap-2 px-1 text-xs text-muted-foreground"><LoaderCircle aria-hidden="true" className="size-3 animate-spin" />Loading personal bests…</p>}
+      {curveError && <div role="alert" className="space-y-2 px-1"><p className="text-sm text-destructive">{curveError}</p><Button variant="outline" size="sm" disabled={loading} onClick={onRetry}>Try again</Button></div>}
+      <SettingsList><PerformanceEffortRows sport={sport} efforts={currentCurves ? data.bestEfforts : []} records={data.records} onActivityOpen={onActivityOpen} /></SettingsList>
+      {!loading && !curveError && <p className="px-1 text-xs text-muted-foreground">— means no recorded best for that effort in this date range.</p>}
+    </section>
   </div>
 }
 
@@ -295,12 +292,16 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
   const [zones, setZones] = useState({ bike_ftp: "", run_threshold_pace: "", swim_css: "", threshold_hr: "" })
   const [zonesEdited, setZonesEdited] = useState(false)
   const [events, setEvents] = useState<RaceEvent[]>([])
-  const [performanceData, setPerformanceData] = useState<PerformanceData | null>(null)
+  const [performanceData, setPerformanceData] = useState<PersonalStatisticsData | null>(null)
   const [performanceLoading, setPerformanceLoading] = useState(false)
   const [performanceError, setPerformanceError] = useState("")
-  const [performanceNotice, setPerformanceNotice] = useState("")
   const [performanceSport, setPerformanceSport] = useState<PerformanceSport>("Run")
+  const [performanceRange, setPerformanceRange] = useState<PersonalBestRange>("all")
+  const [performanceWindow, setPerformanceWindow] = useState<PersonalBestWindow | null>(null)
   const [performanceRetry, setPerformanceRetry] = useState(0)
+  const loadedPerformanceKey = useRef<string | null>(null)
+  const performanceRequestRevision = useRef(0)
+  const pendingPerformanceRequest = useRef<AbortController | null>(null)
   const [raceName, setRaceName] = useState("")
   const [raceDate, setRaceDate] = useState("")
   const [priority, setPriority] = useState("A")
@@ -323,30 +324,68 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
     return () => { active = false }
   }, [])
 
+  const performanceActive = section === "performance" || dialogSection === "performance"
+  const performanceOldest = performanceWindow?.oldest ?? null
+  const performanceNewest = performanceOldest ? performanceWindow?.newest : null
   useEffect(() => {
-    if ((section !== "performance" && dialogSection !== "performance") || performanceData) return
+    const key = JSON.stringify([performanceOldest, performanceNewest, performanceRetry])
+    if (!performanceActive) return
+    if (loadedPerformanceKey.current === key) {
+      setPerformanceLoading(false)
+      setPerformanceError("")
+      return
+    }
     const controller = new AbortController()
+    const revision = ++performanceRequestRevision.current
+    pendingPerformanceRequest.current = controller
     let active = true
     setPerformanceLoading(true)
     setPerformanceError("")
-    setPerformanceNotice("")
-    void apiFetch("/api/personal-statistics", { signal: controller.signal, headers: { Accept: "application/json" } })
-      .then(async response => {
-        const result = await response.json() as PerformanceData & { error?: string }
-        if (!response.ok) throw new Error(result.error || "Performance statistics could not be loaded.")
-        return result
-      })
-      .then(value => { if (active) setPerformanceData(value) })
+    const query = performanceOldest && performanceNewest ? `?${new URLSearchParams({ oldest: performanceOldest, newest: performanceNewest })}` : ""
+    void withRequestDeadline(async signal => {
+      const response = await apiFetch(`/api/personal-statistics${query}`, { signal, headers: { Accept: "application/json" } })
+      const result = await response.json() as unknown
+      if (!response.ok) {
+        const message = result && typeof result === "object" && "error" in result && typeof result.error === "string" ? result.error : "Performance statistics could not be loaded."
+        throw new Error(message)
+      }
+      const data = normalizedPersonalStatistics(result)
+      const expected = { oldest: performanceOldest, newest: performanceNewest || data.today }
+      if (!samePersonalBestWindow(data.bestEffortsWindow, expected)) throw new Error("Intervals.icu returned personal bests for a different date range. Please retry.")
+      return data
+    }, 60_000, controller.signal, "Performance statistics took too long to load. Please retry.")
+      .then(value => { if (active && revision === performanceRequestRevision.current && !controller.signal.aborted) { loadedPerformanceKey.current = key; setPerformanceData(value) } })
       .catch(error => {
-        if (active && !controller.signal.aborted) {
-          const reason = error instanceof Error ? error.message : "Intervals.icu statistics are unavailable."
-          setPerformanceNotice(`${reason} Using local preview data.`)
-          setPerformanceData(loadLocalPerformancePreview())
+        if (active && revision === performanceRequestRevision.current && !controller.signal.aborted) {
+          setPerformanceError(error instanceof Error ? error.message : "Intervals.icu statistics are unavailable.")
         }
       })
-      .finally(() => { if (active) setPerformanceLoading(false) })
+      .finally(() => {
+        if (active && revision === performanceRequestRevision.current) setPerformanceLoading(false)
+        if (pendingPerformanceRequest.current === controller) pendingPerformanceRequest.current = null
+      })
     return () => { active = false; controller.abort() }
-  }, [section, dialogSection, performanceData, performanceRetry])
+  }, [performanceActive, performanceOldest, performanceNewest, performanceRetry])
+
+  useEffect(() => {
+    const reset = () => {
+      performanceRequestRevision.current++
+      pendingPerformanceRequest.current?.abort()
+      pendingPerformanceRequest.current = null
+      loadedPerformanceKey.current = null
+      setPerformanceData(null)
+      setPerformanceRange("all")
+      setPerformanceWindow(null)
+      setPerformanceError("")
+      setPerformanceRetry(value => value + 1)
+    }
+    window.addEventListener("training-cache-reset", reset)
+    window.addEventListener("app-auth-required", reset)
+    return () => {
+      window.removeEventListener("training-cache-reset", reset)
+      window.removeEventListener("app-auth-required", reset)
+    }
+  }, [])
 
   useEffect(() => {
     const values = context.athlete.zones
@@ -499,7 +538,7 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
       <section className="space-y-3"><h3 className="text-sm font-semibold">Race history</h3>{past.length ? <Card className="gap-0 divide-y py-0 shadow-none">{past.map(event => <SettingRow key={event.id} label={`${event.priority ? `${event.priority} · ` : ""}${compactDate(event.date)}`} value={event.name} />)}</Card> : <p className="text-sm text-muted-foreground">No past races in Intervals.icu.</p>}</section>
       {loadError && <p role="alert" className="text-sm text-destructive">{loadError}</p>}
     </div>
-    if (id === "performance") return <PerformanceStatsPanel data={performanceData} loading={performanceLoading} error={performanceError} notice={performanceNotice} sport={performanceSport} onSportChange={setPerformanceSport} onRetry={() => { setPerformanceData(null); setPerformanceError(""); setPerformanceRetry(value => value + 1) }} onActivityOpen={onWorkoutOpen} />
+    if (id === "performance") return <PerformanceStatsPanel data={performanceData} loading={performanceLoading} error={performanceError} sport={performanceSport} range={performanceRange} window={performanceWindow} onRangeChange={(range, window) => { setPerformanceRange(range); setPerformanceWindow(window) }} onSportChange={setPerformanceSport} onRetry={() => { setPerformanceError(""); setPerformanceRetry(value => value + 1) }} onActivityOpen={onWorkoutOpen} />
     if (id === "library") return null
     if (id === "appearance") return <div className="space-y-3"><div className="grid grid-cols-3 gap-2">{(["light", "dark", "system"] as const).map(value => <Button key={value} disabled={saving} variant={theme === value ? "default" : "outline"} onClick={() => void saveAppearance(value)}>{value[0].toUpperCase() + value.slice(1)}</Button>)}</div>{feedback && <p role="status" className="text-sm text-muted-foreground">{feedback}</p>}</div>
     return null

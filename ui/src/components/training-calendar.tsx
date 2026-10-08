@@ -1,4 +1,5 @@
 import { fallbackTrainingContext } from "@/lib/training-context"
+import "./training-calendar.css"
 import "@/lib/framework7-calendar"
 import { calendarAnchorAdjustment, calendarRange, extendCalendarRange, indexCalendarWorkouts } from "@/lib/calendar-viewport"
 import { loadTrainingHistoryRange } from "@/lib/training-history-range"
@@ -20,7 +21,7 @@ import { WorkoutProfile } from "@/components/workout-profile"
 import { WorkoutSummary } from "@/components/workout-summary"
 import { canEditWorkout } from "@/lib/workout-permissions"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
-import { formatWorkoutTss, workoutTime } from "@/lib/workout-metrics"
+import { formatWorkoutTss, workoutTime, workoutTssTotal, workoutPlannedMinutes } from "@/lib/workout-metrics"
 import {
   forgetOpenWorkout,
   rememberOpenWorkout,
@@ -58,19 +59,19 @@ import {
   Footprints,
   Ellipsis,
   Copy,
+  ClipboardPaste,
   Trash2,
-  PanelRightClose,
-  PanelRightOpen,
   Waves,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   X,
 } from "lucide-react"
 import { f7ready } from "framework7-react"
 import type { Calendar as Framework7Calendar } from "framework7/types"
 
 import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
+import { DatePickerCalendar } from "@/components/date-picker-calendar"
 import {
   Popover,
   PopoverContent,
@@ -87,7 +88,7 @@ import {
   WorkoutEditorMenu,
   useEditedWorkout,
 } from "@/components/workout-editor"
-import { Card, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
 import {
   Dialog,
@@ -185,12 +186,14 @@ function completionGrade(workout: PlannedWorkout): CompletionGrade {
 function WorkoutPreview({
   workout,
   large = false,
+  calendarPresentation = false,
 }: {
   workout: PlannedWorkout
   large?: boolean
+  calendarPresentation?: boolean
 }) {
   return (
-    <div className={large ? "" : "-mx-2.5 mt-auto -mb-3 pt-2"}>
+    <div className={`${large ? "" : "-mx-2.5 mt-auto -mb-3 pt-2"} ${calendarPresentation ? "calendar-workout-profile" : ""}`}>
       <WorkoutProfile workout={workout} compact={!large} />
     </div>
   )
@@ -199,6 +202,38 @@ function WorkoutPreview({
 function estimatedDistance(workout: PlannedWorkout) {
   const label = plannedDistanceLabel(workout)
   return label === "—" ? "" : label
+}
+
+function calendarWorkoutDuration(workout: PlannedWorkout) {
+  const completed = workout.status === "completed"
+  const plannedClock = !completed
+    ? workout.planned_time_label?.match(/\b\d{2,}:\d{2}:\d{2}\b/)?.[0]
+    : undefined
+  if (plannedClock) return plannedClock
+
+  const summarySeconds = completed
+    ? workout.workout_summary?.completed?.duration_seconds
+    : workout.workout_summary?.planned?.duration_seconds
+  const minutes = completed
+    ? workout.actualDurationMinutes ?? workout.completed_data?.duration_minutes
+    : workout.planned?.duration_minutes ?? workout.plannedDurationMinutes ?? durationMinutes(workout)
+  const seconds = summarySeconds ?? (minutes != null ? minutes * 60 : 0)
+  if (!Number.isFinite(seconds) || seconds <= 0) return "—"
+  const wholeSeconds = Math.round(seconds)
+  const hours = Math.floor(wholeSeconds / 3600)
+  const remainingMinutes = Math.floor((wholeSeconds % 3600) / 60)
+  const remainingSeconds = wholeSeconds % 60
+  return `${hours}:${String(remainingMinutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`
+}
+
+function calendarWorkoutDistance(workout: PlannedWorkout) {
+  const label = plannedDistanceLabel(workout)
+  const value = Number.parseFloat(label.replace(/[^\d.]/g, ""))
+  if (!Number.isFinite(value)) return { value: "—", unit: "" }
+  if (/yds$/i.test(label))
+    return { value: Math.round(value).toLocaleString("en-US"), unit: "yds" }
+  if (/mi$/i.test(label)) return { value: value.toFixed(1), unit: "mi" }
+  return { value: "—", unit: "" }
 }
 
 function sportAccent(sport: string) {
@@ -376,16 +411,21 @@ export function WorkoutCard({
   onClick,
   onAction,
   disabled = false,
+  calendarPresentation = false,
 }: {
   workout: PlannedWorkout
   onClick: () => void
   onAction?: (action: "copy" | "delete") => void
   disabled?: boolean
+  calendarPresentation?: boolean
 }) {
   const grade = completionGrade(workout)
   const completed = workout.status === "completed"
   const tss = formatWorkoutTss(workout)
   const time = workoutTime(workout)
+  const distance = estimatedDistance(workout)
+  const calendarDistance = calendarWorkoutDistance(workout)
+  const calendarTssValue = tss.replace(/ TSS$/, "")
   return (
     <Card
       role="button"
@@ -400,17 +440,20 @@ export function WorkoutCard({
           onClick()
         }
       }}
-      className={`group/workout relative w-full cursor-pointer gap-2 rounded-lg px-2.5 ${completed ? "pt-5 pb-3" : "py-3"} shadow-[0_2px_6px_rgba(15,23,42,0.16)] transition-colors ${gradeStyles[grade]}`}
+      data-completion-grade={calendarPresentation ? grade : undefined}
+      data-calendar-completed={calendarPresentation && completed ? "true" : undefined}
+      className={`group/workout relative w-full cursor-pointer gap-2 rounded-lg px-2.5 ${completed ? "pt-5 pb-3" : "py-3"} shadow-[0_2px_6px_rgba(15,23,42,0.16)] transition-colors ${gradeStyles[grade]} ${calendarPresentation ? "calendar-workout-card" : ""}`}
     >
-      {completed && gradeAccent[grade] && (
+      {completed && gradeAccent[grade] && !calendarPresentation && (
         <span
           aria-hidden="true"
           className={`absolute inset-x-0 top-0 h-2.5 rounded-t-lg ${gradeAccent[grade]}`}
         />
       )}
-      <div className="flex min-w-0 flex-col items-start gap-2">
-        <div className="flex w-full items-center justify-between">
+      <div className={`flex min-w-0 flex-col items-start gap-2 ${calendarPresentation ? "calendar-workout-heading" : ""}`}>
+        <div className={`flex w-full items-center justify-between ${calendarPresentation ? "calendar-workout-sport-row" : ""}`}>
           <SportIcon sport={workout.sport} />
+          {calendarPresentation && <span className="calendar-workout-sport">{workout.sport}</span>}
           {canEditWorkout(workout) && (
             <div
               onClick={(event) => event.stopPropagation()}
@@ -433,7 +476,7 @@ export function WorkoutCard({
                     value: "delete",
                     label: "Delete",
                     disabled: !onAction || disabled,
-                    onSelect: () => void confirmWithFramework7("Delete workout?", `Delete “${workout.title}” from your Intervals.icu calendar?`).then((confirmed) => { if (confirmed) onAction?.("delete") }),
+                    onSelect: () => onAction?.("delete"),
                   },
                 ]}
               >
@@ -444,7 +487,7 @@ export function WorkoutCard({
                         type="button"
                         variant="ghost"
                         size="icon-sm"
-                        className="-my-1 -mr-1 size-7 opacity-100 transition-opacity group-focus-within/workout:opacity-100 data-[popup-open]:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/workout:opacity-100"
+                        className={`-my-1 -mr-1 size-7 opacity-100 transition-opacity group-focus-within/workout:opacity-100 data-[popup-open]:opacity-100 ${calendarPresentation ? "calendar-workout-options" : "[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/workout:opacity-100"}`}
                         disabled={disabled && Boolean(onAction)}
                         aria-label={`Options for ${workout.title}`}
                       />
@@ -472,7 +515,7 @@ export function WorkoutCard({
                     <DropdownMenuItem
                       disabled={!onAction || disabled}
                       variant="destructive"
-                      onClick={() => void confirmWithFramework7("Delete workout?", `Delete “${workout.title}” from your Intervals.icu calendar?`).then((confirmed) => { if (confirmed) onAction?.("delete") })}
+                      onClick={() => onAction?.("delete")}
                     >
                       <Trash2 />
                       Delete
@@ -483,27 +526,50 @@ export function WorkoutCard({
             </div>
           )}
         </div>
-        <span className="line-clamp-2 w-full text-left text-[13px] leading-tight font-semibold md:text-sm">
+        <span className={`line-clamp-2 w-full text-left text-[13px] leading-tight font-semibold md:text-sm ${calendarPresentation ? "calendar-workout-title" : ""}`}>
           {workout.title}
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-muted-foreground md:text-xs">
+      {calendarPresentation ? (
+        <>
+          <dl className="calendar-workout-metrics">
+            <div className="calendar-workout-metric calendar-workout-duration">
+              <dt className="sr-only">Duration</dt>
+              <dd data-workout-metric="duration" aria-label={`Duration ${calendarWorkoutDuration(workout)}`}>{calendarWorkoutDuration(workout)}</dd>
+            </div>
+            <div className="calendar-workout-metric">
+              <dt className="sr-only">Distance</dt>
+              <dd data-workout-metric="distance" aria-label={`Distance ${calendarDistance.value}${calendarDistance.unit ? ` ${calendarDistance.unit}` : ""}`}>
+                <span className="calendar-workout-metric-value">{calendarDistance.value}</span>
+                {calendarDistance.unit && <span className="calendar-workout-metric-unit"> {calendarDistance.unit}</span>}
+              </dd>
+            </div>
+            <div className="calendar-workout-metric">
+              <dt className="sr-only">TSS</dt>
+              <dd data-workout-metric="tss" aria-label={`TSS ${tss}`}>
+                <span className="calendar-workout-metric-value">{calendarTssValue}</span>
+                {calendarTssValue !== "—" && <span className="calendar-workout-metric-unit"> TSS</span>}
+              </dd>
+            </div>
+          </dl>
+        </>
+      ) : <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-muted-foreground md:text-xs">
         {time.value !== "—" && (
           <span>
             {time.label.replace(" time", "")}: {time.value}
           </span>
         )}
-        {estimatedDistance(workout) && (
-          <span>· {estimatedDistance(workout)}</span>
+        {distance && (
+          <span>· {distance}</span>
         )}
         {tss !== "—" && <span>· {tss}</span>}
-      </div>
+      </div>}
       {(workout.details || workout.goal) && (
-        <p className="line-clamp-6 text-xs leading-relaxed break-words whitespace-pre-line text-muted-foreground">
+        <p className={`line-clamp-6 text-xs leading-relaxed break-words whitespace-pre-line text-muted-foreground ${calendarPresentation ? "calendar-workout-description" : ""}`}>
           {(workout.details || workout.goal || "").trim()}
         </p>
       )}
-      {workout.status === "completed" && grade !== "unknown" && (
+      {workout.status === "completed" && grade !== "unknown" && !calendarPresentation && (
         <span className="flex items-center gap-1 text-[10px] font-medium">
           {grade === "good"
             ? "On target"
@@ -512,7 +578,7 @@ export function WorkoutCard({
               : "Outside target"}
         </span>
       )}
-      <WorkoutPreview workout={workout} />
+      <WorkoutPreview workout={workout} calendarPresentation={calendarPresentation} />
     </Card>
   )
 }
@@ -536,7 +602,7 @@ function DraggableWorkout({
   })
   if (race)
     return (
-      <div ref={setNodeRef}>
+      <div ref={setNodeRef} className="calendar-race-card">
         <RaceCalendarCard
           workout={workout}
           disabled={disabled}
@@ -556,6 +622,7 @@ function DraggableWorkout({
         onClick={onOpen}
         onAction={canEditWorkout(workout) ? onAction : undefined}
         disabled={disabled}
+        calendarPresentation
       />
     </div>
   )
@@ -566,18 +633,25 @@ function CalendarDay({
   className,
   children,
   disabled,
+  today,
+  currentWeek,
 }: {
   date: string
   className: string
   children: ReactNode
   disabled: boolean
+  today: boolean
+  currentWeek: boolean
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: date, disabled })
   return (
     <div
       ref={setNodeRef}
       data-calendar-date={date}
-      className={`group/day relative ${className} ${isOver ? "bg-primary/10 ring-2 ring-primary ring-inset" : ""}`}
+      data-calendar-today={today ? "true" : undefined}
+      data-calendar-current-week={currentWeek ? "true" : undefined}
+      data-calendar-drop-active={isOver ? "true" : undefined}
+      className={`group/day relative calendar-day-cell ${className} ${isOver ? "bg-primary/10 ring-2 ring-primary ring-inset" : ""}`}
     >
       {children}
     </div>
@@ -587,15 +661,25 @@ function CalendarDay({
 function DayMenu({
   day,
   count,
+  copyCount,
   disabled,
   onAction,
+  onCopy,
+  onPaste,
+  pasteLabel,
+  mobile,
   onCreate,
   children,
 }: {
   day: Date
   count: number
+  copyCount: number
   disabled: boolean
   onAction: (action: "copy" | "delete") => void
+  onCopy: () => void
+  onPaste: () => void
+  pasteLabel: string | null
+  mobile: boolean
   onCreate: () => void
   children: ReactNode
 }) {
@@ -608,30 +692,63 @@ function DayMenu({
     const action = event.currentTarget.value
     if (action === "create") onCreate()
     if (action === "copy") void onAction("copy")
-    if (action === "delete") {
-      void confirmWithFramework7("Delete this day’s workouts?", `Delete all ${count} workouts on ${label} from your Intervals.icu calendar?`).then((confirmed) => {
-        if (confirmed) onAction("delete")
-      })
-    }
+    if (action === "delete") onAction("delete")
     // Keep the date as the selected label so the native picker can be opened
     // again after an action is chosen.
     event.currentTarget.value = ""
   }
   return (
     <div className="mobile-calendar-day-heading relative -mx-4 px-4 py-0.5 md:mx-0 md:mb-3 md:px-0 md:py-0 md:pb-0">
-      {children}
-      <select
-        aria-label={`Workout actions for ${label}`}
-        disabled={disabled}
-        value=""
-        onChange={chooseAction}
-        className="absolute inset-0 z-[1] h-full w-full cursor-pointer appearance-none opacity-0"
-      >
-        <option value="" disabled>{label}</option>
-        <option value="create">Add workout</option>
-        <option value="copy" disabled={count === 0}>Copy</option>
-        <option value="delete" disabled={count === 0}>Delete</option>
-      </select>
+      {mobile ? (
+        <>
+          {children}
+          <select
+            aria-label={`Workout actions for ${label}`}
+            disabled={disabled}
+            value=""
+            onChange={chooseAction}
+            className="absolute inset-0 z-[1] h-full w-full cursor-pointer appearance-none opacity-0"
+          >
+            <option value="" disabled>{label}</option>
+            <option value="create">Add workout</option>
+            <option value="copy" disabled={copyCount === 0}>Copy</option>
+            <option value="delete" disabled={count === 0}>Delete</option>
+          </select>
+        </>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            disabled={disabled}
+            render={<button type="button" aria-label={`Actions for ${label}`} className="calendar-day-menu-trigger" />}
+          >
+            {children}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-40">
+            <DropdownMenuItem onClick={onCreate}>
+              <CalendarDays />
+              Add workout
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={copyCount === 0 || disabled} onClick={onCopy}>
+              <Copy />
+              Copy day
+            </DropdownMenuItem>
+            {pasteLabel && (
+              <DropdownMenuItem disabled={disabled} onClick={onPaste}>
+                <ClipboardPaste />
+                Paste {pasteLabel}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              disabled={count === 0 || disabled}
+              variant="destructive"
+              onClick={() => onAction("delete")}
+            >
+              <Trash2 />
+              Delete day
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   )
 }
@@ -723,7 +840,7 @@ function CalendarWeekViewport({ weekKey, mobile, summaryOpen, forceMounted, regi
       ref={(element) => { elementRef.current = element; register(weekKey, element) }}
       data-calendar-week={weekKey}
       data-calendar-mounted={mounted ? 'true' : 'false'}
-      className="h-auto min-h-0 scroll-mt-14 bg-background"
+      className="calendar-week h-auto min-h-0 scroll-mt-14 bg-background"
       style={mounted ? undefined : { height: calendarWeekHeights.get(heightKey) ?? measuredHeight.current }}
     >
       {mounted ? children() : null}
@@ -740,6 +857,7 @@ export function TrainingCalendar({
   restoreScrollTop?: number | null
   onScrollRestored?: () => void
 }) {
+  const isMobile = useIsMobile()
   const [context, updateContext] = useState(() => {
     const current = cachedTrainingContext()
     return restoreScrollTop !== null && previousCalendarContext
@@ -774,6 +892,11 @@ export function TrainingCalendar({
   const [dragging, setDragging] = useState<PlannedWorkout | null>(null)
   const [moving, setMoving] = useState(false)
   const [moveNotice, setMoveNotice] = useState("")
+  const [calendarClipboard, setCalendarClipboard] = useState<{
+    kind: "workout" | "day"
+    workoutIds: string[]
+    label: string
+  } | null>(null)
   const calendarWasDragged = useRef(false)
   const calendarRevision = useRef(0)
   const sensors = useSensors(
@@ -880,6 +1003,22 @@ export function TrainingCalendar({
     workout: PlannedWorkout,
     action: "copy" | "delete"
   ) => {
+    if (action === "copy" && !isMobile) {
+      setCalendarClipboard({
+        kind: "workout",
+        workoutIds: [workout.id],
+        label: workout.title,
+      })
+      setMoveNotice(`Copied ${workout.title}. Choose a day and select Paste workout.`)
+      return
+    }
+    if (action === "delete" && !isRaceWorkout(workout)) {
+      const confirmed = await confirmWithFramework7(
+        "Delete workout?",
+        `Delete “${workout.title}” from your Intervals.icu calendar?`
+      )
+      if (!confirmed) return
+    }
     if (moving) return
     calendarWasDragged.current = true
     setMoving(true)
@@ -940,7 +1079,14 @@ export function TrainingCalendar({
     }
   }
 
-  const runDayAction = async (day: Date, action: "copy" | "delete") => {
+  const runDayAction = async (day: Date, action: "copy" | "delete", count: number) => {
+    if (action === "delete") {
+      const confirmed = await confirmWithFramework7(
+        "Delete this day’s workouts?",
+        `Delete all ${count} workouts on ${day.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} from your Intervals.icu calendar?`
+      )
+      if (!confirmed) return
+    }
     if (moving) return
     calendarWasDragged.current = true
     setMoving(true)
@@ -971,6 +1117,53 @@ export function TrainingCalendar({
         error instanceof Error
           ? error.message
           : "Unable to update this day’s workouts."
+      )
+    } finally {
+      setMoving(false)
+    }
+  }
+
+  const copyCalendarDay = (day: Date, workouts: PlannedWorkout[]) => {
+    const workoutIds = workouts
+      .filter((workout) => workout.id.startsWith("event:") && canEditWorkout(workout))
+      .map((workout) => workout.id)
+    if (!workoutIds.length) {
+      setMoveNotice("There are no planned workouts to copy from this day.")
+      return
+    }
+    const label = day.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })
+    setCalendarClipboard({ kind: "day", workoutIds, label })
+    setMoveNotice(`Copied ${workoutIds.length} planned workout${workoutIds.length === 1 ? "" : "s"} from ${label}. Choose a day and select Paste day.`)
+  }
+
+  const pasteCalendarClipboard = async (day: Date) => {
+    const clipboard = calendarClipboard
+    if (!clipboard || moving) return
+    calendarWasDragged.current = true
+    setMoving(true)
+    setMoveNotice(`Pasting ${clipboard.kind === "day" ? "day" : "workout"} to ${dateKey(day)}…`)
+    let copied = 0
+    try {
+      for (const id of clipboard.workoutIds) {
+        const result = await changeWorkout(id, "copy", dateKey(day))
+        if (result.context)
+          setContext((current) => ({ ...current, ...result.context }))
+        copied += 1
+      }
+      setCalendarClipboard(null)
+      setMoveNotice(`${copied} planned workout${copied === 1 ? "" : "s"} pasted to ${dateKey(day)}.`)
+    } catch (error) {
+      if (copied > 0)
+        setCalendarClipboard((current) => current ? {
+          ...current,
+          workoutIds: current.workoutIds.slice(copied),
+        } : current)
+      setMoveNotice(
+        `${copied ? `${copied} workout${copied === 1 ? "" : "s"} pasted. ` : ""}${error instanceof Error ? error.message : "Unable to paste the copied workout."}`
       )
     } finally {
       setMoving(false)
@@ -1088,7 +1281,6 @@ export function TrainingCalendar({
       )
     }
   }
-  const isMobile = useIsMobile()
   const weekRefs = useRef(new Map<string, HTMLElement>())
   const calendarRef = useRef<HTMLDivElement>(null)
   const mobilePickerContainerRef = useRef<HTMLDivElement>(null)
@@ -1662,6 +1854,10 @@ export function TrainingCalendar({
   const restoredWeekKey = restoredPosition.current ? dateKey(startOfMonday(new Date(`${restoredPosition.current.date}T12:00:00`))) : null
 
   const openWorkout = (workout: PlannedWorkout) => {
+    if (workout.status !== "completed" && !isMobile) {
+      setSelectedWorkout(workout)
+      return
+    }
     if (onWorkoutOpen) {
       captureViewportAnchor()
       const anchor = viewportAnchor.current
@@ -1691,7 +1887,7 @@ export function TrainingCalendar({
       <div
         ref={calendarRef}
         style={{ overflowAnchor: "none" }}
-        className="flex w-full min-w-0 flex-1 flex-col max-md:max-w-full max-md:overflow-x-clip"
+        className="training-calendar flex w-full min-w-0 flex-1 flex-col max-md:max-w-full max-md:overflow-x-clip"
       >
         <MobileSiteNavbar
           fixed
@@ -1785,7 +1981,7 @@ export function TrainingCalendar({
           </div>
         )}
         {!isMobile && (
-          <header className="sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center px-4 md:flex md:bg-background md:shadow-none">
+          <header className="calendar-desktop-toolbar sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center px-4 md:flex md:bg-background md:shadow-none">
             <Popover open={datePickerOpen} onOpenChange={(open) => {
               if (open) queuedDateJump.current = null
               setDatePickerOpen(open)
@@ -1798,8 +1994,9 @@ export function TrainingCalendar({
               setDateRange(calendarRange(date))
               setPendingDateJump(date)
             }}>
-              <PopoverTrigger ref={desktopPickerTriggerRef} className="mx-auto h-9 min-w-0 truncate rounded-md px-2 text-left text-sm font-semibold hover:bg-muted md:mx-0 md:text-base">
-                {activeMonth}
+              <PopoverTrigger ref={desktopPickerTriggerRef} className="calendar-desktop-month-trigger mx-auto h-9 min-w-0 truncate rounded-md px-2 text-left text-sm font-semibold hover:bg-muted md:mx-0 md:text-base">
+                <span className="min-w-0 truncate">{activeMonth}</span>
+                <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
               </PopoverTrigger>
               <PopoverContent ref={desktopPickerContentRef} align="start" className="w-auto p-0" initialFocus={() => {
                 const target = desktopPickerContentRef.current?.querySelector<HTMLElement>('button, select') ?? desktopPickerContentRef.current
@@ -1809,12 +2006,8 @@ export function TrainingCalendar({
                 desktopPickerTriggerRef.current?.focus({ preventScroll: true })
                 return false
               }}>
-                <Calendar
-                  mode="single"
-                  captionLayout="dropdown"
-                  startMonth={new Date(1900, 0)}
-                  endMonth={new Date(new Date().getFullYear() + 10, 11)}
-                  defaultMonth={activeWeek?.start}
+                <DatePickerCalendar
+                  defaultMonth={activeWeek?.start ?? new Date()}
                   selected={activeWeek?.start}
                   onSelect={jumpToDate}
                 />
@@ -1827,24 +2020,25 @@ export function TrainingCalendar({
             </div>
           </header>
         )}
-        <div className="sticky top-14 z-40 hidden h-7 shrink-0 border-b bg-background shadow-sm md:flex">
-          <div className="grid min-w-0 flex-1 grid-cols-7 divide-x">
+        <div className="calendar-weekday-header sticky top-14 z-40 hidden h-7 shrink-0 border-b bg-background shadow-sm md:flex">
+          <div className="calendar-weekday-grid grid min-w-0 flex-1 grid-cols-7 divide-x">
             {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
               <div
                 key={day}
-                className="flex items-center px-2 text-[11px] font-medium text-muted-foreground uppercase"
+                className="calendar-weekday-label flex items-center px-2 text-[11px] font-medium text-muted-foreground uppercase"
               >
                 {day}
               </div>
             ))}
           </div>
           <div
-            className={`hidden shrink-0 items-center justify-end border-l px-1 xl:flex ${summaryOpen ? "w-72" : "w-10"}`}
+            className={`calendar-summary-header hidden shrink-0 items-center border-l xl:flex ${summaryOpen ? "w-72" : "w-10"}`}
           >
+            {summaryOpen && <span className="calendar-summary-header-title">SUMMARY</span>}
             <Button
               variant="ghost"
               size="icon-sm"
-              className="size-6"
+              className="calendar-summary-toggle size-6"
               onClick={() => void saveSummary(!summaryOpen)}
               aria-label={
                 summaryOpen
@@ -1853,11 +2047,7 @@ export function TrainingCalendar({
               }
               aria-expanded={summaryOpen}
             >
-              {summaryOpen ? (
-                <PanelRightClose className="size-4" />
-              ) : (
-                <PanelRightOpen className="size-4" />
-              )}
+              {summaryOpen ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
             </Button>
           </div>
         </div>
@@ -1870,11 +2060,10 @@ export function TrainingCalendar({
           </p>
         )}
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="min-w-0 flex-1 bg-muted/20">
+          <div className="calendar-week-list min-w-0 flex-1 bg-muted/20">
             <div className="md:divide-y">
               {weeks.map((week) => {
                 const end = week.days[6]
-                const title = `${week.start.toLocaleDateString("en-US", { month: "short", day: "2-digit" })} – ${end.toLocaleDateString("en-US", { month: "short", day: "2-digit" })}`
                 const planWeek =
                   annualPlan?.weeks.find(
                     (item) => item.startDate === week.key
@@ -1892,7 +2081,7 @@ export function TrainingCalendar({
                   >
                     {() => (
                     <div className="flex h-auto min-h-0 w-full flex-col items-stretch xl:flex-row">
-                      <div className="grid h-auto min-h-0 w-full min-w-0 flex-1 grid-cols-1 items-stretch md:min-h-60 md:grid-cols-7 md:divide-x md:divide-y-0">
+                      <div className="calendar-week-grid grid h-auto min-h-0 w-full min-w-0 flex-1 grid-cols-1 items-stretch md:min-h-60 md:grid-cols-7 md:divide-x md:divide-y-0">
                         {week.days.map((day) => {
                           const dayCandidates = week.workouts.filter(
                             (workout) => workout.workout_date === dateKey(day)
@@ -1922,6 +2111,8 @@ export function TrainingCalendar({
                               key={dateKey(day)}
                               date={dateKey(day)}
                               disabled={moving}
+                              today={isToday}
+                              currentWeek={week.key === todayWeekKey}
                               className={
                                 isToday
                                   ? "min-w-0 px-4 pt-0 pb-8 md:bg-primary/5 md:px-1.5 md:py-2"
@@ -1931,11 +2122,16 @@ export function TrainingCalendar({
                               <DayMenu
                                 day={day}
                                 count={dayWorkouts.length}
+                                copyCount={dayCandidates.filter((workout) => workout.id.startsWith("event:") && canEditWorkout(workout)).length}
                                 disabled={moving}
-                                onAction={(action) => void runDayAction(day, action)}
+                                mobile={isMobile}
+                                onAction={(action) => void runDayAction(day, action, dayWorkouts.length)}
+                                onCopy={() => copyCalendarDay(day, dayCandidates)}
+                                onPaste={() => void pasteCalendarClipboard(day)}
+                                pasteLabel={calendarClipboard?.kind || null}
                                 onCreate={() => setNewWorkoutDate(dateKey(day))}
                               >
-                                <span className={`text-[17px] leading-[20.4px] font-semibold md:px-0.5 md:text-sm md:leading-normal md:font-bold ${isPast ? "text-muted-foreground" : isToday ? "text-red-600 dark:text-red-400 md:text-primary" : "text-foreground"}`}>
+                                <span className={`calendar-date-number text-[17px] leading-[20.4px] font-semibold md:px-0.5 md:text-sm md:leading-normal md:font-bold ${isPast ? "text-muted-foreground" : isToday ? "text-red-600 dark:text-red-400 md:text-primary" : "text-foreground"}`}>
                                   <span className="md:hidden">
                                     {day.toLocaleDateString("en-US", {
                                       weekday: "long",
@@ -1945,11 +2141,12 @@ export function TrainingCalendar({
                                       month: "short",
                                     })}{" "}
                                   </span>
+                                  {isToday && <span className="hidden md:inline md:mr-1">Today</span>}
                                   {day.getDate()}
                                 </span>
                               </DayMenu>
                               <div className="mobile-calendar-day-divider w-full border-b border-border/70 md:hidden" aria-hidden="true" />
-                              <div className="space-y-0 md:space-y-2">
+                              <div className="calendar-day-workouts space-y-0 md:space-y-2">
                                 {dayWorkouts.map((workout, workoutIndex) =>
                                   isMobile ? (
                                     <DraggableMobileWorkoutRow
@@ -1987,7 +2184,7 @@ export function TrainingCalendar({
                         })}
                       </div>
                       <aside
-                        className={`hidden shrink-0 self-stretch border-l bg-muted/20 transition-[width] xl:block ${summaryOpen ? "w-72" : "w-10"}`}
+                        className={`calendar-week-sidebar hidden shrink-0 self-stretch border-l bg-muted/20 transition-[width] xl:block ${summaryOpen ? "w-72" : "w-10"}`}
                       >
                         <Collapsible
                           open={summaryOpen}
@@ -1997,7 +2194,6 @@ export function TrainingCalendar({
                         >
                           <CollapsibleContent className="p-3">
                             <WeekSummary
-                              title={title}
                               workouts={week.workouts}
                               planWeek={planWeek}
                               startDate={week.key}
@@ -2044,7 +2240,7 @@ export function TrainingCalendar({
                 showDivider={false}
               />
             ) : (
-              <WorkoutCard workout={dragging} onClick={() => {}} />
+              <WorkoutCard workout={dragging} onClick={() => {}} calendarPresentation />
             )}
           </div>
         ) : null}
@@ -2053,7 +2249,7 @@ export function TrainingCalendar({
   )
 }
 
-const disciplineChartConfig = {
+const disciplineSummaryConfig = {
   swim: { label: "Swim", color: "var(--color-cyan-600)" },
   bike: { label: "Bike", color: "var(--color-violet-600)" },
   run: { label: "Run", color: "var(--color-lime-600)" },
@@ -2062,13 +2258,11 @@ const disciplineChartConfig = {
 }
 
 function WeekSummary({
-  title,
   workouts,
   planWeek,
   startDate,
   blockStart,
 }: {
-  title: string
   workouts: PlannedWorkout[]
   planWeek: AnnualPlanWeek | null
   startDate: string
@@ -2079,10 +2273,10 @@ function WeekSummary({
     0
   )
   const plannedTotalMinutes = workouts.reduce(
-    (sum, item) => sum + durationMinutes(item),
+    (sum, item) => sum + workoutPlannedMinutes(item),
     0
   )
-  const totals = workouts.reduce<Record<string, number>>((result, workout) => {
+  const totals = workouts.reduce<Record<string, { planned: number; completed: number }>>((result, workout) => {
     const sport = workout.sport.toLowerCase()
     const discipline = sport.includes("swim")
       ? "swim"
@@ -2093,78 +2287,67 @@ function WeekSummary({
           : sport.includes("strength")
             ? "strength"
             : "other"
-    result[discipline] = (result[discipline] ?? 0) + completedMinutes(workout)
+    const current = result[discipline] ?? { planned: 0, completed: 0 }
+    result[discipline] = {
+      planned: current.planned + workoutPlannedMinutes(workout),
+      completed: current.completed + completedMinutes(workout),
+    }
     return result
   }, {})
-  const chartData = Object.entries(disciplineChartConfig)
+  const sportData = Object.entries(disciplineSummaryConfig)
     .map(([discipline, config]) => ({
       discipline,
       label: config.label,
-      minutes: totals[discipline] ?? 0,
+      planned: totals[discipline]?.planned ?? 0,
+      completed: totals[discipline]?.completed ?? 0,
       fill: config.color,
     }))
-    .filter((item) => item.minutes > 0)
+    .filter((item) => item.planned > 0 || item.completed > 0)
+  const plannedTss = workoutTssTotal(workouts, "planned")
+  const completedTss = workoutTssTotal(workouts, "completed")
 
   return (
-    <div className="space-y-3">
-      <CardTitle className="text-center text-sm">{title}</CardTitle>
-      <div className="relative">
-        <svg viewBox="0 0 160 160" className="mx-auto size-40" role="img" aria-label="Completed duration by sport">
-          {chartData.map((item, index) => {
-            const percent = completedTotalMinutes > 0 ? item.minutes / completedTotalMinutes * 100 : 0
-            const before = chartData.slice(0, index).reduce((sum, part) => sum + part.minutes, 0)
-            return <circle key={item.discipline} cx="80" cy="80" r="51" fill="none" stroke={item.fill} strokeWidth="26" pathLength="100" strokeDasharray={`${percent} ${100 - percent}`} strokeDashoffset={-before / completedTotalMinutes * 100} transform="rotate(-90 80 80)"><title>{item.label}: {formatDuration(item.minutes)}</title></circle>
-          })}
-        </svg>
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <strong className="text-base tabular-nums">
-            {formatDuration(completedTotalMinutes)}
-          </strong>
-          <span className="text-[10px] text-muted-foreground">Total time</span>
+    <div className="calendar-week-summary space-y-3">
+      <table className="calendar-summary-metrics" aria-label="Planned versus completed weekly metrics">
+        <thead>
+          <tr><th scope="col">Total</th><th scope="col">Planned</th><th scope="col">Completed</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">Duration</th><td>{formatDuration(plannedTotalMinutes)}</td><td>{formatDuration(completedTotalMinutes)}</td></tr>
+          <tr><th scope="row">TSS</th><td>{plannedTss.label}</td><td>{completedTss.label}</td></tr>
+        </tbody>
+      </table>
+      {(plannedTss.partial || completedTss.partial || plannedTss.estimated || completedTss.estimated) && (
+        <div className="calendar-summary-note">
+          {plannedTss.partial && <p>Planned TSS available for {plannedTss.available} of {plannedTss.expected} sessions.</p>}
+          {completedTss.partial && <p>Completed TSS available for {completedTss.available} of {completedTss.expected} sessions.</p>}
+          {(plannedTss.estimated || completedTss.estimated) && <p>~ Estimated TSS.</p>}
+          {(plannedTss.partial || completedTss.partial) && <p>+ Partial TSS total.</p>}
         </div>
-      </div>
-      <div
-        className="grid grid-cols-2 divide-x border-t pt-3 text-sm"
-        aria-label="Completed versus planned duration"
-      >
-        <div className="pr-4">
-          <p className="mb-1 text-xs text-muted-foreground">Planned</p>
-          <p className="font-semibold tabular-nums">
-            {formatDuration(plannedTotalMinutes)}
-          </p>
-        </div>
-        <div className="pl-4">
-          <p className="mb-1 text-xs text-muted-foreground">Completed</p>
-          <p className="font-semibold tabular-nums">
-            {formatDuration(completedTotalMinutes)}
-          </p>
-        </div>
-      </div>
+      )}
       <div className="flex flex-wrap gap-1">
         <SavedReportButton kind="weekly" startDate={startDate} />
         {blockStart && (
           <SavedReportButton kind="block" startDate={blockStart} />
         )}
       </div>
-      <div className="space-y-1.5">
-        {chartData.map((item) => (
-          <div
-            key={item.discipline}
-            className="flex items-center gap-2 text-xs"
-          >
-            <span
-              className="size-2 rounded-full"
-              style={{ backgroundColor: item.fill }}
-            />
-            <span className="flex-1 text-muted-foreground">{item.label}</span>
-            <span className="font-medium tabular-nums">
-              {formatDuration(item.minutes)}
-            </span>
-          </div>
-        ))}
-      </div>
+      {sportData.length > 0 && (
+        <table className="calendar-summary-sports" aria-label="Weekly duration by sport">
+          <thead>
+            <tr><th scope="col">Sport</th><th scope="col">Planned</th><th scope="col">Completed</th></tr>
+          </thead>
+          <tbody>
+            {sportData.map((item) => (
+              <tr key={item.discipline}>
+                <th scope="row"><span className="calendar-sport-key" style={{ backgroundColor: item.fill }} aria-hidden="true" />{item.label}</th>
+                <td>{formatDuration(item.planned)}</td><td>{formatDuration(item.completed)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
       {planWeek && (
-        <div className="space-y-1.5 border-t pt-3">
+        <div className="space-y-1.5 pt-3">
           <p className="text-base leading-snug font-bold">
             {phaseLabel(planWeek)}
           </p>

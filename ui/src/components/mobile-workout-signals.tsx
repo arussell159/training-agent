@@ -38,6 +38,7 @@ export function MobileWorkoutSignals({
   dfa,
   onLapSelect,
   afterLaps,
+  highlightRange,
 }: {
   points: RecordedPoint[]
   laps: Lap[]
@@ -47,6 +48,7 @@ export function MobileWorkoutSignals({
   summary?: WorkoutSummaryValues | null
   onLapSelect?: (lap: Lap | null) => void
   afterLaps?: ReactNode
+  highlightRange?: [number, number] | null
 }) {
   const [time, setTime] = useState<number | null>(null),
     [lap, setLap] = useState<Lap | null>(null)
@@ -195,6 +197,7 @@ export function MobileWorkoutSignals({
           sport={sport}
           selected={lap}
           onSelect={selectLap}
+          highlightRange={highlightRange}
         />
         {intervals.length > 0 && (
           <div className="flex justify-end">
@@ -359,6 +362,15 @@ export function MobileWorkoutSignals({
                   height="160"
                   fill="#94a3b8"
                   opacity=".15"
+                />
+              )}
+              {!lap && highlightRange && (
+                <rect
+                  data-selected-effort-highlight
+                  x={x(highlightRange[0])}
+                  width={Math.max(2, x(highlightRange[1]) - x(highlightRange[0]))}
+                  y="40" height="160" fill="#a21caf" opacity=".18"
+                  pointerEvents="none"
                 />
               )}
               {swim &&
