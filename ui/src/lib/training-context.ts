@@ -582,6 +582,37 @@ async function runRecentRefresh(operation: RefreshOperation) {
 export async function moveWorkoutDate(id: string, date: string) {
   return queueWorkoutMutation({ type: "move", id, date })
 }
+
+export async function pairCompletedWorkout(plannedId: string, completedId: string) {
+  const revision = beginMutation()
+  try {
+    const { response, result } = await readMutationResponse<{
+      verified?: boolean
+      error?: string
+      context?: TrainingContext | null
+    }>(
+      "/api/workouts/pair",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ plannedId, completedId }),
+      },
+      180_000,
+      "The workout pairing could not be confirmed. Refresh your calendar before retrying."
+    )
+    if (!response.ok || !result?.verified)
+      throw new Error(result?.error || "Unable to combine these workouts.")
+    if (result.context) {
+      result.context = validatedTrainingContext(result.context)
+      const previous = contextCache.get("full") || contextCache.get("week")
+      if (previous)
+        result.context = acceptMutationContext({ ...previous, ...result.context }, revision)
+    }
+    return result
+  } finally {
+    mutationsInFlight--
+  }
+}
 function readMutationResponse<T>(
   path: string,
   options: RequestInit,

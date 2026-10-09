@@ -490,8 +490,8 @@ export async function fetchIntervalsContext(
   };
 }
 
-// Provider links win. Infer only unique same-day/title matches, with one
-// explicit discipline exception for Heat Training logged as an Other activity.
+// Provider links win. Prefer exact same-day/title matches, then pair an
+// otherwise-unmatched activity to the closest same-day, same-sport duration.
 export function pairIntervalsWorkouts(events, activities) {
   const byId = new Map(activities.map((a) => [String(a.id), a]));
   const matches = new Map(),
@@ -538,6 +538,29 @@ export function pairIntervalsWorkouts(events, activities) {
       (sport(event.type) === "Other" || sport(activity.type) === "Other")
     );
   };
+  const durationSeconds = (item, activity = false) => {
+    const value = activity
+      ? item.moving_time || item.elapsed_time
+      : item.moving_time || item.workout_doc?.duration;
+    const seconds = Number(value);
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+  };
+  const durationMatch = (event, activity) => {
+    const day = dayKey(event);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(day) ||
+      day !== dayKey(activity) ||
+      !event.type ||
+      !activity.type ||
+      sport(event.type) !== sport(activity.type)
+    ) return null;
+    const planned = durationSeconds(event);
+    const completed = durationSeconds(activity, true);
+    if (!planned || !completed) return null;
+    const difference = Math.abs(planned - completed);
+    // Accept up to 25% variance, with a five-minute floor for short sessions.
+    return difference <= Math.max(300, planned * 0.25) ? difference : null;
+  };
   const availableEvents = events.filter(
     (e) => e.category === "WORKOUT" && e.paired_activity_id == null && !matches.has(String(e.id))
   );
@@ -556,6 +579,32 @@ export function pairIntervalsWorkouts(events, activities) {
     if (competingEvents.length !== 1) continue;
     matches.set(String(event.id), activity);
     used.add(String(activity.id));
+  }
+
+  // For remaining sessions, choose only mutual closest-duration matches. This
+  // avoids pairing arbitrarily when two workouts are equally plausible.
+  const unmatchedEvents = availableEvents.filter((event) => !matches.has(String(event.id)));
+  const unmatchedActivities = availableActivities.filter((activity) => !used.has(String(activity.id)));
+  const edges = unmatchedEvents.flatMap((event) => unmatchedActivities.flatMap((activity) => {
+    const difference = durationMatch(event, activity);
+    return difference == null ? [] : [{ event, activity, difference }];
+  }));
+  const bestUnique = (items, keyOf) => {
+    const result = new Map();
+    for (const item of items) {
+      const key = keyOf(item);
+      const prior = result.get(key);
+      if (!prior || item.difference < prior.difference) result.set(key, { item, difference: item.difference, tied: false });
+      else if (item.difference === prior.difference) prior.tied = true;
+    }
+    return new Map([...result].filter(([, value]) => !value.tied).map(([key, value]) => [key, value.item]));
+  };
+  const eventChoices = bestUnique(edges, (edge) => String(edge.event.id));
+  const activityChoices = bestUnique(edges, (edge) => String(edge.activity.id));
+  for (const [eventId, edge] of eventChoices) {
+    if (activityChoices.get(String(edge.activity.id)) !== edge) continue;
+    matches.set(eventId, edge.activity);
+    used.add(String(edge.activity.id));
   }
   return matches;
 }

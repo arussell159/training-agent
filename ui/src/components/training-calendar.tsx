@@ -105,6 +105,7 @@ import {
   loadFullTrainingContext,
   mergeCalendarContext,
   moveWorkoutDate,
+  pairCompletedWorkout,
   changeWorkout,
   changeWorkoutDay,
   type PlannedWorkout,
@@ -384,13 +385,26 @@ function DraggableMobileWorkoutRow({
     data: { workout },
     disabled,
   })
+  const { setNodeRef: setDropNodeRef, isOver } = useDroppable({
+    id: `combine:${workout.id}`,
+    data: { workout, kind: "combine" },
+    disabled: disabled || workout.status === "completed" || !canEditWorkout(workout),
+  })
   return (
     <div
-      ref={setNodeRef}
+      ref={(node) => {
+        setNodeRef(node)
+        setDropNodeRef(node)
+      }}
       {...listeners}
       {...attributes}
-      className={`select-none md:hidden ${isDragging ? "opacity-30" : ""}`}
+      className={`relative select-none md:hidden ${isDragging ? "opacity-30" : ""} ${isOver ? "z-10 rounded-md ring-2 ring-primary ring-offset-2" : ""}`}
     >
+      {isOver && (
+        <span className="pointer-events-none absolute -top-2 right-2 z-20 rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground shadow">
+          Combine workouts
+        </span>
+      )}
       <MobileWorkoutRow
         workout={workout}
         onOpen={onOpen}
@@ -595,10 +609,23 @@ function DraggableWorkout({
   disabled: boolean
 }) {
   const race = isRaceWorkout(workout)
+  const completedActivity =
+    workout.status === "completed" &&
+    workout.id.startsWith("activity:") &&
+    Boolean(workout.activity_id)
   const { setNodeRef, listeners, isDragging } = useDraggable({
     id: workout.id,
     data: { workout },
-    disabled: disabled || race || !canEditWorkout(workout),
+    disabled: disabled || race || (!completedActivity && !canEditWorkout(workout)),
+  })
+  const { setNodeRef: setDropNodeRef, isOver } = useDroppable({
+    id: `combine:${workout.id}`,
+    data: { workout, kind: "combine" },
+    disabled:
+      disabled ||
+      workout.status === "completed" ||
+      !workout.id.startsWith("event:") ||
+      !canEditWorkout(workout),
   })
   if (race)
     return (
@@ -613,10 +640,18 @@ function DraggableWorkout({
     )
   return (
     <div
-      ref={setNodeRef}
+      ref={(node) => {
+        setNodeRef(node)
+        setDropNodeRef(node)
+      }}
       {...listeners}
-      className={`select-none ${isDragging ? "opacity-30" : ""}`}
+      className={`relative select-none ${isDragging ? "opacity-30" : ""} ${isOver ? "z-10 rounded-md ring-2 ring-primary ring-offset-2" : ""}`}
     >
+      {isOver && (
+        <span className="pointer-events-none absolute -top-2 right-2 z-20 rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground shadow">
+          Combine workouts
+        </span>
+      )}
       <WorkoutCard
         workout={workout}
         onClick={onOpen}
@@ -1173,6 +1208,39 @@ export function TrainingCalendar({
   const finishDrag = async ({ active, over }: DragEndEvent) => {
     setDragging(null)
     const workout = active.data.current?.workout as PlannedWorkout | undefined
+    const combineTarget = over?.data.current?.kind === "combine"
+      ? over.data.current.workout as PlannedWorkout | undefined
+      : undefined
+    if (workout && combineTarget) {
+      const validPair =
+        workout.status === "completed" &&
+        workout.id.startsWith("activity:") &&
+        Boolean(workout.activity_id) &&
+        combineTarget.status !== "completed" &&
+        combineTarget.id.startsWith("event:") &&
+        canEditWorkout(combineTarget) &&
+        workout.sport.toLowerCase() === combineTarget.sport.toLowerCase()
+      if (!validPair || moving) return
+      setMoving(true)
+      setMoveNotice("Combining workouts…")
+      try {
+        const result = await pairCompletedWorkout(combineTarget.id, workout.id)
+        if (result.context) {
+          setContext((current) => ({ ...current, ...result.context }))
+        } else {
+          const refreshed = await loadFullTrainingContext(true)
+          if (refreshed) setContext(refreshed)
+        }
+        setMoveNotice(`${workout.title} combined with ${combineTarget.title}.`)
+      } catch (error) {
+        setMoveNotice(
+          error instanceof Error ? error.message : "Unable to combine these workouts."
+        )
+      } finally {
+        setMoving(false)
+      }
+      return
+    }
     if (
       !workout ||
       !canEditWorkout(workout) ||
@@ -1877,7 +1945,16 @@ export function TrainingCalendar({
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={pointerWithin}
+      collisionDetection={(args) => {
+        const collisions = pointerWithin(args)
+        if (args.active.data.current?.workout?.status === "completed") {
+          const combineTargets = collisions.filter((collision) =>
+            String(collision.id).startsWith("combine:")
+          )
+          if (combineTargets.length) return combineTargets
+        }
+        return collisions
+      }}
       onDragStart={({ active }) =>
         setDragging(active.data.current?.workout || null)
       }
@@ -2160,7 +2237,10 @@ export function TrainingCalendar({
                                       disabled={
                                         moving ||
                                         isRaceWorkout(workout) ||
-                                        !canEditWorkout(workout)
+                                        (!canEditWorkout(workout) &&
+                                          !(workout.status === "completed" &&
+                                            workout.id.startsWith("activity:") &&
+                                            Boolean(workout.activity_id)))
                                       }
                                     />
                                   ) : (
@@ -2169,7 +2249,10 @@ export function TrainingCalendar({
                                       workout={workout}
                                       disabled={
                                         moving ||
-                                        !workout.id.startsWith("event:")
+                                        (!workout.id.startsWith("event:") &&
+                                          !(workout.status === "completed" &&
+                                            workout.id.startsWith("activity:") &&
+                                            Boolean(workout.activity_id)))
                                       }
                                       onOpen={() => openWorkout(workout)}
                                       onAction={(action) =>

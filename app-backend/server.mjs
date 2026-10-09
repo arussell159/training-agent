@@ -64,7 +64,7 @@ import {
   saveAnnualPlanRecord,
   updateTrainingPreferences,
 } from './lib/local-context.mjs';
-import { createIntervalsClient, fetchIntervalsContext, moveIntervalsEvent, changeIntervalsEvent, createIntervalsRaceEvent, updateIntervalsRaceEvent, updateIntervalsTrainingZones, mapIntervalsWorkout, validDate } from './lib/intervals.mjs';
+import { createIntervalsClient, fetchIntervalsContext, moveIntervalsEvent, changeIntervalsEvent, createIntervalsRaceEvent, updateIntervalsRaceEvent, updateIntervalsTrainingZones, mapIntervalsWorkout, validDate, eventId as intervalsEventId } from './lib/intervals.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1721,6 +1721,74 @@ export async function handleRequest(req, res) {
       const context=snapshot?await saveVerifiedSnapshot(config,snapshot):null;
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
       res.end(JSON.stringify({results,failures,total:events.length,context}));
+      return;
+    }
+
+    if(pathname==='/api/workouts/pair' && req.method==='POST') {
+      const config=await readConfig();
+      try {
+        const payload=await readBody(req);
+        const plannedId=intervalsEventId(payload.plannedId);
+        const completedId=String(payload.completedId || '').replace(/^activity:/i,'');
+        if(!/^(?:i)?[1-9]\d*$/.test(completedId)) throw Object.assign(Error('Choose a completed Intervals.icu workout.'),{status:400});
+        if(await localEditCacheEnabled(req)) {
+          const cached=await readIntervalsCache();
+          if(!cached) throw Object.assign(Error('The local workout cache is unavailable.'),{status:503});
+          const all=[...(cached.history || []),...(cached.planned || [])];
+          const planned=all.find((workout)=>workout.id===`event:${plannedId}`);
+          const completed=all.find((workout)=>String(workout.activity_id || workout.raw?.id || '')===completedId && workout.status==='completed');
+          if(!planned || planned.category!=='WORKOUT') throw Object.assign(Error('The planned workout could not be found.'),{status:404});
+          if(!completed) throw Object.assign(Error('The completed workout could not be found.'),{status:404});
+          if(String(planned.sport).toLowerCase()!==String(completed.sport).toLowerCase()) throw Object.assign(Error('Only workouts in the same sport can be combined.'),{status:400});
+          const event={...planned.raw,paired_activity_id:completed.raw?.id || completed.activity_id};
+          const activity={...completed.raw,paired_event_id:Number(plannedId)};
+          const paired=mapIntervalsWorkout(event,athleteLocalDate(new Date(),cached.athlete?.time_zone || 'America/Chicago'),activity,false,cached.athlete?.sport_settings || []);
+          const sessions=all.filter((workout)=>workout.id!==planned.id && workout.id!==completed.id);
+          sessions.push({...planned,...paired,raw:event,raw_activity:activity});
+          sessions.sort((a,b)=>String(a.workout_date).localeCompare(String(b.workout_date)));
+          const today=athleteLocalDate(new Date(),cached.athlete?.time_zone || 'America/Chicago');
+          cached.history=sessions.filter((workout)=>workout.workout_date<=today);
+          cached.planned=sessions.filter((workout)=>workout.workout_date>today);
+          intervalsMemoryCache=null;
+          await fs.writeFile(intervalsCachePath,JSON.stringify(cached));
+          sendJson(req,res,{verified:true,plannedId:`event:${plannedId}`,completedId:`activity:${completedId}`,context:cached});
+          return;
+        }
+        const verified=await withDirectWorkoutWrite(config,`activity:${completedId}`,async(request)=>{
+          const eventPath=`/athlete/0/events/${encodeURIComponent(plannedId)}`;
+          const activityPath=`/activity/${encodeURIComponent(completedId)}`;
+          const [event,activity]=await Promise.all([request(eventPath),request(activityPath)]);
+          if(!event || event.category!=='WORKOUT') throw Object.assign(Error('The planned workout could not be found.'),{status:404});
+          if(!activity || !activity.type) throw Object.assign(Error('The completed workout could not be found.'),{status:404});
+          const discipline=value=>/Ride|Bike/i.test(value||'')?'Bike':/Run/i.test(value||'')?'Run':/Swim/i.test(value||'')?'Swim':/Weight|Strength/i.test(value||'')?'Strength':value||'Other';
+          if(discipline(event.type)!==discipline(activity.type)) throw Object.assign(Error('Only workouts in the same sport can be combined.'),{status:400});
+          if(event.paired_activity_id!=null && String(event.paired_activity_id)!==String(activity.id)) throw Object.assign(Error('This planned workout is already combined with another completed workout.'),{status:409});
+          if(activity.paired_event_id!=null && String(activity.paired_event_id)!==String(plannedId)) throw Object.assign(Error('This completed workout is already combined with another planned workout.'),{status:409});
+          if(String(activity.paired_event_id)!==String(plannedId)) {
+            const saved=await request(activityPath,{method:'PUT',body:JSON.stringify({paired_event_id:Number(plannedId)})});
+            const linked=String(saved?.id)===String(activity.id) && String(saved?.paired_event_id)===String(plannedId)
+              ? saved
+              : await request(activityPath);
+            if(String(linked?.id)!==String(activity.id) || String(linked?.paired_event_id)!==String(plannedId)) throw Object.assign(Error('Intervals.icu did not confirm the workout pairing. Refresh before retrying.'),{status:502});
+          }
+          return {plannedId:`event:${plannedId}`,completedId:`activity:${activity.id}`};
+        });
+        intervalsMemoryCache=null;providerReads.clear();
+        let context=null;
+        try {
+          const refreshed=await fetchIntervalsTrainingContext(config,{force:true,includeFutureRaces:true,repairWorkoutLinks:true});
+          if(refreshed) {
+            context=await loadSupabaseTrainingSnapshot(config)
+              ? await saveVerifiedSnapshot(config,refreshed)
+              : refreshed;
+            await fs.writeFile(intervalsCachePath,JSON.stringify(context));
+          }
+        } catch(error) { updateLogs(`Workout pairing saved, but calendar refresh is pending: ${error.message}`); }
+        sendJson(req,res,{verified:true,...verified,context});
+      } catch(error) {
+        res.writeHead(error.status || 500,{'Content-Type':'application/json','Cache-Control':'no-store'});
+        res.end(JSON.stringify({error:error.message || 'Unable to combine these workouts.'}));
+      }
       return;
     }
 
