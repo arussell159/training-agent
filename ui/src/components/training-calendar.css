@@ -216,7 +216,7 @@
 
   .calendar-workout-title {
     color: #1a202e;
-    font-size: 15px;
+    font-size: 13px;
     font-weight: 500;
     line-height: 22px;
     padding-bottom: 4px;
@@ -258,7 +258,7 @@
   .calendar-workout-metric dd {
     min-width: 0;
     color: #1a202e;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
@@ -275,7 +275,7 @@
   }
 
   .calendar-workout-duration dd {
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 700;
     line-height: 18px;
   }
@@ -283,7 +283,7 @@
   .calendar-workout-description {
     -webkit-line-clamp: 3;
     color: #1a202e;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 400;
     line-height: 21px;
   }
@@ -421,7 +421,7 @@
   }
 
   .calendar-workout-title {
-    font-size: 15px;
+    font-size: 13px;
     line-height: 22px;
   }
 
