@@ -10,6 +10,8 @@ The **Daily snapshot** section uses a two-column grid: HRV and RHR on the first 
 
 The hero photo loads eagerly with high priority and asynchronous decoding. Session and race photo layers start loading within 200px of the viewport, so lower cards do not compete with the first screen. The same file supplies both layers and remains cached once loaded. Photo fitting and card dimensions remain unchanged.
 
+Every photo wrapper aligns with its card bounds and inherits its corner radius. An explicit rounded clip contains the blurred background and fitted subject, including when mobile browsers composite those layers separately. Blur stays on the inner layers; the clipping wrapper has no filter or negative inset that could paint outside the card.
+
 ## Switch or revert
 
 On mobile Home, open the top-right **Options** menu and choose **Use original home layout**. Choose **Use new home layout** to return. The preference persists on that browser/device and uses a session fallback when browser storage is blocked.

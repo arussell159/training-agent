@@ -47,6 +47,8 @@
   }
 
   .home-athlete-hero {
+    --home-photo-radius: 0 0 30px 30px;
+    --home-photo-soften: 2px;
     position: relative;
     isolation: isolate;
     overflow: hidden;
@@ -58,7 +60,12 @@
   }
 
   .home-photo {
+    position: absolute;
+    inset: 0;
     overflow: hidden;
+    border-radius: inherit;
+    /* Clip the composited photo layers themselves, including on mobile Safari. */
+    clip-path: inset(0 round var(--home-photo-radius));
     background-position: center;
     background-size: cover;
     background-repeat: no-repeat;
@@ -76,6 +83,7 @@
   .home-photo-subject {
     position: absolute;
     max-width: none;
+    filter: blur(var(--home-photo-soften));
     /* Fade only the source photo's outer margins into the full-bleed fill. */
     mask-image:
       linear-gradient(90deg, transparent, black 4%, black 96%, transparent),
@@ -84,10 +92,7 @@
   }
 
   .home-hero-photo {
-    position: absolute;
     z-index: -2;
-    inset: -12px;
-    filter: blur(2px);
     opacity: 0.9;
   }
 
@@ -317,6 +322,8 @@
     display: none;
   }
   .home-session-tile {
+    --home-photo-radius: 17px;
+    --home-photo-soften: 1px;
     position: relative;
     isolation: isolate;
     display: flex;
@@ -339,10 +346,7 @@
     flex-basis: 100%;
   }
   .home-session-photo {
-    position: absolute;
     z-index: -2;
-    inset: -6px;
-    filter: blur(1px);
   }
   .home-session-tile::before {
     position: absolute;
@@ -629,6 +633,8 @@
     max-height: 290px;
   }
   .home-race-photo-card {
+    --home-photo-radius: 18px;
+    --home-photo-soften: 1px;
     position: relative;
     isolation: isolate;
     overflow: hidden;
@@ -636,10 +642,7 @@
     background: var(--card);
   }
   .home-race-photo {
-    position: absolute;
     z-index: -1;
-    inset: 0;
-    filter: blur(1px);
   }
   .mobile-home-redesign .home-race-section .dashboard-events-card {
     background: linear-gradient(
