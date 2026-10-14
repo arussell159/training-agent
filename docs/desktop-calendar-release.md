@@ -11,6 +11,8 @@ The desktop calendar and workout views follow the signed-in TrainingPeaks refere
 - Calendar cards retain 4px side spacing and gray profiles flush with the card edges. Desktop workout headers, totals, combined graphs, signal statistics, laps, and elevation remain compact; Analyze fits at both 1440×900 and 1024×720.
 - Source signal statistics remain unchanged by display smoothing. Cursor movement reuses smoothed samples and elevation preprocessing. Missing recordings remain explicit errors with retry; missing GPS does not fabricate a map.
 
+The production recording audit also includes terrain rows and their legend. Analyze measures the available dialog body and the actual chart controls/elevation height, then fits the plot with a ResizeObserver. It accounts for body scrolling without resizing in response to cursor movement. The map remains compact and the inspector scrolls independently. GPS fixture verification at 1440×900 and 1024×720 reports zero body overflow and elevation above the footer after resizing.
+
 ## Verification
 
 Dependency audit: compatible security patches are applied in the root and UI lockfiles. The unused shadcn component-generation CLI is removed from the UI dependency tree; its Tailwind variants/utilities are preserved verbatim in `component-variants.css` with its MIT license. Component behavior and styles remain in the app. Both dependency trees are audited again before promotion.

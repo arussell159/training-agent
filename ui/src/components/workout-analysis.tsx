@@ -1,6 +1,6 @@
 import { ChartSkeleton } from "@/components/loading-layouts"
 import { METERS_PER_100_YARDS, recordedSwimYards } from "../../../app-backend/lib/swim-units.mjs"
-import { useEffect, useMemo, useRef, useState, type PointerEvent, type CSSProperties } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type CSSProperties } from "react"
 import { Sun, Watch } from "lucide-react"
 import "./workout-analysis.css"
 
@@ -250,6 +250,27 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
   const [selectionPanel,setSelectionPanel]=useState<"laps"|"peaks">("laps")
   const [chartAxis,setChartAxis]=useState<"time"|"distance">("time")
   const [smoothing,setSmoothing]=useState(5)
+  const analysisRoot=useRef<HTMLElement>(null)
+  useLayoutEffect(()=>{
+    if(mobile||comparisonMode||!data?.points.length)return
+    const root=analysisRoot.current,body=root?.closest<HTMLElement>(".desktop-workout-dialog-body")
+    const charts=root?.querySelector<HTMLElement>(".analysis-charts"),plot=root?.querySelector<HTMLElement>(".analysis-signal-plot")
+    if(!root||!body||!charts||!plot)return
+    const fit=()=>{
+      const bounds=plot.getBoundingClientRect(),below=charts.getBoundingClientRect().bottom-bounds.bottom
+      const available=body.getBoundingClientRect().bottom-parseFloat(getComputedStyle(body).paddingBottom)-below-bounds.top-body.scrollTop-2
+      const height=`${Math.max(64,Math.min(324,Math.floor(available)))}px`
+      if(root.style.getPropertyValue("--analysis-plot-height")!==height)root.style.setProperty("--analysis-plot-height",height)
+    }
+    fit()
+    let frame=0
+    const observer=new ResizeObserver(()=>{
+      cancelAnimationFrame(frame)
+      frame=requestAnimationFrame(fit)
+    })
+    observer.observe(body);observer.observe(root);observer.observe(charts)
+    return()=>{cancelAnimationFrame(frame);observer.disconnect()}
+  },[mobile,comparisonMode,data,hiddenTracks])
   const distanceAxis=useMemo(()=>recordedDistanceAxis(data?.points||[]),[data])
   const [effortTarget,setEffortTarget]=useState<ActivityEffortTarget|null>(()=>comparisonMode?null:readActivityEffortTarget(window.location.search,id))
   const [effortRange,setEffortRange]=useState<[number,number]|null>(null),[effortMessage,setEffortMessage]=useState(""),[effortLoading,setEffortLoading]=useState(false),[effortRetry,setEffortRetry]=useState(0)
@@ -442,7 +463,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
   </section>:null
   return <>
     {effortNotice}
-    <section aria-label="Recorded workout analysis" data-selected-effort-start={selected==="requested-effort"?range?.[0]:undefined} data-selected-effort-end={selected==="requested-effort"?range?.[1]:undefined} className={`workout-analysis-desktop hidden min-w-0 space-y-3 md:block ${comparisonMode?"workout-analysis-comparison":"analysis-combined"}`}>
+    <section ref={analysisRoot} aria-label="Recorded workout analysis" data-selected-effort-start={selected==="requested-effort"?range?.[0]:undefined} data-selected-effort-end={selected==="requested-effort"?range?.[1]:undefined} className={`workout-analysis-desktop hidden min-w-0 space-y-3 md:block ${comparisonMode?"workout-analysis-comparison":"analysis-combined"}`}>
       {!comparisonMode&&<section className={`analysis-overview grid ${routePoints.length>1||swim?"analysis-overview-with-map lg:grid-cols-2":"grid-cols-1"}`} aria-label="Workout overview">
         {!swim||routePoints.length>1
           ? <div className="analysis-route min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} timedPoints={routePoints} highlightRange={highlight?[highlight.start,highlight.end]:null} cursorPoint={routeCursorPoint} compact/></div>

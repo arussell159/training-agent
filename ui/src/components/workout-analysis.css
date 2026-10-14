@@ -907,7 +907,7 @@
 }
 @media (min-width: 768px) {
   .workout-analysis-desktop.analysis-combined {
-    --analysis-map-height: clamp(120px, calc((100dvh - 340px) * 0.35), 210px);
+    --analysis-map-height: clamp(120px, calc((100dvh - 275px) * 0.24), 170px);
     grid-template-areas: "overview inspector" "charts inspector";
   }
   .workout-analysis-desktop.analysis-combined:has([data-route-availability="unavailable"]) {
@@ -936,7 +936,7 @@
     flex: 1;
   }
   .analysis-combined .analysis-signal-plot {
-    height: clamp(100px, calc(100dvh - var(--analysis-map-height) - 520px), 324px);
+    height: var(--analysis-plot-height, clamp(100px, calc(100dvh - var(--analysis-map-height) - 520px), 324px));
   }
   .analysis-combined .analysis-distance-axis {
     margin-top: 3px;
