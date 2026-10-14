@@ -16,6 +16,7 @@ import {
   dateShift,
   foodTotals,
   type FoodEntry,
+  type FoodProduct,
   type Meal,
 } from "../src/lib/nutrition"
 import "../src/index.css"
@@ -109,7 +110,29 @@ const context = {
   version: "nutrition-readability-fixture",
   context_scope: "full" as const,
 }
-const fixture = { calls: [] as string[], writes: [] as string[], backCount: 0 }
+const flow = new URLSearchParams(location.search).get("flow") === "1"
+const products: FoodProduct[] = Array.from({ length: 12 }, (_, index) => ({
+  source: "fatsecret",
+  code: `oats-${index}`,
+  name: `Oats ${index + 1}`,
+  brand: "",
+  imageUrl: null,
+  unit: "serving",
+  servingId: "bowl",
+  servingSize: "1 bowl",
+  servingQuantity: 1,
+  nutrients: { calories: 200, protein: 8, carbs: 30, fat: 5, fiber: 4 },
+  complete: true,
+  url: "",
+}))
+let revision = 1
+const fixture = {
+  calls: [] as string[],
+  writes: [] as string[],
+  operations: [] as { operationId: string; entries: FoodEntry[] }[],
+  failNext: false,
+  backCount: 0,
+}
 Object.assign(window, { __nutritionFixture: fixture })
 window.fetch = async (input, init) => {
   const url = new URL(
@@ -124,6 +147,26 @@ window.fetch = async (input, init) => {
   fixture.calls.push(route)
   if (init?.method && init.method !== "GET") {
     fixture.writes.push(route)
+    if (flow && route === "nutrition/entries") {
+      const body = JSON.parse(String(init.body))
+      fixture.operations.push(body)
+      if (fixture.failNext) {
+        fixture.failNext = false
+        return Response.json(
+          { error: "Could not save fixture food" },
+          { status: 400 }
+        )
+      }
+      if (body.action === "add") entries.push(...body.entries)
+      if (body.action === "update") {
+        for (const updated of body.entries) {
+          const index = entries.findIndex((item) => item.id === updated.id)
+          if (index >= 0) entries[index] = updated
+        }
+      }
+      revision++
+      return Response.json({ day: { entries, revision } })
+    }
     return Response.json(
       { error: "Fixture writes are disabled" },
       { status: 405 }
@@ -134,7 +177,7 @@ window.fetch = async (input, init) => {
     const date = url.searchParams.get("date") || today
     return Response.json({
       date,
-      day: { entries, revision: 1 },
+      day: { entries, revision },
       targets,
       targetsRevision: 1,
       aiAvailable: true,
@@ -157,7 +200,29 @@ window.fetch = async (input, init) => {
     })
   }
   if (route === "nutrition/library")
-    return Response.json({ revision: 1, items: [] })
+    return Response.json({
+      revision: 1,
+      items: flow
+        ? [
+            {
+              id: "saved-oats",
+              name: "Saved oats",
+              entries: [
+                entry("saved-1", "Saved oats", "breakfast", 200, 8, 30, 5),
+              ],
+              favorite: true,
+              custom: true,
+            },
+          ]
+        : [],
+    })
+  if (flow && route === "nutrition/search") return Response.json({ products })
+  if (flow && route === "nutrition/product")
+    return Response.json({
+      product: products.find(
+        (item) => item.code === url.searchParams.get("id")
+      ),
+    })
   if (route.startsWith("training-context")) return Response.json(context)
   return Response.json(
     { error: "This fixture does not implement that request" },

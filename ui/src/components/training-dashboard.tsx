@@ -3,6 +3,8 @@ import { fallbackTrainingContext } from "@/lib/training-context"
 import { lazy, Suspense, useEffect, useRef, useState } from "react"
 
 import { SectionCards } from "@/components/section-cards"
+import { MobileHomeOverview, MobileHomeHeading } from "@/components/mobile-home-overview"
+import type { MobileHomeLayout } from "@/lib/mobile-home-layout"
 import { PageErrorBoundary } from "@/components/page-error-boundary"
 import { performanceProbe } from '@/lib/performance-probe'
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -37,8 +39,10 @@ const FitnessHistoryCard = lazy(() =>
 
 export function TrainingDashboard({
   onWorkoutOpen,
+  mobileLayout = "redesign",
 }: {
   onWorkoutOpen?: (workout: PlannedWorkout) => void
+  mobileLayout?: MobileHomeLayout
 }) {
   const [context, setContext] = useState(cachedTrainingContext)
   useEffect(() => {
@@ -47,6 +51,7 @@ export function TrainingDashboard({
   const [selectedWorkout, setSelectedWorkout] =
     useState<PlannedWorkout | null>(null)
   const isMobile = useIsMobile()
+  const redesigned = isMobile && mobileLayout === "redesign"
   const [settled, setSettled] = useState(() => context !== fallbackTrainingContext)
   const chartRegion = useRef<HTMLDivElement>(null)
   const [chartVisible, setChartVisible] = useState(false)
@@ -105,8 +110,9 @@ export function TrainingDashboard({
   }, [])
 
   return (
-    <div className="mobile-dashboard flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:gap-4 md:gap-6 md:p-6">
-      {settled ? <SectionCards context={context} onWorkoutOpen={openWorkout} /> : <HomeCardsSkeleton />}
+    <div className={`mobile-dashboard ${redesigned ? "mobile-home-redesign" : ""} flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:gap-4 md:gap-6 md:p-6`}>
+      {redesigned ? <MobileHomeOverview context={context} loading={!settled} onWorkoutOpen={openWorkout} /> : settled ? <SectionCards context={context} onWorkoutOpen={openWorkout} /> : <HomeCardsSkeleton />}
+      {redesigned && <MobileHomeHeading title="Your progress" />}
       <div ref={chartRegion} className="dashboard-history-grid grid w-full min-w-0 grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2">
         <Suspense fallback={<ChartSkeleton className="dashboard-history-card training-history-card rounded-2xl border bg-background" />}>
           {settled && chartVisible ? <ChartAreaInteractive context={context} compactDesktop /> : <ChartSkeleton className="dashboard-history-card training-history-card rounded-2xl border bg-card" />}

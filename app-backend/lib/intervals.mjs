@@ -1,4 +1,5 @@
 import { athleteLocalDate } from "./athlete-date.mjs";
+import { readPlannedValues } from "./planned-workout-values.mjs";
 import {
   readableDescription,
   readEditorModel,
@@ -227,13 +228,31 @@ export function mapIntervalsWorkout(
       : null;
   const date = String(item.start_date_local || "").slice(0, 10);
   validDate(date);
-  const minutes = Math.round(Number(item.moving_time || item.workout_doc?.duration || 0) / 60);
+  const plannedValues = isActivity ? {} : readPlannedValues(item.description);
+  const plannedSeconds =
+    "duration_seconds" in plannedValues
+      ? plannedValues.duration_seconds
+      : (item.time_target ?? item.moving_time ?? item.workout_doc?.duration);
+  const minutes = Math.round(Number(plannedSeconds || 0) / 60);
   const actualMinutes = actual ? Math.round(Number(actual.moving_time || 0) / 60) : 0;
   const local = new Date(`${date}T12:00:00Z`);
   const summary = (value) => {
     if (!value) return null;
-    const durationSeconds = value.moving_time ?? value.workout_doc?.duration ?? null;
-    const distanceMeters = value.distance ?? value.workout_doc?.distance ?? null;
+    const overrides = value === item && !isActivity ? plannedValues : {};
+    const durationSeconds =
+      "duration_seconds" in overrides
+        ? overrides.duration_seconds
+        : ((value === item && !isActivity ? value.time_target : null) ??
+          value.moving_time ??
+          value.workout_doc?.duration ??
+          null);
+    const distanceMeters =
+      "distance_meters" in overrides
+        ? overrides.distance_meters
+        : ((value === item && !isActivity ? value.distance_target : null) ??
+          value.distance ??
+          value.workout_doc?.distance ??
+          null);
     return {
       duration_seconds: durationSeconds,
       distance_meters: distanceMeters,
@@ -246,7 +265,10 @@ export function mapIntervalsWorkout(
       elevation_loss: value.total_elevation_loss ?? null,
       tss: value.icu_training_load ?? value.load_target ?? null,
       intensity_factor: value.icu_intensity != null ? value.icu_intensity / 100 : null,
-      work_kj: value.icu_joules != null ? value.icu_joules / 1000 : null,
+      work_kj:
+        (value.icu_joules ?? value.joules) != null
+          ? (value.icu_joules ?? value.joules) / 1000
+          : null,
       average_power: value.icu_average_watts ?? value.workout_doc?.average_watts ?? null,
       normalized_power: value.icu_weighted_avg_watts ?? null,
       max_power: value.max_watts ?? null,
@@ -270,6 +292,7 @@ export function mapIntervalsWorkout(
           : value !== actual && durationSeconds > 0 && distanceMeters > 0
             ? distanceMeters / durationSeconds
             : null,
+      ...overrides,
     };
   };
   return {
@@ -284,8 +307,8 @@ export function mapIntervalsWorkout(
     date: local.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
     sport: sport(item.type),
     title: item.name || `${sport(item.type)} ${isActivity ? "activity" : "event"}`,
-    duration: duration(item.moving_time || item.workout_doc?.duration),
-    distance_meters: actual?.distance ?? item.distance ?? item.workout_doc?.distance ?? null,
+    duration: duration(plannedSeconds),
+    distance_meters: actual?.distance ?? summary(item)?.distance_meters ?? null,
     plannedDurationMinutes: isActivity ? 0 : minutes,
     actualDurationMinutes: actualMinutes,
     goal: sourceDescription,
@@ -293,10 +316,10 @@ export function mapIntervalsWorkout(
     ...(appDescription ? { app_description_version: 3 } : {}),
     status: actual ? "completed" : date === today ? "today" : "upcoming",
     completed: Boolean(actual),
-    load: item.icu_training_load ?? item.load_target ?? 0,
+    load: summary(item)?.tss ?? 0,
     planned: {
       duration_minutes: isActivity ? 0 : minutes,
-      tss: isActivity ? 0 : (item.icu_training_load ?? item.load_target ?? 0),
+      tss: isActivity ? 0 : (summary(item)?.tss ?? 0),
     },
     completed_data: actual
       ? {
@@ -325,7 +348,18 @@ export function mapIntervalsWorkout(
       heart_rate_available: actual?.average_heartrate != null,
     },
     workout_summary: { planned: isActivity ? null : summary(item), completed: summary(actual) },
-    ...(editorModel ? { editor_model: editorModel, planned_time_label: plannedTimeLabel } : {}),
+    planned_values_edited: Object.keys(plannedValues).length > 0,
+    ...(editorModel
+      ? {
+          editor_model: editorModel,
+          planned_time_label:
+            "duration_seconds" in plannedValues
+              ? plannedSeconds == null
+                ? null
+                : clock(plannedSeconds)
+              : plannedTimeLabel,
+        }
+      : {}),
     raw: item,
     raw_activity: actual || null,
   };
@@ -553,7 +587,8 @@ export function pairIntervalsWorkouts(events, activities) {
       !event.type ||
       !activity.type ||
       sport(event.type) !== sport(activity.type)
-    ) return null;
+    )
+      return null;
     const planned = durationSeconds(event);
     const completed = durationSeconds(activity, true);
     if (!planned || !completed) return null;
@@ -584,20 +619,27 @@ export function pairIntervalsWorkouts(events, activities) {
   // For remaining sessions, choose only mutual closest-duration matches. This
   // avoids pairing arbitrarily when two workouts are equally plausible.
   const unmatchedEvents = availableEvents.filter((event) => !matches.has(String(event.id)));
-  const unmatchedActivities = availableActivities.filter((activity) => !used.has(String(activity.id)));
-  const edges = unmatchedEvents.flatMap((event) => unmatchedActivities.flatMap((activity) => {
-    const difference = durationMatch(event, activity);
-    return difference == null ? [] : [{ event, activity, difference }];
-  }));
+  const unmatchedActivities = availableActivities.filter(
+    (activity) => !used.has(String(activity.id))
+  );
+  const edges = unmatchedEvents.flatMap((event) =>
+    unmatchedActivities.flatMap((activity) => {
+      const difference = durationMatch(event, activity);
+      return difference == null ? [] : [{ event, activity, difference }];
+    })
+  );
   const bestUnique = (items, keyOf) => {
     const result = new Map();
     for (const item of items) {
       const key = keyOf(item);
       const prior = result.get(key);
-      if (!prior || item.difference < prior.difference) result.set(key, { item, difference: item.difference, tied: false });
+      if (!prior || item.difference < prior.difference)
+        result.set(key, { item, difference: item.difference, tied: false });
       else if (item.difference === prior.difference) prior.tied = true;
     }
-    return new Map([...result].filter(([, value]) => !value.tied).map(([key, value]) => [key, value.item]));
+    return new Map(
+      [...result].filter(([, value]) => !value.tied).map(([key, value]) => [key, value.item])
+    );
   };
   const eventChoices = bestUnique(edges, (edge) => String(edge.event.id));
   const activityChoices = bestUnique(edges, (edge) => String(edge.activity.id));
@@ -745,8 +787,7 @@ export async function changeIntervalsEvent(request, id, action, { date } = {}) {
     const originalDate = String(original.start_date_local).slice(0, 10);
     validDate(originalDate);
     const dayDelta = Math.round(
-      (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${originalDate}T00:00:00Z`)) /
-        86400000
+      (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${originalDate}T00:00:00Z`)) / 86400000
     );
     body.start_date_local = date + String(original.start_date_local).slice(10);
     if (original.end_date_local) {

@@ -5,7 +5,7 @@ export function canEditWorkout(
   workout: Pick<PlannedWorkout, "id" | "status" | "activity_id">
 ) {
   return (
-    workout.id.startsWith("event:") &&
+    /^event:[1-9]\d*$/.test(workout.id) &&
     workout.status !== "completed" &&
     !workout.activity_id
   )

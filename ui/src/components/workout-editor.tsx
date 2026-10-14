@@ -96,6 +96,7 @@ import { validatedTrainingContext, validatedTrainingWorkout } from "@/lib/traini
 import {
   cachedTrainingContext,
   rememberTrainingContext,
+  rememberLiveTrainingContext,
   trainingCacheScope,
   type PlannedWorkout,
   type TrainingContext,
@@ -2099,10 +2100,11 @@ function MobileEditorBody({
                     "VirtualRun",
                     "TrailRun",
                     "Swim",
+                    "WeightTraining",
                     "Other",
                   ].map((value) => ({
                     value,
-                    label: value === "Swim" ? "Pool Swim" : value === "Ride" ? "Bike" : value,
+                    label: value === "Swim" ? "Pool Swim" : value === "Ride" ? "Bike" : value === "WeightTraining" ? "Strength" : value,
                   }))}
                   onChange={(sport) => {
                     const setting = sportZoneSettings(zoneSettings, sport)
@@ -2932,12 +2934,16 @@ export function WorkoutEditorMenu({
 export function WorkoutEditor({
   workout,
   date,
+  initialSport,
+  initialName,
   initialFocusId,
   onClose,
   onSaved,
 }: {
   workout?: PlannedWorkout
   date?: string
+  initialSport?: string
+  initialName?: string
   initialFocusId?: string
   onClose: () => void
   onSaved?: (w: PlannedWorkout) => void
@@ -2945,7 +2951,7 @@ export function WorkoutEditor({
   const editorId = workout?.id || "new:" + date
   const editorUrl = workout
     ? "/api/workouts/" + encodeURIComponent(workout.id) + "/editor"
-    : "/api/workouts/new/editor?date=" + encodeURIComponent(date || "")
+    : "/api/workouts/new/editor?" + new URLSearchParams({ date: date || "", ...(initialSport ? { sport: initialSport } : {}), ...(initialName ? { name: initialName } : {}) })
   const [loaded, setLoaded] = useState<Loaded | null>(null),
     [loadError, setLoadError] = useState("")
   const [reloadKey, setReloadKey] = useState(0)
@@ -3457,7 +3463,11 @@ function EditorWorkspace({
         /* Optional cache. */
       }
       setRecovered(null)
-      if (data.context) rememberTrainingContext(data.context, "full")
+      const publishSavedContext = (context: TrainingContext) => {
+        if (mobile) rememberTrainingContext(context, "full")
+        else rememberLiveTrainingContext(context)
+      }
+      if (data.context) publishSavedContext(data.context)
       else {
         const context = cachedTrainingContext()
         const sessions = [
@@ -3474,7 +3484,7 @@ function EditorWorkspace({
           month: "2-digit",
           day: "2-digit",
         }).format(new Date())
-        rememberTrainingContext(
+        publishSavedContext(
           {
             ...context,
             history: sessions.filter(
@@ -3483,8 +3493,7 @@ function EditorWorkspace({
             planned: sessions.filter(
               (w) => (w.workout_date || "") >= today
             ) as PlannedWorkout[],
-          },
-          "full"
+          }
         )
       }
       window.dispatchEvent(
@@ -3928,6 +3937,7 @@ function EditorWorkspace({
                           "VirtualRun",
                           "TrailRun",
                           "Swim",
+                          "WeightTraining",
                           "Other",
                         ].map((value) => ({
                           value,
@@ -3936,7 +3946,7 @@ function EditorWorkspace({
                               ? "Pool Swim"
                               : value === "Ride"
                                 ? "Bike"
-                                : value,
+                                : value === "WeightTraining" ? "Strength" : value,
                         }))}
                         onChange={(sport) => {
                           const setting = sportZoneSettings(

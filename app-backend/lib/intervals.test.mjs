@@ -115,6 +115,56 @@ test("pairing repair claims the activity and only updates its pairing field", as
   assert.equal(activity.description, "concurrently saved description");
 });
 
+test("calendar sports persist unique completion links and retain planned and actual duration", async () => {
+  for (const [type, name] of [
+    ["Swim", "Swim"],
+    ["Ride", "Bike"],
+    ["Run", "Run"],
+    ["Other", "Sauna"],
+    ["WeightTraining", "Strength"],
+  ]) {
+    const event = {
+      id: 1,
+      type,
+      name,
+      category: "WORKOUT",
+      start_date_local: "2026-09-15T00:00:00",
+      moving_time: 1800,
+    };
+    let activity = {
+      id: "i1",
+      type,
+      name,
+      start_date_local: "2026-09-15T07:00:00",
+      moving_time: 1700,
+    };
+    const writes = [];
+    const request = async (path, options = {}) => {
+      if (options.method === "PUT") {
+        const patch = JSON.parse(options.body);
+        writes.push(patch);
+        activity = { ...activity, ...patch };
+      }
+      if (path === "/activity/i1") return structuredClone(activity);
+      if (path === "/athlete/0/events/1") return event;
+      if (path === "/athlete/0") return { id: "1" };
+      if (path.includes("/activities?")) return [activity];
+      if (path.includes("/events?")) return [event];
+      return [];
+    };
+    const context = await fetchIntervalsContext(request, {
+      now: new Date("2026-09-15T23:00:00Z"),
+      repairWorkoutLinks: true,
+      withWorkoutWrite: async (_id, write) => write(request),
+    });
+    assert.deepEqual(writes, [{ paired_event_id: 1 }], type);
+    assert.equal(context.history.length, 1, type);
+    assert.equal(context.history[0].activity_id, "i1", type);
+    assert.equal(context.history[0].workout_summary.planned.duration_seconds, 1800, type);
+    assert.equal(context.history[0].workout_summary.completed.duration_seconds, 1700, type);
+  }
+});
+
 test("inferred pairing refuses ambiguous, different-day, different-sport and note matches", () => {
   const e = {
     id: 1,

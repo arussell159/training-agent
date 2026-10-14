@@ -79,6 +79,7 @@ export function DesktopWorkoutRouteMap({
   if (route.length < 2 && (!id || loaded?.key === key || failed === key))
     return (
       <div
+        data-route-availability="unavailable"
         className={`flex items-center justify-center bg-muted/25 text-sm text-muted-foreground ${compact ? "h-[300px] lg:h-full lg:min-h-[300px]" : "h-[320px]"}`}
       >
         {failed === key
@@ -89,6 +90,7 @@ export function DesktopWorkoutRouteMap({
   if (route.length < 2)
     return (
       <Skeleton
+        data-route-availability="loading"
         aria-label="Loading route"
         className={
           compact ? "h-[300px] lg:h-full lg:min-h-[300px]" : "h-[320px]"
@@ -97,6 +99,7 @@ export function DesktopWorkoutRouteMap({
     )
   return (
     <div
+      data-route-availability="available"
       className={`relative min-w-0 ${compact ? "h-[300px] lg:h-full lg:min-h-[300px]" : "h-[320px]"}`}
     >
       <MapboxRouteMap

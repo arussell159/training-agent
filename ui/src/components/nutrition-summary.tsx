@@ -10,19 +10,30 @@ import {
   type Nutrient,
 } from "@/lib/nutrition"
 import { calorieGoal, dailyTargets } from "@/lib/nutrition-math"
+import "./nutrition-colors.css"
 
-const colors = { protein: "#ed7d83", carbs: "#e6ae45", fat: "#7198e1" }
+const colors = {
+  protein: "var(--nutrition-protein)",
+  carbs: "var(--nutrition-carbs)",
+  fat: "var(--nutrition-fat)",
+}
 export function MacroBars({
   totals,
   targets,
   loading = false,
+  compact = false,
 }: {
   totals: Record<Nutrient, number>
   targets: Targets
   loading?: boolean
+  compact?: boolean
 }) {
   return (
-    <div className="grid min-h-[59px] grid-cols-3 gap-4" aria-busy={loading || undefined} aria-label={loading ? "Loading macros" : undefined}>
+    <div
+      className={`nutrition-macros ${compact ? "home-compact-macros" : "grid min-h-[59px] grid-cols-3 gap-4"}`}
+      aria-busy={loading || undefined}
+      aria-label={loading ? "Loading macros" : undefined}
+    >
       {(["protein", "carbs", "fat"] as const).map((key) => (
         <div key={key} className="min-w-0">
           <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -33,7 +44,9 @@ export function MacroBars({
             {key[0].toUpperCase() + key.slice(1)}
           </p>
           <div className="mt-1 flex h-6 items-center text-base font-semibold tabular-nums">
-            {loading ? <Skeleton className="h-5 w-16" /> : (
+            {loading ? (
+              <Skeleton className="h-5 w-16" />
+            ) : (
               <span className="truncate whitespace-nowrap">
                 {displayNutrient(totals[key])}
                 <span className="text-[11px] font-normal text-muted-foreground">
@@ -59,7 +72,13 @@ export function MacroBars({
     </div>
   )
 }
-export function NutritionHomeCard({ date }: { date: string }) {
+export function NutritionHomeCard({
+  date,
+  compact = false,
+}: {
+  date: string
+  compact?: boolean
+}) {
   const { data, error } = useNutrition(date)
   const exercise = useExerciseCalories(date)
   const goal = calorieGoal(data?.targets.calories, exercise)
@@ -77,7 +96,7 @@ export function NutritionHomeCard({ date }: { date: string }) {
   return (
     <div
       data-slot="card"
-      className="dashboard-nutrition-card group relative col-span-2 rounded-[22px] border bg-card p-4 text-left shadow-sm transition-shadow hover:shadow-md lg:col-span-4 lg:col-start-13 lg:row-start-2 lg:flex lg:flex-col lg:gap-(--card-spacing) lg:overflow-hidden lg:rounded-xl lg:border-0 lg:bg-card lg:py-4 lg:text-sm lg:text-card-foreground lg:shadow-none lg:ring-1 lg:ring-foreground/10 lg:hover:shadow-none lg:[--card-spacing:--spacing(4)]"
+      className={`dashboard-nutrition-card ${compact ? "home-nutrition-compact" : ""} group relative col-span-2 rounded-[22px] border bg-card p-4 text-left shadow-sm transition-shadow hover:shadow-md lg:col-span-4 lg:col-start-13 lg:row-start-2 lg:flex lg:flex-col lg:gap-(--card-spacing) lg:overflow-hidden lg:rounded-xl lg:border-0 lg:bg-card lg:py-4 lg:text-sm lg:text-card-foreground lg:shadow-none lg:ring-1 lg:ring-foreground/10 lg:[--card-spacing:--spacing(4)] lg:hover:shadow-none`}
     >
       <button
         type="button"
@@ -94,26 +113,41 @@ export function NutritionHomeCard({ date }: { date: string }) {
             Nutrition
           </span>
         </div>
-        <div className="mb-4 flex h-8 items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-1 whitespace-nowrap text-2xl leading-8 font-semibold tabular-nums">
+        <div
+          className={
+            compact
+              ? "home-compact-nutrition-total"
+              : "mb-4 flex h-8 items-center justify-between gap-3"
+          }
+        >
+          <div className="flex min-w-0 items-center gap-1 text-2xl leading-8 font-semibold whitespace-nowrap tabular-nums">
             <span className="inline-flex h-8 w-20 shrink-0 items-center overflow-hidden">
-              {data ? displayNutrient(totals.calories) : error ? "—" : <Skeleton className="h-6 w-20" />}
+              {data ? (
+                displayNutrient(totals.calories)
+              ) : error ? (
+                "—"
+              ) : (
+                <Skeleton className="h-6 w-20" />
+              )}
             </span>
             <span className="text-xs font-normal text-muted-foreground">
               kcal eaten
             </span>
           </div>
           <div className="w-24 shrink-0 truncate text-right text-xs text-muted-foreground">
-            {error
-              ? "Tap to retry"
-              : goal != null
-                ? `Target ${displayNutrient(goal)}`
-                : data
-                  ? "Set your targets"
-                  : <Skeleton className="h-3 w-20" />}
+            {error ? (
+              "Tap to retry"
+            ) : goal != null ? (
+              `Target ${displayNutrient(goal)}`
+            ) : data ? (
+              "Set your targets"
+            ) : (
+              <Skeleton className="h-3 w-20" />
+            )}
           </div>
         </div>
         <MacroBars
+          compact={compact}
           loading={!data && !error}
           totals={totals}
           targets={

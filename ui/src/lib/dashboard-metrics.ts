@@ -1,4 +1,5 @@
 import type {PlannedWorkout, TrainingContext} from './training-context'
+import type { RecoveryTrendPoint } from './recovery-trend'
 
 export function dailyWorkouts(context: TrainingContext, day: string): PlannedWorkout[] {
   const candidates = [
@@ -45,26 +46,41 @@ export function todaysWorkout(context: TrainingContext, now = new Date()) {
   return today.find(w => typeof w.id === 'string' && w.id.startsWith('event:')) ?? today[0]
 }
 
-export function recoverySeries(context: TrainingContext, key: 'hrv' | 'resting_hr') {
+function sleepMinutes(row: Record<string, unknown>) {
+  for (const key of ['sleepSecs', 'sleep', 'sleep_hours']) {
+    const value = row[key]
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+      return key === 'sleep_hours' ? value * 60 : value / 60
+    }
+  }
+  return null
+}
+
+export function recoverySeries(context: TrainingContext, key: 'hrv' | 'resting_hr' | 'sleep'): RecoveryTrendPoint[] {
   const days = new Map<string, number>()
   for (const row of context.history) {
+    if (key === 'sleep') continue
     const value = row.recovery?.[key]
     if (typeof value === 'number' && Number.isFinite(value)) days.set(row.workout_date, value)
   }
   for (const row of context.wellness_history || []) {
     const date = String(row.date || row.id || '').slice(0, 10)
-    const value = key === 'hrv' ? row.hrv : row.restingHR ?? row.resting_hr
+    const value = key === 'sleep' ? sleepMinutes(row) : key === 'hrv' ? row.hrv : row.restingHR ?? row.resting_hr
     if (/^\d{4}-\d{2}-\d{2}$/.test(date) && typeof value === 'number' && Number.isFinite(value)) days.set(date, value)
   }
   const raw = [...days].sort(([a], [b]) => a.localeCompare(b)).map(([date, value]) => ({date, value}))
+  // Sleep shares the displayed HRV/RHR period even when a night is missing.
+  const recoveryDates = key === 'sleep'
+    ? [...recoverySeries(context, 'hrv'), ...recoverySeries(context, 'resting_hr')].map(point => point.date).sort()
+    : []
   return raw.map((item, index) => {
     const oldest = Date.parse(`${item.date}T12:00:00Z`) - 6 * 86400000
     const window = raw.slice(0, index + 1).filter(p => Date.parse(`${p.date}T12:00:00Z`) >= oldest)
     const average = window.reduce((sum, p) => sum + p.value, 0) / window.length
     const variance = window.reduce((sum, p) => sum + (p.value - average) ** 2, 0) / window.length
-    const spread = Math.max(key === 'hrv' ? 5 : 2, Math.sqrt(variance) * 1.75)
+    const spread = Math.max(key === 'sleep' ? 30 : key === 'hrv' ? 5 : 2, Math.sqrt(variance) * 1.75)
     return {...item, average: Number(average.toFixed(1)), baselineLow: Number((average - spread).toFixed(1)), baselineHigh: Number((average + spread).toFixed(1))}
-  }).slice(-14)
+  }).filter(point => !recoveryDates.length || (point.date >= recoveryDates[0] && point.date <= recoveryDates.at(-1)!)).slice(-14)
 }
 
 export function workoutDurations(workout: PlannedWorkout) {

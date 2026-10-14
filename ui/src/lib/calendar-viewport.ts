@@ -1,24 +1,48 @@
 export type CalendarAnchor = { top: number; scrollY: number }
 
+// Use the actual week positions: halfway through a week, Previous returns its
+// start and Next returns the following start. At a boundary, both advance.
+export function adjacentCalendarWeek(
+  weeks: { key: string; top: number }[],
+  boundary: number,
+  direction: -1 | 1
+) {
+  const candidates = weeks.filter(
+    (week) =>
+      Number.isFinite(week.top) &&
+      (direction < 0 ? week.top < boundary - 1 : week.top > boundary + 1)
+  )
+  candidates.sort((a, b) => (direction < 0 ? b.top - a.top : a.top - b.top))
+  return candidates[0]?.key ?? null
+}
+
 // The calendar disables native scroll anchoring, so this adjustment accounts
 // for layout growth while preserving any user scroll since the capture.
 export function calendarAnchorAdjustment(
   anchor: CalendarAnchor,
   currentTop: number,
-  currentScrollY: number,
+  currentScrollY: number
 ) {
   return currentTop - anchor.top + currentScrollY - anchor.scrollY
 }
 
 export function calendarWeekKey(date: Date) {
   const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  monday.setDate(monday.getDate() - (monday.getDay() + 6) % 7)
-  return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7))
+  return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`
 }
 
 export function calendarRange(today: Date, around?: Date) {
-  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 28)
-  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 84)
+  const start = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() - 28
+  )
+  const end = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() + 84
+  )
   if (around && around < start) start.setTime(around.getTime())
   if (around && around > end) end.setTime(around.getTime())
   return { start: calendarWeekKey(start), end: calendarWeekKey(end) }
@@ -26,7 +50,7 @@ export function calendarRange(today: Date, around?: Date) {
 
 export function extendCalendarRange(
   current: { start: string; end: string },
-  date: Date,
+  date: Date
 ) {
   const week = calendarWeekKey(date)
   if (week >= current.start && week <= current.end) return current
@@ -36,7 +60,9 @@ export function extendCalendarRange(
   }
 }
 
-export function indexCalendarWorkouts<T extends { workout_date?: string }>(workouts: T[]) {
+export function indexCalendarWorkouts<T extends { workout_date?: string }>(
+  workouts: T[]
+) {
   const result = new Map<string, T[]>()
   for (const workout of workouts) {
     if (!workout.workout_date) continue

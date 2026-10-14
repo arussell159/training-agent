@@ -1,0 +1,29 @@
+/* Shared by the diary and home widget so macro colors stay consistent. */
+.nutrition-page-main,
+.nutrition-surface,
+.nutrition-macros {
+  --nutrition-calories: #1879c9;
+  --nutrition-protein: #7850cf;
+  --nutrition-fat: #b86212;
+  --nutrition-carbs: #087e8b;
+}
+
+@media (width < 48rem) {
+  .nutrition-page-main,
+  .nutrition-surface,
+  .nutrition-macros {
+    --nutrition-calories: #3291ed;
+    --nutrition-protein: #8962f5;
+    --nutrition-fat: #fa9627;
+    --nutrition-carbs: #2dbdce;
+  }
+}
+
+.dark .nutrition-page-main,
+.dark .nutrition-surface,
+.dark .nutrition-macros {
+  --nutrition-calories: #60a5fa;
+  --nutrition-protein: #b794ff;
+  --nutrition-fat: #fbbf24;
+  --nutrition-carbs: #4dd6e8;
+}

@@ -5,7 +5,7 @@ import {
   clearDeviceCache,
 } from "./device-cache"
 import { randomId } from "@/lib/random-id"
-import { validatedTrainingContext } from "./training-context-validation"
+import { validatedTrainingContext, validatedTrainingWorkout } from "./training-context-validation"
 import { withRequestDeadline, waitForRequestDelay } from "./request-deadline"
 import { twelveWeekStart } from "../../../app-backend/lib/training-retention.mjs"
 export interface TrainingHistoryItem {
@@ -46,6 +46,8 @@ export interface WorkoutSummaryValues {
 }
 
 export interface PlannedWorkout {
+  planned_values_edited?: boolean
+  category?: string
   app_description_version?: number
   editor_model?: import("../../../app-backend/lib/workout-editor-model.mjs").WorkoutModel
   planned_time_label?: string | null
@@ -579,7 +581,8 @@ async function runRecentRefresh(operation: RefreshOperation) {
   return { context, queue }
 }
 
-export async function moveWorkoutDate(id: string, date: string) {
+export async function moveWorkoutDate(id: string, date: string, direct = false) {
+  if (direct) return changeWorkout(id, "move", date)
   return queueWorkoutMutation({ type: "move", id, date })
 }
 
@@ -636,7 +639,7 @@ export async function queueWorkoutMutation(input: {
   id: string
   date?: string
   description?: string
-}) {
+}, direct = false) {
   const revision = beginMutation()
   try {
     const { response, result } = await readMutationResponse<{
@@ -645,20 +648,25 @@ export async function queueWorkoutMutation(input: {
       error?: string
       context?: TrainingContext | null
     }>(
-      "/api/mutations",
+      direct ? "/api/calendar/workout-description" : "/api/mutations",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...input, operationId: randomId() }),
+        body: JSON.stringify(direct ? input : { ...input, operationId: randomId() }),
       },
       65_000,
       "The edit could not be confirmed. Refresh your saved calendar to check the result before repeating it."
     )
-    if (!response.ok || !result?.context || !(result.queued || result.verified))
-      throw Error(result?.error || "The change could not be saved in Supabase.")
-    result.context = validatedTrainingContext(result.context)
+    if (!response.ok || !(direct ? result?.verified : result?.context && (result.queued || result.verified)))
+      throw Error(result?.error || (direct ? "The change could not be verified in Intervals.icu." : "The change could not be saved in Supabase."))
+    if (result.context) result.context = validatedTrainingContext(result.context)
+    else {
+      const previous = cachedTrainingContext()
+      const update = (workout: PlannedWorkout | TrainingHistoryItem) => "id" in workout && workout.id === input.id ? { ...workout, goal: input.description, details: input.description } : workout
+      result.context = { ...previous, history: previous.history.map(update) as TrainingContext["history"], planned: previous.planned.map(update) as PlannedWorkout[] }
+    }
     result.context = acceptMutationContext(result.context, revision)
-    window.dispatchEvent(new Event("request-background-sync"))
+    if (!direct) window.dispatchEvent(new Event("request-background-sync"))
     return result
   } finally {
     mutationsInFlight--
@@ -667,7 +675,7 @@ export async function queueWorkoutMutation(input: {
 
 export async function changeWorkout(
   id: string,
-  action: "copy" | "delete",
+  action: "copy" | "delete" | "move",
   date?: string
 ) {
   const revision = beginMutation()
@@ -677,14 +685,14 @@ export async function changeWorkout(
       error?: string
       context?: TrainingContext | null
     }>(
-      `/api/workouts/${encodeURIComponent(id)}${action === "copy" ? "/copy" : ""}`,
+      `/api/workouts/${encodeURIComponent(id)}${action === "delete" ? "" : `/${action}`}`,
       {
-        method: action === "copy" ? "POST" : "DELETE",
+        method: action === "delete" ? "DELETE" : "POST",
         headers: {
           Accept: "application/json",
-          ...(action === "copy" && date ? { "Content-Type": "application/json" } : {}),
+          ...(action !== "delete" && date ? { "Content-Type": "application/json" } : {}),
         },
-        ...(action === "copy" && date ? { body: JSON.stringify({ date }) } : {}),
+        ...(action !== "delete" && date ? { body: JSON.stringify({ date }) } : {}),
       },
       180_000,
       `The workout ${action} could not be confirmed. Refresh your calendar to check the result before repeating it.`
@@ -746,6 +754,57 @@ export async function changeWorkoutDay(
   } finally {
     mutationsInFlight--
   }
+}
+
+export async function saveCalendarNote(input: {
+  id?: string; name: string; description: string; date: string; revision?: string; creationId: string; reconcileOnly?: boolean
+}) {
+  const revision = beginMutation()
+  try {
+    const { response, result } = await readMutationResponse<{
+      verified?: boolean; error?: string; code?: string; workout?: PlannedWorkout; context?: TrainingContext | null; refreshWarning?: string
+    }>(input.id ? `/api/calendar/notes/${encodeURIComponent(input.id)}` : "/api/calendar/notes", {
+      method: input.id ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }, 65_000, "The note save could not be confirmed. Your draft is retained; recheck before trying again.")
+    if (!response.ok || !result.verified || !result.workout)
+      throw Object.assign(new Error(result.error || "Intervals.icu did not confirm the note save."), { status: response.status, code: result.code })
+    const workout = validatedTrainingWorkout(result.workout)
+    if (result.context) result.context = acceptMutationContext(validatedTrainingContext(result.context), revision)
+    else {
+      const previous = cachedTrainingContext()
+      const sessions = [...new Map([...previous.history, ...previous.planned, workout].map(item => [(item as PlannedWorkout).id || item, item])).values()]
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: previous.athlete.time_zone || "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date())
+      result.context = acceptMutationContext({ ...previous, history: sessions.filter(item => (item.workout_date || "") <= today) as TrainingContext["history"], planned: sessions.filter(item => (item.workout_date || "") >= today) as PlannedWorkout[] }, revision)
+    }
+    return { ...result, workout }
+  } finally { mutationsInFlight-- }
+}
+
+export async function savePlannedWorkoutValues(id: string, values: Partial<WorkoutSummaryValues>, providerRevision: string, metadata: { name?: string; date?: string; time?: string } = {}) {
+  const revision = beginMutation()
+  try {
+    const { response, result } = await readMutationResponse<{
+      verified?: boolean; error?: string; code?: string; revision?: string; workout?: PlannedWorkout; context?: TrainingContext; refreshWarning?: string
+    }>(`/api/workouts/${encodeURIComponent(id)}/planned-values`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values, revision: providerRevision, ...metadata }),
+    }, 65_000, "The planned value save could not be confirmed. Your draft is retained; reload before retrying.")
+    if (!response.ok || !result.verified || !result.workout || !result.revision)
+      throw Object.assign(new Error(result.error || "Intervals.icu did not confirm these planned values."), { code: result.code })
+    let workout = validatedTrainingWorkout(result.workout)
+    if (result.context) result.context = acceptMutationContext(validatedTrainingContext(result.context), revision)
+    else {
+      const previous = cachedTrainingContext()
+      const prior = [...previous.planned, ...previous.history].find(item => "id" in item && item.id === id) as PlannedWorkout | undefined
+      if (prior?.status === "completed") workout = { ...workout, status: prior.status, activity_id: prior.activity_id, recorded_start_local: prior.recorded_start_local, completed_data: prior.completed_data, actualDurationMinutes: prior.actualDurationMinutes, workout_summary: { planned: workout.workout_summary?.planned || null, completed: prior.workout_summary?.completed || null } }
+      const sessions = [...new Map([...previous.history, ...previous.planned, workout].map(item => [(item as PlannedWorkout).id || item, item])).values()]
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: previous.athlete.time_zone || "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date())
+      result.context = acceptMutationContext({ ...previous, history: sessions.filter(item => (item.workout_date || "") <= today) as TrainingContext["history"], planned: sessions.filter(item => (item.workout_date || "") >= today) as PlannedWorkout[] }, revision)
+    }
+    if (revision === contextRevision) window.dispatchEvent(new CustomEvent("workout-editor-saved", { detail: workout }))
+    return { ...result, workout, revision: result.revision }
+  } finally { mutationsInFlight-- }
 }
 
 export async function loadTrainingContext(

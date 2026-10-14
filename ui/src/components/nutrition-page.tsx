@@ -365,7 +365,7 @@ export function NutritionPage({
         {!data && !error && <NutritionDashboardSkeleton />}
         {data && (
           <>
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] xl:gap-6">
+            <div className="nutrition-overview-grid grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] xl:gap-6">
               <Card
                 className="nutrition-progress-card order-1 min-h-[368px] touch-pan-y gap-5 p-5 md:touch-auto"
                 onPointerDown={startNutritionSwipe}
@@ -374,6 +374,7 @@ export function NutritionPage({
                   nutritionSwipe.current = null
                 }}
               >
+                <h2 className="nutrition-overview-title">Calories &amp; Macros</h2>
                 {progressMetrics.map(({ key, label, color }) => {
                   const goal = resolvedTargets![key]
                   const left = goal == null ? null : goal - totals[key]
@@ -403,7 +404,7 @@ export function NutritionPage({
                           }
                           className="nutrition-progress-track"
                           style={{
-                            background: `color-mix(in srgb, ${color} 16%, var(--card))`,
+                            background: `var(--nutrition-progress-track, color-mix(in srgb, ${color} 16%, var(--card)))`,
                           }}
                         >
                           <span
@@ -454,110 +455,112 @@ export function NutritionPage({
                   </p>
                 )}
               </Card>
-              <Card className="order-3 min-h-[383px] gap-4 p-5 lg:order-2">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h2 className="text-sm font-semibold">Last 7 days</h2>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Calories logged
-                    </p>
-                  </div>
-                </div>
-                <div
-                  className="relative grid h-40 grid-cols-7 items-end"
-                  aria-label="Calories logged over the last seven days"
-                >
-                  <svg
-                    className="pointer-events-none absolute inset-x-0 top-6 z-10 h-28 w-full overflow-visible"
-                    viewBox="0 0 700 112"
-                    preserveAspectRatio="none"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d={averages
-                        .map((value, index) =>
-                          value == null
-                            ? ""
-                            : `${index === 0 || averages[index - 1] == null ? "M" : "L"}${index * 100 + 50},${112 - (value / maximum) * 108}`
-                        )
-                        .join(" ")}
-                      fill="none"
-                      stroke="var(--nutrition-chart-line)"
-                      strokeWidth="2"
-                      vectorEffect="non-scaling-stroke"
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  {data.week.map((day, index) => (
-                    <button
-                      key={day.date}
-                      type="button"
-                      aria-current={day.date === date ? "date" : undefined}
-                      onClick={() => selectDate(day.date)}
-                      disabled={mutating}
-                      aria-label={`${day.date}: ${day.logged ? Math.round(day.totals.calories) + " calories" : "no food logged"}${weekGoals[index] != null ? `, target ${Math.round(weekGoals[index]!)} calories` : ""}`}
-                      className="relative grid h-full w-full grid-rows-[16px_112px_16px] justify-items-center gap-2"
-                    >
-                      <span className="nutrition-week-total text-[11px] font-medium text-muted-foreground tabular-nums">
-                        {day.logged
-                          ? displayNutrient(day.totals.calories)
-                          : "—"}
-                      </span>
-                      <span className="relative h-28 w-full max-w-6">
-                        {weekGoals[index] != null && (
-                          <span
-                            className="nutrition-week-target absolute inset-x-0 bottom-0 rounded-full"
-                            style={{
-                              height: `${(weekGoals[index]! / maximum) * 108}px`,
-                            }}
-                          />
-                        )}
-                        {day.logged && (
-                          <span
-                            className={`nutrition-week-bar absolute inset-x-0 bottom-0 rounded-full ${day.date === date ? "is-selected" : ""}`}
-                            style={{
-                              height: `${Math.max(3, (day.totals.calories / maximum) * 108)}px`,
-                            }}
-                          />
-                        )}
-                      </span>
-                      <span className="text-xs font-medium text-muted-foreground">
-                        {new Date(`${day.date}T12:00:00`).toLocaleDateString(
-                          undefined,
-                          { weekday: "short" }
-                        )}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <div
-                  className="grid grid-cols-2 gap-x-4 gap-y-3 border-t pt-4"
-                  aria-label="Average daily nutrition over the last 7 days"
-                >
-                  {[
-                    { key: "calories", label: "Avg daily calories", unit: "" },
-                    { key: "protein", label: "Avg daily protein", unit: " g" },
-                    { key: "fat", label: "Avg daily fat", unit: " g" },
-                    { key: "carbs", label: "Avg daily carbs", unit: " g" },
-                  ].map(({ key, label, unit }) => (
-                    <div key={key} className="min-w-0">
-                      <p className="font-semibold tabular-nums">
-                        {displayNutrient(
-                          averageDaily(key as keyof typeof totals)
-                        )}
-                        {unit}
-                      </p>
+              <div className="nutrition-week-section">
+                <Card className="nutrition-week-card order-3 min-h-[383px] gap-4 p-5 lg:order-2">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h2 className="text-sm font-semibold">Last 7 days</h2>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {label}
+                        Calories logged
                       </p>
                     </div>
-                  ))}
-                </div>
-              </Card>
+                  </div>
+                  <div
+                    className="relative grid h-40 grid-cols-7 items-end"
+                    aria-label="Calories logged over the last seven days"
+                  >
+                    <svg
+                      className="pointer-events-none absolute inset-x-0 top-6 z-10 h-28 w-full overflow-visible"
+                      viewBox="0 0 700 112"
+                      preserveAspectRatio="none"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d={averages
+                          .map((value, index) =>
+                            value == null
+                              ? ""
+                              : `${index === 0 || averages[index - 1] == null ? "M" : "L"}${index * 100 + 50},${112 - (value / maximum) * 108}`
+                          )
+                          .join(" ")}
+                        fill="none"
+                        stroke="var(--nutrition-chart-line)"
+                        strokeWidth="2"
+                        vectorEffect="non-scaling-stroke"
+                        strokeLinejoin="round"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    {data.week.map((day, index) => (
+                      <button
+                        key={day.date}
+                        type="button"
+                        aria-current={day.date === date ? "date" : undefined}
+                        onClick={() => selectDate(day.date)}
+                        disabled={mutating}
+                        aria-label={`${day.date}: ${day.logged ? Math.round(day.totals.calories) + " calories" : "no food logged"}${weekGoals[index] != null ? `, target ${Math.round(weekGoals[index]!)} calories` : ""}`}
+                        className="relative grid h-full w-full grid-rows-[16px_112px_16px] justify-items-center gap-2"
+                      >
+                        <span className="nutrition-week-total text-[11px] font-medium text-muted-foreground tabular-nums">
+                          {day.logged
+                            ? displayNutrient(day.totals.calories)
+                            : "—"}
+                        </span>
+                        <span className="relative h-28 w-full max-w-6">
+                          {weekGoals[index] != null && (
+                            <span
+                              className="nutrition-week-target absolute inset-x-0 bottom-0 rounded-full"
+                              style={{
+                                height: `${(weekGoals[index]! / maximum) * 108}px`,
+                              }}
+                            />
+                          )}
+                          {day.logged && (
+                            <span
+                              className={`nutrition-week-bar absolute inset-x-0 bottom-0 rounded-full ${day.date === date ? "is-selected" : ""}`}
+                              style={{
+                                height: `${Math.max(3, (day.totals.calories / maximum) * 108)}px`,
+                              }}
+                            />
+                          )}
+                        </span>
+                        <span className="text-xs font-medium text-muted-foreground">
+                          {new Date(`${day.date}T12:00:00`).toLocaleDateString(
+                            undefined,
+                            { weekday: "short" }
+                          )}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <div
+                    className="grid grid-cols-2 gap-x-4 gap-y-3 border-t pt-4"
+                    aria-label="Average daily nutrition over the last 7 days"
+                  >
+                    {[
+                      { key: "calories", label: "Avg daily calories", unit: "" },
+                      { key: "protein", label: "Avg daily protein", unit: " g" },
+                      { key: "fat", label: "Avg daily fat", unit: " g" },
+                      { key: "carbs", label: "Avg daily carbs", unit: " g" },
+                    ].map(({ key, label, unit }) => (
+                      <div key={key} className="min-w-0">
+                        <p className="font-semibold tabular-nums">
+                          {displayNutrient(
+                            averageDaily(key as keyof typeof totals)
+                          )}
+                          {unit}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {label}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              </div>
             </div>
             <section
-              className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-5 lg:space-y-0 xl:gap-6"
+              className="nutrition-meals space-y-3 lg:grid lg:grid-cols-2 lg:gap-5 lg:space-y-0 xl:gap-6"
               aria-label="Daily meals"
             >
               <div className="pt-1 lg:col-span-2 lg:pb-1">
@@ -567,7 +570,7 @@ export function NutritionPage({
                 const entries = data.day.entries.filter((e) => e.meal === meal),
                   subtotal = foodTotals(entries)
                 return (
-                  <Card key={meal} className="gap-0 overflow-hidden py-0">
+                  <Card key={meal} className="nutrition-meal-card gap-0 overflow-hidden py-0">
                     <div className="nutrition-meal-header p-4">
                       <h3 className="text-lg font-semibold">
                         {titleCase(meal)}
@@ -599,7 +602,7 @@ export function NutritionPage({
                         {entries.map((entry) => (
                           <div
                             key={entry.id}
-                            className="flex items-center gap-3 px-4 py-4"
+                            className="nutrition-diary-row flex items-center gap-3 px-4 py-4"
                           >
                             <button
                               type="button"
@@ -619,54 +622,24 @@ export function NutritionPage({
                                 imageUrl={entry.imageUrl}
                               />
                               <span className="min-w-0 flex-1">
-                                <span className="block truncate text-base font-medium">
+                                <span className="nutrition-food-name block text-base font-medium">
                                   {titleCase(entry.name)}
                                 </span>
-                                <span className="mt-0.5 block truncate text-[13px] text-muted-foreground">
+                                <span className="nutrition-food-portion mt-0.5 block text-[13px] text-muted-foreground">
                                   {portionLabel(entry)}
                                   {entry.source === "ai" ? " · estimated" : ""}
                                 </span>
                                 <span className="nutrition-food-macros mt-1 flex max-w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-medium tabular-nums">
-                                  <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
-                                    <span
-                                      className="size-2 rounded-full"
-                                      style={{
-                                        background: "var(--nutrition-calories)",
-                                      }}
-                                      aria-hidden="true"
-                                    />
-                                    {displayNutrient(entry.calories)} Cal
-                                  </span>
-                                  <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
-                                    <span
-                                      aria-hidden="true"
-                                      className="size-2 rounded-full"
-                                      style={{
-                                        background: "var(--nutrition-protein)",
-                                      }}
-                                    />
-                                    {displayNutrient(entry.protein)} P
-                                  </span>
-                                  <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
-                                    <span
-                                      aria-hidden="true"
-                                      className="size-2 rounded-full"
-                                      style={{
-                                        background: "var(--nutrition-carbs)",
-                                      }}
-                                    />
-                                    {displayNutrient(entry.carbs)} C
-                                  </span>
-                                  <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
-                                    <span
-                                      aria-hidden="true"
-                                      className="size-2 rounded-full"
-                                      style={{
-                                        background: "var(--nutrition-fat)",
-                                      }}
-                                    />
-                                    {displayNutrient(entry.fat)} F
-                                  </span>
+                                  {progressMetrics.map(({ key, short, color }) => (
+                                    <span key={key} className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                                      <span
+                                        className="size-2 rounded-full"
+                                        style={{ background: color }}
+                                        aria-hidden="true"
+                                      />
+                                      {displayNutrient(entry[key])} {short}
+                                    </span>
+                                  ))}
                                 </span>
                               </span>
                               <Pencil className="hidden size-3 text-muted-foreground sm:block" />

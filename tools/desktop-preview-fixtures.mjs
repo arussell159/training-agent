@@ -140,7 +140,7 @@ const structure = (sport, minutes, index) => {
   });
 };
 
-export function createDesktopPreviewFixtures(now = new Date()) {
+export function createDesktopPreviewFixtures(now = new Date(), { gps = false } = {}) {
   const today = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Chicago",
     year: "numeric",
@@ -353,6 +353,10 @@ export function createDesktopPreviewFixtures(now = new Date()) {
             : Math.round(165 + 5 * Math.sin(index / 9)),
           power: bike ? Math.round(184 + 37 * Math.sin(index / 19)) : null,
           elevation: workout.sport === "Swim" ? null : 180 + 24 * Math.sin(index / 31),
+          ...(gps && workout.sport !== "Swim" ? {
+            latitude: 30 + .018 * Math.sin(fraction * Math.PI * 2),
+            longitude: -95.66 + .025 * Math.cos(fraction * Math.PI * 2),
+          } : {}),
         };
       }),
       laps: [0, 1, 2, 3].map((index) => ({

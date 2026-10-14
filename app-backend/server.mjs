@@ -53,6 +53,9 @@ import {createTrainingUpdates} from './lib/training-updates.mjs';
 import {contentFingerprint} from './lib/content-fingerprint.mjs';
 import {updateWorkoutDescription,DEFINITION_MARKER} from './lib/workout-description.mjs';
 import {loadWorkoutEditor,saveWorkoutEditor,loadNewWorkoutEditor,createWorkoutEditor,workoutRevision} from './lib/workout-editor.mjs';
+import {loadCalendarNote,saveCalendarNote,createCalendarNote} from './lib/calendar-notes.mjs';
+import {loadPlannedWorkoutMetrics,savePlannedWorkoutMetrics} from './lib/planned-workout-metrics.mjs';
+import {stripPlannedValues} from './lib/planned-workout-values.mjs';
 import {expandSteps,stepMetrics,workoutTotals,serializeWorkout,validateWorkout,distanceFactors} from './lib/workout-editor-model.mjs';
 import {applyCompletionConfirmation} from './lib/completion-confirmation.mjs';
 import {duplicateAnnualPlan,generateAnnualPlan,mergeRegeneratedPlan,recordPlanRevision,rollAnnualPlan} from './lib/annual-plan.mjs';
@@ -638,7 +641,7 @@ async function flushMutations(config,retryFailed=false) {
     const event=await createIntervalsClient(config)(kind==='event'?`/athlete/0/events/${id}`:`/activity/${id}`);
     const confirmed=mutation.type==='move'
       ?String(event.start_date_local || '').slice(0,10)===mutation.date
-      :String(event.description || '').split(DEFINITION_MARKER)[0]===mutation.description;
+      :stripPlannedValues(event.description).split(DEFINITION_MARKER)[0]===mutation.description;
     if(confirmed)await saveState(mutation,'synced',{event},job.sequence);
     return confirmed;
   }});
@@ -1518,13 +1521,64 @@ export async function handleRequest(req, res) {
       return;
     }
 
+    const calendarNoteRoute=pathname.match(/^\/api\/calendar\/notes\/(event%3A\d+|event:\d+)$/i);
+    if ((pathname==='/api/calendar/notes' && req.method==='POST') || (calendarNoteRoute && ['GET','PUT'].includes(req.method))) {
+      const config=await readConfig(),id=calendarNoteRoute?decodeURIComponent(calendarNoteRoute[1]):null;
+      try {
+        const request=createIntervalsClient(config);
+        if(req.method==='GET'){sendJson(req,res,await loadCalendarNote(request,id));return;}
+        const input=await readBody(req);
+        const apply=async(claimed)=>{
+          const result=id?await saveCalendarNote(claimed,id,input):await createCalendarNote(claimed,input,providerConnection(config));
+          intervalsMemoryCache=null;providerReads.clear();
+          result.workout=mapIntervalsWorkout(result.event,athleteLocalDate(new Date(),config.TIME_ZONE || 'America/Chicago'));
+          try {
+            const snapshot=await loadSupabaseTrainingSnapshot(config) || await fetchIntervalsTrainingContext(config,{force:true});
+            if(snapshot)result.context=await saveVerifiedSnapshot(config,applyVerifiedEvent(snapshot,result.workoutId,result,id?'edit':'create'),{verifiedIds:id?[id]:[]});
+          } catch(error) {result.refreshWarning='Saved and verified in Intervals.icu; the saved calendar refresh is pending.';updateLogs('Calendar note refresh pending: '+error.message);}
+          return result;
+        };
+        const result=id?await withDirectWorkoutWrite(config,id,apply):await apply(request);
+        sendJson(req,res,result);
+      } catch(error) {res.writeHead(error.status || 500,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code || 'NOTE_SAVE_UNCONFIRMED'}));}
+      return;
+    }
+
+    const plannedMetricsRoute=pathname.match(/^\/api\/workouts\/(event%3A\d+|event:\d+)\/planned-values$/i);
+    if(plannedMetricsRoute && ['GET','PUT'].includes(req.method)) {
+      const config=await readConfig(),id=decodeURIComponent(plannedMetricsRoute[1]);
+      try {
+        const request=createIntervalsClient(config);
+        if(req.method==='GET') {
+          const loaded=await loadPlannedWorkoutMetrics(request,id);
+          sendJson(req,res,{...loaded,workout:mapIntervalsWorkout(loaded.event,athleteLocalDate(new Date(),config.TIME_ZONE || 'America/Chicago'))});return;
+        }
+        const input=await readBody(req);
+        const result=await withDirectWorkoutWrite(config,id,async(claimed)=>{
+          const saved=await savePlannedWorkoutMetrics(claimed,id,input);
+          intervalsMemoryCache=null;providerReads.clear();
+          saved.workout=mapIntervalsWorkout(saved.event,athleteLocalDate(new Date(),config.TIME_ZONE || 'America/Chicago'));
+          try {
+            const snapshot=await loadSupabaseTrainingSnapshot(config) || await fetchIntervalsTrainingContext(config,{force:true});
+            if(snapshot) {
+              saved.context=await saveVerifiedSnapshot(config,applyVerifiedEvent(snapshot,id,saved,'edit'),{verifiedIds:[id]});
+              saved.workout=[...saved.context.history,...saved.context.planned].find(w=>w.id===id);
+            }
+          } catch(error) {saved.refreshWarning='Planned values saved and verified; calendar refresh is pending.';updateLogs('Planned values refresh pending: '+error.message);}
+          return saved;
+        });
+        sendJson(req,res,result);
+      } catch(error) {res.writeHead(error.status || 500,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code || 'SAVE_UNCONFIRMED'}));}
+      return;
+    }
+
     if(pathname==='/api/workout-library' && req.method==='GET') {
       const config=await readConfig();
       sendJson(req,res,{workouts:await readWorkoutLibrary(createIntervalsClient(config))});return;
     }
     if(pathname==='/api/workouts/new/editor' && req.method==='GET') {
       const config=await readConfig();
-      try { sendJson(req,res,await loadNewWorkoutEditor(createIntervalsClient(config),requestUrl.searchParams.get('date'))); }
+      try { sendJson(req,res,await loadNewWorkoutEditor(createIntervalsClient(config),requestUrl.searchParams.get('date'),{sport:requestUrl.searchParams.get('sport') || 'Ride',name:requestUrl.searchParams.get('name') || 'New workout'})); }
       catch(error) {res.writeHead(error.status || 400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:error.message}));}
       return;
     }
@@ -1815,17 +1869,23 @@ export async function handleRequest(req, res) {
       return;
     }
 
-    if (req.url === '/api/comments' && req.method === 'POST') {
+    if (pathname === '/api/comments' && req.method === 'GET') {
+      const id=requestUrl.searchParams.get('workoutId');
+      if(!/^(event:\d+|activity:i?\d+)$/.test(id || '')) {sendJson(req,res,{error:'Choose a calendar workout.'});return;}
+      const local=await readLocalContext();
+      sendJson(req,res,{comments:(local.comments || []).filter(item=>item.workout_id===id)});return;
+    }
+    if (pathname === '/api/comments' && req.method === 'POST') {
       const payload = await readBody(req);
-      const comment = await addLocalComment(String(payload.workoutId || ''), String(payload.body || ''));
+      const comment = await addLocalComment(payload.workoutId, payload.body, {type:payload.type || 'post',creationId:payload.creationId});
       const config = await readConfig();
       const store = createContextStore(config, updateLogs);
       if (store.ready) {
-        await store.upsert('athlete_comments', [{
+        try {await store.upsert('athlete_comments', [{
           id:stableUuid(`comment:${comment.id}`), athlete_id:'default',
-          workout_id:comment.workout_id || null, comment_type:'post',
+          workout_id:comment.workout_id || null, comment_type:comment.type,
           body:comment.body, created_at:comment.created_at,
-        }]);
+        }]);} catch(error) {updateLogs('Comment table refresh pending: '+error.message);}
       }
       res.writeHead(201, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(comment));

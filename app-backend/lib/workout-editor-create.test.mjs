@@ -10,6 +10,23 @@ import { fakeProvider, fixtureEvent } from "./fixtures/workout-editor-fixtures.m
 import { newStep, importWorkout, expandSteps, serializeWorkout } from "./workout-editor-model.mjs";
 const creationId = "172ce7bc-18be-4b1c-8e9f-8d13305490a2";
 
+test("desktop calendar drafts create and verify all five workout choices", async () => {
+  for (const sport of ["Swim", "Ride", "Run", "Other", "WeightTraining"]) {
+    const provider = fakeProvider(fixtureEvent());
+    const { model } = await loadNewWorkoutEditor(provider.request, "2026-10-14", {
+      sport,
+      name: sport === "Other" ? "Sauna" : sport,
+    });
+    assert.equal(model.sport, sport);
+    model.steps = [newStep(sport)];
+    const saved = await createWorkoutEditor(provider.request, { model, creationId });
+    assert.equal(saved.verified, true);
+    assert.equal(saved.event.type, sport);
+    if (["Other", "WeightTraining"].includes(sport))
+      assert.equal(model.steps[0].target.kind, "none");
+  }
+});
+
 test("opening a new workout does not create an event; saving creates once and remains editable", async () => {
   const provider = fakeProvider(fixtureEvent());
   const loaded = await loadNewWorkoutEditor(provider.request, "2026-10-12");

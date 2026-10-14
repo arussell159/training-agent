@@ -104,7 +104,7 @@ export function workoutProfile(title = "", sport = "", details = "") {
   })
 }
 
-function RecoveryTrendCard({
+export function RecoveryTrendCard({
   context,
   metric,
 }: {
@@ -177,7 +177,13 @@ function formatSleepDetail(key: string, value: unknown) {
   return null
 }
 
-function SleepCard({ context }: { context: TrainingContext }) {
+export function SleepCard({
+  context,
+  showTrend = false,
+}: {
+  context: TrainingContext
+  showTrend?: boolean
+}) {
   const rows = [...(context.wellness_history || [])].sort((a, b) =>
     String(a.date || a.id || "").localeCompare(String(b.date || b.id || ""))
   )
@@ -235,8 +241,9 @@ function SleepCard({ context }: { context: TrainingContext }) {
     (item, index, values) =>
       values.findIndex((candidate) => candidate.label === item.label) === index
   )
+  const trend = showTrend ? recoverySeries(context, "sleep") : []
   return (
-    <Card className="dashboard-sleep-card min-w-0 [--card-spacing:--spacing(3)] lg:col-span-2 lg:col-start-9 lg:row-start-2">
+    <Card className={`dashboard-sleep-card ${showTrend ? "dashboard-sleep-with-trend" : ""} min-w-0 [--card-spacing:--spacing(3)] lg:col-span-2 lg:col-start-9 lg:row-start-2`}>
       <CardHeader>
         <CardDescription className="flex items-center gap-1.5 font-semibold text-teal-500">
           <BedDouble className="size-4" aria-hidden="true" />
@@ -246,6 +253,15 @@ function SleepCard({ context }: { context: TrainingContext }) {
           {total != null && Number.isFinite(total) ? sleepDuration(total) : "—"}
         </CardTitle>
       </CardHeader>
+      {showTrend && (
+        <div className="home-sleep-trend">
+          <RecoveryTrendChart
+            data={trend}
+            current={total == null ? null : total / 60}
+            metric="sleep"
+          />
+        </div>
+      )}
       <CardContent>
         {allDetails.length ? (
           <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t pt-3 sm:grid-cols-3 sm:pt-4">

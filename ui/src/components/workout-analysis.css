@@ -524,3 +524,523 @@
     line-height: 1.1;
   }
 }
+
+/* The combined workspace follows the reference map/chart and statistics/laps panes. */
+@media (min-width: 768px) {
+  .workout-analysis-desktop.analysis-combined {
+    --analysis-map-height: clamp(150px, 22dvh, 210px);
+    display: grid;
+    height: auto;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    grid-template-areas: "overview statistics" "charts selection";
+    grid-template-rows: auto auto;
+    gap: 12px 16px;
+    font-family: var(--font-sans);
+  }
+  .analysis-combined > * {
+    margin: 0;
+  }
+  .analysis-combined > .analysis-overview {
+    grid-area: overview;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+  .analysis-combined .analysis-route {
+    border-radius: 0;
+  }
+  .analysis-combined .analysis-route > div {
+    min-height: var(--analysis-map-height);
+    height: var(--analysis-map-height);
+  }
+  .analysis-combined .analysis-route > [data-route-availability="unavailable"] {
+    display: none;
+  }
+  .analysis-combined .analysis-overview-content {
+    min-height: 0;
+    padding: 6px 0;
+  }
+  .analysis-combined .analysis-overview-details {
+    gap: 4px 15px;
+    padding: 4px 0;
+    font-size: 11px;
+  }
+  .analysis-combined .analysis-recording-meta {
+    padding-top: 4px;
+    margin-top: 4px;
+    gap: 8px 15px;
+  }
+  .analysis-combined > .analysis-area,
+  .analysis-combined .analysis-workspace,
+  .analysis-combined .analysis-workspace > div {
+    display: contents;
+  }
+  .analysis-combined .analysis-charts {
+    grid-area: charts;
+    display: block;
+    min-width: 0;
+    height: auto;
+    border: 1px solid #c6ccda;
+    padding: 8px;
+    background: #f1f2f6;
+  }
+  .analysis-combined .analysis-sidebar {
+    grid-area: selection;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+  }
+  .analysis-combined .analysis-sidebar-scroll {
+    position: static;
+    max-height: 340px;
+    padding: 0;
+    overflow: auto;
+    scrollbar-width: thin;
+  }
+  .analysis-selection-tabs {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-top: 1px solid #c6ccda;
+    border-bottom: 1px solid #c6ccda;
+  }
+  .analysis-selection-tabs button {
+    padding: 4px 10px;
+    font-size: 12px;
+    color: #2444df;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  .analysis-selection-tabs button[aria-pressed="true"] {
+    background: #e8ebf1;
+    color: #1c293e;
+  }
+  .analysis-lap-list > button {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 9px 12px;
+    font-size: 12px;
+    border-bottom: 1px solid #e0e4ec;
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+  }
+  .analysis-lap-list > button[aria-pressed="true"] {
+    background: #dce7ff;
+    color: #153a85;
+  }
+  .analysis-lap-list > button:hover {
+    background: #edf2fc;
+  }
+  .analysis-combined .analysis-peaks > div:first-child {
+    padding: 8px 12px;
+  }
+  .analysis-combined .analysis-peaks button {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  .analysis-combined .analysis-chart-heading {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    min-height: 30px;
+    gap: 6px 10px;
+    padding: 0 0 7px;
+  }
+  .analysis-combined .analysis-chart-heading > p {
+    font-size: 11px;
+  }
+  .analysis-signal-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    margin-left: auto;
+  }
+  .analysis-signal-controls > button {
+    min-width: 37px;
+    border: 1px solid #c6ccda;
+    padding: 3px 6px;
+    color: #64748b;
+    background: #e1e5ed;
+    font-size: 10px;
+    line-height: 14px;
+    cursor: pointer;
+  }
+  .analysis-signal-controls > button[aria-pressed="true"] {
+    border-color: var(--signal-color);
+    background: var(--signal-color);
+    color: #fff;
+  }
+  .analysis-signal-controls > button[aria-pressed="false"] {
+    color: #64748b;
+    background: #e1e5ed;
+  }
+  .analysis-signal-controls > button:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .analysis-combined .analysis-timelines {
+    margin: 0;
+    padding: 0 0 6px;
+  }
+  .analysis-combined .analysis-timeline-row,
+  .analysis-combined .analysis-distance-axis {
+    grid-template-columns: 12.6% 75.2% 12.2%;
+  }
+  .analysis-combined .analysis-timeline-label {
+    padding-right: 5px;
+    font-size: 10px;
+  }
+  .analysis-combined .analysis-timeline-track {
+    height: 16px;
+    border-radius: 0;
+  }
+  .analysis-combined .analysis-timeline-segment {
+    border-radius: 0;
+    font-size: 9px;
+  }
+  .analysis-combined .analysis-terrain-key {
+    position: static;
+    height: auto;
+    width: auto;
+    justify-content: flex-start;
+    flex-direction: row;
+    padding-left: 12.6%;
+    margin-top: 3px;
+    gap: 8px;
+  }
+  .analysis-combined [aria-label="Recorded signal graphs"] {
+    display: block;
+    height: auto;
+    padding-top: 0;
+  }
+  .analysis-combined .analysis-signal-plot {
+    height: clamp(180px, calc(100dvh - 530px), 330px);
+    min-height: 0;
+  }
+  .analysis-combined .analysis-signal-svg {
+    height: 100% !important;
+  }
+  .analysis-overlay-axes {
+    position: absolute;
+    inset-block: 12px;
+    display: flex;
+    justify-content: space-around;
+    gap: 3px;
+    font-size: 11px;
+    pointer-events: none;
+    font-variant-numeric: tabular-nums;
+  }
+  .analysis-overlay-axes-left {
+    left: 0;
+    width: 12.6%;
+  }
+  .analysis-overlay-axes-right {
+    right: 0;
+    width: 12.2%;
+  }
+  .analysis-overlay-axes > div {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    text-align: center;
+  }
+  .analysis-overlay-axes > div > div {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .analysis-axis-unit {
+    height: 12px;
+    font-size: 10px;
+  }
+  .analysis-time-axis {
+    display: flex;
+    justify-content: space-between;
+    margin-left: 12.6%;
+    margin-right: 12.2%;
+    font-size: 10px;
+    color: #596579;
+    font-variant-numeric: tabular-nums;
+  }
+  .analysis-combined .analysis-chart-help {
+    margin: 5px 0 0;
+    font-size: 9px;
+  }
+  .analysis-elevation {
+    margin-top: 8px;
+    padding-top: 5px;
+    border-top: 1px solid #c6ccda;
+  }
+  .analysis-elevation-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-bottom: 3px;
+    font-size: 10px;
+  }
+  .analysis-elevation svg {
+    height: 70px;
+  }
+  .analysis-statistics {
+    grid-area: statistics;
+    position: static;
+    align-self: stretch;
+    min-width: 0;
+    max-height: calc(var(--analysis-map-height) + 68px);
+    overflow: auto;
+    scrollbar-width: thin;
+    padding: 8px 6px;
+    border: 0;
+    border-top: 1px solid #c6ccda;
+    color: #19345a;
+  }
+  .analysis-statistics h3 {
+    text-align: center;
+    font-size: 14px;
+    font-weight: 400;
+  }
+  .analysis-statistics-range {
+    padding: 3px 0 5px;
+    text-align: center;
+    font-size: 12px;
+    color: #596579;
+  }
+  .analysis-statistics table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .analysis-statistics th,
+  .analysis-statistics td {
+    padding: 6px 5px;
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .analysis-statistics thead th {
+    font-size: 10px;
+    font-weight: 400;
+    text-transform: uppercase;
+  }
+  .analysis-statistics tbody th {
+    text-align: left;
+    font-weight: 400;
+  }
+  .analysis-statistics tbody th i {
+    display: none;
+  }
+  .analysis-statistics td {
+    border-left: 1px solid #c6ccda;
+  }
+  .analysis-statistics-unit {
+    text-align: left !important;
+    font-size: 10px;
+  }
+  .analysis-cursor-statistics {
+    border-top: 1px solid #c6ccda;
+    margin-top: 8px;
+    padding-top: 7px;
+  }
+  .analysis-cursor-statistics h4 {
+    font-size: 11px;
+    font-weight: 400;
+  }
+  .analysis-cursor-statistics dl > div {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    font-size: 11px;
+  }
+  .analysis-cursor-statistics dd {
+    font-variant-numeric: tabular-nums;
+  }
+  .dark .analysis-combined .analysis-charts {
+    background: var(--muted);
+    border-color: var(--border);
+  }
+  .dark .analysis-statistics {
+    color: var(--foreground);
+  }
+}
+@media (768px <= width < 1100px) {
+  .workout-analysis-desktop.analysis-combined {
+    grid-template-columns: minmax(0, 1fr) 260px;
+    gap: 10px;
+  }
+  .analysis-statistics th,
+  .analysis-statistics td {
+    padding: 6px 3px;
+    font-size: 10px;
+  }
+}
+@media (min-width: 768px) {
+  .analysis-axis-controls {
+    display: flex;
+    gap: 0;
+  }
+  .analysis-axis-controls button {
+    padding: 3px 8px;
+    border: 1px solid #c6ccda;
+    font-size: 10px;
+    line-height: 14px;
+    background: #f7f8fa;
+    color: #64748b;
+    cursor: pointer;
+  }
+  .analysis-axis-controls button[aria-pressed="true"] {
+    background: #737883;
+    color: white;
+  }
+  .analysis-axis-controls button:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+}
+@media (min-width: 768px) {
+  .workout-analysis-desktop.analysis-combined {
+    --analysis-map-height: clamp(120px, calc((100dvh - 340px) * 0.35), 210px);
+    grid-template-areas: "overview inspector" "charts inspector";
+  }
+  .workout-analysis-desktop.analysis-combined:has([data-route-availability="unavailable"]) {
+    --analysis-map-height: 0px;
+    grid-template-areas: "charts inspector";
+    grid-template-rows: auto;
+  }
+  .analysis-combined .analysis-overview:has([data-route-availability="unavailable"]) {
+    display: none;
+  }
+  .analysis-combined .analysis-overview-content {
+    display: none;
+  }
+  .analysis-inspector {
+    grid-area: inspector;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 10px;
+  }
+  .analysis-inspector .analysis-statistics {
+    flex: 0 0 auto;
+    max-height: 360px;
+  }
+  .analysis-inspector .analysis-sidebar {
+    flex: 1;
+  }
+  .analysis-combined .analysis-signal-plot {
+    height: clamp(100px, calc(100dvh - var(--analysis-map-height) - 520px), 324px);
+  }
+  .analysis-combined .analysis-distance-axis {
+    margin-top: 3px;
+    margin-bottom: 3px;
+    min-height: 14px;
+    font-size: 9px;
+  }
+}
+@media (min-width: 768px) and (max-height: 800px) {
+  .analysis-combined .analysis-elevation svg {
+    height: 45px;
+  }
+  .analysis-combined .analysis-timeline-track {
+    height: 14px;
+  }
+  .analysis-combined .analysis-chart-help {
+    margin-top: 2px;
+  }
+}
+@media (min-width: 768px) {
+  .analysis-overlay-axes {
+    top: 9.6%;
+    bottom: 4.8%;
+  }
+  .analysis-overlay-axes > div {
+    position: relative;
+  }
+  .analysis-axis-unit {
+    position: absolute;
+    top: -28px;
+    inset-inline: 0;
+    height: auto;
+  }
+  .analysis-overlay-axes > div > div > span:first-child {
+    transform: translateY(-50%);
+  }
+  .analysis-overlay-axes > div > div > span:last-child {
+    transform: translateY(50%);
+  }
+}
+@media (min-width: 768px) {
+  .analysis-combined .analysis-charts {
+    align-self: start;
+  }
+  .desktop-workout-analysis-dialog .analysis-inspector {
+    max-height: calc(100dvh - 310px);
+    align-self: start;
+  }
+  .analysis-inspector .analysis-sidebar {
+    min-height: 0;
+    overflow: auto;
+    scrollbar-width: thin;
+  }
+}
+@media (min-width: 768px) and (max-height: 800px) {
+  .desktop-workout-analysis-dialog .desktop-workout-header {
+    padding: 10px 16px;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-repeat {
+    margin: 6px 0 10px;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-overview {
+    padding: 5px;
+  }
+  .workout-analysis-desktop.analysis-combined {
+    --analysis-map-height: 120px;
+  }
+  .analysis-combined .analysis-chart-help {
+    display: none;
+  }
+  .analysis-combined .analysis-elevation svg {
+    height: 40px;
+  }
+}
+@media (min-width: 768px) and (max-height: 740px) {
+  .workout-analysis-desktop.analysis-combined {
+    --analysis-map-height: 100px;
+  }
+}
+@media (768px <= width < 1100px) {
+  .analysis-overlay-axes-right {
+    font-size: 9px;
+  }
+  .analysis-overlay-axes-right .analysis-axis-unit {
+    font-size: 8px;
+  }
+}
+@media (min-width: 768px) {
+  .analysis-smoothing {
+    width: 88px;
+    min-width: 65px;
+    height: 18px;
+    accent-color: #818a99;
+  }
+}
+@media (min-width: 768px) {
+  .analysis-inspector .analysis-sidebar-scroll {
+    max-height: none;
+    overflow: visible;
+  }
+  .analysis-selection-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--background);
+  }
+}

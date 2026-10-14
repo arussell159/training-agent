@@ -1,7 +1,7 @@
 import { fallbackTrainingContext } from "@/lib/training-context"
 import "./training-calendar.css"
 import "@/lib/framework7-calendar"
-import { calendarAnchorAdjustment, calendarRange, extendCalendarRange, indexCalendarWorkouts } from "@/lib/calendar-viewport"
+import { adjacentCalendarWeek, calendarAnchorAdjustment, calendarRange, extendCalendarRange, indexCalendarWorkouts } from "@/lib/calendar-viewport"
 import { loadTrainingHistoryRange } from "@/lib/training-history-range"
 import { performanceProbe } from '@/lib/performance-probe'
 import { CalendarSkeleton, ChartSkeleton } from "@/components/loading-layouts"
@@ -19,6 +19,9 @@ import { MobileActionMenu } from "@/components/ui/mobile-native-controls"
 import { LiquidGlassLayer } from "@/components/ui/liquid-glass-layer"
 import { WorkoutProfile } from "@/components/workout-profile"
 import { WorkoutSummary } from "@/components/workout-summary"
+import { DesktopWorkoutDetails } from "@/components/desktop-workout-details"
+import { CalendarDailyMetrics } from "@/components/calendar-daily-metrics"
+import { DesktopSportIcon } from "@/components/desktop-sport-icon"
 import { canEditWorkout } from "@/lib/workout-permissions"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
 import { formatWorkoutTss, workoutTime, workoutTssTotal, workoutPlannedMinutes } from "@/lib/workout-metrics"
@@ -65,7 +68,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  X,
 } from "lucide-react"
 import { f7ready } from "framework7-react"
 import type { Calendar as Framework7Calendar } from "framework7/types"
@@ -119,6 +121,7 @@ const WorkoutAnalysis = lazy(() =>
     default: m.WorkoutAnalysis,
   }))
 )
+const DailyMetricsDialog = lazy(()=>import("@/components/daily-metrics").then(module=>({default:module.DailyMetricsDialog})))
 import { apiFetch } from "@/lib/api-client"
 import {
   phaseLabel,
@@ -127,6 +130,10 @@ import {
 } from "@/lib/annual-plan"
 import { isRaceWorkout, RaceCalendarCard } from "@/components/race-events"
 import { confirmWithFramework7 } from "@/lib/framework7-confirm"
+import { isCalendarNote, notesFirst } from "@/lib/calendar-events"
+import { DesktopWorkoutHeader, type DesktopWorkoutMetadata } from "@/components/desktop-workout-header"
+import { CalendarAddDialog } from "@/components/calendar-add-dialog"
+import { CalendarNoteCard, CalendarNoteEditor } from "@/components/calendar-note"
 
 function SportIcon({ sport }: { sport: string }) {
   const value = sport.toLowerCase()
@@ -188,13 +195,15 @@ function WorkoutPreview({
   workout,
   large = false,
   calendarPresentation = false,
+  onOpen,
 }: {
   workout: PlannedWorkout
   large?: boolean
   calendarPresentation?: boolean
+  onOpen?: () => void
 }) {
   return (
-    <div className={`${large ? "" : "-mx-2.5 mt-auto -mb-3 pt-2"} ${calendarPresentation ? "calendar-workout-profile" : ""}`}>
+    <div onClickCapture={onOpen ? event=>{event.stopPropagation();onOpen()} : undefined} className={`${large ? "" : "-mx-2.5 mt-auto -mb-3 pt-2"} ${calendarPresentation ? "calendar-workout-profile" : ""}`}>
       <WorkoutProfile workout={workout} compact={!large} />
     </div>
   )
@@ -233,7 +242,7 @@ function calendarWorkoutDistance(workout: PlannedWorkout) {
   if (!Number.isFinite(value)) return { value: "—", unit: "" }
   if (/yds$/i.test(label))
     return { value: Math.round(value).toLocaleString("en-US"), unit: "yds" }
-  if (/mi$/i.test(label)) return { value: value.toFixed(1), unit: "mi" }
+  if (/mi$/i.test(label)) return { value: value.toFixed(value < 10 ? 2 : 1), unit: "mi" }
   return { value: "—", unit: "" }
 }
 
@@ -439,7 +448,8 @@ export function WorkoutCard({
   const time = workoutTime(workout)
   const distance = estimatedDistance(workout)
   const calendarDistance = calendarWorkoutDistance(workout)
-  const calendarTssValue = tss.replace(/ TSS$/, "")
+  const calendarTssValue = tss.replace(/ TSS$/, "").replace(/^~\s*/, '')
+  const skipped = calendarPresentation && !completed && Boolean(workout.workout_date && workout.workout_date < dateKey(new Date())) && workoutPlannedMinutes(workout) > 0
   return (
     <Card
       role="button"
@@ -456,6 +466,7 @@ export function WorkoutCard({
       }}
       data-completion-grade={calendarPresentation ? grade : undefined}
       data-calendar-completed={calendarPresentation && completed ? "true" : undefined}
+      data-calendar-skipped={skipped ? "true" : undefined}
       className={`group/workout relative w-full cursor-pointer gap-2 rounded-lg px-2.5 ${completed ? "pt-5 pb-3" : "py-3"} shadow-[0_2px_6px_rgba(15,23,42,0.16)] transition-colors ${gradeStyles[grade]} ${calendarPresentation ? "calendar-workout-card" : ""}`}
     >
       {completed && gradeAccent[grade] && !calendarPresentation && (
@@ -466,7 +477,7 @@ export function WorkoutCard({
       )}
       <div className={`flex min-w-0 flex-col items-start gap-2 ${calendarPresentation ? "calendar-workout-heading" : ""}`}>
         <div className={`flex w-full items-center justify-between ${calendarPresentation ? "calendar-workout-sport-row" : ""}`}>
-          <SportIcon sport={workout.sport} />
+          {calendarPresentation ? <DesktopSportIcon sport={workout.sport}/> : <SportIcon sport={workout.sport} />}
           {calendarPresentation && <span className="calendar-workout-sport">{workout.sport}</span>}
           {canEditWorkout(workout) && (
             <div
@@ -592,7 +603,7 @@ export function WorkoutCard({
               : "Outside target"}
         </span>
       )}
-      <WorkoutPreview workout={workout} calendarPresentation={calendarPresentation} />
+      <WorkoutPreview workout={workout} calendarPresentation={calendarPresentation} onOpen={calendarPresentation ? onClick : undefined} />
     </Card>
   )
 }
@@ -623,6 +634,7 @@ function DraggableWorkout({
     data: { workout, kind: "combine" },
     disabled:
       disabled ||
+      isCalendarNote(workout) ||
       workout.status === "completed" ||
       !workout.id.startsWith("event:") ||
       !canEditWorkout(workout),
@@ -652,13 +664,13 @@ function DraggableWorkout({
           Combine workouts
         </span>
       )}
-      <WorkoutCard
+      {isCalendarNote(workout) ? <CalendarNoteCard workout={workout} onOpen={onOpen} onAction={onAction} disabled={disabled} /> : <WorkoutCard
         workout={workout}
         onClick={onOpen}
         onAction={canEditWorkout(workout) ? onAction : undefined}
         disabled={disabled}
         calendarPresentation
-      />
+      />}
     </div>
   )
 }
@@ -800,6 +812,14 @@ function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
 }
 
+function calendarStickyBoundary(root: HTMLElement | null) {
+  const mobile = window.matchMedia("(max-width: 767px)").matches
+  const header = root?.querySelector<HTMLElement>(mobile ? ".calendar-sticky-day-navbar" : ".calendar-weekday-header")
+  if (!header) return mobile ? 56 : 83
+  const top = Number.parseFloat(getComputedStyle(header).top) || 0
+  return top + header.getBoundingClientRect().height
+}
+
 // Keep the last calendar visit in memory for a workout-detail round trip.
 // Offscreen weeks occupy their measured height without mounting cards, charts,
 // menus, drag sensors or mobile headings. Session resets discard the visit.
@@ -919,6 +939,9 @@ export function TrainingCalendar({
   const [selectedWorkout, setSelectedWorkout] =
     useState<PlannedWorkout | null>(null)
   const [newWorkoutDate, setNewWorkoutDate] = useState<string | null>(null)
+  const [addDialogDate, setAddDialogDate] = useState<string | null>(null)
+  const [newWorkoutType, setNewWorkoutType] = useState<{ sport: string; name: string } | null>(null)
+  const [noteEditor, setNoteEditor] = useState<{ date: string; workout?: PlannedWorkout } | null>(null)
   const [activeWeekKey, setActiveWeekKey] = useState(""),
     [datePickerOpen, setDatePickerOpen] = useState(false),
     [visibleMonth, setVisibleMonth] = useState(""),
@@ -1049,7 +1072,7 @@ export function TrainingCalendar({
     }
     if (action === "delete" && !isRaceWorkout(workout)) {
       const confirmed = await confirmWithFramework7(
-        "Delete workout?",
+        isCalendarNote(workout) ? "Delete note?" : "Delete workout?",
         `Delete “${workout.title}” from your Intervals.icu calendar?`
       )
       if (!confirmed) return
@@ -1283,11 +1306,11 @@ export function TrainingCalendar({
       ) as TrainingHistoryItem[],
     }))
     try {
-      const result = await moveWorkoutDate(workout.id, date)
+      const result = await moveWorkoutDate(workout.id, date, !isMobile)
       if (result.context)
         setContext((current) => ({ ...current, ...result.context }))
       setMoveNotice(
-        `${workout.title} saved in Supabase for ${new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}.${result.queued ? " Syncing to Intervals.icu…" : ""}`
+        `${workout.title} saved ${isMobile ? "in Supabase" : "in Intervals.icu"} for ${new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}.${"queued" in result && result.queued ? " Syncing to Intervals.icu…" : ""}`
       )
     } catch (error) {
       setContext(snapshot)
@@ -1299,6 +1322,8 @@ export function TrainingCalendar({
     }
   }
   const [summaryOpen, setSummaryOpen] = useState(true)
+  const [metricsDate,setMetricsDate] = useState<string|null>(null)
+  const metricsRows = useMemo(()=>(context.wellness_history || []).map(row=>({...row,date:String(row.date || row.id || row.timeStamp || '').slice(0,10)})).filter(row=>/^\d{4}-\d{2}-\d{2}$/.test(row.date)),[context.wellness_history])
   useEffect(() => {
     const update = (event: Event) => {
       const { id, description } = (
@@ -1451,10 +1476,23 @@ export function TrainingCalendar({
     top: number
     scrollY: number
   } | null>(null)
+  const navigationTarget = useRef<string | null>(null)
+  const alignNavigationTarget = useCallback(() => {
+    if (!navigationTarget.current) return
+    const root = calendarRef.current
+    const mobile = window.matchMedia("(max-width: 767px)").matches
+    const element = root?.querySelector<HTMLElement>(mobile
+      ? `[data-calendar-date="${navigationTarget.current}"]`
+      : `[data-calendar-week="${dateKey(startOfMonday(new Date(`${navigationTarget.current}T12:00:00`)))}"]`)
+    if (!element) return
+    const heading = mobile ? element : element.querySelector<HTMLElement>(".mobile-calendar-day-heading")
+    const adjustment = (heading || element).getBoundingClientRect().top - calendarStickyBoundary(root)
+    if (Math.abs(adjustment) > .5) window.scrollTo({ top: Math.max(0, window.scrollY + adjustment), behavior: "instant" })
+  }, [])
   const captureViewportAnchor = useCallback(() => {
     // Refresh the capture even when a previous no-op state update did not commit.
     if (!initialAlignmentDone.current) return
-    const header = window.matchMedia("(max-width: 767px)").matches ? 56 : 84
+    const header = calendarStickyBoundary(calendarRef.current)
     const visible = (selector: string) => Array.from(calendarRef.current?.querySelectorAll(selector) ?? [])
       .map((element) => ({ element, bounds: element.getBoundingClientRect() }))
       .filter(({ bounds }) => bounds.bottom > header && bounds.top < window.innerHeight)
@@ -1466,13 +1504,14 @@ export function TrainingCalendar({
   const restoreViewportAnchor = useCallback(() => {
     const anchor = viewportAnchor.current
     viewportAnchor.current = null
+    if (navigationTarget.current) { alignNavigationTarget(); return }
     if (!anchor || !anchor.element.isConnected) return
     const adjustment = calendarAnchorAdjustment(anchor, anchor.element.getBoundingClientRect().top, window.scrollY)
     if (Math.abs(adjustment) > 0.5) {
       performanceProbe('calendar-anchor-adjust', { before: anchor.element.getBoundingClientRect().top, expected: anchor.top, adjustment, scrollY: window.scrollY })
       window.scrollTo({ top: window.scrollY + adjustment, behavior: 'instant' })
     }
-  }, [])
+  }, [alignNavigationTarget])
   useLayoutEffect(() => {
     anchorOperations.current = { capture: captureViewportAnchor, restore: restoreViewportAnchor }
   }, [captureViewportAnchor, restoreViewportAnchor])
@@ -1480,6 +1519,7 @@ export function TrainingCalendar({
   useEffect(() => {
     const mark = () => {
       calendarUserScrolled.current = true
+      navigationTarget.current = null
     }
     const key = (event: KeyboardEvent) => {
       if (
@@ -1495,15 +1535,34 @@ export function TrainingCalendar({
       )
         mark()
     }
+    const pointer = (event: PointerEvent) => {
+      if (event.clientX >= document.documentElement.clientWidth) mark()
+    }
     window.addEventListener("wheel", mark, { passive: true })
     window.addEventListener("touchmove", mark, { passive: true })
     window.addEventListener("keydown", key)
+    window.addEventListener("pointerdown", pointer)
     return () => {
       window.removeEventListener("wheel", mark)
       window.removeEventListener("touchmove", mark)
       window.removeEventListener("keydown", key)
+      window.removeEventListener("pointerdown", pointer)
     }
   }, [])
+
+  useEffect(() => {
+    if (!calendarReady || !calendarRef.current) return
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(alignNavigationTarget)
+    })
+    const list = calendarRef.current.querySelector('.calendar-week-list')
+    const header = calendarRef.current.querySelector('.calendar-weekday-header')
+    if (list) observer.observe(list)
+    if (header) observer.observe(header)
+    return () => { observer.disconnect(); cancelAnimationFrame(frame) }
+  }, [calendarReady, alignNavigationTarget])
 
   // The calendar always starts at today, so do not let the browser restore a
   // stale document offset after the async rows have rendered.
@@ -1538,7 +1597,7 @@ export function TrainingCalendar({
       })
       return () => cancelAnimationFrame(frame)
     }
-    if (initialAlignmentDone.current || calendarUserScrolled.current || calendarWasDragged.current) return
+    if (!calendarReady || initialAlignmentDone.current || calendarUserScrolled.current || calendarWasDragged.current) return
     const mobileViewport = window.matchMedia("(max-width: 767px)").matches
     const today = new Date()
     const element = mobileViewport
@@ -1547,18 +1606,13 @@ export function TrainingCalendar({
         )
       : weekRefs.current.get(dateKey(startOfMonday(today)))
     if (!element) return
-    window.scrollTo({
-      top: Math.max(
-        0,
-        window.scrollY +
-          element.getBoundingClientRect().top -
-          (mobileViewport ? 56 : 84)
-      ),
-      behavior: "instant",
-    })
+    navigationTarget.current = dateKey(today)
+    alignNavigationTarget()
     setActiveWeekKey(dateKey(startOfMonday(today)))
     initialAlignmentDone.current = true
-  }, [context, summaryOpen, isMobile, calendarReady, restoreScrollTop, onScrollRestored])
+    const frame = requestAnimationFrame(alignNavigationTarget)
+    return () => cancelAnimationFrame(frame)
+  }, [context, summaryOpen, isMobile, calendarReady, restoreScrollTop, onScrollRestored, alignNavigationTarget])
 
   // Correct layout growth before paint, rather than letting newly loaded rows
   // move the day the user was reading. Retain any intervening user scrolling.
@@ -1738,7 +1792,7 @@ export function TrainingCalendar({
   useEffect(() => {
     let frame = 0
     const trackVisibleWeek = () => {
-      const header = isMobile ? 56 : 84
+      const header = calendarStickyBoundary(calendarRef.current)
       let visibleKey = activeWeekKey
       for (const week of weeks) {
         const bounds = weekRefs.current.get(week.key)?.getBoundingClientRect()
@@ -1821,9 +1875,21 @@ export function TrainingCalendar({
       queuedDateJump.current = date
       return
     }
-    setDateRange(calendarRange(date))
+    const week = dateKey(startOfMonday(date))
+    setDateRange(current => week < current.start || week > current.end ? calendarRange(date) : current)
     setPendingDateJump(date)
   }, [datePickerOpen, isMobile])
+
+  const stepWeek = useCallback((direction: -1 | 1) => {
+    const positions = [...weekRefs.current].map(([key, element]) => ({
+      key,
+      top: (element.querySelector<HTMLElement>(".mobile-calendar-day-heading") || element).getBoundingClientRect().top,
+    }))
+    const nearest = adjacentCalendarWeek(positions, calendarStickyBoundary(calendarRef.current), direction)
+    const target = new Date(`${nearest || activeWeekKey || dateKey(startOfMonday(new Date()))}T12:00:00`)
+    if (!nearest) target.setDate(target.getDate() + direction * 7)
+    jumpToDate(target)
+  }, [activeWeekKey, jumpToDate])
 
   useLayoutEffect(() => {
     if (!pendingDateJump || !calendarReady) return
@@ -1833,14 +1899,17 @@ export function TrainingCalendar({
       : weekRefs.current.get(key)
     if (!element) return
     viewportAnchor.current = null
-    performanceProbe('calendar-date-jump', { before: element.getBoundingClientRect().top, scrollY: window.scrollY, expected: isMobile ? 56 : 84 })
-    window.scrollTo({ top: Math.max(0, window.scrollY + element.getBoundingClientRect().top - (isMobile ? 56 : 84)), behavior: 'instant' })
+    navigationTarget.current = dateKey(pendingDateJump)
+    performanceProbe('calendar-date-jump', { before: element.getBoundingClientRect().top, scrollY: window.scrollY, expected: calendarStickyBoundary(calendarRef.current) })
+    alignNavigationTarget()
     performanceProbe('calendar-date-aligned', { top: element.getBoundingClientRect().top, scrollY: window.scrollY })
     initialAlignmentDone.current = true
     setActiveWeekKey(key)
     setVisibleMonth(pendingDateJump.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))
     setPendingDateJump(null)
-  }, [pendingDateJump, calendarReady, isMobile, weekKeys])
+    const frame = requestAnimationFrame(alignNavigationTarget)
+    return () => cancelAnimationFrame(frame)
+  }, [pendingDateJump, calendarReady, isMobile, weekKeys, alignNavigationTarget])
 
   useEffect(() => {
     if (!isMobile || !datePickerOpen || !mobilePickerContainerRef.current)
@@ -1922,7 +1991,11 @@ export function TrainingCalendar({
   const restoredWeekKey = restoredPosition.current ? dateKey(startOfMonday(new Date(`${restoredPosition.current.date}T12:00:00`))) : null
 
   const openWorkout = (workout: PlannedWorkout) => {
-    if (workout.status !== "completed" && !isMobile) {
+    if (!isMobile && isCalendarNote(workout)) {
+      setNoteEditor({ date: workout.workout_date!, workout })
+      return
+    }
+    if (!isMobile) {
       setSelectedWorkout(workout)
       return
     }
@@ -2084,16 +2157,19 @@ export function TrainingCalendar({
                 return false
               }}>
                 <DatePickerCalendar
-                  defaultMonth={activeWeek?.start ?? new Date()}
+                  key={`${datePickerOpen}-${activeMonth}`}
+                  defaultMonth={Number.isFinite(Date.parse(`1 ${activeMonth}`)) ? new Date(`1 ${activeMonth}`) : activeWeek?.start ?? new Date()}
                   selected={activeWeek?.start}
                   onSelect={jumpToDate}
                 />
               </PopoverContent>
             </Popover>
-            <div className="flex items-center gap-1 md:ml-4">
-              <Button size="sm" onClick={goToToday}>
+            <div className="calendar-desktop-navigation flex items-center gap-1">
+              <Button size="sm" variant="outline" onClick={goToToday}>
                 Today
               </Button>
+              <Button size="icon-sm" variant="ghost" aria-label="Previous calendar week" onClick={()=>stepWeek(-1)}><ChevronLeft/></Button>
+              <Button size="icon-sm" variant="ghost" aria-label="Next calendar week" onClick={()=>stepWeek(1)}><ChevronRight/></Button>
             </div>
           </header>
         )}
@@ -2109,6 +2185,7 @@ export function TrainingCalendar({
             ))}
           </div>
           <div
+            data-summary-open={summaryOpen}
             className={`calendar-summary-header hidden shrink-0 items-center border-l xl:flex ${summaryOpen ? "w-72" : "w-10"}`}
           >
             {summaryOpen && <span className="calendar-summary-header-title">SUMMARY</span>}
@@ -2157,7 +2234,7 @@ export function TrainingCalendar({
                     restoreAnchor={restoreViewportAnchor}
                   >
                     {() => (
-                    <div className="flex h-auto min-h-0 w-full flex-col items-stretch xl:flex-row">
+                    <div className="flex h-auto min-h-0 w-full flex-col items-stretch md:flex-row">
                       <div className="calendar-week-grid grid h-auto min-h-0 w-full min-w-0 flex-1 grid-cols-1 items-stretch md:min-h-60 md:grid-cols-7 md:divide-x md:divide-y-0">
                         {week.days.map((day) => {
                           const dayCandidates = week.workouts.filter(
@@ -2206,7 +2283,10 @@ export function TrainingCalendar({
                                 onCopy={() => copyCalendarDay(day, dayCandidates)}
                                 onPaste={() => void pasteCalendarClipboard(day)}
                                 pasteLabel={calendarClipboard?.kind || null}
-                                onCreate={() => setNewWorkoutDate(dateKey(day))}
+                                onCreate={() => {
+                                  if (isMobile) { setNewWorkoutType(null); setNewWorkoutDate(dateKey(day)) }
+                                  else setAddDialogDate(dateKey(day))
+                                }}
                               >
                                 <span className={`calendar-date-number text-[17px] leading-[20.4px] font-semibold md:px-0.5 md:text-sm md:leading-normal md:font-bold ${isPast ? "text-muted-foreground" : isToday ? "text-red-600 dark:text-red-400 md:text-primary" : "text-foreground"}`}>
                                   <span className="md:hidden">
@@ -2224,7 +2304,9 @@ export function TrainingCalendar({
                               </DayMenu>
                               <div className="mobile-calendar-day-divider w-full border-b border-border/70 md:hidden" aria-hidden="true" />
                               <div className="calendar-day-workouts space-y-0 md:space-y-2">
-                                {dayWorkouts.map((workout, workoutIndex) =>
+                                {!isMobile && notesFirst(dayWorkouts).filter(isCalendarNote).map(note=><DraggableWorkout key={note.id} workout={note} onOpen={()=>openWorkout(note)} onAction={action=>void runWorkoutAction(note,action)} disabled={moving}/>)}
+                                {!isMobile && <CalendarDailyMetrics row={metricsRows.find(row=>row.date===dayKey)} onOpen={()=>setMetricsDate(dayKey)}/>}
+                                {(isMobile ? dayWorkouts : notesFirst(dayWorkouts).filter(workout=>!isCalendarNote(workout))).map((workout, workoutIndex) =>
                                   isMobile ? (
                                     <DraggableMobileWorkoutRow
                                       key={workout.id}
@@ -2267,6 +2349,7 @@ export function TrainingCalendar({
                         })}
                       </div>
                       <aside
+                        data-summary-open={summaryOpen}
                         className={`calendar-week-sidebar hidden shrink-0 self-stretch border-l bg-muted/20 transition-[width] xl:block ${summaryOpen ? "w-72" : "w-10"}`}
                       >
                         <Collapsible
@@ -2277,7 +2360,7 @@ export function TrainingCalendar({
                         >
                           <CollapsibleContent className="p-3">
                             <WeekSummary
-                              workouts={week.workouts}
+                              workouts={week.workouts.filter(workout => !isCalendarNote(workout))}
                               planWeek={planWeek}
                               startDate={week.key}
                               blockStart={
@@ -2300,9 +2383,18 @@ export function TrainingCalendar({
         {newWorkoutDate && (
           <WorkoutEditor
             date={newWorkoutDate}
+            initialSport={newWorkoutType?.sport}
+            initialName={newWorkoutType?.name}
             onClose={() => setNewWorkoutDate(null)}
           />
         )}
+        {addDialogDate && !isMobile && <CalendarAddDialog date={addDialogDate} onClose={() => setAddDialogDate(null)} onSelect={type => {
+          if (type.sport === "Note") setNoteEditor({ date: addDialogDate })
+          else { setNewWorkoutType({ sport: type.sport, name: type.label }); setNewWorkoutDate(addDialogDate) }
+          setAddDialogDate(null)
+        }} />}
+        {noteEditor && !isMobile && <CalendarNoteEditor key={noteEditor.workout?.id || noteEditor.date} {...noteEditor} onClose={() => setNoteEditor(null)} onNotice={setMoveNotice} />}
+        {!isMobile && metricsDate && <Suspense fallback={<p role="status" className="text-xs text-muted-foreground">Loading daily metrics…</p>}><DailyMetricsDialog date={metricsDate} rows={metricsRows} onClose={()=>setMetricsDate(null)}/></Suspense>}
         <WorkoutDialog
           workout={selectedWorkout}
           onOpenChange={(open) => {
@@ -2388,20 +2480,30 @@ function WeekSummary({
     .filter((item) => item.planned > 0 || item.completed > 0)
   const plannedTss = workoutTssTotal(workouts, "planned")
   const completedTss = workoutTssTotal(workouts, "completed")
+  const endDay = new Date(Date.parse(`${startDate}T12:00:00Z`) + 6 * 86400000).toISOString().slice(0,10)
+  const today = dateKey(new Date())
+  const metrics = startDate <= today && today <= endDay ? cachedTrainingContext().metrics : null
+  const summaryClock = (minutes: number) => {
+    const roundedMinutes = Math.round(minutes)
+    return `${Math.floor(roundedMinutes / 60)}:${String(roundedMinutes % 60).padStart(2, "0")}`
+  }
+  const totalsDistance = sportData.map(item=>({label:item.label,swim:item.discipline==="swim",meters:workouts.filter(workout=>workout.sport.toLowerCase().includes(item.discipline) || (item.discipline==="bike" && /ride/i.test(workout.sport))).reduce((sum,workout)=>sum+(workout.workout_summary?.completed?.distance_meters || 0),0)})).filter(item=>item.meters>0)
 
   return (
     <div className="calendar-week-summary space-y-3">
+      {metrics && <div className="calendar-summary-fitness">{([['fitness','Fitness','CTL'],['fatigue','Fatigue','ATL'],['form','Form','TSB']] as const).map(([key,label,unit])=><div key={key} data-metric={key}><span>{label}</span><div><strong>{metrics[key] == null ? '—' : Math.round(metrics[key]!)}</strong> {unit}</div></div>)}</div>}
       <table className="calendar-summary-metrics" aria-label="Planned versus completed weekly metrics">
+        <colgroup><col style={{width:'55%'}}/><col/><col/></colgroup>
         <thead>
           <tr><th scope="col">Total</th><th scope="col">Planned</th><th scope="col">Completed</th></tr>
         </thead>
         <tbody>
-          <tr><th scope="row">Duration</th><td>{formatDuration(plannedTotalMinutes)}</td><td>{formatDuration(completedTotalMinutes)}</td></tr>
-          <tr><th scope="row">TSS</th><td>{plannedTss.label}</td><td>{completedTss.label}</td></tr>
+          <tr><th scope="row">Total Duration</th><td>{summaryClock(plannedTotalMinutes)}</td><td>{summaryClock(completedTotalMinutes)}</td></tr>
+          <tr><th scope="row">Total TSS</th><td>{plannedTss.label}</td><td>{completedTss.label}</td></tr>
         </tbody>
       </table>
       {(plannedTss.partial || completedTss.partial || plannedTss.estimated || completedTss.estimated) && (
-        <div className="calendar-summary-note">
+        <div className="calendar-summary-note md:hidden">
           {plannedTss.partial && <p>Planned TSS available for {plannedTss.available} of {plannedTss.expected} sessions.</p>}
           {completedTss.partial && <p>Completed TSS available for {completedTss.available} of {completedTss.expected} sessions.</p>}
           {(plannedTss.estimated || completedTss.estimated) && <p>~ Estimated TSS.</p>}
@@ -2416,19 +2518,21 @@ function WeekSummary({
       </div>
       {sportData.length > 0 && (
         <table className="calendar-summary-sports" aria-label="Weekly duration by sport">
+          <colgroup><col style={{width:'55%'}}/><col/><col/></colgroup>
           <thead>
             <tr><th scope="col">Sport</th><th scope="col">Planned</th><th scope="col">Completed</th></tr>
           </thead>
           <tbody>
             {sportData.map((item) => (
               <tr key={item.discipline}>
-                <th scope="row"><span className="calendar-sport-key" style={{ backgroundColor: item.fill }} aria-hidden="true" />{item.label}</th>
-                <td>{formatDuration(item.planned)}</td><td>{formatDuration(item.completed)}</td>
+                <th scope="row"><span className="calendar-sport-key" style={{ backgroundColor: item.fill }} aria-hidden="true" />{item.label} Duration</th>
+                <td>{summaryClock(item.planned)}</td><td>{summaryClock(item.completed)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
+      {!!totalsDistance.length && <dl className="calendar-summary-distances">{totalsDistance.map(item=><div key={item.label}><dt>{item.label}</dt><dd><strong>{item.swim ? Math.round(item.meters/.9144).toLocaleString() : (item.meters/1609.344).toFixed(2)}</strong> {item.swim ? 'yds':'mi'}</dd></div>)}</dl>}
       {planWeek && (
         <div className="space-y-1.5 pt-3">
           <p className="text-base leading-snug font-bold">
@@ -2456,8 +2560,20 @@ export function WorkoutDialog({
 }) {
   const isMobile = useIsMobile()
   const workout = useEditedWorkout(initialWorkout)
+  const [analysisOpen, setAnalysisOpen] = useState(false)
+  const [footerTarget, setFooterTarget] = useState<HTMLDivElement | null>(null)
+  const [intervalEditorOpen, setIntervalEditorOpen] = useState(false)
+  const [previewSaving, setPreviewSaving] = useState(false)
+  const [metadata, setMetadata] = useState<DesktopWorkoutMetadata>({name:"",date:"",time:""})
+  const [deleteError, setDeleteError] = useState("")
+  useEffect(()=>{setAnalysisOpen(false);setIntervalEditorOpen(false)}, [workout?.id])
+  useEffect(()=>setMetadata({name:workout?.title || "",date:workout?.workout_date || "",time:workout?.scheduled_start_at?.slice(11,16) || ""}), [workout?.id,workout?.title,workout?.workout_date,workout?.scheduled_start_at])
   if (!workout) return null
   const desktopCompleted = workout.status === "completed" && !isMobile
+  const deleteSelected = async () => {
+    if (!canEditWorkout(workout) || !await confirmWithFramework7("Delete workout", `Delete ${workout.title}?`)) return
+    try {await changeWorkout(workout.id,"delete");onOpenChange(false)} catch(e) {setDeleteError(e instanceof Error ? e.message : "The delete could not be confirmed.")}
+  }
   const completed = completedMinutes(workout)
   const completedValues = workout.workout_summary?.completed
   const plannedValues = workout.workout_summary?.planned
@@ -2490,130 +2606,42 @@ export function WorkoutDialog({
       })
     : workout.date
 
-  if (desktopCompleted) {
-    return (
-      <Dialog open onOpenChange={onOpenChange}>
-        <DialogContent
-          fullscreen
-          showCloseButton={false}
-          className="flex h-dvh min-h-0 flex-col gap-0 overflow-hidden bg-background p-0 ring-0"
-        >
-          <header className="relative z-20 flex h-16 shrink-0 items-center gap-3 border-b bg-background px-5 pr-24 shadow-sm">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
-              <SportIcon sport={workout.sport} />
-            </span>
-            <div className="min-w-0">
-              <DialogTitle className="truncate text-base font-semibold">
-                {workout.title}
-              </DialogTitle>
-              <DialogDescription className="mt-1 truncate text-xs">
-                {date}
-                {time && <span className="ml-2 tabular-nums">{time}</span>}
-              </DialogDescription>
-            </div>
-            <div className="absolute top-3 right-3 flex items-center gap-1">
-              <WorkoutEditorMenu workout={workout} />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Close workout details"
-                onClick={() => onOpenChange(false)}
-              >
-                <X aria-hidden="true" />
-              </Button>
-            </div>
-          </header>
-
-          <div className="min-h-0 flex-1 overflow-y-auto bg-muted/20">
-            <div className="mx-auto grid w-full max-w-[1800px] gap-4 p-4 md:grid-cols-[300px_minmax(0,1fr)] xl:p-5">
-              <aside className="min-w-0 space-y-4 md:sticky md:top-4 md:self-start">
-                <section
-                  className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100"
-                  aria-label="Workout overview"
-                >
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                    <div>
-                      <p className="text-[10px] font-medium tracking-wide uppercase opacity-70">
-                        Duration
-                      </p>
-                      <p className="mt-1 text-xl font-bold tabular-nums">
-                        {duration}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-medium tracking-wide uppercase opacity-70">
-                        Distance
-                      </p>
-                      <p className="mt-1 text-xl font-bold tabular-nums">
-                        {plannedDistanceLabel(workout)}
-                      </p>
-                    </div>
-                    {load != null && (
-                      <div>
-                        <p className="text-[10px] font-medium tracking-wide uppercase opacity-70">
-                          Training load
-                        </p>
-                        <p className="mt-1 text-lg font-semibold tabular-nums">
-                          {Math.round(load).toLocaleString()} TSS
-                        </p>
-                      </div>
-                    )}
-                    <div>
-                      <p className="text-[10px] font-medium tracking-wide uppercase opacity-70">
-                        Status
-                      </p>
-                      <p className="mt-1 text-lg font-semibold">Completed</p>
-                    </div>
-                  </div>
-                </section>
-
-                <WorkoutSummary
-                  workout={workout}
-                  showElapsed={false}
-                  embedded
-                />
-
-                <section className="rounded-xl border bg-card p-4 shadow-sm">
-                  <WorkoutDescription workout={workout} title="Description" />
-                </section>
-              </aside>
-
-              <main className="min-w-0 space-y-4" aria-label="Workout analysis workspace">
-                <Suspense
-                  fallback={
-                    <ChartSkeleton className="rounded-xl border" />
-                  }
-                >
-                  <WorkoutAnalysis workout={workout} />
-                </Suspense>
-              </main>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    )
+  if (desktopCompleted && analysisOpen) {
+    return <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent initialFocus={false} showCloseButton={false} className="desktop-workout-completed desktop-workout-analysis-dialog min-h-0 gap-0 overflow-hidden bg-background p-0">
+        <DialogTitle className="sr-only">{workout.title}</DialogTitle>
+        <DialogDescription className="sr-only">{date}</DialogDescription>
+        <DesktopWorkoutHeader workout={workout} busy={previewSaving} onClose={()=>onOpenChange(false)} onSummary={()=>setAnalysisOpen(false)}/>
+        <div className="desktop-workout-dialog-body">
+          <main className="desktop-workout-analysis-main" aria-label="Workout analysis workspace">
+            <Suspense fallback={<ChartSkeleton className="border"/>}><WorkoutAnalysis workout={workout}/></Suspense>
+          </main>
+        </div>
+        <footer className="desktop-workout-dialog-footer">
+          <button type="button" className="desktop-workout-save-close" onClick={()=>onOpenChange(false)}>Close</button>
+        </footer>
+      </DialogContent>
+    </Dialog>
   }
 
   return (
-    <Dialog open={Boolean(workout)} onOpenChange={onOpenChange}>
-      <DialogContent className="no-scrollbar max-h-[94vh] gap-4 overflow-y-auto p-0 sm:max-w-5xl">
-        <div className="absolute top-2 right-11">
-          <WorkoutEditorMenu workout={workout} />
-        </div>
-        <DialogHeader className="border-b px-5 pt-5 pr-12 pb-4">
+    <Dialog open={Boolean(workout)} onOpenChange={(open)=>{if (!previewSaving) onOpenChange(open)}}>
+      <DialogContent initialFocus={isMobile ? undefined : false} showCloseButton={isMobile} className={`no-scrollbar max-h-[94vh] gap-3 overflow-y-auto p-0 sm:max-w-5xl ${isMobile ? "" : "desktop-workout-preview rounded-md"}`}>
+        {isMobile&&<div className="absolute top-2 right-11"><WorkoutEditorMenu workout={workout}/></div>}
+        {!isMobile&&<><DialogTitle className="sr-only">{workout.title}</DialogTitle><DialogDescription className="sr-only">{date}</DialogDescription><DesktopWorkoutHeader workout={workout} busy={previewSaving} onClose={()=>onOpenChange(false)} metadata={canEditWorkout(workout)?metadata:undefined} onMetadataChange={setMetadata} onAnalyze={desktopCompleted?()=>setAnalysisOpen(true):undefined} onEdit={!desktopCompleted&&canEditWorkout(workout)?()=>setIntervalEditorOpen(true):undefined}/></>}
+        {isMobile&&<DialogHeader className="border-b px-5 pt-5 pr-12 pb-4">
           <DialogDescription className="text-sm font-semibold text-blue-600 dark:text-blue-400">
             {date}
             {time && <span className="ml-2 tabular-nums">{time}</span>}
           </DialogDescription>
-        </DialogHeader>
+        </DialogHeader>}
 
-        <div className="space-y-4 px-5 pb-6">
+        <div className={isMobile?"space-y-4 px-5 pb-6":"desktop-workout-dialog-body"}>
           <section
-            className={`rounded-xl border px-4 py-3 shadow-sm ${workout.status === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100" : "border-sky-200 bg-sky-50 text-sky-950 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100"}`}
+            className={isMobile?`rounded-xl border px-4 py-3 shadow-sm ${workout.status === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100" : "border-sky-200 bg-sky-50 text-sky-950 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100"}`:"desktop-workout-planned-profile"}
             aria-label="Workout overview"
           >
-            <DialogTitle className="min-w-0 truncate text-base font-bold">
+            {isMobile&&<><DialogTitle className="min-w-0 truncate text-base font-bold">
               {workout.title}
             </DialogTitle>
             <div className="mt-3 flex flex-wrap items-center gap-x-7 gap-y-2">
@@ -2641,6 +2669,7 @@ export function WorkoutDialog({
                   : "Planned"}
               </span>
             </div>
+            </>}
             {showWorkoutProfile &&
               workout.status !== "completed" &&
               (workout.structure || workout.editor_model) && (
@@ -2649,26 +2678,30 @@ export function WorkoutDialog({
                     workout={workout}
                     compact
                     desktopDetail
+                    disableDesktopTimeline={!isMobile}
                     enableEditOnClick
                   />
                 </div>
               )}
           </section>
 
-          <div className="grid items-start gap-5 lg:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)]">
+          {!isMobile ? <DesktopWorkoutDetails workout={workout} metadata={canEditWorkout(workout)?metadata:undefined} onClose={()=>onOpenChange(false)} onDelete={canEditWorkout(workout)?()=>void deleteSelected():undefined} footerTarget={footerTarget} onBusyChange={setPreviewSaving}/> : <div className="grid items-start gap-5 lg:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)]">
             <WorkoutSummary workout={workout} showElapsed={false} embedded />
             <div className="min-w-0 rounded-xl border bg-card p-4 shadow-sm">
               <WorkoutDescription workout={workout} title="Description" />
             </div>
-          </div>
-          <Suspense
+          </div>}
+          {deleteError && <p role="alert" className="text-xs text-destructive">{deleteError}</p>}
+          {isMobile && <Suspense
             fallback={
               <ChartSkeleton className="rounded-xl" />
             }
           >
             <WorkoutAnalysis workout={workout} />
-          </Suspense>
+          </Suspense>}
         </div>
+        {!isMobile&&<div className="desktop-workout-footer-slot" ref={setFooterTarget}/>}
+        {intervalEditorOpen&&<WorkoutEditor workout={workout} onClose={()=>setIntervalEditorOpen(false)}/>}
       </DialogContent>
     </Dialog>
   )

@@ -1,6 +1,6 @@
 import "@/lib/framework7-searchbar"
 import { ListSkeleton } from "@/components/loading-layouts"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 import { Searchbar } from "framework7-react"
 import { Search, Star, Plus, LoaderCircle, X, Utensils, ArrowUp, Trash2 } from "lucide-react"
@@ -85,6 +85,18 @@ export function NutritionComposer({
     request = useRef<AbortController | null>(null),
     operation = useRef<string>(randomId())
   const searchHost = useRef<HTMLDivElement>(null)
+  const browseScroll = useRef(0)
+  const searchResults = useRef<{
+    query: string
+    retry: number
+    products: FoodProduct[]
+  } | null>(null)
+  useLayoutEffect(() => {
+    if (pane === "browse") {
+      const scroll = searchHost.current?.closest(".nutrition-screen-scroll")
+      if (scroll) scroll.scrollTop = browseScroll.current
+    }
+  }, [pane])
   const typeInput = useRef<HTMLTextAreaElement>(null)
   const detailFatSecretFoodId =
     pane === "detail"
@@ -179,10 +191,17 @@ export function NutritionComposer({
     }
   }
   useEffect(() => {
-    if (tab !== "all" || pane !== "browse" || query.trim().length < 2) {
+    if (pane !== "browse") return
+    if (tab !== "all" || query.trim().length < 2) {
       setProducts(null)
       return
     }
+    const cached = searchResults.current
+    if (cached?.query === query.trim() && cached.retry === searchRetry) {
+      setProducts(cached.products)
+      return
+    }
+    setProducts(null)
     setBusy(true)
     setError("")
     const controller = new AbortController(),
@@ -193,8 +212,15 @@ export function NutritionComposer({
           controller.signal
         )
           .then((result) => {
-            if (!controller.signal.aborted)
-              setProducts(result.products.filter((p) => p.complete))
+            if (!controller.signal.aborted) {
+              const complete = result.products.filter((p) => p.complete)
+              searchResults.current = {
+                query: query.trim(),
+                retry: searchRetry,
+                products: complete,
+              }
+              setProducts(complete)
+            }
           })
           .catch((e) => {
             if (!controller.signal.aborted) setError(e.message)
@@ -223,6 +249,8 @@ export function NutritionComposer({
     }
   }
   function review(entries: FoodEntry[], p: FoodProduct | null = null) {
+    browseScroll.current =
+      searchHost.current?.closest(".nutrition-screen-scroll")?.scrollTop || 0
     cancel()
     changeDraft(entries)
     setProduct(p)
@@ -259,6 +287,7 @@ export function NutritionComposer({
         e.missingValues?.length
     )
   async function save() {
+    if (saving) return
     if (!valid()) {
       setError("Check the food names, portions and macros.")
       return
@@ -272,7 +301,18 @@ export function NutritionComposer({
     try {
       await onSave(draft, operation.current)
       if (!existing) recordRecentFoods(draft)
-      onClose()
+      if (!existing && mode !== "manual" && tab !== "type") {
+        const name = draft.map((entry) => titleCase(entry.name)).join(", ")
+        setNotice(`Added ${name} to ${titleCase(meal)}.`)
+        changeDraft([])
+        setProduct(null)
+        setCustomId(null)
+        setCustomName("")
+        setNotes("")
+        setPane("browse")
+      } else {
+        onClose()
+      }
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -489,6 +529,7 @@ export function NutritionComposer({
       <div key={item.id} className="nutrition-result">
         <button
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          disabled={saving || busy}
           onClick={() => {
             if (p) {
               void loadProduct(p, false)
@@ -532,11 +573,11 @@ export function NutritionComposer({
                   ? `${item.entries.length} foods`
                   : portionLabel(item.entries[0])}
             </span>
-            <span className="mt-1.5 block text-[13px] text-muted-foreground tabular-nums">
-              {displayNutrient(totals.calories)} kcal ·{" "}
-              {displayNutrient(totals.protein)} P ·{" "}
-              {displayNutrient(totals.carbs)} C · {displayNutrient(totals.fat)}{" "}
-              F
+            <span className="nutrition-search-macros mt-1.5 flex flex-wrap gap-x-2 gap-y-1 text-[13px] text-muted-foreground tabular-nums">
+              <span>{displayNutrient(totals.calories)} kcal</span>
+              <span>{displayNutrient(totals.protein)} P</span>
+              <span>{displayNutrient(totals.fat)} F</span>
+              <span>{displayNutrient(totals.carbs)} C</span>
             </span>
           </span>
         </button>
@@ -544,7 +585,7 @@ export function NutritionComposer({
           className="nutrition-row-action"
           aria-label={`${saved?.favorite ? "Unstar" : "Star"} ${item.name}`}
           aria-pressed={Boolean(saved?.favorite)}
-          disabled={saving || !library}
+          disabled={saving || busy || !library}
           onClick={() =>
             void (p && !saved
               ? run(
@@ -729,7 +770,7 @@ export function NutritionComposer({
                         {recentItems.map((item) => resultRow(item))}
                       </div>
                     </section>
-                  ) : busy ? (
+                  ) : busy && !products?.length ? (
                     <ListSkeleton food />
                   ) : products?.length ? (
                     <div className="nutrition-result-list">

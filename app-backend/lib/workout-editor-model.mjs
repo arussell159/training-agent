@@ -1,4 +1,5 @@
 // Shared by the browser and the authenticated backend. No provider writes here.
+import { stripPlannedValues } from "./planned-workout-values.mjs";
 export const DEFINITION_MARKER = "\n\nIntervals.icu device definition:\n";
 const DATA_MARKER = "\n\n```\nWorkout editor v1\n";
 export const roles = ["warmup", "active", "recovery", "rest", "cooldown", "other"];
@@ -43,6 +44,7 @@ export const clock = (value) => {
   return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
 };
 export function defaultTarget(sport) {
+  if (["Other", "WeightTraining"].includes(sport)) return { kind: "none" };
   return /swim/i.test(sport)
     ? { kind: "pace", unit: "secs/100y", mode: "single", value: 120 }
     : /run/i.test(sport)
@@ -199,7 +201,16 @@ export function validateWorkout(model) {
   if (typeof model.name !== "string" || !model.name.trim() || model.name.length > 200)
     errors.push("Enter a workout name under 200 characters");
   if (
-    !["Ride", "VirtualRide", "Run", "VirtualRun", "TrailRun", "Swim", "Other"].includes(model.sport)
+    ![
+      "Ride",
+      "VirtualRide",
+      "Run",
+      "VirtualRun",
+      "TrailRun",
+      "Swim",
+      "Other",
+      "WeightTraining",
+    ].includes(model.sport)
   )
     errors.push("Unsupported sport");
   const parsedDate = new Date(`${model.date}T00:00:00Z`);
@@ -615,7 +626,7 @@ export function serializeWorkout(model) {
   return text;
 }
 export function readableDescription(description) {
-  const head = String(description || "").split(DEFINITION_MARKER)[0];
+  const head = stripPlannedValues(description).split(DEFINITION_MARKER)[0];
   return head.startsWith("```\n") && head.endsWith("\n```") ? head.slice(4, -4) : head;
 }
 // This app's pool convention is numeric yards under Intervals metre tokens.

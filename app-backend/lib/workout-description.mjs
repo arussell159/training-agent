@@ -1,3 +1,8 @@
+import {
+  readPlannedValues,
+  stripPlannedValues,
+  withPlannedValues,
+} from "./planned-workout-values.mjs";
 export const DEFINITION_MARKER = "\n\nIntervals.icu device definition:\n";
 export async function updateWorkoutDescription(request, id, description) {
   if (typeof description !== "string" || description.length > 30000)
@@ -9,12 +14,15 @@ export async function updateWorkoutDescription(request, id, description) {
   const existing = await request(path);
   let suffix = "";
   if (match[1] === "event") {
-    const original = String(existing.description || ""),
+    const original = stripPlannedValues(existing.description),
       index = original.indexOf(DEFINITION_MARKER);
     if (index >= 0) suffix = original.slice(index);
     else if (existing.workout_doc?.steps?.length) suffix = DEFINITION_MARKER + original;
   }
-  const providerText = description + suffix;
+  const providerText = withPlannedValues(
+    description + suffix,
+    match[1] === "event" ? readPlannedValues(existing.description) : {}
+  );
   await request(path, { method: "PUT", body: JSON.stringify({ description: providerText }) });
   const verified = await request(path);
   if (verified.description !== providerText)

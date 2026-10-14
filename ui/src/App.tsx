@@ -66,6 +66,7 @@ import {
   MobileDefinitionsOpen,
 } from "@/components/ui/mobile-header-navigation"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useMobileHomeLayout, setMobileHomeLayout } from "@/lib/mobile-home-layout"
 import { useMobileViewport } from "@/hooks/use-mobile-viewport"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
@@ -206,6 +207,7 @@ function RouteScrollReset({
 function AppWorkspace() {
   useMobileViewport()
   const mobileTerms = useIsMobile()
+  const mobileHomeLayout = useMobileHomeLayout()
   // Preload navigation on intent (hover/focus/touch), rather than downloading
   // another page and its chart runtime during every calendar startup.
   const [selectedReport, setSelectedReport] = useState(() =>
@@ -609,7 +611,7 @@ function AppWorkspace() {
                   !selectedWorkout &&
                   !pendingWorkoutId &&
                   !selectedReport
-                ? "home-dashboard-shell"
+                ? `home-dashboard-shell${activeItem === "Home" && mobileHomeLayout === "redesign" ? " home-redesign-shell" : ""}`
                 : (isCoachPage || activeItem === "Library") &&
                     !selectedWorkout &&
                     !pendingWorkoutId &&
@@ -635,6 +637,11 @@ function AppWorkspace() {
             activeItem !== "Workout Reports" &&
             activeItem !== "Nutrition" && (
               <MobileSiteNavbar
+                actions={activeItem === "Home" ? [{
+                  value: "home-layout",
+                  label: mobileHomeLayout === "redesign" ? "Use original home layout" : "Use new home layout",
+                  onSelect: () => setMobileHomeLayout(mobileHomeLayout === "redesign" ? "classic" : "redesign"),
+                }] : undefined}
                 title={
                   activeItem === "Home" ? (
                     <span className="home-brand-title">AR Performance</span>
@@ -644,7 +651,7 @@ function AppWorkspace() {
                 }
               />
             )}
-          <header className="desktop-app-header sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:flex">
+          {activeItem !== "Calendar" && <header className="desktop-app-header sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:flex">
             {selectedWorkout?.status === "completed" && (
               <Button
                 type="button"
@@ -721,7 +728,7 @@ function AppWorkspace() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </header>
+          </header>}
           <main
             className={`flex min-h-0 flex-1 ${
               selectedWorkout || pendingWorkoutId
@@ -828,7 +835,7 @@ function AppWorkspace() {
                       quickAddRequest={nutritionQuickAddRequest}
                     />
                   ) : activeItem === "Home" ? (
-                    <TrainingDashboard onWorkoutOpen={openWorkout} />
+                    <TrainingDashboard onWorkoutOpen={openWorkout} mobileLayout={mobileHomeLayout} />
                   ) : activeItem === "Calendar" ? (
                     <TrainingCalendar
                       key={calendarNavigationVersion}

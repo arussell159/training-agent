@@ -1,4 +1,5 @@
 import { publishReportBlocks } from "./publish-report-blocks.mjs";
+import { appendWorkoutComment } from "./workout-comments.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -223,16 +224,14 @@ export async function deleteAnnualPlanRecord(id) {
   return true;
 }
 
-export async function addLocalComment(workoutId, body) {
+export async function addLocalComment(workoutId, body, options = {}) {
   return mutateData((data) => {
-    const comment = {
-      id: "comment-" + Date.now(),
-      workout_id: workoutId,
-      type: "post",
+    const { comment, comments } = appendWorkoutComment(data.comments || [], {
+      workoutId,
       body,
-      created_at: new Date().toISOString(),
-    };
-    data.comments = [comment, ...(data.comments || [])];
+      ...options,
+    });
+    data.comments = comments;
     return comment;
   });
 }

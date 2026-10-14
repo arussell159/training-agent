@@ -1,4 +1,5 @@
 import { ChartSkeleton } from "@/components/loading-layouts"
+import { DesktopWorkoutHeader } from "@/components/desktop-workout-header"
 import { DetailSheetRow } from "@/components/detail-sheet-row"
 import { canEditWorkout } from "@/lib/workout-permissions"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -6,7 +7,6 @@ import { WorkoutDescription } from "@/components/workout-description"
 import { METERS_PER_100_YARDS } from "../../../app-backend/lib/swim-units.mjs"
 import {
   WorkoutEditor,
-  WorkoutEditorMenu,
   useEditedWorkout,
 } from "@/components/workout-editor"
 import { lazy, Suspense, useEffect, useState } from "react"
@@ -20,6 +20,7 @@ const WorkoutAnalysis = lazy(() =>
 )
 import { WorkoutProfile } from "@/components/workout-profile"
 import { WorkoutSummary } from "@/components/workout-summary"
+import { DesktopWorkoutDetails } from "@/components/desktop-workout-details"
 import { WorkoutRouteMap } from "@/components/workout-route-map"
 import { TrainingZonesDisplay } from "@/components/training-zones-display"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
@@ -29,15 +30,10 @@ import {
   type WorkoutStep,
 } from "@/lib/workout-structure"
 import {
-  ArrowLeft,
-  Bike,
   ChevronRight,
-  Dumbbell,
-  Footprints,
   Pencil,
   Repeat2,
   Trash2,
-  Waves,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -68,15 +64,6 @@ import {
 } from "../../../app-backend/lib/workout-editor-model.mjs"
 
 
-function SportIcon({ sport }: { sport: string }) {
-  const value = sport.toLowerCase(),
-    className = "size-5"
-  if (value.includes("swim")) return <Waves className={className} />
-  if (value.includes("bike")) return <Bike className={className} />
-  if (value.includes("run")) return <Footprints className={className} />
-  return <Dumbbell className={className} />
-}
-
 function formatWorkoutDate(workout: PlannedWorkout) {
   if (!workout.workout_date) return workout.date
   const date = new Date(`${workout.workout_date}T12:00:00`)
@@ -88,15 +75,6 @@ function formatWorkoutDate(workout: PlannedWorkout) {
         day: "numeric",
         year: "numeric",
       })
-}
-
-function formatWorkoutTime(workout: PlannedWorkout) {
-  const value = workout.recorded_start_local || workout.scheduled_start_at
-  if (!value) return null
-  const date = new Date(value)
-  return Number.isNaN(date.getTime())
-    ? null
-    : date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
 }
 
 function formatWorkoutBackDate(workout: PlannedWorkout) {
@@ -510,12 +488,6 @@ export function WorkoutDetailPage({
         ]
       : []),
   ].filter((stat) => stat.value && stat.value !== "—")
-  const statusLabel =
-    workout.status === "completed"
-      ? "Completed"
-      : workout.status === "today"
-        ? "Today"
-        : "Planned"
   const load = formatWorkoutTss(workout)
   const time = workoutTime(workout)
   const distanceLabel = plannedDistanceLabel(workout)
@@ -640,12 +612,13 @@ export function WorkoutDetailPage({
       </AlertDialog>
 
       {workout.status === "completed" && (
-      <div className="hidden min-h-svh min-w-0 flex-col md:flex">
+      <div className="desktop-workout-completed hidden min-h-svh min-w-0 flex-col md:flex">
+        <DesktopWorkoutHeader workout={workout} onClose={onBack} back/>
         <div className="min-h-0 flex-1 bg-muted/20">
           <div
             className={
               workout.status === "completed"
-                ? "mx-auto w-full max-w-[1800px] p-4 xl:p-5"
+                ? "mx-auto w-full max-w-[1800px] p-3"
                 : "mx-auto grid w-full max-w-[1800px] grid-cols-[280px_minmax(0,1fr)] items-start gap-4 p-4 xl:grid-cols-[300px_minmax(0,1fr)] xl:p-5"
             }
           >
@@ -733,6 +706,7 @@ export function WorkoutDetailPage({
                   >
                     <WorkoutAnalysis workout={workout} />
                   </Suspense>
+                  <DesktopWorkoutDetails workout={workout}/>
                 </section>
               ) : (
                 <>
@@ -794,68 +768,11 @@ export function WorkoutDetailPage({
       </div>
       )}
 
-      {workout.status !== "completed" && (
-        <div className="hidden md:block">
-          <div className="mx-auto w-full max-w-5xl px-6 pt-5">
-            <div className="mb-4 flex min-h-10 flex-wrap items-center gap-2 text-sm">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={onBack}
-                className="mr-1 rounded-lg"
-                aria-label="Back to workouts"
-              >
-                <ArrowLeft className="size-4" />
-                Back
-              </Button>
-              <h1 className="font-semibold text-blue-600 dark:text-blue-400">
-                {formatWorkoutDate(workout)}
-                {formatWorkoutTime(workout) && (
-                  <span className="ml-2 tabular-nums">
-                    {formatWorkoutTime(workout)}
-                  </span>
-                )}
-              </h1>
-              {!library && <WorkoutEditorMenu workout={workout} />}
-            </div>
-            <section
-              className={`rounded-xl border px-4 py-3 shadow-sm ${heroTone}`}
-              aria-label="Workout overview"
-            >
-              <h1 className="min-w-0 truncate text-base font-bold">
-                {workout.title}
-              </h1>
-              <div className="mt-3 flex flex-wrap items-center gap-x-7 gap-y-2">
-                <SportIcon sport={workout.sport} />
-                <span className="text-[1.4rem] leading-none font-semibold tabular-nums">
-                  {time.value}
-                </span>
-                <span className="text-[1.4rem] leading-none font-semibold tabular-nums">
-                  {plannedDistanceLabel(workout)}
-                </span>
-                {load !== "—" && (
-                  <span className="text-[1.4rem] leading-none font-semibold tabular-nums">
-                    {load}
-                  </span>
-                )}
-              </div>
-              <div className="mt-2 flex items-center justify-between gap-4 text-xs font-medium opacity-80">
-                <span>{workout.sport}</span>
-                <span>{statusLabel}</span>
-              </div>
-              {(workout.structure || workout.editor_model) && (
-                <div className="mt-3 overflow-hidden">
-                  <WorkoutProfile
-                    workout={workout}
-                    compact
-                    desktopDetail
-                    tall
-                    enableEditOnClick={!library}
-                  />
-                </div>
-              )}
-            </section>
+      {workout.status !== "completed" && !mobile && (
+        <div className="desktop-workout-preview hidden md:block">
+          <div className="mx-auto w-full max-w-5xl px-3 pt-3">
+            <DesktopWorkoutHeader workout={workout} onClose={onBack} back library={library}/>
+            {(workout.structure||workout.editor_model)&&<div className="mt-2 overflow-hidden"><WorkoutProfile workout={workout} compact desktopDetail disableDesktopTimeline enableEditOnClick={!library}/></div>}
           </div>
 
           <div className="mx-auto w-full max-w-5xl px-6">
@@ -864,27 +781,7 @@ export function WorkoutDetailPage({
               onClose={onBack}
               className="relative z-10 flex w-full min-w-0 flex-col gap-6 bg-background pt-5 pb-10"
             >
-              <div className="grid items-start gap-5 lg:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)]">
-                <div className="min-w-0">
-                  <WorkoutSummary
-                    workout={workout}
-                    showElapsed={false}
-                    embedded
-                    section="overview"
-                  />
-                </div>
-                <div className="min-w-0 space-y-3">
-                  <div className="rounded-xl border bg-card p-4 shadow-sm">
-                    <WorkoutDescription workout={workout} title="Description" />
-                  </div>
-                  <WorkoutSummary
-                    workout={workout}
-                    showElapsed={false}
-                    embedded
-                    section="recorded"
-                  />
-                </div>
-              </div>
+              <DesktopWorkoutDetails workout={workout} readOnly={library}/>
             </WorkoutDetailSurface>
           </div>
         </div>

@@ -9,6 +9,7 @@ import type { SportZoneSettings } from "../../../app-backend/lib/workout-editor-
 import type { PlannedWorkout } from "@/lib/training-context"
 import { Button } from "@/components/ui/button"
 import { ChevronRight, Pencil } from "lucide-react"
+import { useIsMobile } from "@/hooks/use-mobile"
 export function WorkoutDescription({
   workout,
   title = "Workout instructions",
@@ -22,6 +23,7 @@ export function WorkoutDescription({
   collapsible?: boolean
   hideTitle?: boolean
 }) {
+  const mobile = useIsMobile()
   const [expanded, setExpanded] = useState(false)
   const showContent = !collapsible || expanded
   useEffect(() => setExpanded(false), [workout.id])
@@ -53,7 +55,7 @@ export function WorkoutDescription({
         type: "description",
         id: workout.id,
         description: draft,
-      })
+      }, !mobile)
       setSaved(draft)
       setEditing(false)
       window.dispatchEvent(
@@ -120,6 +122,7 @@ export function WorkoutDescription({
         {editing ? (
           <>
             <textarea
+              autoFocus={!mobile}
               aria-label="Workout description"
               value={draft}
               disabled={busy}

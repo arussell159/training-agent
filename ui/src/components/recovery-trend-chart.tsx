@@ -11,14 +11,26 @@ export function RecoveryTrendChart({
 }: {
   data: RecoveryTrendPoint[]
   current?: number | null
-  metric: "hrv" | "resting_hr"
+  metric: "hrv" | "resting_hr" | "sleep"
 }) {
   const { points, daily, average, band } = recoveryTrendGeometry(data, current)
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
   const pressed = useRef(false)
   const descriptionId = useId()
-  const label = metric === "hrv" ? "HRV" : "Resting heart rate"
+  const label =
+    metric === "sleep"
+      ? "Sleep duration"
+      : metric === "hrv"
+        ? "HRV"
+        : "Resting heart rate"
   const unit = metric === "hrv" ? "ms" : "bpm"
+  const formatValue = (value: number, rounded = false) => {
+    if (metric === "sleep") {
+      const minutes = Math.round(value)
+      return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`
+    }
+    return `${rounded ? value.toFixed(0) : value} ${unit}`
+  }
   const selected =
     activeIndex == null
       ? null
@@ -41,6 +53,8 @@ export function RecoveryTrendChart({
     <div
       role="group"
       aria-label={`${label} trend`}
+      data-start-date={points.at(0)?.date}
+      data-end-date={points.at(-1)?.date}
       aria-describedby={selected ? descriptionId : undefined}
       tabIndex={points.length ? 0 : undefined}
       className="relative h-20 w-full touch-pan-y rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-24"
@@ -135,9 +149,9 @@ export function RecoveryTrendChart({
       {selected && (
         <>
           <span id={descriptionId} className="sr-only" aria-live="polite">
-            {selected.date}: {selected.value} {unit}. Seven-day average{" "}
-            {selected.average} {unit}. Use the left and right arrow keys to
-            inspect days.
+            {selected.date}: {formatValue(selected.value)}. Seven-day average{" "}
+            {formatValue(selected.average)}. Use the left and right arrow keys
+            to inspect days.
           </span>
           <div
             className="pointer-events-none absolute text-sm font-semibold whitespace-nowrap text-foreground tabular-nums [text-shadow:0_1px_2px_var(--background),0_0_7px_var(--background),0_0_12px_var(--background)]"
@@ -148,7 +162,7 @@ export function RecoveryTrendChart({
               transform: "translate(-50%, -130%)",
             }}
           >
-            {selected.value.toFixed(0)} {unit}
+            {formatValue(selected.value, true)}
           </div>
         </>
       )}

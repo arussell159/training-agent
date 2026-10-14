@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readPlannedValues, withPlannedValues } from "./planned-workout-values.mjs";
 import { eventId, validDate } from "./intervals.mjs";
 import { sportZoneSettings } from "./workout-editor-zones.mjs";
 import {
@@ -39,6 +40,15 @@ export function workoutRevision(event) {
     "custom_metadata",
     "indoor",
     "commute",
+    "moving_time",
+    "distance",
+    "time_target",
+    "distance_target",
+    "load_target",
+    "icu_training_load",
+    "icu_intensity",
+    "joules",
+    "athlete_cannot_edit",
   ];
   const stable = (value) =>
     Array.isArray(value)
@@ -90,19 +100,27 @@ async function loadZoneSettings(request) {
   }
   return { zoneSettings, zoneError };
 }
-export async function loadNewWorkoutEditor(request, date) {
+export async function loadNewWorkoutEditor(
+  request,
+  date,
+  { sport = "Ride", name = "New workout" } = {}
+) {
   validDate(date);
+  if (!["Swim", "Ride", "Run", "Other", "WeightTraining"].includes(sport))
+    fail("Choose a supported workout sport.");
+  if (typeof name !== "string" || !name.trim() || name.length > 200)
+    fail("Enter a workout name under 200 characters.");
   const zones = await loadZoneSettings(request);
-  const setting = sportZoneSettings(zones.zoneSettings, "Ride");
+  const setting = sportZoneSettings(zones.zoneSettings, sport);
   return {
     ...zones,
     model: {
       version: 1,
-      name: "New workout",
-      sport: "Ride",
+      name: name.trim(),
+      sport,
       date,
       notes: "",
-      poolLength: "",
+      poolLength: sport === "Swim" ? "25y" : "",
       steps: [],
       thresholds: { ftp: setting?.ftp || null, pace: setting?.threshold_pace || null },
     },
@@ -141,7 +159,10 @@ function expectedPatch(existing, model) {
   const patch = {
     name: model.name.trim(),
     type: model.sport,
-    description: serializeWorkout(model),
+    description: withPlannedValues(
+      serializeWorkout(model),
+      readPlannedValues(existing.description)
+    ),
   };
   const old = String(existing.start_date_local).slice(0, 10);
   if (model.date !== old) {

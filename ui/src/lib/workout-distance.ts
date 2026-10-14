@@ -4,6 +4,7 @@ import {expandSteps,workoutTotals} from '../../../app-backend/lib/workout-editor
 
 export function estimatedPlannedDistance(workout:PlannedWorkout):number|null{
  const planned=workout.workout_summary?.planned
+ if(planned?.distance_meters!=null && planned.distance_meters>0)return planned.distance_meters
  const speed=planned?.average_speed,time=planned?.duration_seconds
  if(speed!=null && speed>0 && time!=null && time>0)return speed*time
  if(planned?.distance_meters!=null && planned.distance_meters>0)return planned.distance_meters
@@ -15,7 +16,7 @@ export function estimatedPlannedDistance(workout:PlannedWorkout):number|null{
 
 export function plannedDistanceLabel(workout:PlannedWorkout):string{
  const completed=workout.status==='completed'
- if(!completed&&workout.editor_model){
+ if(!completed&&!workout.planned_values_edited&&workout.editor_model){
   const totals=workoutTotals(workout.editor_model)
   if(!totals.distance)return totals.unknownDistance?'—':'0'
   const steps=expandSteps(workout.editor_model.steps)

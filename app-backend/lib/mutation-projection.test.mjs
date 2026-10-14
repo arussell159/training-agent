@@ -40,6 +40,10 @@ test("a stale refresh cannot roll back historical webhook cache invalidation", (
 import { syncRevision } from "./sync-record-revision.mjs";
 
 const operation = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+// Keep planned-view fixtures ahead of today; fixed dates eventually move into
+// history and stop exercising the queue projection assertions below.
+const plannedDay = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+const movedDay = new Date(Date.now() + 4 * 86400000).toISOString().slice(0, 10);
 const job = (n, description, workout = "event:1") => ({
   sequence: n,
   mutation: { operationId: operation(n), id: workout, type: "description", description },
@@ -57,7 +61,7 @@ function fixture(name) {
     history: [],
     planned: [1, 2].map((n) => ({
       id: `event:${n}`,
-      workout_date: "2026-10-10",
+      workout_date: plannedDay,
       details: "original",
       completed: false,
     })),
@@ -315,13 +319,13 @@ test("reversed projections of independent edits preserve both fields and settle 
   const description = job(1, "accepted description");
   const move = {
     sequence: 2,
-    mutation: { operationId: operation(2), id: "event:1", type: "move", date: "2026-10-11" },
+    mutation: { operationId: operation(2), id: "event:1", type: "move", date: movedDay },
   };
   await f.projection().pending(move);
   await f.projection().pending(description);
   let workout = f.rows.get("1").cursor.context.planned[0];
   assert.equal(workout.details, "accepted description");
-  assert.equal(workout.workout_date, "2026-10-11");
+  assert.equal(workout.workout_date, movedDay);
   assert.equal(workout.sync_operation, operation(2));
   assert.equal(workout.sync_sequence, 2);
   await f.projection().status(description.mutation, "synced", {}, description.sequence);
@@ -333,12 +337,12 @@ test("reversed projections of independent edits preserve both fields and settle 
   await f.projection().pending(move);
   workout = f.rows.get("1").cursor.context.planned[0];
   assert.equal(workout.details, "accepted description");
-  assert.equal(workout.workout_date, "2026-10-11");
+  assert.equal(workout.workout_date, movedDay);
   assert.equal(workout.sync_status, "synced");
   assert.equal(workout.sync_operation, null);
   const view = f.rows.get(fastViewId(f.config)).cursor.planned.find((row) => row.id === "event:1");
   assert.equal(view.details, "accepted description");
-  assert.equal(view.workout_date, "2026-10-11");
+  assert.equal(view.workout_date, movedDay);
   assert.equal(view.sync_status, "synced");
 });
 

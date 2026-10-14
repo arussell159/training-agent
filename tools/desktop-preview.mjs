@@ -1,16 +1,24 @@
-// Persistent local preview. Never imports a backend, credentials, or environment file.
-// Run: node tools/desktop-preview.mjs; stop with Ctrl+C.
+// Persistent local preview. Never starts the backend server or loads credentials.
+// --calendar-edits enables disposable calendar and nutrition editing in memory.
+// Run: node tools/desktop-preview.mjs [--calendar-edits]; stop with Ctrl+C.
 import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDesktopPreviewFixtures, validDate } from "./desktop-preview-fixtures.mjs";
+import { createDesktopCalendarPreview } from "./desktop-calendar-preview-fixtures.mjs";
+import { createDesktopNutritionPreview } from "./desktop-nutrition-preview-fixtures.mjs";
 
 const workspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(workspace, "ui", "dist"),
-  port = 5194,
+  port = Number(process.argv.find(arg => arg.startsWith("--port="))?.slice(7)) || (process.argv.includes("--calendar-edits") ? 5195 : 5194),
   host = "127.0.0.1";
-const fixture = createDesktopPreviewFixtures();
+if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("Invalid local preview port");
+const fixture = createDesktopPreviewFixtures(new Date(), { gps: process.argv.includes("--gps") });
+const calendarPreview = process.argv.includes("--calendar-edits")
+  ? createDesktopCalendarPreview(fixture)
+  : null;
+const nutritionPreview = calendarPreview ? createDesktopNutritionPreview(fixture) : null;
 const csp =
   "default-src 'self'; connect-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'";
 const browserGuard = `<script id="local-preview-guard">(()=>{
@@ -23,11 +31,12 @@ const browserGuard = `<script id="local-preview-guard">(()=>{
   const originalOpen=window.open.bind(window);window.open=(url,...args)=>!url||local(String(url))?originalOpen(url,...args):null;
   document.addEventListener('click',event=>{const link=event.target instanceof Element?event.target.closest('a[href]'):null;if(link&&!local(link.href))event.preventDefault()},true);
   const theme=new URLSearchParams(location.search).get('theme');if(['light','dark','system'].includes(theme)){try{localStorage.setItem('theme',theme)}catch{}}
-  window.__localPreview={synthetic:true,readOnly:true};
+  window.__localPreview={synthetic:true,readOnly:${!calendarPreview}};
 })();</script>`;
 const safeWorker =
   "self.addEventListener('install',()=>self.skipWaiting());self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));";
 const readPosts = new Set(["training-live", "coach/reports/catalog", "coach/reports/status"]);
+let calendarSummaryOpen = true;
 const apiReply = (api, url) => {
   if (api === "auth/session")
     return { configured: true, authenticated: true, hasPasskey: false, passkeysSupported: false };
@@ -35,9 +44,9 @@ const apiReply = (api, url) => {
     return {
       intervalsConnected: true,
       supabaseConnected: false,
-      calendarSummaryOpen: true,
+      calendarSummaryOpen,
       localPreview: true,
-      readOnly: true,
+      readOnly: !calendarPreview,
     };
   if (api === "training-live") return { available: false };
   if (api === "training-context" || api === "training-updates") {
@@ -52,9 +61,10 @@ const apiReply = (api, url) => {
         (Date.parse(end) - Date.parse(start)) / 86400000 > 370)
     )
       return { error: "Invalid preview date range" };
-    const context = scope === "range" ? fixture.context(start, end, "range") : fixture.context();
+    const source = calendarPreview || fixture;
+    const context = scope === "range" ? source.context(start, end, "range") : source.context();
     return api === "training-updates"
-      ? { unchanged: false, version: fixture.version, context }
+      ? { unchanged: false, version: source.version, context }
       : context;
   }
   if (api === "annual-plans") return fixture.annualPlans;
@@ -101,7 +111,7 @@ const apiReply = (api, url) => {
         Number(url.searchParams.get("duration")),
         Number(url.searchParams.get("distance"))
       );
-    if (activity[2] === "route") return { points: [] };
+    if (activity[2] === "route") return { points: (fixture.analysis(id)?.points || []).filter(point => Number.isFinite(point.latitude) && Number.isFinite(point.longitude)).map(point => [point.latitude, point.longitude]) };
     if (activity[2] === "summary") return fixture.lookup(id)?.workout_summary.completed || null;
     return fixture.analysis(id);
   }
@@ -129,10 +139,37 @@ const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${host}:${port}`);
     if (url.pathname.startsWith("/api/")) {
       const api = url.searchParams.get("__api_route") || url.pathname.slice(5);
-      if (request.method !== "GET" && !(request.method === "POST" && readPosts.has(api)))
+      const calendarWrite = calendarPreview?.canWrite(api, request.method);
+      const nutritionWrite = nutritionPreview?.canWrite(api, request.method);
+      const preferenceWrite = api === "config" && request.method === "POST";
+      if (
+        request.method !== "GET" &&
+        !calendarWrite &&
+        !nutritionWrite &&
+        !preferenceWrite &&
+        !(request.method === "POST" && readPosts.has(api))
+      )
         return json({ error: "Synthetic preview: saving and provider actions are disabled." }, 405);
-      request.resume();
-      const value = apiReply(api, url);
+      let input = {};
+      if (calendarWrite || nutritionWrite || preferenceWrite) {
+        const chunks = [];
+        let length = 0;
+        for await (const chunk of request) {
+          length += chunk.length;
+          if (length > 256000) return json({ error: "Synthetic request is too large." }, 413);
+          chunks.push(chunk);
+        }
+        input = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+      } else request.resume();
+      if (preferenceWrite) {
+        if (!['true','false'].includes(input.CALENDAR_SUMMARY_OPEN) || Object.keys(input).length !== 1)
+          return json({ error: 'Only the disposable calendar summary preference is supported.' }, 400);
+        calendarSummaryOpen = input.CALENDAR_SUMMARY_OPEN === 'true';
+        return json(apiReply('config',url));
+      }
+      const value =
+        nutritionPreview?.handle(api, request.method, input, url) ??
+        (await calendarPreview?.handle(api, request.method, input, url)) ?? apiReply(api, url);
       return json(
         value || { error: "This endpoint is unavailable in the synthetic preview." },
         value === null ? 404 : value.error ? 400 : 200
@@ -148,7 +185,13 @@ const server = http.createServer(async (request, response) => {
       return response.end(request.method === "HEAD" ? undefined : safeWorker);
     }
     if (url.pathname === "/__preview/health")
-      return json({ synthetic: true, readOnly: true, port, today: fixture.today, backend: false });
+      return json({
+        synthetic: true,
+        readOnly: !calendarPreview,
+        port,
+        today: fixture.today,
+        backend: false,
+      });
     const decoded = decodeURIComponent(url.pathname);
     if (decoded.includes("\\") || decoded.includes("\0") || decoded.split("/").includes(".."))
       return json({ error: "Invalid path" }, 400);
@@ -183,6 +226,8 @@ const server = http.createServer(async (request, response) => {
     response.writeHead(200, { "Content-Type": contentType });
     response.end(request.method === "HEAD" ? undefined : data);
   } catch (error) {
+    if (calendarPreview && request.url.startsWith("/api/"))
+      return json({ error: error.message, code: error.code }, error.status || 500);
     return json(
       {
         error:
@@ -200,7 +245,7 @@ server.on("error", (error) => {
 });
 server.listen(port, host, () =>
   console.log(
-    `Synthetic read-only preview: http://${host}:${port}/calendar\nLight: http://${host}:${port}/calendar?theme=light\nDark: http://${host}:${port}/calendar?theme=dark\nNo database, backend, credentials or provider connection. Stop with Ctrl+C.`
+    `Synthetic ${calendarPreview ? "disposable calendar editing" : "read-only"} preview: http://${host}:${port}/calendar\nLight: http://${host}:${port}/calendar?theme=light\nDark: http://${host}:${port}/calendar?theme=dark\nNo database, backend, credentials or provider connection. Stop with Ctrl+C.`
   )
 );
 for (const signal of ["SIGINT", "SIGTERM"])
