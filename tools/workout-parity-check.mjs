@@ -67,25 +67,58 @@ async function calendarEntryChecks(dayKey, addLabel) {
     check.setDefaultTimeout(10000);
     check.on("pageerror", error => errors.push(error.message));
     await check.goto(`${origin}/calendar?theme=light`, { waitUntil: "networkidle" });
-    const cell = check.locator(`.calendar-day-cell[data-calendar-date="${dayKey}"]`);
+    // Calendar intentionally keeps Today aligned until actual user scrolling.
+    // A real wheel event releases that anchor before programmatic test positioning.
+    await check.mouse.wheel(0, 1);
+    const emptyDay = new Date(`${dayKey}T12:00:00`);
+    emptyDay.setDate(emptyDay.getDate() + 1);
+    const cell = check.locator(`.calendar-day-cell[data-calendar-date="${emptyDay.toLocaleDateString("en-CA")}"]`);
     await cell.scrollIntoViewIfNeeded();
     for (const selector of [".calendar-day-cell", ".calendar-day-workouts"]) {
       const target = selector === ".calendar-day-cell" ? cell
         : check.locator(".calendar-day-cell[data-calendar-today='true']");
       await target.scrollIntoViewIfNeeded();
-      const point = await target.evaluate((root, selector) => {
+      let point = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const candidate = await target.evaluate((root, selector) => {
         const node = selector === ".calendar-day-cell" ? root : root.querySelector(selector);
         const box = node.getBoundingClientRect();
         const plus = root.querySelector(".calendar-day-add-workout")?.getBoundingClientRect();
-        for (let y = Math.max(1, box.top + 2); y < Math.min(innerHeight - 1, box.bottom - 2); y += 3)
-          for (let x = Math.max(1, box.left + 2); x < Math.min(innerWidth - 1, box.right - 2); x += 3)
+        const blank = (x, y) => {
+          const hit = document.elementFromPoint(x, y);
+          return hit === node || Boolean(hit && node.contains(hit) && !hit.textContent.trim()
+            && !hit.closest("button,a,input,textarea,select,[role='button'],.calendar-workout-card,.calendar-note-card,.calendar-daily-metrics"));
+        };
+        const inset = innerWidth < 768 ? 2 : 4;
+        const neighbors = innerWidth < 768 ? [[0, 0]] : [[0, 0], [-2, -2], [-2, 2], [2, -2], [2, 2]];
+        for (let y = Math.ceil(Math.max(inset, box.top + inset)); y < Math.min(innerHeight - inset, box.bottom - inset); y += 3)
+          for (let x = Math.ceil(Math.max(inset, box.left + inset)); x < Math.min(innerWidth - inset, box.right - inset); x += 3)
             if (!(plus && x >= plus.left && x <= plus.right && y >= plus.top && y <= plus.bottom)
-                && document.elementFromPoint(x, y) === node) return { x, y };
+                && neighbors.every(([dx, dy]) => blank(x + dx, y + dy))) return { x, y };
         return null;
-      }, selector);
-      assert.ok(point, `${width}: no visible blank area found in ${selector}`);
+        }, selector);
+        if (!candidate) {
+          await check.screenshot({ path: path.join(output, `blank-scan-failure-${width}.png`), animations: "disabled" });
+          console.error(JSON.stringify(await target.evaluate(node => ({ rect: node.getBoundingClientRect().toJSON(), html: node.outerHTML.slice(0, 3000) }))));
+        }
+        assert.ok(candidate, `${width}: no visible blank area found in ${selector}`);
+        await check.mouse.move(candidate.x, candidate.y);
+        if (await target.evaluate((root, { selector, point }) => {
+          const node = selector === ".calendar-day-cell" ? root : root.querySelector(selector);
+          const hit = document.elementFromPoint(point.x, point.y);
+          return hit === node || Boolean(hit && node.contains(hit) && !hit.textContent.trim()
+            && !hit.closest("button,a,input,textarea,select,[role='button'],.calendar-workout-card,.calendar-note-card,.calendar-daily-metrics"));
+        }, { selector, point: candidate })) {
+          point = candidate;
+          break;
+        }
+      }
+      assert.ok(point, `${width}: no stable blank target after pointer movement`);
       await check.mouse.click(point.x, point.y);
       await check.waitForTimeout(120);
+      if (await check.getByRole("dialog").count()) {
+        await check.screenshot({ path: path.join(output, `blank-entry-failure-${width}.png`), animations: "disabled" });
+      }
       assert.equal(await check.getByRole("dialog").count(), 0, `${width}: a blank calendar click opened a dialog`);
     }
     await clickCalendarPlus(check, addLabel);
@@ -138,6 +171,25 @@ async function assertPanRoundTrip() {
   }
   assert.ok(position.left <= 1, "Repeated backward pan must reach the chart start");
   assert.equal(await pan.getAttribute("aria-label"), "Scroll workout profile forward");
+}
+
+async function holdPaletteDrag(fraction) {
+  const source = await page.getByRole("button", { name: "Add Warm up", exact: true }).boundingBox();
+  const plot = await page.locator(".dtb-chart-scroll").boundingBox();
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(source.x + source.width / 2 + 8, source.y + source.height / 2 + 4, { steps: 3 });
+  await page.mouse.move(plot.x + plot.width * fraction, plot.y + 90, { steps: 15 });
+  await page.mouse.move(plot.x + plot.width * fraction + 1, plot.y + 90, { steps: 2 });
+  await page.locator(".dtb-profile-drag-feedback").waitFor({ state: "visible" });
+  await page.locator(".dtb-profile-drop-marker").waitFor({ state: "attached" });
+  assert.ok(await page.locator(".dtb-profile-drop-marker").evaluate(node => node.getBBox().height > 0 && getComputedStyle(node).stroke !== "none"));
+}
+
+async function cancelHeldDrag() {
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await page.locator(".dtb-profile-drag-feedback").waitFor({ state: "hidden" });
 }
 
 async function screenshot(name) {
@@ -266,30 +318,23 @@ try {
     await step.getByRole("switch").check();
     await step.getByLabel("Step notes", { exact: true }).fill("Controlled work interval");
     await page.locator('.we-profile-segment rect[role="button"]').last().hover();
-    await page.locator(".we-profile-tooltip").waitFor({ state: "visible" });
-    assert.match(await page.locator(".we-profile-tooltip").innerText(), /Hard/);
-    await screenshot("builder-chart-hover");
-    await page.getByLabel("Workout title", { exact: true }).hover();
-    await page.locator(".we-profile-tooltip").waitFor({ state: "hidden" });
+    assert.equal(await page.locator(".dtb-profile-drop-marker,.dtb-profile-drag-feedback").count(), 0,
+      "Ordinary hover must not show drag feedback");
+    await holdPaletteDrag(0.6);
+    assert.match(await page.locator(".dtb-profile-drag-feedback").innerText(), /Warm up/);
+    await screenshot("builder-chart-palette-drag");
+    await cancelHeldDrag();
     await page.getByRole("button", { name: "Zoom in workout profile", exact: true }).click();
     await page.getByRole("button", { name: "Scroll workout profile forward", exact: true }).click();
     await page.waitForFunction(() => document.querySelector(".dtb-chart-scroll").scrollLeft > 0);
     await page.waitForTimeout(500);
     const pannedChart = await page.locator(".dtb-chart-scroll").boundingBox();
-    const visibleSegment = await page.locator(".we-profile-segment rect[role='button']").evaluateAll(nodes => {
-      const viewport = document.querySelector(".dtb-chart-scroll").getBoundingClientRect();
-      const visible = nodes.map(node => node.getBoundingClientRect())
-        .filter(rect => rect.right > viewport.left + 5 && rect.left < viewport.right - 5);
-      const rect = visible.find(bounds => bounds.left < viewport.left) || visible[0];
-      return rect && { x: Math.max(viewport.left, rect.left) + 3, y: rect.y + rect.height / 2 };
-    });
-    assert.ok(visibleSegment, "Zoomed chart must show an interval");
-    await page.mouse.move(visibleSegment.x, visibleSegment.y);
-    await page.locator(".we-profile-tooltip").waitFor({ state: "visible" });
-    const pannedTooltip = await page.locator(".we-profile-tooltip").boundingBox();
+    await holdPaletteDrag(0.35);
+    const pannedTooltip = await page.locator(".dtb-profile-drag-feedback").boundingBox();
     assert.ok(pannedTooltip.x >= pannedChart.x && pannedTooltip.x + pannedTooltip.width <= pannedChart.x + pannedChart.width,
-      "Tooltip for a partially visible interval must remain inside the visible chart after pan");
-    await screenshot("builder-chart-pan-tooltip");
+      "New interval drag details must remain inside the visible chart after pan");
+    await screenshot("builder-chart-pan-drag");
+    await cancelHeldDrag();
     await assertPanRoundTrip();
     await page.getByRole("button", { name: "Zoom out workout profile", exact: true }).click();
     await page.waitForFunction(() => document.querySelector(".dtb-chart-scroll").scrollLeft === 0);

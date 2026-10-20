@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   ArrowDown,
   ArrowUp,
@@ -82,13 +82,18 @@ import {
   AlertDialogTitle,
 } from "./ui/alert-dialog"
 
+export type DesktopPalettePreview = {
+  nodes: WorkoutNode[]
+  index: number
+  position: number
+}
 type Props = {
   model: WorkoutModel
   commit: (model: WorkoutModel) => void
   zones: SportZoneSettings[]
   selected: string[]
   select: (id: string, multi: boolean, reveal?: boolean) => void
-  chart: (unit: string) => ReactNode
+  chart: (unit: string, palettePreview: DesktopPalettePreview | null) => ReactNode
   metadata: DesktopWorkoutMetadata
   onMetadata: (value: DesktopWorkoutMetadata) => void
   onSport: (sport: string) => void
@@ -816,7 +821,67 @@ export function DesktopWorkoutBuilder(props: Props) {
       /* Browser storage is optional. */
     }
   }, [length, unit, mode, model.sport])
-  const drag = useRef<string | null>(null)
+  const drag = useRef<{ nodes: WorkoutNode[]; original: WorkoutModel } | null>(null)
+  const palettePointer = useRef<{ x: number; y: number } | null>(null)
+  const [palettePreview, setPalettePreview] = useState<DesktopPalettePreview | null>(null)
+  const paletteDropAt = useCallback((x: number, y: number): DesktopPalettePreview | null => {
+    const pending = drag.current
+    const viewport = chartScroll.current
+    const plot = viewport?.querySelector<SVGSVGElement>("svg[data-workout-profile]")
+    if (!pending || pending.original !== model || !viewport || !plot) return null
+    const visible = viewport.getBoundingClientRect()
+    const bounds = plot.getBoundingClientRect()
+    const endVisible = bounds.right <= visible.right + 1
+    const right = endVisible ? bounds.right + 30 : visible.right
+    if (x < visible.left || x > right || y < bounds.top || y > Math.min(visible.bottom, bounds.bottom) || !bounds.width) return null
+    const blocks = model.steps.map(node => ({
+      width: chartData.segments.filter(part => Boolean(findNode([node], part.step.id))).reduce((sum, part) => sum + part.width, 0),
+    }))
+    const index = desktopPaletteDropIndex(blocks, (x - bounds.left) / bounds.width)
+    const total = blocks.reduce((sum, block) => sum + block.width, 0)
+    return { nodes: pending.nodes, index, position: total ? blocks.slice(0, index).reduce((sum, block) => sum + block.width, 0) / total : 0 }
+  }, [chartData, model])
+  const cancelPaletteDrag = useCallback(() => {
+    drag.current = null
+    palettePointer.current = null
+    setPalettePreview(null)
+  }, [])
+  const paletteOverChart = palettePreview !== null
+  useEffect(() => {
+    if (!paletteOverChart) return
+    let frame = 0
+    const pan = () => {
+      const point = palettePointer.current, viewport = chartScroll.current
+      if (point && viewport) {
+        const bounds = viewport.getBoundingClientRect()
+        const delta = point.x < bounds.left + 32 ? -Math.min(12, (bounds.left + 32 - point.x) / 3)
+          : point.x > bounds.right - 32 ? Math.min(12, (point.x - bounds.right + 32) / 3) : 0
+        if (delta && point.x >= bounds.left && point.x <= bounds.right) {
+          const before = viewport.scrollLeft
+          viewport.scrollLeft += delta
+          if (before !== viewport.scrollLeft) setPalettePreview(paletteDropAt(point.x, point.y))
+        }
+      }
+      frame = requestAnimationFrame(pan)
+    }
+    frame = requestAnimationFrame(pan)
+    return () => cancelAnimationFrame(frame)
+  }, [paletteOverChart, paletteDropAt])
+  useEffect(() => {
+    const cancel = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && drag.current) {
+        event.preventDefault()
+        event.stopPropagation()
+        cancelPaletteDrag()
+      }
+    }
+    window.addEventListener("keydown", cancel, true)
+    window.addEventListener("blur", cancelPaletteDrag)
+    return () => {
+      window.removeEventListener("keydown", cancel, true)
+      window.removeEventListener("blur", cancelPaletteDrag)
+    }
+  }, [cancelPaletteDrag])
   const date = new Date(`${props.metadata.date}T12:00:00Z`).toLocaleDateString(
     "en-US",
     {
@@ -1271,13 +1336,14 @@ export function DesktopWorkoutBuilder(props: Props) {
                   draggable={!saving && !setupOpen}
                   disabled={saving || setupOpen}
                   onDragStart={(event) => {
-                    drag.current = name
+                    drag.current = { nodes: builderBlock(name, model, unit, mode, length), original: model }
                     event.dataTransfer.effectAllowed = "copy"
                     event.dataTransfer.setData("text/plain", name)
+                    const blank = document.createElement("canvas")
+                    blank.width = blank.height = 1
+                    event.dataTransfer.setDragImage(blank, 0, 0)
                   }}
-                  onDragEnd={() => {
-                    drag.current = null
-                  }}
+                  onDragEnd={cancelPaletteDrag}
                   onClick={() => add(name)}
                 />}>
                   <MiniProfile model={model} nodes={nodes} />
@@ -1363,28 +1429,25 @@ export function DesktopWorkoutBuilder(props: Props) {
           if (drag.current) {
             event.preventDefault()
             event.dataTransfer.dropEffect = "copy"
+            palettePointer.current = { x: event.clientX, y: event.clientY }
+            setPalettePreview(paletteDropAt(event.clientX, event.clientY))
+          }
+        }}
+        onDragLeave={(event) => {
+          if (drag.current && !paletteDropAt(event.clientX, event.clientY)) {
+            palettePointer.current = null
+            setPalettePreview(null)
           }
         }}
         onDrop={(event) => {
-          event.preventDefault()
           if (drag.current) {
-            const plot = event.currentTarget
-              .querySelector("svg")
-              ?.getBoundingClientRect()
-            let index = model.steps.length
-            if (plot && plot.width > 0) {
-              const blocks = model.steps.map((node) => ({
-                width: chartData.segments
-                  .filter((part) => Boolean(findNode([node], part.step.id)))
-                  .reduce((sum, part) => sum + part.width, 0),
-              }))
-              index = desktopPaletteDropIndex(
-                blocks,
-                (event.clientX - plot.left) / plot.width
-              )
+            event.preventDefault()
+            const insertion = paletteDropAt(event.clientX, event.clientY)
+            if (insertion) {
+              commit({ ...model, steps: insertNodes(model.steps, null, insertion.index, insertion.nodes) })
+              select(insertion.nodes[0].id, false, true)
             }
-            add(drag.current, index)
-            drag.current = null
+            cancelPaletteDrag()
           }
         }}
       >
@@ -1471,7 +1534,7 @@ export function DesktopWorkoutBuilder(props: Props) {
           ))}
         </div>
         <div className="dtb-chart-scroll" ref={chartScroll}>
-          <div style={{ width: `${zoom * 100}%` }}>{props.chart(unit)}</div>
+          <div style={{ width: `${zoom * 100}%` }}>{props.chart(unit, palettePreview)}</div>
         </div>
         <div className="dtb-chart-zoom">
           <button

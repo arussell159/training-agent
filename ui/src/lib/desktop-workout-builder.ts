@@ -33,8 +33,10 @@ export function desktopProfileDropSlot(
   let offset = 0
   for (let index = 0; index < blocks.length; index++) {
     const block = blocks[index]
-    if (index !== source && point < offset + block.width / 2)
-      return index === source + 1 ? null : { index, position: offset / total }
+    if (point < offset + block.width)
+      return index === source || index === source + 1
+        ? null
+        : { index, position: offset / total }
     offset += block.width
   }
   return source === blocks.length - 1
@@ -51,7 +53,7 @@ export function desktopPaletteDropIndex(
   const point = Math.max(0, Math.min(1, fraction)) * total
   let offset = 0
   for (let index = 0; index < blocks.length; index++) {
-    if (point < offset + blocks[index].width / 2) return index
+    if (point < offset + blocks[index].width) return index
     offset += blocks[index].width
   }
   return blocks.length

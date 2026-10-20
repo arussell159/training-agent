@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { formatPlannedValue, parsePlannedValue, plannedValueDraft, changedPlannedValues, mergeLoadedPlannedDraft, updatePlannedValueDraft } from "../src/lib/planned-workout-values.ts";
 import { builderBlock, desktopBuilderBlocks, displayTarget, desktopTargetPresentation, desktopBuilderTotals, desktopProfileRange, desktopProfileDropSlot, resizeDesktopRamp, changeDesktopTargetShape, changeDesktopTargetUnit, changeDesktopStepLength, duplicateDesktopBlock, desktopPaletteDropIndex, readDesktopBuilderPreferences, rememberDesktopBuilderPreferences } from "../src/lib/desktop-workout-builder.ts";
 import { desktopWorkoutDescription } from "../src/lib/desktop-workout-description.ts";
-import { validateWorkout, workoutTotals, moveNode, serializeWorkout, readEditorModel, verifyParsedWorkout } from "../../app-backend/lib/workout-editor-model.mjs";
+import { validateWorkout, workoutTotals, moveNode, insertNodes, newStep, newRepeat, walkNodes, expandSteps, chartSegments, serializeWorkout, readEditorModel, verifyParsedWorkout } from "../../app-backend/lib/workout-editor-model.mjs";
 import { parseTestWorkout } from "../../app-backend/lib/fixtures/workout-editor-fixtures.mjs";
 import { fakeProvider, fixtureEvent } from "../../app-backend/lib/fixtures/workout-editor-fixtures.mjs";
 import { loadWorkoutEditor, saveWorkoutEditor } from "../../app-backend/lib/workout-editor.mjs";
@@ -308,17 +308,171 @@ test("ramp stage counts reject invalid input and incompatible endpoint prescript
   assert.throws(()=>resizeDesktopRamp({...ramp,label:"Repeats"},6),/stepped ramp/);
 });
 
-test("desktop drop slots stay unchanged within a block and switch across adjacent midpoints", () => {
+test("desktop drops insert before the whole hovered block, including its latter half", () => {
   const blocks = [{id:"warmup",width:600},{id:"repeat",width:720},{id:"cooldown",width:600}];
-  for (const fraction of [600/1920,900/1920,1320/1920]) assert.equal(desktopProfileDropSlot(blocks,"repeat",fraction),null);
-  assert.equal(desktopProfileDropSlot(blocks,"repeat",299/1920).index,0);
-  assert.equal(desktopProfileDropSlot(blocks,"repeat",1621/1920).index,3);
+  for (const fraction of [600/1920,900/1920,1320/1920,1919/1920]) assert.equal(desktopProfileDropSlot(blocks,"repeat",fraction),null);
+  assert.equal(desktopProfileDropSlot(blocks,"repeat",599/1920).index,0);
+  assert.equal(desktopProfileDropSlot(blocks,"repeat",1).index,3);
+  assert.equal(desktopProfileDropSlot(blocks,"cooldown",1319/1920).index,1);
+  assert.equal(desktopPaletteDropIndex(blocks,599/1920),0);
+  assert.equal(desktopPaletteDropIndex(blocks,1319/1920),1);
+  assert.equal(desktopPaletteDropIndex(blocks,1919/1920),2);
+  assert.equal(desktopPaletteDropIndex(blocks,1),3);
+  assert.equal(desktopPaletteDropIndex([{width:1200}],.96),0);
   assert.equal(desktopProfileDropSlot(blocks,"warmup",0),null);
   assert.equal(desktopProfileDropSlot(blocks,"cooldown",1),null);
   assert.equal(desktopProfileDropSlot(blocks,"missing",.5),null);
   assert.equal(desktopProfileDropSlot([],"missing",.5),null);
   assert.equal(desktopProfileDropSlot(blocks,"repeat",NaN),null);
   assert.equal(desktopProfileDropSlot([{id:"only",width:300}],"only",1),null);
+});
+
+function profileDragFixture() {
+  const step = (role, seconds, changes = {}) => ({
+    ...newStep("Ride", role),
+    end: {kind:"time", unit:"s", value:seconds},
+    ...changes,
+  });
+  const nested = {
+    ...newRepeat([step("active", 120, {
+      label:"Controlled ramp",
+      notes:"Hold form through the complete ramp",
+      target:{kind:"power", unit:"%ftp", mode:"ramp", start:75, end:110},
+      cadence:{start:82, end:94},
+      end:{kind:"time", unit:"s", value:120, pressLap:true},
+    })]),
+    repetitions:2,
+    finalRecovery:false,
+    recovery:step("rest", 10),
+  };
+  const repeat = {
+    ...newRepeat([
+      nested,
+      step("active", 45, {
+        label:"Finish strong",
+        notes:"Keep this range and cadence",
+        target:{kind:"power", unit:"%ftp", mode:"range", start:105, end:115},
+        cadence:{start:90, end:100},
+      }),
+    ]),
+    label:"Two sets with nested repeats",
+    notes:"Recover only between repetitions and sets",
+    repetitions:3,
+    sets:2,
+    finalRecovery:false,
+    recovery:step("recovery", 30),
+    setRecovery:step("rest", 90),
+  };
+  return {
+    version:1, name:"Profile drag preservation", sport:"Ride", date:"2026-10-20",
+    notes:"Keep the workout instructions", poolLength:"", thresholds:{ftp:250, pace:3.2},
+    steps:[
+      step("warmup", 420),
+      repeat,
+      step("active", 120, {
+        label:"Distance with lap ending",
+        notes:"The distance must stay in metres",
+        end:{kind:"distance", unit:"m", value:400, pressLap:true},
+        target:{kind:"pace", unit:"secs/km", mode:"single", value:300},
+      }),
+      step("cooldown", 260),
+    ],
+  };
+}
+
+function profileRootBlocks(model) {
+  const {segments} = chartSegments(model);
+  return model.steps.map(root => {
+    const ids = new Set();
+    walkNodes([root], node => ids.add(node.id));
+    return {
+      id:root.id,
+      width:segments.filter(segment => ids.has(segment.step.id)).reduce((sum, segment) => sum + segment.width, 0),
+    };
+  });
+}
+
+test("profile boundary moves retain nested sets, recoveries and every prescription without flattening", () => {
+  const model = profileDragFixture(), original = structuredClone(model);
+  assert.deepEqual(validateWorkout(model), []);
+  const blocks = profileRootBlocks(model), total = blocks.reduce((sum, block) => sum + block.width, 0);
+  const boundaries = [0];
+  for (const block of blocks) boundaries.push(boundaries.at(-1) + block.width);
+  for (let source = 0; source < model.steps.length; source++) {
+    for (let boundary = 0; boundary <= model.steps.length; boundary++) {
+      const drop = desktopProfileDropSlot(blocks, model.steps[source].id, boundaries[boundary] / total);
+      if (boundary === source || boundary === source + 1) {
+        assert.equal(drop, null, `moving ${source} to its existing neighbours is a no-op`);
+        continue;
+      }
+      assert.equal(drop?.index, boundary);
+      assert.equal(drop.position, boundaries[boundary] / total);
+      const expected = [...original.steps];
+      const [picked] = expected.splice(source, 1);
+      expected.splice(boundary - Number(source < boundary), 0, picked);
+      const moved = {...model, steps:moveNode(model.steps, model.steps[source].id, null, drop.index)};
+      assert.deepEqual(moved.steps, expected, `source ${source}, boundary ${boundary}`);
+      assert.deepEqual(expandSteps(moved.steps), expected.flatMap(node => expandSteps([node])));
+      assert.deepEqual(validateWorkout(moved), []);
+      assert.deepEqual(workoutTotals(moved), workoutTotals(model));
+    }
+  }
+  assert.deepEqual(model, original);
+});
+
+test("palette drops insert the same complete payload only between root blocks at every boundary", () => {
+  const model = profileDragFixture(), original = structuredClone(model);
+  const blocks = profileRootBlocks(model), total = blocks.reduce((sum, block) => sum + block.width, 0);
+  const boundaries = [0];
+  for (const block of blocks) boundaries.push(boundaries.at(-1) + block.width);
+  for (const name of ["Active", "Two Step Repeats", "Three Step Repeats", "Ramp Up"]) {
+    // Generate once at drag start: the preview and committed insert share these IDs and values.
+    const pending = builderBlock(name, model, "%ftp", "range", {kind:"time", unit:"s"});
+    walkNodes(pending, node => {
+      node.notes = `Preserve ${name} instructions`;
+      if (node.kind === "step") {
+        node.cadence = {start:85, end:95};
+        node.end.pressLap = true;
+      }
+    });
+    const snapshot = structuredClone(pending);
+    for (let boundary = 0; boundary <= model.steps.length; boundary++) {
+      const index = desktopPaletteDropIndex(blocks, boundaries[boundary] / total);
+      assert.equal(index, boundary);
+      const inserted = {...model, steps:insertNodes(model.steps, null, index, pending)};
+      assert.deepEqual(inserted.steps, [
+        ...original.steps.slice(0, boundary), ...snapshot, ...original.steps.slice(boundary),
+      ]);
+      assert.equal(inserted.steps[index], pending[0]);
+      assert.deepEqual(validateWorkout(inserted), []);
+      const persisted = structuredClone(inserted);
+      delete persisted.thresholds;
+      assert.deepEqual(readEditorModel(serializeWorkout(inserted)), persisted);
+    }
+    assert.deepEqual(pending, snapshot);
+  }
+  assert.deepEqual(model, original);
+});
+
+test("zoomed and panned screen positions select the same root insertion slots as the full profile", () => {
+  const blocks = [{id:"warmup", width:1200}, {id:"repeats", width:2160}, {id:"cooldown", width:600}];
+  const viewportLeft = 49, viewportWidth = 900;
+  for (const {zoom, scroll, offset, root} of [
+    {zoom:1, scroll:0, offset:0, root:0},
+    {zoom:2, scroll:450, offset:1, root:0},
+    {zoom:2, scroll:450, offset:100, root:1},
+    {zoom:2, scroll:450, offset:899, root:1},
+    {zoom:5, scroll:3600, offset:1, root:1},
+    {zoom:5, scroll:3600, offset:899, root:2},
+    {zoom:5, scroll:3600, offset:900, root:3},
+  ]) {
+    const svgLeft = viewportLeft - scroll, fullWidth = viewportWidth * zoom;
+    const fraction = (viewportLeft + offset - svgLeft) / fullWidth;
+    assert.equal(desktopPaletteDropIndex(blocks, fraction), root);
+    const drop = desktopProfileDropSlot(blocks, "cooldown", fraction);
+    if (root >= 2) assert.equal(drop, null);
+    else assert.equal(drop?.index, root);
+  }
 });
 
 test("desktop display-unit conversion preserves the original target and real threshold pace", () => {
