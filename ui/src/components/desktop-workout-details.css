@@ -1059,6 +1059,11 @@
   .desktop-workout-preview .desktop-planned-comments .desktop-workout-detail-actions {
     display: none;
   }
+  .dtb-text textarea[aria-label="New planned workout comment"]:placeholder-shown {
+    height: 28px;
+    min-height: 28px;
+    resize: none;
+  }
   .desktop-workout-private-notes textarea {
     display: block;
     width: 100%;
@@ -1068,7 +1073,9 @@
     padding: 7px;
     border: 1px solid #d6dce7;
     border-radius: 4px;
-    font: 12px/15px var(--font-sans);
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 15px;
     resize: vertical;
     background: #f1f1f1;
     color: var(--foreground);
@@ -1084,6 +1091,23 @@
     color: #4c76b5;
     text-align: right;
     font-size: 11px;
+  }
+  .desktop-workout-private-notes textarea,
+  .desktop-workout-equipment input,
+  .desktop-workout-tag-entry input {
+    transition: border-color 120ms ease, background-color 120ms ease;
+  }
+  .desktop-workout-private-notes textarea:enabled:hover,
+  .desktop-workout-equipment input:enabled:hover,
+  .desktop-workout-tag-entry input:enabled:hover {
+    border-color: #2844f3;
+  }
+  .desktop-workout-private-notes textarea:enabled:focus-visible,
+  .desktop-workout-equipment input:enabled:focus-visible,
+  .desktop-workout-tag-entry input:enabled:focus-visible {
+    outline: none;
+    border-color: #2844f3;
+    box-shadow: none;
   }
   .desktop-workout-tags h3 {
     display: flex;

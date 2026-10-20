@@ -102,6 +102,44 @@ async function openEditor() {
   await page.locator(".desktop-workout-toolbar-popover").getByRole("button", { name: /Edit workout/i }).click();
 }
 
+async function assertExpandedBuilder() {
+  await page.waitForFunction(() => {
+    const rect = document.querySelector(".we-tp-desktop")?.getBoundingClientRect();
+    return rect && Math.abs(rect.x) < 1 && Math.abs(rect.y) < 1
+      && Math.abs(rect.width - innerWidth) < 1 && Math.abs(rect.height - innerHeight) < 1;
+  });
+  const continueButton = page.getByRole("button", { name: "Continue", exact: true });
+  if (await continueButton.count()) {
+    const box = await continueButton.boundingBox();
+    const viewport = page.viewportSize();
+    assert.ok(box && box.x >= 0 && box.y >= 0
+      && box.x + box.width <= viewport.width && box.y + box.height <= viewport.height,
+    "Fullscreen setup Continue must remain inside the viewport after compiled CSS is applied");
+  }
+}
+
+async function assertPanRoundTrip() {
+  const pan = page.getByRole("button", { name: /Scroll workout profile (forward|backward)/ });
+  const bounds = () => page.locator(".dtb-chart-scroll").evaluate(node => ({
+    left: node.scrollLeft, max: node.scrollWidth - node.clientWidth,
+  }));
+  for (let count = 0; count < 8 && (await pan.getAttribute("aria-label")).endsWith("forward"); count++) {
+    await pan.click();
+    await page.waitForTimeout(750);
+  }
+  let position = await bounds();
+  assert.ok(Math.abs(position.left - position.max) <= 2, "Pan control must reach the chart end");
+  for (let count = 0; count < 8 && position.left > 1; count++) {
+    assert.equal(await pan.getAttribute("aria-label"), "Scroll workout profile backward",
+      "Pan direction must stay backward until the start is reached");
+    await pan.click();
+    await page.waitForTimeout(750);
+    position = await bounds();
+  }
+  assert.ok(position.left <= 1, "Repeated backward pan must reach the chart start");
+  assert.equal(await pan.getAttribute("aria-label"), "Scroll workout profile forward");
+}
+
 async function screenshot(name) {
   await page.screenshot({ path: path.join(output, `${name}.png`), animations: "disabled" });
 }
@@ -125,7 +163,7 @@ async function geometry(name) {
         const rect = overview.getBoundingClientRect();
         const totals = [...overview.querySelectorAll("strong")].map(node => {
           const bounds = node.getBoundingClientRect();
-          return { text: node.textContent, right: bounds.right, top: bounds.top };
+          return { text: node.textContent, left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom };
         });
         const upload = [...root.querySelectorAll(".dtb-view-actions button")].find(node => node.textContent.includes("Upload"));
         return { right: rect.right, totals, upload: upload && { color: getComputedStyle(upload).color, background: getComputedStyle(upload).backgroundColor } };
@@ -142,7 +180,12 @@ async function geometry(name) {
   if (value.overview) {
     assert.ok(value.overview.totals.every(total => total.right <= value.overview.right - 33), `${name}: totals collide with export icon`);
     assert.notEqual(value.overview.upload.color, value.overview.upload.background, `${name}: Upload text invisible`);
-    if (name.endsWith("-768")) assert.ok(value.overview.totals.at(-1).top > value.overview.totals[0].top, "Narrow summary should wrap TSS");
+    value.overview.totals.forEach((total, index, totals) => {
+      if (!index) return;
+      const previous = totals[index - 1];
+      const sharesRow = total.top < previous.bottom && previous.top < total.bottom;
+      assert.ok(!sharesRow || total.left >= previous.right, `${name}: adjacent totals overlap`);
+    });
   }
 }
 async function timelineGeometry(name) {
@@ -207,6 +250,7 @@ try {
     });
     await page.getByRole("button", { name: `Remove attachment ${draftAttachments[1]}`, exact: true }).waitFor({ state: "visible" });
     const continueSetup = page.getByRole("button", { name: "Continue", exact: true });
+    await assertExpandedBuilder();
     if (await continueSetup.count()) await continueSetup.click();
     await page.getByRole("button", { name: "Add Two Step Repeats", exact: true }).click();
     await page.getByLabel("Repetitions", { exact: true }).last().fill("3");
@@ -227,6 +271,42 @@ try {
     await screenshot("builder-chart-hover");
     await page.getByLabel("Workout title", { exact: true }).hover();
     await page.locator(".we-profile-tooltip").waitFor({ state: "hidden" });
+    await page.getByRole("button", { name: "Zoom in workout profile", exact: true }).click();
+    await page.getByRole("button", { name: "Scroll workout profile forward", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector(".dtb-chart-scroll").scrollLeft > 0);
+    await page.waitForTimeout(500);
+    const pannedChart = await page.locator(".dtb-chart-scroll").boundingBox();
+    const visibleSegment = await page.locator(".we-profile-segment rect[role='button']").evaluateAll(nodes => {
+      const viewport = document.querySelector(".dtb-chart-scroll").getBoundingClientRect();
+      const visible = nodes.map(node => node.getBoundingClientRect())
+        .filter(rect => rect.right > viewport.left + 5 && rect.left < viewport.right - 5);
+      const rect = visible.find(bounds => bounds.left < viewport.left) || visible[0];
+      return rect && { x: Math.max(viewport.left, rect.left) + 3, y: rect.y + rect.height / 2 };
+    });
+    assert.ok(visibleSegment, "Zoomed chart must show an interval");
+    await page.mouse.move(visibleSegment.x, visibleSegment.y);
+    await page.locator(".we-profile-tooltip").waitFor({ state: "visible" });
+    const pannedTooltip = await page.locator(".we-profile-tooltip").boundingBox();
+    assert.ok(pannedTooltip.x >= pannedChart.x && pannedTooltip.x + pannedTooltip.width <= pannedChart.x + pannedChart.width,
+      "Tooltip for a partially visible interval must remain inside the visible chart after pan");
+    await screenshot("builder-chart-pan-tooltip");
+    await assertPanRoundTrip();
+    await page.getByRole("button", { name: "Zoom out workout profile", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector(".dtb-chart-scroll").scrollLeft === 0);
+    assert.equal(await page.getByRole("button", { name: "Scroll workout profile forward", exact: true }).isEnabled(), false);
+    await page.getByLabel("Workout title", { exact: true }).hover();
+    await page.getByRole("button", { name: "Restore workout size", exact: true }).click();
+    await page.waitForFunction(() => {
+      const rect = document.querySelector(".we-tp-desktop.dtb-compact")?.getBoundingClientRect();
+      return rect && Math.abs(rect.width - 1120) < 1;
+    });
+    await page.waitForTimeout(150);
+    assert.ok((await step.getByLabel("Step title", { exact: true }).boundingBox()).width > 150,
+      "Compact builder must leave a readable step title at a wide viewport");
+    assert.ok(await page.locator(".we-tp-desktop").evaluate(node => node.scrollWidth <= node.clientWidth + 1),
+      "Compact builder must not overflow horizontally");
+    await page.getByRole("button", { name: "Expand workout", exact: true }).click();
+    await assertExpandedBuilder();
     for (const format of ["txt", "fit"]) {
       await page.getByRole("button", { name: "Export workout", exact: true }).click();
       const fileDialog = page.locator(".workout-file-dialog");
@@ -418,6 +498,7 @@ try {
     await repeat.getByLabel("Repeat occurrences").fill("2");
     await repeat.getByRole("button", { name: "Done", exact: true }).click();
     await page.getByRole("button", { name: "Build Workout", exact: true }).click();
+    await assertExpandedBuilder();
     const setup = page.getByRole("button", { name: "Continue", exact: true });
     await setup.click();
     assert.match(await page.getByRole("button", { name: "Workout recurrence", exact: true }).innerText(), /Daily/);

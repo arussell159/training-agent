@@ -14,9 +14,11 @@ import {
   X,
   Download,
   Upload,
+  ChevronRight,
 } from "lucide-react"
 import { DesktopSportIcon } from "./desktop-sport-icon"
 import { DesktopWorkoutToolbar } from "./desktop-workout-toolbar"
+import { WorkoutDetailNavigation } from "./desktop-workout-personal-fields"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip"
 import { DurationField, PaceField } from "./workout-duration-field"
 import {
@@ -86,7 +88,7 @@ type Props = {
   zones: SportZoneSettings[]
   selected: string[]
   select: (id: string, multi: boolean, reveal?: boolean) => void
-  chart: ReactNode
+  chart: (unit: string) => ReactNode
   metadata: DesktopWorkoutMetadata
   onMetadata: (value: DesktopWorkoutMetadata) => void
   onSport: (sport: string) => void
@@ -390,6 +392,13 @@ function StepCard({
       className={`dtb-step-card ${selected ? "dtb-selected" : ""}`}
       onFocusCapture={onSelect}
     >
+      {!recoverySlot && <button
+        type="button"
+        className="dtb-step-remove"
+        aria-label={`Remove ${step.label} block`}
+        title="Remove block"
+        onClick={remove}
+      ><X size={16} /></button>}
       <div className="dtb-step-heading">
         <input
           aria-label="Step title"
@@ -698,7 +707,7 @@ export function DesktopWorkoutBuilder(props: Props) {
     (segment) => segment.step.target.kind !== "none"
   )?.step.target
   const chartMaximum = Math.max(
-    1.5,
+    1.2,
     ...chartData.segments.flatMap((segment) => [
       segment.start,
       segment.end,
@@ -752,6 +761,24 @@ export function DesktopWorkoutBuilder(props: Props) {
     (id) => findNode(model.steps, id)?.kind === "repeat"
   )
   const [zoom, setZoom] = useState(1)
+  const chartScroll = useRef<HTMLDivElement>(null)
+  const [canPanForward, setCanPanForward] = useState(true)
+  useEffect(() => {
+    const viewport = chartScroll.current
+    if (!viewport) return
+    const update = () => {
+      if (viewport.scrollLeft <= 2) setCanPanForward(true)
+      else if (viewport.scrollLeft + viewport.clientWidth >= viewport.scrollWidth - 2) setCanPanForward(false)
+    }
+    update()
+    viewport.addEventListener("scroll", update, { passive: true })
+    const observer = new ResizeObserver(update)
+    observer.observe(viewport)
+    return () => {
+      observer.disconnect()
+      viewport.removeEventListener("scroll", update)
+    }
+  }, [zoom])
   const [clearOpen, setClearOpen] = useState(false)
   const [setupRequested, setSetupOpen] = useState(
     props.isNew && !model.steps.length
@@ -1155,7 +1182,7 @@ export function DesktopWorkoutBuilder(props: Props) {
           </div>
         </div>
         <div className="dtb-repeat-status">
-          {props.recurrence || "Does not repeat"} <span>{props.isNew ? "New" : "Planned"}</span>
+          {props.recurrence || "Does not repeat"}
         </div>
         <div className="dtb-build-row">
           <div className="dtb-overview">
@@ -1437,16 +1464,27 @@ export function DesktopWorkoutBuilder(props: Props) {
           </section>
         )}
         <div className="dtb-chart-axis" aria-hidden="true">
-          {[1, 2 / 3, 1 / 3, 0].map((value, index) => (
-            <span key={index} style={{ top: `${15.4 + index * 25.6}%` }}>
-              {Math.round(value * chartMaximum * 100)}%
+          {Array.from({length: Math.ceil(chartMaximum / 0.5)}, (_, index) => index * 0.5).map(value => (
+            <span key={value} style={{ top: `${(180 - value / chartMaximum * 150) / 195 * 100}%` }}>
+              {Math.round(value * 100)}%
             </span>
           ))}
         </div>
-        <div className="dtb-chart-scroll">
-          <div style={{ width: `${zoom * 100}%` }}>{props.chart}</div>
+        <div className="dtb-chart-scroll" ref={chartScroll}>
+          <div style={{ width: `${zoom * 100}%` }}>{props.chart(unit)}</div>
         </div>
         <div className="dtb-chart-zoom">
+          <button
+            type="button"
+            className="dtb-chart-pan"
+            aria-label={`Scroll workout profile ${canPanForward ? "forward" : "backward"}`}
+            disabled={zoom === 1}
+            onClick={() => {
+              const viewport = chartScroll.current
+              if (viewport) viewport.scrollBy({ left: viewport.clientWidth * (canPanForward ? 0.75 : -0.75), behavior: "smooth" })
+            }}
+          ><ChevronRight size={27} style={{ transform: canPanForward || zoom === 1 ? undefined : "rotate(180deg)" }}/></button>
+          <div className="dtb-chart-zoom-controls">
           <button
             type="button"
             aria-label="Zoom out workout profile"
@@ -1464,9 +1502,11 @@ export function DesktopWorkoutBuilder(props: Props) {
           >
             <Plus size={14} />
           </button>
+          </div>
         </div>
       </div>
-      <div className="dtb-lower">
+      <div className="dtb-lower desktop-workout-details-shell">
+        <WorkoutDetailNavigation />
         <aside className="dtb-summary">
           <div className="dtb-summary-grid">
             <section
@@ -1513,7 +1553,7 @@ export function DesktopWorkoutBuilder(props: Props) {
                   )}
                 </tbody>
               </table>
-              <table className="dtb-recorded">
+              <table className="dtb-recorded" aria-label="Recorded minimum average maximum">
                 <thead>
                   <tr>
                     <th />
@@ -1571,7 +1611,6 @@ export function DesktopWorkoutBuilder(props: Props) {
         <main className="dtb-details" aria-label="Workout Details Editor">
           <div className="dtb-details-heading">
             <h3>Workout Details Editor</h3>
-            <span>{model.steps.length} blocks</span>
           </div>
           <fieldset disabled={saving}>
             {renderNodes(model.steps)}

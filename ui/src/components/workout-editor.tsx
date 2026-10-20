@@ -93,7 +93,7 @@ import {
   type PlannedWorkout,
   type WorkoutSummaryValues,
 } from "@/lib/training-context"
-import { desktopBuilderTotals, desktopProfileDropSlot, desktopProfileRange } from "@/lib/desktop-workout-builder"
+import { desktopBuilderTotals, desktopProfileDropSlot, desktopProfileRange, desktopTargetPresentation, desktopTargetUnits, displayTarget } from "@/lib/desktop-workout-builder"
 import { changedPlannedValues, formatPlannedValue, plannedValueDraft, updatePlannedValueDraft, type PlannedValueKey } from "@/lib/planned-workout-values"
 import type { DesktopWorkoutMetadata } from "./desktop-workout-header"
 import { WorkoutAttachments, WorkoutEquipment, WorkoutPersonalNotes, useWorkoutPersonalFields } from "./desktop-workout-personal-fields"
@@ -2569,21 +2569,51 @@ function IntervalChart({
   select,
   commit,
   desktop = false,
+  desktopUnit,
+  zones = [],
 }: {
   model: WorkoutModel
   selected: string[]
   select: (id: string, multi: boolean, reveal?: boolean) => void
   commit: (m: WorkoutModel) => void
   desktop?: boolean
+  desktopUnit?: string
+  zones?: SportZoneSettings[]
 }) {
   const [hovered, setHovered] = useState<string | null>(null)
+  const [hoveredSegment, setHoveredSegment] = useState<number | null>(null)
   const chartElement = useRef<HTMLElement>(null)
   const [chartWidth, setChartWidth] = useState(600)
+  const [chartHeight, setChartHeight] = useState(175)
+  const [chartViewport, setChartViewport] = useState({ left: 0, width: 600 })
   useEffect(() => {
     if (!desktop || !chartElement.current) return
-    const observer = new ResizeObserver(([entry]) => setChartWidth(entry.contentRect.width))
-    observer.observe(chartElement.current)
-    return () => observer.disconnect()
+    const chart = chartElement.current
+    const viewport = chart.closest<HTMLElement>(".dtb-chart-scroll")
+    const update = () => {
+      const bounds = chart.getBoundingClientRect()
+      const width = chart.clientWidth
+      if (!width) return
+      const scale = bounds.width / width || 1
+      const viewportLeft = viewport
+        ? (viewport.getBoundingClientRect().left - bounds.left) / scale + viewport.clientLeft
+        : 0
+      const left = Math.max(0, viewportLeft)
+      const right = Math.min(width, viewportLeft + (viewport?.clientWidth ?? width))
+      setChartWidth(width)
+      setChartHeight(Math.max(0, chart.clientHeight - 18))
+      setChartViewport(previous => previous.left === left && previous.width === right - left
+        ? previous : { left, width: Math.max(0, right - left) })
+    }
+    const observer = new ResizeObserver(update)
+    observer.observe(chart)
+    if (viewport) observer.observe(viewport)
+    viewport?.addEventListener("scroll", update, { passive: true })
+    update()
+    return () => {
+      observer.disconnect()
+      viewport?.removeEventListener("scroll", update)
+    }
   }, [desktop])
   const [gesture, setGesture] = useState<{
     id: string
@@ -2620,7 +2650,7 @@ function IntervalChart({
         )
     )
   const total = chart.segments.reduce((n, s) => n + s.width, 0) || 1,
-    maximum = Math.max(desktop ? 1.5 : 1.3, ...chart.segments.flatMap((s) => [s.start, s.end, ...(desktop ? [desktopProfileRange(s).high] : [])]))
+    maximum = Math.max(desktop ? 1.2 : 1.3, ...chart.segments.flatMap((s) => [s.start, s.end, ...(desktop ? [desktopProfileRange(s).high] : [])]))
   let position = 0
   const width = Math.max(600, Math.min(12000, chart.segments.length * 20))
   const height = (v: number) => (desktop ? 0 : 16) + (Math.max(0, v) / maximum) * (desktop ? 150 : 140)
@@ -2729,6 +2759,32 @@ function IntervalChart({
     if (tickValues.length > 1 && (total-tickValues.at(-1)!) / total * chartWidth < 72) tickValues.pop()
     tickValues.push(total)
   }
+  const compactDuration = (seconds: number) => {
+    const rounded = Math.round(seconds)
+    return rounded % 60 === 0 ? `${rounded / 60} min`
+      : rounded < 60 ? `${rounded} sec` : `${Math.floor(rounded / 60)} min ${rounded % 60} sec`
+  }
+  const desktopPrescription = (step: Step) => {
+    let target = step.target
+    if (desktopUnit) {
+      try { target = displayTarget(target, desktopUnit, model, zones) }
+      catch { /* A missing threshold leaves the original prescription visible. */ }
+    }
+    const duration = step.end.kind === "distance"
+      ? `${round(step.end.value)} ${step.end.unit}`
+      : step.end.kind === "lap" ? "Until lap button" : compactDuration(step.end.value)
+    const ending = step.end.kind !== "lap" && step.end.pressLap ? `${duration} + lap` : duration
+    if (target.kind === "none") return { summary: ending, physical: "" }
+    const unitLabel = desktopTargetUnits.find(([unit]) => unit === target.unit)?.[1] || target.unit
+    const numbers = target.mode === "single" ? [target.value!] : [target.start!, target.end!]
+    const targetText = paceFactors[target.unit] || target.unit.endsWith("_zone")
+      ? targetLabel(target)
+      : `${numbers.map(value => round(value)).join(target.mode === "ramp" ? " → " : "-")} ${unitLabel}`
+    return {
+      summary: `${ending} @ ${targetText}`,
+      physical: desktopTargetPresentation(target, model, zones).physical,
+    }
+  }
   const desktopLabels = new Map<string, {x:number; width:number; y:number; label:string}>()
   if (desktop) {
     let offset=0
@@ -2737,11 +2793,17 @@ function IntervalChart({
       const id=groupId(segment.step), node=roots.get(id), y=Math.max(0,180-height(desktopProfileRange(segment).high))
       const label=desktopLabels.get(id)
       if (label) {label.width+=segment.width;label.y=Math.min(label.y,y)}
-      else desktopLabels.set(id,{x:offset,width:segment.width,y,label:node?.kind==="repeat" ? `${node.repetitions} × ${node.steps.map(stepLabel).join(", ")}` : `${segment.step.label}: ${stepLabel(segment.step)}`})
+      else desktopLabels.set(id,{x:offset,width:segment.width,y,label:node?.kind==="repeat" ? `${node.repetitions} × ${node.steps.map(stepLabel).join(", ")}` : `${segment.step.label}: ${desktopPrescription(segment.step).summary}`})
       offset+=segment.width
     }
   }
   const hoverNode = hovered ? findNode(model.steps, hovered) : null
+  const hoverSegment = hovered && hoveredSegment != null ? chart.segments[hoveredSegment] : null
+  const hoverStart = hoverSegment ? chart.segments.slice(0, hoverSegment.index).reduce((sum, segment) => sum + segment.width, 0) : 0
+  const hoverPrescription = hoverSegment ? desktopPrescription(hoverSegment.step) : null
+  const tooltipWidth = Math.min(274, Math.max(1, chartViewport.width - 16))
+  const tooltipLeft = Math.max(chartViewport.left + 8, Math.min(chartViewport.left + chartViewport.width - tooltipWidth - 8, hoverStart / total * chartWidth + 18))
+  const tooltipTop = hoverSegment ? Math.max(8, Math.min(chartHeight - 100, (180 - height(desktopProfileRange(hoverSegment).high)) / 195 * chartHeight + 10)) : 8
   return (
     <section
       ref={chartElement}
@@ -2789,7 +2851,7 @@ function IntervalChart({
                     (active ? " is-selected" : "") +
                     (hovered === groupId(s.step) ? " is-hovered" : "")
                   }
-                  onPointerEnter={() => setHovered(groupId(s.step))}
+                  onPointerEnter={() => { setHovered(groupId(s.step)); setHoveredSegment(s.index) }}
                 >
                   {desktop && active && <rect x={x} width={w} y={5} height={175} fill="#b7bbc2" opacity=".25" pointerEvents="none"/>}
                   <polygon
@@ -2822,7 +2884,7 @@ function IntervalChart({
                     onPointerUp={finish}
                     onPointerCancel={() => setGesture(null)}
                     onLostPointerCapture={() => setGesture(null)}
-                    onFocus={() => setHovered(groupId(s.step))}
+                    onFocus={() => { setHovered(groupId(s.step)); setHoveredSegment(s.index) }}
                     onBlur={() => setHovered(null)}
                     onKeyDown={(e) => {
                       if (e.key === "Escape") setGesture(null)
@@ -2832,11 +2894,10 @@ function IntervalChart({
                       }
                     }}
                   >
-                    <title>
+                    {!desktop && <title>
                       {s.step.label} · {stepLabel(s.step)}
-                      {desktop ? " · Drag to reorder; click to edit below" : ""}
                       {s.estimated ? " · estimated width" : ""}
-                    </title>
+                    </title>}
                   </rect>
                   {!desktop && <rect
                     x={x + Math.max(0, w - 5)}
@@ -2870,6 +2931,10 @@ function IntervalChart({
                 </g>
               )
             })}
+            {desktop && hoverSegment && !gesture && <g className="dtb-profile-hover-marker" aria-hidden="true" pointerEvents="none">
+              <rect x={Math.max(0, hoverStart / total * width - 9 * width / chartWidth)} y={5} width={18 * width / chartWidth} height={175} fill="#bfd2eb" opacity=".9"/>
+              <rect x={Math.max(0, hoverStart / total * width - 15 * width / chartWidth)} y={Math.max(8, 180 - height(desktopProfileRange(hoverSegment).high) + 16)} width={32 * width / chartWidth} height={20} fill="#8ba9cd" opacity=".7" stroke="#fff" strokeWidth=".7" vectorEffect="non-scaling-stroke"/>
+            </g>}
             {desktop && gesture?.drop && <line
               className="dtb-profile-drop-marker"
               x1={Math.max(1, Math.min(width - 1, gesture.drop.position * width))}
@@ -2906,7 +2971,19 @@ function IntervalChart({
           </div>
         </div>
       </div>
-      {hoverNode && !gesture && (
+      {desktop && hoverSegment && hoverPrescription && !gesture && (
+        <div role="tooltip" className="we-profile-tooltip dtb-profile-tooltip" style={{left: tooltipLeft, top: tooltipTop, width: tooltipWidth}}>
+          <strong>{hoverSegment.step.label}</strong>
+          <p>{hoverPrescription.summary}</p>
+          {hoverPrescription.physical && <p>{hoverPrescription.physical}</p>}
+          <p className="dtb-profile-tooltip-timing">
+            {chart.placeholder ? "Timeline positions are estimated" : chart.axis.startsWith("Distance")
+              ? `Starting at: ${round(hoverStart)} m, Ending at: ${round(hoverStart + hoverSegment.width)} m`
+              : `${chart.estimated ? "Estimated: " : ""}Starting at: ${compactDuration(hoverStart)}, Ending at: ${compactDuration(hoverStart + hoverSegment.width)}`}
+          </p>
+        </div>
+      )}
+      {!desktop && hoverNode && !gesture && (
         <div role="tooltip" className="we-profile-tooltip">
           <strong>
             {hoverNode.kind === "repeat"
@@ -3715,7 +3792,7 @@ function EditorWorkspace({
               onUpload={files.upload} onExport={files.exportWorkout}
               recurrence={<WorkoutRecurrenceControl workoutId={savedId || undefined} date={model.date} disabled={saving} {...(!savedId ? {draft:recurrence,onDraftChange:setRecurrence} : {})}/>}
               onSport={sport => {const setting=sportZoneSettings(loaded.zoneSettings || [],sport);setAutoCalculate(true);commit({...model,sport,poolLength:/swim/i.test(sport)?model.poolLength || "25y":"",thresholds:{ftp:setting?.ftp || null,pace:setting?.threshold_pace || null}})}}
-              chart={<IntervalChart model={model} selected={selected} select={select} commit={commit} desktop/>}
+              chart={(unit: string) => <IntervalChart model={model} selected={selected} select={select} commit={commit} desktop desktopUnit={unit} zones={loaded.zoneSettings || []}/>}
               metadata={{name: model.name, date: model.date, time: desktopTime}}
               onMetadata={(value: DesktopWorkoutMetadata) => { setDesktopTime(value.time); if (value.date && (value.name !== model.name || value.date !== model.date)) commit({...model,name:value.name,date:value.date}) }}
               planned={desktopPlanned} onPlanned={(key,value) => { setDesktopDraft(updatePlannedValueDraft(desktopPlanned,key,value,model.sport,autoCalculate));setManualValues(true) }} autoCalculate={autoCalculate} onAutoCalculate={value => {if(!value)setDesktopDraft(desktopPlanned);setManualValues(!value);setAutoCalculate(value)}}
