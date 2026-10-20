@@ -20,6 +20,10 @@ import { AppToastProvider } from "@/components/ui/toast"
 import { performanceProbe } from "@/lib/performance-probe"
 import { InteractionFeedback } from "@/components/interaction-feedback"
 import { WorkoutSyncFeedback } from "@/components/workout-sync-feedback"
+import { cleanAppShellRecoveryUrl } from "@/lib/app-shell-recovery"
+
+const recoveredUrl = cleanAppShellRecoveryUrl(window.location.href)
+if (recoveredUrl) window.history.replaceState(window.history.state, "", recoveredUrl)
 
 // Sortable installs its touch handlers during app init. Other feature modules
 // register with their lazy route before its controls render.

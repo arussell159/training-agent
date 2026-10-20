@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import vm from "node:vm"
 import fs from "node:fs/promises"
 import { createShellManifest } from "../shell-manifest-plugin.mjs"
+import { appShellRecoveryUrl, cleanAppShellRecoveryUrl } from "../src/lib/app-shell-recovery.ts"
 const source = await fs.readFile(
   new URL("../public/sw.js", import.meta.url),
   "utf8"
@@ -143,10 +144,10 @@ function fixture(
     cache,
     calls,
     cacheMap,
-    async request(path, mode = "navigate", method = "GET") {
+    async request(path, mode = "navigate", method = "GET", options = {}) {
       let reply
       handlers.fetch({
-        request: { url: new URL(path, origin).href, method, mode },
+        request: { url: new URL(path, origin).href, method, mode, ...options },
         respondWith: (value) => {
           reply = value
         },
@@ -211,6 +212,97 @@ test("a complete cached shell returns while network revalidation remains unresol
   assert.equal(app.calls.length, 1)
   finish(response("outage", 503))
   await app.flush()
+})
+
+test("explicit refresh and recovery bypass old HTML with one no-store navigation fetch", async () => {
+  for (const mode of ["reload", "no-cache", "no-store", "recovery"]) {
+    const cache = memoryCache(), requests = []
+    await seed(cache)
+    const app = fixture(async (input, options) => {
+      requests.push({ url: urlOf(input), options })
+      return network()(input)
+    }, { cache })
+    const path = mode === "recovery" ? "/calendar?__app_reload=1" : "/calendar"
+    const result = await app.request(path, "navigate", "GET", {
+      cache: mode === "recovery" ? "default" : mode,
+    })
+    assert.match(await result.text(), /two/, mode)
+    const navigation = requests.filter(item => new URL(item.url).pathname === "/calendar")
+    assert.equal(navigation.length, 1)
+    assert.equal(navigation[0].options.cache, "no-store")
+    await app.flush()
+    assert.match(await (await cache.match("/__app_shell__")).text(), /two/)
+  }
+})
+
+test("retired lazy chunks recover after a worker restart without replaying the cached shell", async () => {
+  const cache = memoryCache()
+  await seed(cache)
+  const oldWorker = fixture(async input => {
+    if (urlOf(input).endsWith("/assets/editor-one.js"))
+      return response("retired", 404, "text/plain", urlOf(input))
+    return network()(input)
+  }, { cache })
+  assert.equal((await oldWorker.request("/assets/editor-one.js", "cors")).status, 404)
+  await oldWorker.flush()
+  assert.match(await (await cache.match("/__app_shell__")).text(), /one/)
+  // A new worker has lost the in-memory failed-asset flag; the explicit marker
+  // must still override its otherwise valid cached shell.
+  const restarted = fixture(network(), { cache })
+  const target = appShellRecoveryUrl(origin + "/calendar?workout=event%3A42#details")
+  assert.match(await (await restarted.request(target)).text(), /two/)
+  await restarted.flush()
+  assert.ok(restarted.calls.some(url => url.endsWith("/assets/detail-two.js")))
+  const clean = cleanAppShellRecoveryUrl(target)
+  assert.equal(clean, "/calendar?workout=event%3A42#details")
+  assert.match(await (await restarted.request(clean)).text(), /two/)
+  await restarted.flush()
+})
+
+test("explicit refresh remains usable offline or during a server outage without a reload loop", async () => {
+  for (const fail of ["offline", "timeout", "server"]) {
+    const cache = memoryCache()
+    await seed(cache)
+    const app = fixture(async () => {
+      if (fail === "server") return response("Unavailable", 503)
+      if (fail === "timeout") throw new DOMException("Timed out", "TimeoutError")
+      throw Error("Offline")
+    }, { cache })
+    assert.match(await (await app.request("/calendar?__app_reload=1")).text(), /one/)
+    await app.flush()
+    assert.equal(app.calls.length, 1, "Offline recovery must not start repeated background attempts")
+    assert.match(await (await cache.match("/__app_shell__")).text(), /one/)
+  }
+})
+
+test("fresh reload HTML returns before staging, while an unavailable new chunk preserves offline cache", async () => {
+  const cache = memoryCache()
+  await seed(cache)
+  let release
+  const app = fixture(async input => {
+    if (urlOf(input).endsWith("/assets/main-two.js"))
+      return new Promise(resolve => { release = () => resolve(response("Missing", 404)) })
+    return network()(input)
+  }, { cache })
+  const result = await Promise.race([
+    app.request("/calendar", "navigate", "GET", { cache: "reload" }),
+    new Promise((_, reject) => setTimeout(() => reject(Error("Waited for asset staging")), 100)),
+  ])
+  assert.match(await result.text(), /two/)
+  while (!release) await new Promise(resolve => setImmediate(resolve))
+  assert.match(await (await cache.match("/__app_shell__")).text(), /one/)
+  release()
+  await app.flush()
+  assert.match(await (await cache.match("/__app_shell__")).text(), /one/)
+})
+
+test("recovery URLs preserve route context and cleanup is one-shot without a navigation", () => {
+  const original = origin + "/workout-reports?report=abc%3A123&range=90#section-2"
+  const recovery = appShellRecoveryUrl(original)
+  assert.equal(new URL(recovery).searchParams.get("__app_reload"), "1")
+  assert.equal(appShellRecoveryUrl(recovery), recovery)
+  assert.equal(cleanAppShellRecoveryUrl(recovery), "/workout-reports?report=abc%3A123&range=90#section-2")
+  assert.equal(cleanAppShellRecoveryUrl(original), null)
 })
 
 test("background updates promote new HTML only after route and base assets are stored", async () => {

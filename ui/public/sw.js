@@ -328,12 +328,17 @@ self.addEventListener("fetch", (event) => {
     return
   if (event.request.mode === "navigate") {
     if (!APP_ROUTES.has(pathFor(url))) return
+    // A deliberate refresh must not boot an older shell before revalidation.
+    // Normal navigation remains instant; offline refresh retains the saved app.
+    const explicitReload = url.searchParams.has("__app_reload") ||
+      ["reload", "no-cache", "no-store"].includes(event.request.cache)
     const cache = cacheOrNull()
     const served = cache.then(async (value) => {
-      const cached = !bypassCachedShell && (await readyShell(value, url))
+      const cached = !explicitReload && !bypassCachedShell && (await readyShell(value, url))
       if (cached) return { response: cached, cached: true, cache: value }
       try {
         const response = await fetch(event.request, {
+          ...(explicitReload ? { cache: "no-store" } : {}),
           signal: AbortSignal.timeout(8000),
         })
         if (response.status >= 500) {
@@ -354,9 +359,9 @@ self.addEventListener("fetch", (event) => {
     event.waitUntil(
       served
         .then(({ response, cached, cache: value }) =>
-          cached
+          cached && !explicitReload
             ? revalidate(value, url)
-            : queueStage(value, response.clone(), [url])
+            : cached ? undefined : queueStage(value, response.clone(), [url])
         )
         .catch(() => {})
     )

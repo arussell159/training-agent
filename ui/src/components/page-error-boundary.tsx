@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from "react"
+import { appShellRecoveryUrl } from "@/lib/app-shell-recovery"
 
 export class PageErrorBoundary extends Component<
   { children: ReactNode; resetKey: string; onClose?: () => void },
@@ -24,7 +25,7 @@ export class PageErrorBoundary extends Component<
         <button
           type="button"
           className="mt-4 rounded-full border px-4 py-2 text-sm"
-          onClick={() => window.location.reload()}
+          onClick={() => window.location.replace(appShellRecoveryUrl(window.location.href))}
         >
           Reload app
         </button>
