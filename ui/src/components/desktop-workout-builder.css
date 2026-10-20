@@ -1,0 +1,1171 @@
+@media (min-width: 768px) {
+  [role="dialog"].we-dialog.we-tp-desktop {
+    width: calc(100vw - 24px);
+    max-width: 1900px !important;
+    height: calc(100dvh - 24px);
+    max-height: calc(100dvh - 24px);
+    border-radius: 8px;
+    font-family: var(--font-sans);
+  }
+  .dtb-workspace {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    container-type: inline-size;
+    color: #222d40;
+    background: var(--background);
+    font-size: 12px;
+  }
+  [role="dialog"].we-dialog.we-tp-desktop.dtb-compact {
+    width: min(1120px, calc(100vw - 32px));
+    height: min(760px, calc(100dvh - 32px));
+  }
+  .dtb-setup {
+    position: absolute;
+    z-index: 10;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    width: min(720px, calc(100% - 40px));
+    padding: 24px;
+    border-radius: 4px;
+    color: white;
+    background: #78818bed;
+    text-align: center;
+    box-shadow: 0 2px 8px #0002;
+  }
+  .dtb-setup h3 {
+    margin: 0 0 20px;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .dtb-setup > div {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .dtb-workspace .dtb-setup select {
+    color: #26334a;
+    max-width: 240px;
+    background: #f0f2f7;
+  }
+  .dtb-setup .dtb-primary {
+    padding: 8px 16px;
+    border-radius: 4px;
+    background: #2342e8;
+    color: white;
+  }
+  .dtb-length-controls {
+    display: flex;
+    gap: 6px;
+  }
+  .dtb-workspace *,
+  .dtb-workspace *::before,
+  .dtb-workspace *::after {
+    box-sizing: border-box;
+  }
+  .dtb-draft-recovery {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 8px 16px;
+    background: #fff9df;
+    border-bottom: 1px solid #e9dfbb;
+    flex: none;
+    font-size: 11px;
+  }
+  .dtb-draft-recovery > span {
+    margin-right: auto;
+  }
+  .dtb-draft-recovery > button {
+    white-space: nowrap;
+  }
+  .dtb-workspace input,
+  .dtb-workspace textarea,
+  .dtb-workspace select,
+  .dtb-workspace button {
+    font-family: inherit;
+    font-size: inherit;
+  }
+  .dtb-workspace input:not([type="checkbox"]),
+  .dtb-workspace textarea,
+  .dtb-workspace select {
+    min-width: 0;
+    border: 1px solid #dce0e8;
+    border-radius: 4px;
+    padding: 4px 7px;
+    color: inherit;
+    background: var(--background);
+    outline: none;
+  }
+  .dtb-workspace input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+  .dtb-workspace input[type="number"]::-webkit-inner-spin-button,
+  .dtb-workspace input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .dtb-workspace input:focus-visible,
+  .dtb-workspace textarea:focus-visible,
+  .dtb-workspace select:focus-visible {
+    border-color: #1840ec;
+    outline: none;
+    box-shadow: none;
+  }
+  .dtb-workspace :is(input:not([type="checkbox"]), textarea, select):enabled:hover {
+    border-color: #0000ff;
+  }
+  .dtb-workspace button:focus-visible {
+    outline: 1px solid #0000ff;
+    outline-offset: 1px;
+  }
+  .dtb-workspace input[type="checkbox"] {
+    accent-color: #2043ef;
+    width: 13px;
+    height: 13px;
+    flex: none;
+  }
+  .dtb-workspace select {
+    appearance: none;
+    background: #f0f2f7;
+    background-image: url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h8L4 5z' fill='%232443ef'/%3E%3C/svg%3E");
+    background-position: right 7px center;
+    background-repeat: no-repeat;
+    border-color: #f0f2f7;
+    height: 30px;
+    padding: 3px 22px 3px 8px;
+    cursor: pointer;
+  }
+  .dtb-workspace button {
+    cursor: pointer;
+    color: #2444ef;
+  }
+  .dtb-workspace button:disabled,
+  .dtb-workspace input:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .dtb-header {
+    flex: none;
+    padding: 12px 16px 10px;
+  }
+  .dtb-date-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #2146e9;
+    min-height: 28px;
+  }
+  .dtb-date-row .desktop-workout-date-edit {
+    font-size: 14px;
+  }
+  .dtb-date-row .desktop-workout-time-edit {
+    width: 90px;
+    flex-shrink: 0;
+  }
+  .dtb-date-row .desktop-workout-time-edit input {
+    width: 90px;
+    height: 26px;
+    font-size: 12px;
+  }
+  .dtb-date-row .desktop-workout-fitness {
+    margin-left: 12px;
+    justify-content: flex-start;
+  }
+  .dtb-window-tools {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-left: auto;
+  }
+  .dtb-window-tools button {
+    color: #626b78;
+    padding: 3px;
+  }
+  .dtb-repeat-status {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    height: 39px;
+    padding-left: 5px;
+    font-size: 11px;
+  }
+  .dtb-repeat-status > span {
+    color: white;
+    border-radius: 13px;
+    padding: 4px 13px;
+    background: #2141eb;
+  }
+  .dtb-build-row {
+    display: grid;
+    grid-template-columns: minmax(300px, 570px) 92px 188px minmax(200px, 1fr);
+    gap: 10px;
+    align-items: start;
+  }
+  .dtb-overview {
+    position: relative;
+    border: 1px solid #c9d1df;
+    border-radius: 4px;
+    background: white;
+    padding: 6px 6px 8px;
+    min-height: 106px;
+  }
+  .dtb-overview > input {
+    height: 27px;
+    width: 86%;
+    background: white;
+    font-weight: 700;
+    font-size: 15px;
+    line-height: 25.5px;
+    padding-block: 0;
+  }
+  .dtb-overview > div {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin: 10px 6px 7px;
+    padding-right: 24px;
+    font-variant-numeric: tabular-nums;
+  }
+  .dtb-overview strong {
+    font-size: 23px;
+    line-height: 27px;
+    letter-spacing: -0.5px;
+    white-space: nowrap;
+  }
+  .dtb-overview strong small {
+    font-size: 14px;
+    letter-spacing: 0;
+  }
+  .dtb-overview > span {
+    padding-left: 6px;
+    font-size: 12px;
+  }
+  .dtb-palette {
+    padding: 0 10px;
+    border-inline: 1px solid #d0d6e2;
+  }
+  .dtb-palette h3 {
+    position: relative;
+    margin: 0 0 5px;
+    padding-right: 17px;
+    font-weight: 400;
+    font-size: 12px;
+    line-height: 15px;
+  }
+  .dtb-palette h3 > span {
+    position: absolute;
+    right: -2px;
+    top: 4px;
+    color: #999;
+  }
+  .dtb-palette > div {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+  }
+  .dtb-palette button {
+    display: block;
+    height: 22px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: #c4cad8;
+  }
+  .dtb-palette button:hover {
+    outline: 1px solid #0000ff;
+  }
+  .dtb-palette button svg {
+    width: 100%;
+    height: 22px;
+    fill: #123492;
+    stroke: #c4cad8;
+    stroke-width: 0.6px;
+  }
+  .dtb-palette h3 > span svg {
+    width: 15px;
+    height: 15px;
+    fill: #999;
+    stroke: white;
+  }
+  .dtb-unit-controls {
+    max-width: 240px;
+  }
+  .dtb-unit-controls > label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .dtb-unit-controls > label select {
+    width: 100%;
+    font-size: 14px;
+    font-weight: 400;
+  }
+  .dtb-unit-controls > div {
+    display: flex;
+    gap: 22px;
+    align-items: center;
+    margin-top: 10px;
+  }
+  .dtb-unit-controls > div select {
+    width: 88px;
+  }
+  .dtb-chart-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 78px;
+    gap: 24px;
+    padding: 5px 16px 12px 36px;
+    border-bottom: 1px solid #d0d4df;
+    box-shadow: 0 2px 3px #1b243020;
+    flex: none;
+  }
+  .dtb-chart-axis {
+    position: absolute;
+    left: 5px;
+    top: 5px;
+    bottom: 30px;
+    width: 25px;
+    pointer-events: none;
+    color: #748092;
+    font-size: 8px;
+  }
+  .dtb-chart-axis span {
+    position: absolute;
+    right: 0;
+    transform: translateY(-50%);
+  }
+  .dtb-chart-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    min-width: 0;
+    scrollbar-width: thin;
+  }
+  .dtb-chart-row .we-chart {
+    position: relative;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    overflow: visible;
+  }
+  .dtb-chart-row .we-chart > div:first-child {
+    padding-bottom: 0;
+    overflow: visible;
+  }
+  .dtb-chart-row .we-chart svg {
+    display: block;
+    height: clamp(145px, 19dvh, 205px);
+    width: 100%;
+  }
+  .dtb-chart-row .we-chart svg > line[opacity=".08"],
+  .dtb-chart-row .we-chart svg > line[opacity="0.08"],
+  .dtb-chart-row .we-profile-segment > rect[fill="#b7bbc2"] {
+    display: none;
+  }
+  .dtb-chart-row .we-profile-segment.is-selected > polygon:not([fill="#a9b2c1"]) {
+    fill: #005b93;
+  }
+  .dtb-profile-labels {
+    position: absolute;
+    inset: 0 0 auto;
+    height: clamp(145px, 19dvh, 205px);
+    pointer-events: none;
+    z-index: 2;
+  }
+  .dtb-profile-labels span {
+    transform: translateY(-100%);
+    margin-top: -6px;
+    position: absolute;
+    padding-left: 2px;
+    padding-right: 3px;
+    font-size: 9px;
+    line-height: 12px;
+    color: #586477;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .dtb-sport-picker {
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+    width: 34px;
+    flex: none;
+  }
+  .dtb-sport-picker::after {
+    content: "▾";
+    font-size: 9px;
+    color: #55647b;
+    padding-left: 4px;
+  }
+  .dtb-sport-picker select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+  }
+  .dtb-sport-picker:focus-within {
+    outline: 2px solid #a4b1ff;
+    border-radius: 4px;
+  }
+  .dtb-chart-row .we-chart-ticks {
+    height: 18px;
+    margin: 0;
+    color: #5d6879;
+    font-size: 9px;
+  }
+  .dtb-chart-row .we-profile-tooltip {
+    z-index: 5;
+    position: absolute;
+    inset: 5px auto auto 15%;
+    max-width: 330px;
+    padding: 10px 12px;
+    border: 1px solid #d4d7df;
+    border-radius: 4px;
+    box-shadow: 0 2px 6px #0001;
+    background: #fff;
+    color: #222d40;
+    pointer-events: none;
+    font-size: 12px;
+  }
+  .dtb-chart-row .we-profile-tooltip p {
+    margin: 2px 0;
+  }
+  .dtb-chart-zoom {
+    background: #eceef3;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 7px;
+    padding: 12px 5px;
+    margin-bottom: 18px;
+  }
+  .dtb-chart-zoom button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0079bd;
+    color: #fff;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+  }
+  .dtb-lower {
+    display: grid;
+    grid-template-columns: minmax(0, 660px) minmax(0, 1fr);
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+  }
+  .dtb-summary {
+    overflow-x: hidden;
+    overflow-y: auto;
+    min-width: 0;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    padding: 14px 16px 16px 30px;
+    border-right: 1px solid #d4d9e3;
+  }
+  .dtb-summary-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 315px) minmax(0, 1fr);
+    gap: 20px;
+  }
+  .dtb-summary .desktop-workout-totals {
+    min-width: 0;
+  }
+  .dtb-summary table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 2px;
+    font-size: 11px;
+    table-layout: fixed;
+  }
+  .dtb-summary table th {
+    font-weight: 400;
+    text-align: right;
+    width: auto;
+    color: #15355e;
+  }
+  .dtb-summary table thead th {
+    text-align: center;
+    padding-bottom: 6px;
+  }
+  .dtb-summary table th:first-child {
+    width: 90px;
+  }
+  .dtb-summary table:not(.dtb-recorded) thead th:last-child {
+    width: 48px;
+  }
+  .dtb-summary table td:last-child {
+    width: 36px;
+    color: #15355e;
+    white-space: nowrap;
+    padding-left: 3px;
+  }
+  .dtb-summary table input,
+  .dtb-summary table output {
+    display: block;
+    width: 100%;
+    height: 22px;
+    line-height: 14.568px;
+    font-size: 12px;
+    text-align: center;
+    padding: 1px 2px !important;
+    font-variant-numeric: tabular-nums;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .dtb-summary table output {
+    border: 1px solid #e2e5eb;
+    border-radius: 4px;
+    background: rgba(65, 78, 108, 0.1);
+    color: transparent;
+  }
+  .dtb-summary table label {
+    cursor: text;
+  }
+  .dtb-summary label:is([for="builder-duration_seconds"], [for="builder-distance_meters"], [for="builder-tss"], [for="builder-intensity_factor"]) {
+    color: #2444df;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+  }
+  .dtb-summary .dtb-recorded {
+    margin-top: 14px;
+  }
+  .dtb-summary .dtb-recorded td {
+    text-align: center;
+    border: 1px solid #e1e5ed;
+    border-radius: 4px;
+    background: rgba(65, 78, 108, 0.1);
+    color: transparent;
+    height: 23px;
+  }
+  .dtb-text h3 {
+    color: #15355e;
+    font-weight: 400;
+    margin: 2px 0 8px;
+    font-size: 11px;
+  }
+  .dtb-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .dtb-text textarea {
+    display: block;
+    width: 100%;
+    min-height: 30px;
+    max-height: 180px;
+    resize: vertical;
+    background: #f1f1f1;
+    margin-bottom: 16px;
+    line-height: 15px;
+  }
+  .dtb-text textarea[aria-label="Workout description"] {
+    min-height: 30px;
+    max-height: none;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    resize: none;
+  }
+  .dtb-text textarea::placeholder {
+    color: #a3afc3;
+    opacity: 1;
+  }
+  .dtb-text .desktop-workout-private-notes textarea {
+    height: 60px;
+    margin-bottom: 0;
+  }
+  .dtb-workout-outline-section {
+    margin-top: 16px;
+  }
+  .dtb-workout-outline-section > h3 {
+    padding-bottom: 6px;
+    border-bottom: 1px solid #cbd2de;
+  }
+  .dtb-workout-outline {
+    display: grid;
+    gap: 10px;
+  }
+  .dtb-workout-outline .dtb-workout-outline {
+    padding-left: 12px;
+    margin-top: 8px;
+  }
+  .dtb-workout-outline button {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    padding: 3px;
+    text-align: left;
+    color: #12345b;
+    line-height: 15px;
+  }
+  .dtb-workout-outline button:hover {
+    background: #f0f3fa;
+  }
+  .dtb-workout-outline strong {
+    font-size: 12px;
+  }
+  .dtb-text p {
+    padding: 5px 0;
+    font-size: 11px;
+    white-space: pre-wrap;
+  }
+  .dtb-text pre {
+    font-family: inherit;
+    white-space: pre-wrap;
+    font-size: 11px;
+    color: #273851;
+    border-top: 1px solid #d3d8e0;
+    padding-top: 9px;
+  }
+  .dtb-details {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    padding: 24px 26px;
+    min-width: 0;
+    scroll-padding-top: 48px;
+  }
+  .dtb-details-heading {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    font-size: 11px;
+  }
+  .dtb-details-heading h3 {
+    font-weight: 400;
+  }
+  .dtb-details-heading span {
+    color: #9199a7;
+  }
+  .dtb-details fieldset {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+  .dtb-step-card {
+    padding: 16px;
+    margin-bottom: 20px;
+    border: 1px solid #d2d4da;
+    border-radius: 4px;
+    background: var(--background);
+  }
+  .dtb-step-card.dtb-selected {
+    border-color: #c4ccd4;
+    background: #e0eaf4;
+  }
+  .dtb-step-heading > input:focus {
+    border-color: #1840ec;
+  }
+  .dtb-step-heading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .dtb-step-heading > input {
+    flex: 1;
+    width: 80px;
+    margin-right: 12px;
+    height: 30px;
+    font-weight: 600;
+    font-size: 11px;
+  }
+  .dtb-step-heading > select {
+    flex: none;
+    width: 96px;
+    font-size: 14px;
+  }
+  .dtb-step-heading > select:last-child {
+    width: 80px;
+  }
+  .dtb-step-prescription {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin: 18px 0;
+  }
+  .dtb-step-prescription > .we-field {
+    width: 80px;
+    flex: none;
+    gap: 0;
+  }
+  .dtb-step-prescription .we-field > span {
+    display: none;
+  }
+  .dtb-step-prescription input {
+    height: 26px;
+    width: 80px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    font-size: 14px;
+    padding-inline: 5px;
+  }
+  .dtb-length {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .dtb-length input {
+    width: 66px;
+  }
+  .dtb-length select {
+    width: 50px;
+  }
+  .dtb-target-values {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+  .dtb-target-values > input,
+  .dtb-target-values .we-field {
+    width: 62px;
+    min-width: 48px;
+    flex: none;
+  }
+  .dtb-target-values .we-field input {
+    width: 100%;
+  }
+  .dtb-target-unit {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    max-width: 140px;
+    line-height: 14px;
+    font-size: 11px;
+  }
+  .dtb-target-unit strong {
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .dtb-target-values > select {
+    flex: 1;
+    min-width: 200px;
+    max-width: 240px;
+    margin-left: 12px;
+  }
+  .dtb-target-values > .dtb-subtle {
+    opacity: 0;
+  }
+  .dtb-target-values:hover > .dtb-subtle,
+  .dtb-target-values:focus-within > .dtb-subtle {
+    opacity: 1;
+  }
+  .dtb-step-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+    font-size: 12px;
+  }
+  .dtb-step-tools button {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .dtb-lap {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .dtb-lap > span {
+    display: inline-flex;
+    color: #90979e;
+  }
+  .dtb-workspace .dtb-lap input[type="checkbox"] {
+    appearance: none;
+    position: relative;
+    width: 35px;
+    height: 20px;
+    margin: 0;
+    border: 0;
+    border-radius: 12px;
+    background: #f5f7fa;
+    cursor: pointer;
+    outline-offset: 2px;
+  }
+  .dtb-lap input::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 1px 2px #0001;
+  }
+  .dtb-workspace .dtb-lap input:checked {
+    background: #2444ef;
+  }
+  .dtb-lap input:checked::after {
+    left: 17px;
+  }
+  .dtb-step-menu {
+    position: relative;
+  }
+  .dtb-step-menu summary {
+    display: flex;
+    cursor: pointer;
+    list-style: none;
+    color: #2444ef;
+    padding: 3px;
+  }
+  .dtb-step-menu summary::-webkit-details-marker {
+    display: none;
+  }
+  .dtb-step-menu > div {
+    display: grid;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 4;
+    min-width: 130px;
+    padding: 5px;
+    border: 1px solid #d4dae6;
+    border-radius: 4px;
+    background: var(--background);
+    box-shadow: 0 3px 10px #0002;
+  }
+  .dtb-step-menu > div button {
+    padding: 6px;
+    white-space: nowrap;
+  }
+  .dtb-step-notes {
+    width: 100%;
+    height: 31px;
+  }
+  .dtb-cadence {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .dtb-cadence input {
+    width: 55px;
+  }
+  .dtb-repeat {
+    padding: 0 1px 10px;
+    margin-bottom: 12px;
+    border-radius: 4px;
+  }
+  .dtb-repeat.dtb-selected,
+  .dtb-repeat:has(.dtb-selected) {
+    background: #e0eaf4;
+  }
+  .dtb-repeat.dtb-selected .dtb-step-card,
+  .dtb-repeat:has(.dtb-selected) .dtb-step-card {
+    background: transparent;
+  }
+  .dtb-repeat-heading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    position: relative;
+    min-height: 45px;
+    margin: 0;
+    font-size: 13px;
+    font-style: italic;
+  }
+  .dtb-repeat-heading label {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+  }
+  .dtb-repeat-heading input {
+    width: 35px;
+    height: 23px;
+    text-align: center;
+  }
+  .dtb-repeat-heading > button {
+    position: absolute;
+    right: 3px;
+    color: #8b929e;
+  }
+  .dtb-repeat-heading > button[aria-label="Duplicate repeat"] {
+    right: 30px;
+    opacity: 0;
+  }
+  .dtb-repeat-heading:hover > button[aria-label="Duplicate repeat"],
+  .dtb-repeat-heading:focus-within > button[aria-label="Duplicate repeat"] {
+    opacity: 1;
+  }
+  .dtb-repeat > .dtb-step-card {
+    margin-bottom: 32px;
+  }
+  .dtb-repeat > .dtb-step-card:last-of-type {
+    margin-bottom: 8px;
+  }
+  .dtb-repeat .dtb-repeat {
+    margin-left: 16px;
+    border-left: 1px solid #d4dae6;
+    padding-left: 12px;
+  }
+  .dtb-recovery > label {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    margin: -4px 0 14px;
+  }
+  .dtb-link {
+    font-size: 12px;
+    padding: 4px;
+  }
+  .dtb-empty {
+    min-height: 125px;
+    display: grid;
+    place-items: center;
+    color: #8992a2;
+    border: 1px dashed #c8d1e4;
+    border-radius: 4px;
+    margin-bottom: 16px;
+  }
+  .dtb-footer {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 26px;
+    min-height: 56px;
+    padding: 10px 16px;
+    border-top: 1px solid #d7dce5;
+  }
+  .dtb-footer-status {
+    margin-right: auto;
+    min-width: 0;
+    font-size: 11px;
+    color: #193c68;
+  }
+  .dtb-footer-status > label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .dtb-footer-status p {
+    font-size: 10px;
+    margin: 2px 0 0;
+    color: #7b4851;
+  }
+  .dtb-footer > button {
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .dtb-workspace .dtb-primary {
+    background: #2042ed;
+    color: #fff;
+    border-radius: 4px;
+    padding: 8px 16px;
+  }
+  .dtb-clear-confirm {
+    position: absolute;
+    z-index: 10;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    padding: 22px;
+    width: 330px;
+    border: 1px solid #cbd1dd;
+    border-radius: 8px;
+    box-shadow:
+      0 0 0 200vmax #0003,
+      0 10px 40px #0003;
+    background: var(--background);
+  }
+  .dtb-clear-confirm p {
+    font-size: 15px;
+    margin-bottom: 5px;
+  }
+  .dtb-clear-confirm > div {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 20px;
+    margin-top: 20px;
+  }
+  @media (max-width: 1200px) {
+    .dtb-lower {
+      grid-template-columns: 470px minmax(0, 1fr);
+    }
+    .dtb-summary {
+      padding: 12px;
+    }
+    .dtb-summary-grid {
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 10px;
+    }
+    .dtb-details {
+      padding: 18px 14px;
+    }
+    .dtb-step-card {
+      padding: 12px;
+    }
+    .dtb-step-heading {
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .dtb-step-heading > input {
+      flex-basis: 100%;
+      margin-right: 0;
+    }
+    .dtb-step-prescription {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .dtb-target-values {
+      flex-wrap: wrap;
+    }
+    .dtb-target-values > select {
+      margin-left: 0;
+    }
+    .dtb-lap {
+      margin-left: 0;
+    }
+    .dtb-build-row {
+      grid-template-columns: minmax(240px, 1fr) 85px 176px 210px;
+      gap: 8px;
+    }
+    .dtb-overview > div {
+      gap: 14px;
+    }
+    .dtb-overview strong {
+      font-size: 20px;
+    }
+  }
+  @media (max-height: 780px) {
+    .dtb-profile-labels {
+      height: 135px;
+    }
+    .dtb-chart-row .we-chart svg {
+      height: 135px;
+    }
+    .dtb-header {
+      padding-top: 8px;
+    }
+    .dtb-repeat-status {
+      height: 32px;
+    }
+    .dtb-overview {
+      min-height: 92px;
+    }
+    .dtb-overview > div {
+      margin-block: 6px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dtb-details {
+      scroll-behavior: auto;
+    }
+  }
+  @media (max-width: 1000px) {
+    .dtb-build-row {
+      grid-template-columns: minmax(210px, 1fr) 76px 148px 190px;
+      gap: 8px;
+    }
+    .dtb-overview > div {
+      gap: 9px;
+    }
+    .dtb-overview strong {
+      font-size: 18px;
+    }
+    .dtb-date-row .desktop-workout-fitness {
+      margin-left: 0;
+    }
+  }
+  @container (max-width: 1040px) {
+    .dtb-lower {
+      display: block;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    .dtb-summary,
+    .dtb-details {
+      overflow: visible;
+      padding: 18px;
+    }
+    .dtb-summary {
+      border-right: 0;
+      border-bottom: 1px solid #d4d9e3;
+    }
+    .dtb-summary-grid {
+      grid-template-columns: minmax(280px, 1fr) minmax(0, 1fr);
+      gap: 24px;
+    }
+    .dtb-step-heading {
+      flex-wrap: nowrap;
+    }
+    .dtb-step-heading > input {
+      flex-basis: 80px;
+      margin-right: 12px;
+    }
+    .dtb-lap {
+      margin-left: auto;
+    }
+  }
+  .dark .dtb-workspace {
+    color: var(--foreground);
+  }
+  .dark .dtb-footer-status,
+  .dark .dtb-profile-labels span {
+    color: #b6c7e0;
+  }
+  .dark .dtb-workspace select,
+  .dark .dtb-overview {
+    background: var(--muted);
+  }
+  .dark .dtb-overview > input {
+    background: var(--muted);
+  }
+  .dark .dtb-workspace select {
+    border-color: var(--border);
+  }
+  .dark .dtb-summary table th,
+  .dark .dtb-summary table td:last-child,
+  .dark .dtb-text h3 {
+    color: #b6c7e0;
+  }
+  .dark .dtb-text textarea,
+  .dark .dtb-summary table output,
+  .dark .dtb-summary .dtb-recorded td {
+    background: var(--muted);
+  }
+  .dark .dtb-text pre {
+    color: var(--foreground);
+  }
+  .dark .dtb-chart-zoom {
+    background: var(--muted);
+  }
+  .dark .dtb-repeat.dtb-selected,
+  .dark .dtb-repeat:has(.dtb-selected),
+  .dark .dtb-step-card.dtb-selected {
+    background: #243348;
+  }
+  .dark .dtb-workspace .dtb-lap input[type="checkbox"] {
+    background: #566276;
+  }
+  .dark .dtb-workspace .dtb-lap input:checked {
+    background: #2444ef;
+  }
+}

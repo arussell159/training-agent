@@ -43,7 +43,7 @@ test("historical event deep links include a paired recording and inaccessible st
     async (path) =>
       path.includes("/events/")
         ? { ...activity(10, "2001-01-03"), category: "WORKOUT", paired_activity_id: "i123" }
-        : [activity("i123", "2001-01-03")],
+        : activity("i123", "2001-01-03"),
     "event:10"
   );
   assert.equal(workout.id, "event:10");
@@ -52,6 +52,23 @@ test("historical event deep links include a paired recording and inaccessible st
     fetchHistoricalWorkout(async () => ({ id: "i123" }), "activity:i123"),
     { status: 404 }
   );
+});
+
+test("an old paired event deep link uses the recording's actual day even when the plan was scheduled elsewhere", async () => {
+  const calls = [];
+  const workout = await fetchHistoricalWorkout(async (path) => {
+    calls.push(path);
+    if (path === "/athlete/0/events/10")
+      return { ...activity(10, "2001-01-03"), category: "WORKOUT", paired_activity_id: "i123" };
+    if (path === "/activity/i123")
+      return { ...activity("i123", "2001-01-04"), paired_event_id: 10 };
+    throw Error("A linked recording must not depend on a same-day list");
+  }, "event:10");
+  assert.deepEqual(calls, ["/athlete/0/events/10", "/activity/i123"]);
+  assert.equal(workout.workout_date, "2001-01-04");
+  assert.equal(workout.planned_workout_date, "2001-01-03");
+  assert.equal(workout.activity_id, "i123");
+  assert.equal(workout.completed, true);
 });
 
 test("historical calendar supports arbitrary old dates with only three read-only provider calls", async () => {

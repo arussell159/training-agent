@@ -444,6 +444,11 @@ test("copy strips pairing and identity; deletion requires a verified 404", async
     return path.endsWith("/2") ? { ...original, id: 2 } : original;
   };
   assert.equal((await changeIntervalsEvent(request, "event:1", "copy")).workoutId, "event:2");
+  await assert.rejects(
+    changeIntervalsEvent(request, "event:1", "delete"),
+    (error) => error.status === 403
+  );
+  const unpaired = { ...original, paired_activity_id: null };
   let deleted = false;
   assert.equal(
     (
@@ -458,7 +463,7 @@ test("copy strips pairing and identity; deletion requires a verified 404", async
             error.status = 404;
             throw error;
           }
-          return original;
+          return unpaired;
         },
         "event:1",
         "delete"
@@ -467,7 +472,7 @@ test("copy strips pairing and identity; deletion requires a verified 404", async
     true
   );
   await assert.rejects(
-    changeIntervalsEvent(async () => original, "event:1", "delete"),
+    changeIntervalsEvent(async () => unpaired, "event:1", "delete"),
     /did not confirm/
   );
 });

@@ -1,9 +1,22 @@
 import { createHash } from "node:crypto";
-import { readPlannedValues, withPlannedValues } from "./planned-workout-values.mjs";
+import {
+  readPlannedValues,
+  withPlannedValues,
+  validatePlannedValues,
+} from "./planned-workout-values.mjs";
+import { readWorkoutCommentText, withWorkoutCommentText } from "./workout-comment-text.mjs";
+import { appendWorkoutComment } from "./workout-comments.mjs";
 import { eventId, validDate } from "./intervals.mjs";
 import { sportZoneSettings } from "./workout-editor-zones.mjs";
 import {
+  hasManualWorkoutDescription,
+  readManualWorkoutDescription,
+  serializeManualWorkout,
+} from "./workout-manual-description.mjs";
+import {
   importWorkout,
+  DEFINITION_MARKER,
+  readableDescription,
   serializeWorkout,
   validateWorkout,
   verifyParsedWorkout,
@@ -129,6 +142,7 @@ export async function loadNewWorkoutEditor(
     issues: [],
     warnings: [],
     originalDescription: "",
+    manualDescription: "",
     reviewRequired: false,
     ambiguousSwim: false,
     isNew: true,
@@ -147,22 +161,54 @@ export async function loadWorkoutEditor(request, id) {
   };
   return {
     ...imported,
+    descriptionOverride: editorDescriptionOverride(event, imported.model),
+    manualDescription: readManualWorkoutDescription(event),
     zoneSettings,
     zoneError,
     revision: workoutRevision(event),
     scheduledTime: String(event.start_date_local).slice(11),
+    plannedValues: readPlannedValues(event.description),
+    comments: readWorkoutCommentText(event.description, id, true),
     id,
   };
 }
-function expectedPatch(existing, model) {
+function editorDescriptionOverride(event, originalModel) {
+  if (hasManualWorkoutDescription(event.description)) return readManualWorkoutDescription(event);
+  if (!String(event.description || "").includes(DEFINITION_MARKER)) return undefined;
+  const head = readableDescription(event.description);
+  return head === readableDescription(serializeWorkout(originalModel)) ? undefined : head;
+}
+function expectedPatch(existing, model, input = {}) {
   validDate(model.date);
+  const values = {
+    ...readPlannedValues(existing.description),
+    ...validatePlannedValues(input.values || {}),
+  };
+  if (input.comment != null && typeof input.comment !== "string") fail("Enter a valid comment.");
+  let comments = readWorkoutCommentText(existing.description, `event:${existing.id}`, true);
+  if (input.comment?.trim())
+    comments = appendWorkoutComment(comments, {
+      workoutId: `event:${existing.id}`,
+      body: input.comment,
+      type: "pre",
+      creationId: input.commentId,
+    }).comments;
+  const manual =
+    input.descriptionMode === "manual" || hasManualWorkoutDescription(existing.description);
+  let description = manual
+    ? serializeManualWorkout(model, input.description ?? readManualWorkoutDescription(existing))
+    : serializeWorkout(model);
+  const override =
+    input.description ?? editorDescriptionOverride(existing, importWorkout(existing).model);
+  if (!manual && override != null) {
+    if (typeof override !== "string" || override.length > 30000)
+      fail("Enter a description under 30,000 characters.");
+    description = override + description.slice(description.indexOf(DEFINITION_MARKER));
+  }
   const patch = {
     name: model.name.trim(),
     type: model.sport,
-    description: withPlannedValues(
-      serializeWorkout(model),
-      readPlannedValues(existing.description)
-    ),
+    description: withWorkoutCommentText(withPlannedValues(description, values), comments),
   };
   const old = String(existing.start_date_local).slice(0, 10);
   if (model.date !== old) {
@@ -175,6 +221,30 @@ function expectedPatch(existing, model) {
           .slice(0, 10) + String(existing.end_date_local).slice(10);
     }
   }
+  if (input.time != null) {
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.time)) fail("Enter a valid start time.");
+    patch.start_date_local = `${model.date}T${input.time}:00`;
+    if (existing.end_date_local) {
+      const duration =
+        Date.parse(`${existing.end_date_local}Z`) - Date.parse(`${existing.start_date_local}Z`);
+      if (Number.isFinite(duration) && duration >= 0)
+        patch.end_date_local = new Date(Date.parse(`${patch.start_date_local}Z`) + duration)
+          .toISOString()
+          .slice(0, 19);
+    }
+  }
+  for (const [key, field] of [
+    ["duration_seconds", "time_target"],
+    ["distance_meters", "distance_target"],
+    ["tss", "load_target"],
+  ])
+    if (key in (input.values || {})) patch[field] = values[key];
+  if ("intensity_factor" in (input.values || {}))
+    patch.icu_intensity = values.intensity_factor == null ? null : values.intensity_factor * 100;
+  if ("work_kj" in (input.values || {}))
+    patch.joules = values.work_kj == null ? null : Math.round(values.work_kj * 1000);
+  if (patch.description.length > 30000)
+    fail("Workout text exceeds the 30,000 character export limit.");
   return patch;
 }
 function assertVerified(model, event, existing, patch) {
@@ -201,6 +271,8 @@ function assertVerified(model, event, existing, patch) {
     if (JSON.stringify(event[key] ?? null) !== JSON.stringify(patch[key] ?? existing[key] ?? null))
       errors.push(`Event metadata ${key} changed unexpectedly`);
   }
+  for (const key of ["time_target", "distance_target", "load_target", "icu_intensity", "joules"])
+    if (key in patch && event[key] !== patch[key]) errors.push(`Saved ${key} differs`);
   if (errors.length)
     fail(
       `The event may have been saved, but verification failed: ${errors.slice(0, 6).join("; ")}. Your draft is retained. Retry checks the existing event before writing.`,
@@ -222,19 +294,18 @@ export async function saveWorkoutEditor(request, id, input, scope = "default") {
     if (saves.get(key) === job) saves.delete(key);
   }
 }
-async function save(request, id, { model, revision } = {}) {
+async function save(request, id, input = {}) {
+  const { model, revision } = input;
   const validation = validateWorkout(model);
   if (validation.length) fail(validation.join(". "));
   if (!revision || typeof revision !== "string") fail("Reload the event before saving");
   const path = `/athlete/0/events/${eventId(id)}`,
     existing = await request(path);
   assertEditable(existing);
-  const patch = expectedPatch(existing, model);
-  const matches =
-    existing.name === patch.name &&
-    existing.type === patch.type &&
-    existing.description === patch.description &&
-    String(existing.start_date_local).slice(0, 10) === model.date;
+  const patch = expectedPatch(existing, model, input);
+  const matches = Object.entries(patch).every(
+    ([key, value]) => JSON.stringify(existing[key] ?? null) === JSON.stringify(value ?? null)
+  );
   // An uncertain previous PUT may already have succeeded. Verify that event
   // and return it; never create an event or blindly repeat the write.
   if (!matches) {
@@ -254,6 +325,18 @@ async function save(request, id, { model, revision } = {}) {
           "Intervals.icu denied permission to update this event. Check the connected account and calendar write permissions.",
           403,
           "PERMISSION_DENIED"
+        );
+      if ([400, 404, 409, 422, 429].includes(error.status))
+        fail(
+          error.status === 404
+            ? "This workout no longer exists in Intervals.icu. Your draft is retained."
+            : error.status === 409
+              ? "Intervals.icu reported a conflicting workout update. Reload the workout before retrying. Your draft is retained."
+              : error.status === 429
+                ? "Intervals.icu temporarily limited workout updates. Wait a moment and retry. Your draft is retained."
+                : `Intervals.icu rejected the workout update (${error.status}). Check the workout fields before retrying. Your draft is retained.`,
+          error.status,
+          "PROVIDER_REJECTED"
         );
       // Resolve uncertain transport outcomes using a fresh read, never a POST.
       try {
@@ -286,26 +369,71 @@ export async function createWorkoutEditor(request, input = {}, scope = "default"
   const errors = validateWorkout(model);
   if (errors.length) fail(errors.join(". "));
   if (!/^[0-9a-f-]{36}$/i.test(creationId || "")) fail("A creation ID is required");
+  const values = validatePlannedValues(input.values || {});
+  if (input.comment != null && typeof input.comment !== "string") fail("Enter a valid comment.");
+  const time = input.time || "00:00";
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) fail("Enter a valid start time.");
   const key = scope + ":create:" + creationId;
   const previous = saves.get(key) || Promise.resolve();
   const job = previous
     .catch(() => {})
     .then(async () => {
       const externalId = "training-agent:editor:" + creationId;
-      const body = {
-        category: "WORKOUT",
-        type: model.sport,
-        name: model.name.trim(),
-        start_date_local: model.date + "T00:00:00",
-        description: serializeWorkout(model),
-        external_id: externalId,
-      };
       const find = async () => {
         const events = await request(
           "/athlete/0/events?oldest=" + model.date + "&newest=" + model.date
         );
         return (events || []).find((event) => event.external_id === externalId);
       };
+      const existing = await find();
+      const savedComments = readWorkoutCommentText(
+        existing?.description,
+        `event:${existing?.id || 1}`,
+        true
+      );
+      const previousComment = savedComments.find(
+        (comment) => comment.id === `comment-${creationId}`
+      );
+      const comments = input.comment?.trim()
+        ? appendWorkoutComment(
+            [],
+            {
+              workoutId: "event:1",
+              body: input.comment,
+              type: "pre",
+              creationId,
+            },
+            previousComment ? new Date(previousComment.created_at) : new Date()
+          ).comments
+        : [];
+      const body = {
+        category: "WORKOUT",
+        type: model.sport,
+        name: model.name.trim(),
+        start_date_local: `${model.date}T${time}:00`,
+        description: withWorkoutCommentText(
+          withPlannedValues(
+            input.descriptionMode === "manual"
+              ? serializeManualWorkout(model, input.description ?? "")
+              : serializeWorkout(model),
+            values
+          ),
+          comments
+        ),
+        external_id: externalId,
+      };
+      for (const [key, field] of [
+        ["duration_seconds", "time_target"],
+        ["distance_meters", "distance_target"],
+        ["tss", "load_target"],
+      ])
+        if (key in values) body[field] = values[key];
+      if ("intensity_factor" in values)
+        body.icu_intensity = values.intensity_factor == null ? null : values.intensity_factor * 100;
+      if ("work_kj" in values)
+        body.joules = values.work_kj == null ? null : Math.round(values.work_kj * 1000);
+      if (body.description.length > 30000)
+        fail("Workout text exceeds the 30,000 character export limit");
       const verify = async (event) => {
         const saved = await request("/athlete/0/events/" + eventId("event:" + event.id));
         const errors = verifyParsedWorkout(model, saved);
@@ -324,7 +452,6 @@ export async function createWorkoutEditor(request, input = {}, scope = "default"
           verified: true,
         };
       };
-      const existing = await find();
       if (existing) return verify(existing);
       if (input.reconcileOnly)
         fail(

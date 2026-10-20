@@ -2,11 +2,13 @@ import { athleteLocalDate } from "./athlete-date.mjs";
 import { readPlannedValues } from "./planned-workout-values.mjs";
 import {
   readableDescription,
+  DEFINITION_MARKER,
   readEditorModel,
   workoutTotals,
   clock,
 } from "./workout-editor-model.mjs";
 import { eventWorkoutDescription } from "./workout-readable-description.mjs";
+import { readManualWorkoutDescription } from "./workout-manual-description.mjs";
 
 export function createIntervalsClient(config, fetchImpl = fetch) {
   const key = config.INTERVALS_API_KEY;
@@ -226,7 +228,8 @@ export function mapIntervalsWorkout(
           settings
         )
       : null;
-  const date = String(item.start_date_local || "").slice(0, 10);
+  const plannedDate = String(item.start_date_local || "").slice(0, 10);
+  const date = String(actual?.start_date_local || item.start_date_local || "").slice(0, 10);
   validDate(date);
   const plannedValues = isActivity ? {} : readPlannedValues(item.description);
   const plannedSeconds =
@@ -303,6 +306,8 @@ export function mapIntervalsWorkout(
     activity_file_type: actual?.file_type || null,
     category: item.category || "ACTIVITY",
     workout_date: date,
+    planned_workout_date: isActivity ? null : plannedDate,
+    recorded_start_local: actual?.start_date_local || null,
     day: local.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" }).toUpperCase(),
     date: local.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
     sport: sport(item.type),
@@ -312,7 +317,11 @@ export function mapIntervalsWorkout(
     plannedDurationMinutes: isActivity ? 0 : minutes,
     actualDurationMinutes: actualMinutes,
     goal: sourceDescription,
+    manual_description: readManualWorkoutDescription(item),
     details: appDescription || sourceDescription,
+    ...(isActivity || String(item.description || "").includes(DEFINITION_MARKER)
+      ? { editable_description: sourceDescription }
+      : {}),
     ...(appDescription ? { app_description_version: 3 } : {}),
     status: actual ? "completed" : date === today ? "today" : "upcoming",
     completed: Boolean(actual),
@@ -733,6 +742,7 @@ export async function moveIntervalsEvent(request, id, date) {
   validDate(date);
   const path = `/athlete/0/events/${eventId(id)}`;
   const existing = await request(path);
+  assertEditableCalendarEvent(existing);
   const old = String(existing.start_date_local).slice(0, 10);
   validDate(old);
   const delta = Date.parse(`${date}T00:00:00Z`) - Date.parse(`${old}T00:00:00Z`);
@@ -744,6 +754,8 @@ export async function moveIntervalsEvent(request, id, date) {
       new Date(Date.parse(`${endDate}T00:00:00Z`) + delta).toISOString().slice(0, 10) +
       String(existing.end_date_local).slice(10);
   }
+  if (Object.entries(patch).every(([key, value]) => existing[key] === value))
+    return { workoutId: id, date, verified: true, event: existing };
   await request(path, { method: "PUT", body: JSON.stringify(patch) });
   const verified = await request(path);
   if (
@@ -757,8 +769,16 @@ export async function moveIntervalsEvent(request, id, date) {
 export async function changeIntervalsEvent(request, id, action, { date } = {}) {
   const path = `/athlete/0/events/${eventId(id)}`;
   if (!["copy", "delete"].includes(action)) throw new Error("Invalid calendar action");
-  const original = await request(path);
+  let original;
+  try {
+    original = await request(path);
+  } catch (error) {
+    if (action === "delete" && error.status === 404)
+      return { workoutId: id, verified: true, action };
+    throw error;
+  }
   if (action === "delete") {
+    assertEditableCalendarEvent(original);
     await request(path, { method: "DELETE" });
     try {
       await request(path);
@@ -768,6 +788,41 @@ export async function changeIntervalsEvent(request, id, action, { date } = {}) {
     }
     throw new Error("Intervals.icu did not confirm deletion. Refresh before retrying.");
   }
+  const body = calendarCopyBody(original, date);
+  const created = await request("/athlete/0/events", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!created?.id || String(created.id) === eventId(id))
+    throw new Error("Copy could not be confirmed. Refresh before retrying.");
+  const verified = await request(`/athlete/0/events/${created.id}`);
+  if (
+    !Object.entries(body).every(([key, value]) =>
+      typeof value === "number"
+        ? typeof verified[key] === "number" &&
+          Math.abs(verified[key] - value) <= Math.max(1, Math.abs(value)) * 1e-6
+        : JSON.stringify(verified[key] ?? null) === JSON.stringify(value ?? null)
+    )
+  )
+    throw new Error("Copy could not be confirmed. Refresh before retrying.");
+  return { workoutId: `event:${created.id}`, verified: true, action, event: verified };
+}
+
+export function assertEditableCalendarEvent(event) {
+  if (
+    event?.paired_activity_id ||
+    event?.read_only ||
+    event?.readonly ||
+    event?.editable === false ||
+    event?.athlete_cannot_edit
+  )
+    throw Object.assign(
+      new Error("Completed or read-only workouts cannot be moved or deleted from this calendar."),
+      { status: 403 }
+    );
+}
+
+export function calendarCopyBody(original, date) {
   const fields = [
     "category",
     "type",
@@ -778,6 +833,17 @@ export async function changeIntervalsEvent(request, id, action, { date } = {}) {
     "moving_time",
     "icu_training_load",
     "color",
+    "indoor",
+    "target",
+    "time_target",
+    "distance_target",
+    "load_target",
+    "distance",
+    "icu_intensity",
+    "joules",
+    "tags",
+    "sub_type",
+    "carbs_per_hour",
   ];
   const body = Object.fromEntries(
     fields.filter((f) => Object.hasOwn(original, f)).map((f) => [f, original[f]])
@@ -799,16 +865,7 @@ export async function changeIntervalsEvent(request, id, action, { date } = {}) {
           .slice(0, 10) + String(original.end_date_local).slice(10);
     }
   }
-  const created = await request("/athlete/0/events", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-  if (!created?.id || String(created.id) === eventId(id))
-    throw new Error("Copy could not be confirmed. Refresh before retrying.");
-  const verified = await request(`/athlete/0/events/${created.id}`);
-  if (verified.name !== original.name || verified.start_date_local !== body.start_date_local)
-    throw new Error("Copy could not be confirmed. Refresh before retrying.");
-  return { workoutId: `event:${created.id}`, verified: true, action, event: verified };
+  return body;
 }
 
 export async function createIntervalsRaceEvent(request, { name, date, priority, externalId } = {}) {

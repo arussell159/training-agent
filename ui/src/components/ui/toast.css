@@ -9,3 +9,36 @@
 .dark .app-toast {
   --primary: var(--color-blue-400);
 }
+
+.app-toast-viewport {
+  z-index: 2147483000;
+  top: auto;
+  bottom: calc(100% - var(--app-viewport-top, 0px) - var(--app-viewport-height, 100dvh) + var(--app-toast-bottom-gap, 88px) + env(safe-area-inset-bottom));
+  max-height: calc(var(--app-viewport-height, 100dvh) - 24px);
+}
+/* Stay above the keyboard, below the food search controls, and outside the
+   diary's navigation. The overlay measures its actual sticky search bounds. */
+:root[data-mobile-editing="true"] .app-toast-viewport,
+body.nutrition-flow-open .app-toast-viewport {
+  --app-toast-bottom-gap: 12px;
+}
+body.nutrition-flow-open .app-toast-viewport {
+  max-height: max(0px, calc(var(--app-viewport-top, 0px) + var(--app-viewport-height, 100dvh) - var(--app-toast-reserved-top, 160px) - 24px - env(safe-area-inset-bottom)));
+  overflow-y: auto;
+}
+.app-toast {
+  background: var(--card, white);
+  border-color: color-mix(in srgb, var(--foreground) 18%, transparent);
+}
+@media (min-width: 768px) {
+  .app-toast-viewport {
+    top: auto;
+    right: 16px;
+    bottom: 16px;
+  }
+  /* Keep retry/save controls available while a workout error is visible. */
+  body:has(.desktop-workout-dialog-footer, .we-footer) .app-toast-viewport {
+    bottom: 88px;
+  }
+  body.nutrition-flow-open .app-toast-viewport { max-height: calc(100dvh - 32px); }
+}

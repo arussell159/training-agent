@@ -14,12 +14,14 @@ export function DesktopWorkoutRouteMap({
   timedPoints,
   highlightRange,
   cursorPoint,
+  onCursorTimeChange,
   compact = false,
 }: {
   workout: PlannedWorkout
   timedPoints?: TimedRoutePoint[]
   highlightRange?: [number, number] | null
   cursorPoint?: TimedRoutePoint | null
+  onCursorTimeChange?: (time: number | null) => void
   compact?: boolean
 }) {
   const id =
@@ -39,7 +41,7 @@ export function DesktopWorkoutRouteMap({
   })
   const fallback = useMemo(
     () => (loaded?.key === key ? loaded.points : []),
-    [loaded, key],
+    [loaded, key]
   )
   const validTimed = useMemo(
     () =>
@@ -49,9 +51,9 @@ export function DesktopWorkoutRouteMap({
           Number.isFinite(point.latitude) &&
           Number.isFinite(point.longitude) &&
           Math.abs(point.latitude) <= 85 &&
-          Math.abs(point.longitude) <= 180,
+          Math.abs(point.longitude) <= 180
       ),
-    [timedPoints],
+    [timedPoints]
   )
   useEffect(() => {
     if (validTimed.length > 1 || !id) return
@@ -74,7 +76,7 @@ export function DesktopWorkoutRouteMap({
             latitude,
             longitude,
           })),
-    [validTimed, fallback],
+    [validTimed, fallback]
   )
   if (route.length < 2 && (!id || loaded?.key === key || failed === key))
     return (
@@ -106,6 +108,9 @@ export function DesktopWorkoutRouteMap({
         points={route}
         highlightRange={validTimed.length > 1 ? highlightRange : null}
         cursorPoint={validTimed.length > 1 ? cursorPoint : null}
+        onCursorTimeChange={
+          validTimed.length > 1 ? onCursorTimeChange : undefined
+        }
         className="relative isolate z-0 h-full min-w-0 overflow-hidden bg-[#eef2ed]"
       />
       <RouteReplayButton

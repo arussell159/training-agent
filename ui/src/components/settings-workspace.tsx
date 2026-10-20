@@ -1,6 +1,7 @@
 import { TableSkeleton } from "@/components/loading-layouts"
 import { IntervalsConnection } from "@/components/intervals-connection"
 import { apiFetch } from "@/lib/api-client"
+import { loadWorkspaceRead } from "@/lib/workspace-reads"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
@@ -19,7 +20,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useTheme } from "@/components/theme-provider"
-import { loadTrainingContext, rememberTrainingContext, fallbackTrainingContext, type PlannedWorkout, type TrainingContext } from "@/lib/training-context"
+import { loadTrainingContext, cachedTrainingContext, rememberTrainingContext, type PlannedWorkout, type TrainingContext } from "@/lib/training-context"
 import { cn } from "@/lib/utils"
 import { validatedTrainingContext } from "@/lib/training-context-validation"
 
@@ -286,7 +287,7 @@ function SettingsSelectField({ id, label, value, onChange, options }: {
 
 export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout: PlannedWorkout) => void }) {
   const mobile = useIsMobile()
-  const [context, setContext] = useState<TrainingContext>(fallbackTrainingContext)
+  const [context, setContext] = useState<TrainingContext>(cachedTrainingContext)
   const [section, setSection] = useState<SettingsSection | null>(() => new URLSearchParams(window.location.search).has("intervals") ? "intervals" : null)
   const [dialogSection, setDialogSection] = useState<SettingsSection | null>(() => new URLSearchParams(window.location.search).has("intervals") && window.innerWidth >= 768 ? "intervals" : null)
   const [zones, setZones] = useState({ bike_ftp: "", run_threshold_pace: "", swim_css: "", threshold_hr: "" })
@@ -314,10 +315,8 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
   useEffect(() => {
     let active = true
     void Promise.all([
-      loadTrainingContext().then(value => { if (active) setContext(value) }),
-      apiFetch("/api/race-events", { cache: "no-store" }).then(async response => {
-        const value = await response.json() as { events?: RaceEvent[]; error?: string }
-        if (!response.ok) throw new Error(value.error || "Race events could not be loaded.")
+      loadTrainingContext(false, "full").then(value => { if (active) setContext(value) }).catch(error => { if (active) setLoadError(error instanceof Error ? error.message : "Training settings could not be loaded.") }),
+      loadWorkspaceRead<{events: RaceEvent[]}>("/api/race-events").then(value => {
         if (active) setEvents(value.events || [])
       }).catch(error => { if (active) setLoadError(error instanceof Error ? error.message : "Race events could not be loaded.") }),
     ])
@@ -388,9 +387,10 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
   }, [])
 
   useEffect(() => {
+    if (zonesEdited) return
     const values = context.athlete.zones
-    setZones({ bike_ftp: values?.bike_ftp == null ? "" : String(values.bike_ftp), run_threshold_pace: inputClock(values?.run_threshold_pace), swim_css: inputClock(values?.swim_css), threshold_hr: values?.threshold_hr == null ? "" : String(values.threshold_hr) })
-  }, [context.athlete.zones])
+    setZones({ bike_ftp: values?.bike_ftp == null ? "" : String(values.bike_ftp), run_threshold_pace: inputClock(displayRunThreshold(values?.run_threshold_pace)), swim_css: inputClock(displaySwimCss(values?.swim_css)), threshold_hr: values?.threshold_hr == null ? "" : String(values.threshold_hr) })
+  }, [context.athlete.zones, zonesEdited])
 
   const now = new Date()
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`

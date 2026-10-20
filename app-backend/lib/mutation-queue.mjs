@@ -18,12 +18,19 @@ export function validateMutation(input) {
   } else if (input.type === "description") {
     if (typeof input.description !== "string" || input.description.length > 30000)
       throw Error("Description must be text under 30,000 characters");
+    if (input.descriptionMode != null && input.descriptionMode !== "manual")
+      throw Error("Invalid description mode");
   } else throw Error("Only idempotent moves and description edits can be queued");
   return {
     operationId: input.operationId,
     id: input.id,
     type: input.type,
-    ...(input.type === "move" ? { date: input.date } : { description: input.description }),
+    ...(input.type === "move"
+      ? { date: input.date }
+      : {
+          description: input.description,
+          ...(input.descriptionMode === "manual" ? { descriptionMode: "manual" } : {}),
+        }),
   };
 }
 
@@ -59,13 +66,24 @@ export function pendingMutationContext(context, mutation, sequence) {
     changed = true;
     const patch =
       mutation.type === "description"
-        ? { details: mutation.description, goal: mutation.description }
+        ? {
+            details: mutation.description,
+            goal: mutation.description,
+            editable_description: mutation.description,
+            manual_description: mutation.description,
+          }
         : {
-            workout_date: mutation.date,
-            day: new Date(`${mutation.date}T12:00:00Z`)
+            planned_workout_date: mutation.date,
+            scheduled_start_at: workout.scheduled_start_at
+              ? mutation.date + workout.scheduled_start_at.slice(10)
+              : null,
+            workout_date: workout.completed ? workout.workout_date : mutation.date,
+            day: new Date(`${workout.completed ? workout.workout_date : mutation.date}T12:00:00Z`)
               .toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })
               .toUpperCase(),
-            date: new Date(`${mutation.date}T12:00:00Z`).toLocaleDateString("en-US", {
+            date: new Date(
+              `${workout.completed ? workout.workout_date : mutation.date}T12:00:00Z`
+            ).toLocaleDateString("en-US", {
               month: "short",
               day: "numeric",
               timeZone: "UTC",
@@ -109,6 +127,14 @@ const mutationHash = (mutation) =>
 // Longer than the deployed handler's five-minute lifetime. An expired write is
 // never released for replay: it becomes unknown and requires read-only reconciliation.
 const CLAIM_TIMEOUT_MS = 10 * 60_000;
+// Write age and the current read/transport lease are different clocks. A refresh
+// may renew a reconciliation lease, but must never make an abandoned write young.
+const directWriteStartedAt = (claim) => claim.writeStartedAt ?? claim.startedAt;
+const jobWriteStartedAt = (job) =>
+  job.last_write_attempt_at ??
+  job.last_attempt_at ??
+  job.claim?.startedAt ??
+  Date.parse(job.created_at);
 function pruneReceipts(state, now) {
   state.receipts ||= {};
   for (const [id, receipt] of Object.entries(state.receipts))
@@ -220,6 +246,52 @@ export function createMutationQueue(config, store, { record, clock = Date.now } 
     }
   };
   return {
+    // A new explicit edit can recover an abandoned claim by inspecting the
+    // provider. The fingerprint prevents that read from releasing a newer edit.
+    // This path never drains or replays queued writes.
+    async recoverWorkout(id, inspect) {
+      const initial = await read();
+      const relevant = (state) => ({
+        direct: state.direct_claims?.[id] || null,
+        jobs: state.jobs.filter((job) => job.mutation.id === id && !terminal(job)),
+      });
+      const before = relevant(initial);
+      if (!before.direct && !before.jobs.length) return false;
+      const active = (state, startedAt) =>
+        ["running", "reconciling"].includes(state) && clock() - startedAt < CLAIM_TIMEOUT_MS;
+      if (before.direct && active(before.direct.state, before.direct.startedAt)) return false;
+      if (before.jobs.some((job) => active(job.state, job.claim?.startedAt))) return false;
+      const expired = (startedAt) =>
+        Number.isFinite(startedAt) && clock() - startedAt >= CLAIM_TIMEOUT_MS;
+      const result = await inspect(structuredClone(before), {
+        directExpired: before.direct ? expired(directWriteStartedAt(before.direct)) : false,
+        expiredJobs: before.jobs
+          .filter((job) => expired(jobWriteStartedAt(job)))
+          .map((job) => job.mutation.operationId),
+      });
+      if (
+        (before.direct && !result.releaseDirect) ||
+        before.jobs.some(
+          (job) => !["synced", "superseded"].includes(result.jobs?.[job.mutation.operationId])
+        )
+      )
+        return false;
+      const fingerprint = JSON.stringify(before);
+      return record.update((state) => {
+        if (JSON.stringify(relevant(state)) !== fingerprint) return false;
+        if (result.releaseDirect && before.direct) delete state.direct_claims[id];
+        for (const job of relevant(state).jobs) {
+          const status = result.jobs?.[job.mutation.operationId];
+          if (!["synced", "superseded"].includes(status)) continue;
+          job.state = status;
+          job.claim = null;
+          job.error = null;
+          if (status === "synced") job.synced_at = new Date(clock()).toISOString();
+        }
+        const remaining = relevant(state);
+        return !remaining.direct && !remaining.jobs.length;
+      });
+    },
     async summary() {
       return mutationCounts(await read(), clock());
     },
@@ -260,6 +332,7 @@ export function createMutationQueue(config, store, { record, clock = Date.now } 
         if (current.intent)
           throw Error("This workout write has already been submitted. Refresh to verify it.");
         current.intent = structuredClone(intent);
+        current.writeStartedAt = clock();
         if (Buffer.byteLength(JSON.stringify(state)) > 1024 * 1024)
           throw Error("The saved edit queue is full. Refresh before adding more edits.");
       });
@@ -351,6 +424,9 @@ export function createMutationQueue(config, store, { record, clock = Date.now } 
           }
           current.state = "reconciling";
           current.token = token;
+          // Older persisted claims only have startedAt. Capture it before the
+          // first upgraded reconciliation replaces the lease timestamp.
+          current.writeStartedAt ??= current.startedAt;
           current.startedAt = now ?? clock();
           return structuredClone(current);
         });
@@ -405,6 +481,7 @@ export function createMutationQueue(config, store, { record, clock = Date.now } 
               ["running", "reconciling"].includes(item.state) &&
               time - item.claim.startedAt >= CLAIM_TIMEOUT_MS
             ) {
+              item.last_write_attempt_at ??= jobWriteStartedAt(item);
               item.state = "unknown";
               item.claim = null;
               item.error =
@@ -424,6 +501,11 @@ export function createMutationQueue(config, store, { record, clock = Date.now } 
             if (item.state === "failed" && !retryFailed) continue;
             if (item.next_retry_at > time && !retryFailed) continue;
             item.state = verifying ? "reconciling" : "running";
+            if (verifying) item.last_write_attempt_at ??= jobWriteStartedAt(item);
+            else {
+              item.last_attempt_at = time;
+              item.last_write_attempt_at = time;
+            }
             item.claim = { id: claimId, startedAt: time };
             return structuredClone(item);
           }

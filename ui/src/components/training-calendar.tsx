@@ -1,27 +1,37 @@
+import { WorkoutCard, SportIcon, completionGrade, estimatedDistance } from "@/components/calendar-workout-card"
+export { WorkoutCard } from "@/components/calendar-workout-card"
+import { workoutDetailRoute, workoutAnalysisRoute, workoutAnalysis360Route, prepareWorkout } from "@/lib/workout-preload"
+import { prefetchWorkoutValues } from "@/lib/workout-read-cache"
+import { prepareWorkoutEditor } from "@/components/workout-editor-launcher"
 import { fallbackTrainingContext } from "@/lib/training-context"
+import { readWorkoutSaveDraft, validPlannedSaveDraft, type PlannedSaveDraft } from "@/lib/workout-save-drafts"
 import "./training-calendar.css"
 import "@/lib/framework7-calendar"
 import { adjacentCalendarWeek, calendarAnchorAdjustment, calendarRange, extendCalendarRange, indexCalendarWorkouts } from "@/lib/calendar-viewport"
+import { desktopCalendarRecordedTotal, sameDesktopCalendarSport, type RecordedCalendarTotal } from "@/lib/desktop-calendar-summary"
 import { loadTrainingHistoryRange } from "@/lib/training-history-range"
 import { performanceProbe } from '@/lib/performance-probe'
 import { CalendarSkeleton, ChartSkeleton } from "@/components/loading-layouts"
+import { Analysis360Skeleton, WorkoutAnalysisSkeleton } from "@/components/workout-analysis-skeleton"
 import { SavedReportButton } from "@/components/saved-report-button"
 import { planReportBlocks } from "../../../app-backend/lib/report-blocks.mjs"
 import { WorkoutDescription } from "@/components/workout-description"
 import { lazy, Suspense } from "react"
 import { formatDuration } from "@/lib/duration"
 import {
-  gradeWorkoutCompletion,
   type CompletionGrade,
 } from "@/lib/workout-completion"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
-import { MobileActionMenu } from "@/components/ui/mobile-native-controls"
 import { LiquidGlassLayer } from "@/components/ui/liquid-glass-layer"
 import { WorkoutProfile } from "@/components/workout-profile"
+import { DesktopCalendarWeekActions, DesktopCalendarShiftDialog } from "@/components/desktop-calendar-week-actions"
 import { WorkoutSummary } from "@/components/workout-summary"
 import { DesktopWorkoutDetails } from "@/components/desktop-workout-details"
+import { DesktopWorkoutCreate } from "@/components/desktop-workout-create"
+import { useWorkoutFiles } from "@/components/workout-file-actions"
+import { DesktopWorkoutSummarySettings } from "@/components/desktop-workout-toolbar"
+import { WorkoutRecurrenceControl } from "@/components/desktop-workout-recurrence"
 import { CalendarDailyMetrics } from "@/components/calendar-daily-metrics"
-import { DesktopSportIcon } from "@/components/desktop-sport-icon"
 import { canEditWorkout } from "@/lib/workout-permissions"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
 import { formatWorkoutTss, workoutTime, workoutTssTotal, workoutPlannedMinutes } from "@/lib/workout-metrics"
@@ -55,19 +65,18 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core"
 import {
-  Bike,
-  CalendarDays,
   Check,
-  Dumbbell,
-  Footprints,
-  Ellipsis,
   Copy,
   ClipboardPaste,
+  Scissors,
+  Menu,
+  X,
+  RefreshCw,
   Trash2,
-  Waves,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  Plus,
 } from "lucide-react"
 import { f7ready } from "framework7-react"
 import type { Calendar as Framework7Calendar } from "framework7/types"
@@ -89,8 +98,7 @@ import {
   WorkoutEditor,
   WorkoutEditorMenu,
   useEditedWorkout,
-} from "@/components/workout-editor"
-import { Card } from "@/components/ui/card"
+} from "@/components/workout-editor-launcher"
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
 import {
   Dialog,
@@ -110,17 +118,16 @@ import {
   pairCompletedWorkout,
   changeWorkout,
   changeWorkoutDay,
+  refreshRecentIntervals,
+  trainingCacheScope,
+  rememberWorkoutForEditing,
   type PlannedWorkout,
-  type TrainingHistoryItem,
   type TrainingContext,
 } from "@/lib/training-context"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { validatedTrainingContext } from "@/lib/training-context-validation"
-const WorkoutAnalysis = lazy(() =>
-  import("@/components/workout-analysis").then((m) => ({
-    default: m.WorkoutAnalysis,
-  }))
-)
+const WorkoutAnalysis = workoutAnalysisRoute.Component
+const WorkoutAnalysis360 = workoutAnalysis360Route.Component
 const DailyMetricsDialog = lazy(()=>import("@/components/daily-metrics").then(module=>({default:module.DailyMetricsDialog})))
 import { apiFetch } from "@/lib/api-client"
 import {
@@ -131,39 +138,11 @@ import {
 import { isRaceWorkout, RaceCalendarCard } from "@/components/race-events"
 import { confirmWithFramework7 } from "@/lib/framework7-confirm"
 import { isCalendarNote, notesFirst } from "@/lib/calendar-events"
+import { calendarDiscipline, prepareCalendarPaste, projectCalendarMove, rollbackCalendarMove, rollbackCalendarDeletion, applyVerifiedCalendarPair, readCalendarClipboard, writeCalendarClipboard, removeVerifiedCalendarPlans, type CalendarClipboard } from "@/lib/calendar-interactions"
+import { randomId } from "@/lib/random-id"
 import { DesktopWorkoutHeader, type DesktopWorkoutMetadata } from "@/components/desktop-workout-header"
 import { CalendarAddDialog } from "@/components/calendar-add-dialog"
 import { CalendarNoteCard, CalendarNoteEditor } from "@/components/calendar-note"
-
-function SportIcon({ sport }: { sport: string }) {
-  const value = sport.toLowerCase()
-  const base = "size-5 shrink-0"
-  if (value.includes("swim"))
-    return <Waves className={`${base} text-cyan-600`} />
-  if (value.includes("bike") || value.includes("brick"))
-    return <Bike className={`${base} text-violet-600`} />
-  if (value.includes("run"))
-    return <Footprints className={`${base} text-lime-600`} />
-  if (value.includes("strength"))
-    return <Dumbbell className={`${base} text-orange-600`} />
-  return <CalendarDays className={`${base} text-slate-500`} />
-}
-
-const gradeStyles: Record<CompletionGrade, string> = {
-  planned: "border-border bg-card text-card-foreground hover:bg-accent/50",
-  unknown: "border-border bg-card text-card-foreground hover:bg-accent/50",
-  good: "border-green-700/35 bg-green-50 text-green-950 hover:bg-green-100 dark:border-green-700/70 dark:bg-green-950/50 dark:text-green-100",
-  medium:
-    "border-amber-700/35 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-700/70 dark:bg-amber-950/50 dark:text-amber-100",
-  failed:
-    "border-red-700/35 bg-red-50 text-red-950 hover:bg-red-100 dark:border-red-700/70 dark:bg-red-950/50 dark:text-red-100",
-}
-
-const gradeAccent: Partial<Record<CompletionGrade, string>> = {
-  good: "bg-lime-500",
-  medium: "bg-amber-400",
-  failed: "bg-red-500",
-}
 
 const mobileGradeStyles: Record<CompletionGrade, string> = {
   planned: "bg-background",
@@ -173,77 +152,6 @@ const mobileGradeStyles: Record<CompletionGrade, string> = {
     "bg-orange-200 text-orange-950 active:bg-orange-300 dark:bg-orange-950/50 dark:text-orange-100",
   failed:
     "bg-red-200 text-red-950 active:bg-red-300 dark:bg-red-950/50 dark:text-red-100",
-}
-
-function completionGrade(workout: PlannedWorkout): CompletionGrade {
-  const completedDataDuration = Number(workout.completed_data?.duration_minutes)
-  const actualDuration = Number.isFinite(workout.actualDurationMinutes)
-    ? Number(workout.actualDurationMinutes)
-    : Number.isFinite(completedDataDuration)
-      ? completedDataDuration
-      : 0
-  return gradeWorkoutCompletion(
-    workout.status,
-    {
-      duration_minutes:
-        workout.planned?.duration_minutes ?? workout.plannedDurationMinutes,
-    },
-    { duration_minutes: actualDuration }
-  )
-}
-function WorkoutPreview({
-  workout,
-  large = false,
-  calendarPresentation = false,
-  onOpen,
-}: {
-  workout: PlannedWorkout
-  large?: boolean
-  calendarPresentation?: boolean
-  onOpen?: () => void
-}) {
-  return (
-    <div onClickCapture={onOpen ? event=>{event.stopPropagation();onOpen()} : undefined} className={`${large ? "" : "-mx-2.5 mt-auto -mb-3 pt-2"} ${calendarPresentation ? "calendar-workout-profile" : ""}`}>
-      <WorkoutProfile workout={workout} compact={!large} />
-    </div>
-  )
-}
-
-function estimatedDistance(workout: PlannedWorkout) {
-  const label = plannedDistanceLabel(workout)
-  return label === "—" ? "" : label
-}
-
-function calendarWorkoutDuration(workout: PlannedWorkout) {
-  const completed = workout.status === "completed"
-  const plannedClock = !completed
-    ? workout.planned_time_label?.match(/\b\d{2,}:\d{2}:\d{2}\b/)?.[0]
-    : undefined
-  if (plannedClock) return plannedClock
-
-  const summarySeconds = completed
-    ? workout.workout_summary?.completed?.duration_seconds
-    : workout.workout_summary?.planned?.duration_seconds
-  const minutes = completed
-    ? workout.actualDurationMinutes ?? workout.completed_data?.duration_minutes
-    : workout.planned?.duration_minutes ?? workout.plannedDurationMinutes ?? durationMinutes(workout)
-  const seconds = summarySeconds ?? (minutes != null ? minutes * 60 : 0)
-  if (!Number.isFinite(seconds) || seconds <= 0) return "—"
-  const wholeSeconds = Math.round(seconds)
-  const hours = Math.floor(wholeSeconds / 3600)
-  const remainingMinutes = Math.floor((wholeSeconds % 3600) / 60)
-  const remainingSeconds = wholeSeconds % 60
-  return `${hours}:${String(remainingMinutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`
-}
-
-function calendarWorkoutDistance(workout: PlannedWorkout) {
-  const label = plannedDistanceLabel(workout)
-  const value = Number.parseFloat(label.replace(/[^\d.]/g, ""))
-  if (!Number.isFinite(value)) return { value: "—", unit: "" }
-  if (/yds$/i.test(label))
-    return { value: Math.round(value).toLocaleString("en-US"), unit: "yds" }
-  if (/mi$/i.test(label)) return { value: value.toFixed(value < 10 ? 2 : 1), unit: "mi" }
-  return { value: "—", unit: "" }
 }
 
 function sportAccent(sport: string) {
@@ -337,8 +245,14 @@ function MobileWorkoutRow({
     <button
       type="button"
       onClick={onOpen}
+      data-workout-id={workout.id}
+      onPointerEnter={() => { void workoutDetailRoute.preload().catch(() => {}); prepareWorkout(workout, true) }}
+      onFocus={() => { void workoutDetailRoute.preload().catch(() => {}); prepareWorkout(workout, true) }}
+      onTouchStart={() => { void workoutDetailRoute.preload().catch(() => {}); prepareWorkout(workout, true) }}
       className={`flex w-full items-stretch gap-3 overflow-hidden px-1 text-left transition-colors md:hidden ${compact ? "min-h-0 py-3" : "min-h-24 py-3"} ${completed ? "bg-background active:bg-accent/50" : mobileGradeStyles[grade]} ${completed ? "mb-1 rounded-md" : ""} ${showDivider && !completed ? "border-b border-border/70" : ""}`}
       aria-label={`Open ${workout.title}${completed ? ", completed" : ""}`}
+      disabled={Boolean(workout.app_pending_operation)}
+      aria-busy={Boolean(workout.app_pending_operation) || undefined}
     >
       <span
         aria-hidden="true"
@@ -389,7 +303,8 @@ function DraggableMobileWorkoutRow({
   showDivider: boolean
   disabled: boolean
 }) {
-  const { setNodeRef, listeners, attributes, isDragging } = useDraggable({
+  disabled = disabled || Boolean(workout.app_pending_operation)
+  const { setNodeRef, listeners, isDragging } = useDraggable({
     id: workout.id,
     data: { workout },
     disabled,
@@ -406,7 +321,6 @@ function DraggableMobileWorkoutRow({
         setDropNodeRef(node)
       }}
       {...listeners}
-      {...attributes}
       className={`relative select-none md:hidden ${isDragging ? "opacity-30" : ""} ${isOver ? "z-10 rounded-md ring-2 ring-primary ring-offset-2" : ""}`}
     >
       {isOver && (
@@ -429,196 +343,20 @@ function workoutDate(value?: string) {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-export function WorkoutCard({
-  workout,
-  onClick,
-  onAction,
-  disabled = false,
-  calendarPresentation = false,
-}: {
-  workout: PlannedWorkout
-  onClick: () => void
-  onAction?: (action: "copy" | "delete") => void
-  disabled?: boolean
-  calendarPresentation?: boolean
-}) {
-  const grade = completionGrade(workout)
-  const completed = workout.status === "completed"
-  const tss = formatWorkoutTss(workout)
-  const time = workoutTime(workout)
-  const distance = estimatedDistance(workout)
-  const calendarDistance = calendarWorkoutDistance(workout)
-  const calendarTssValue = tss.replace(/ TSS$/, "").replace(/^~\s*/, '')
-  const skipped = calendarPresentation && !completed && Boolean(workout.workout_date && workout.workout_date < dateKey(new Date())) && workoutPlannedMinutes(workout) > 0
-  return (
-    <Card
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(event) => {
-        if (
-          event.target === event.currentTarget &&
-          (event.key === "Enter" || event.key === " ")
-        ) {
-          event.preventDefault()
-          onClick()
-        }
-      }}
-      data-completion-grade={calendarPresentation ? grade : undefined}
-      data-calendar-completed={calendarPresentation && completed ? "true" : undefined}
-      data-calendar-skipped={skipped ? "true" : undefined}
-      className={`group/workout relative w-full cursor-pointer gap-2 rounded-lg px-2.5 ${completed ? "pt-5 pb-3" : "py-3"} shadow-[0_2px_6px_rgba(15,23,42,0.16)] transition-colors ${gradeStyles[grade]} ${calendarPresentation ? "calendar-workout-card" : ""}`}
-    >
-      {completed && gradeAccent[grade] && !calendarPresentation && (
-        <span
-          aria-hidden="true"
-          className={`absolute inset-x-0 top-0 h-2.5 rounded-t-lg ${gradeAccent[grade]}`}
-        />
-      )}
-      <div className={`flex min-w-0 flex-col items-start gap-2 ${calendarPresentation ? "calendar-workout-heading" : ""}`}>
-        <div className={`flex w-full items-center justify-between ${calendarPresentation ? "calendar-workout-sport-row" : ""}`}>
-          {calendarPresentation ? <DesktopSportIcon sport={workout.sport}/> : <SportIcon sport={workout.sport} />}
-          {calendarPresentation && <span className="calendar-workout-sport">{workout.sport}</span>}
-          {canEditWorkout(workout) && (
-            <div
-              onClick={(event) => event.stopPropagation()}
-              onMouseDown={(event) => event.stopPropagation()}
-              onTouchStart={(event) => event.stopPropagation()}
-              onPointerDown={(event) => event.stopPropagation()}
-            >
-              <MobileActionMenu
-                plain
-                label={`Options for ${workout.title}`}
-                disabled={disabled && Boolean(onAction)}
-                actions={[
-                  {
-                    value: "copy",
-                    label: onAction ? "Copy" : "Recorded history is read-only",
-                    disabled: !onAction || disabled,
-                    onSelect: () => onAction?.("copy"),
-                  },
-                  {
-                    value: "delete",
-                    label: "Delete",
-                    disabled: !onAction || disabled,
-                    onSelect: () => onAction?.("delete"),
-                  },
-                ]}
-              >
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className={`-my-1 -mr-1 size-7 opacity-100 transition-opacity group-focus-within/workout:opacity-100 data-[popup-open]:opacity-100 ${calendarPresentation ? "calendar-workout-options" : "[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/workout:opacity-100"}`}
-                        disabled={disabled && Boolean(onAction)}
-                        aria-label={`Options for ${workout.title}`}
-                      />
-                    }
-                  >
-                    <Ellipsis className="size-4" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="end"
-                    className="min-w-36"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    {!onAction && (
-                      <p className="max-w-48 px-2 py-1.5 text-xs text-muted-foreground">
-                        Recorded history is read-only.
-                      </p>
-                    )}
-                    <DropdownMenuItem
-                      disabled={!onAction || disabled}
-                      onClick={() => onAction?.("copy")}
-                    >
-                      <Copy />
-                      Copy
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={!onAction || disabled}
-                      variant="destructive"
-                      onClick={() => onAction?.("delete")}
-                    >
-                      <Trash2 />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </MobileActionMenu>
-            </div>
-          )}
-        </div>
-        <span className={`line-clamp-2 w-full text-left text-[13px] leading-tight font-semibold md:text-sm ${calendarPresentation ? "calendar-workout-title" : ""}`}>
-          {workout.title}
-        </span>
-      </div>
-      {calendarPresentation ? (
-        <>
-          <dl className="calendar-workout-metrics">
-            <div className="calendar-workout-metric calendar-workout-duration">
-              <dt className="sr-only">Duration</dt>
-              <dd data-workout-metric="duration" aria-label={`Duration ${calendarWorkoutDuration(workout)}`}>{calendarWorkoutDuration(workout)}</dd>
-            </div>
-            <div className="calendar-workout-metric">
-              <dt className="sr-only">Distance</dt>
-              <dd data-workout-metric="distance" aria-label={`Distance ${calendarDistance.value}${calendarDistance.unit ? ` ${calendarDistance.unit}` : ""}`}>
-                <span className="calendar-workout-metric-value">{calendarDistance.value}</span>
-                {calendarDistance.unit && <span className="calendar-workout-metric-unit"> {calendarDistance.unit}</span>}
-              </dd>
-            </div>
-            <div className="calendar-workout-metric">
-              <dt className="sr-only">TSS</dt>
-              <dd data-workout-metric="tss" aria-label={`TSS ${tss}`}>
-                <span className="calendar-workout-metric-value">{calendarTssValue}</span>
-                {calendarTssValue !== "—" && <span className="calendar-workout-metric-unit"> TSS</span>}
-              </dd>
-            </div>
-          </dl>
-        </>
-      ) : <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-muted-foreground md:text-xs">
-        {time.value !== "—" && (
-          <span>
-            {time.label.replace(" time", "")}: {time.value}
-          </span>
-        )}
-        {distance && (
-          <span>· {distance}</span>
-        )}
-        {tss !== "—" && <span>· {tss}</span>}
-      </div>}
-      {(workout.details || workout.goal) && (
-        <p className={`line-clamp-6 text-xs leading-relaxed break-words whitespace-pre-line text-muted-foreground ${calendarPresentation ? "calendar-workout-description" : ""}`}>
-          {(workout.details || workout.goal || "").trim()}
-        </p>
-      )}
-      {workout.status === "completed" && grade !== "unknown" && !calendarPresentation && (
-        <span className="flex items-center gap-1 text-[10px] font-medium">
-          {grade === "good"
-            ? "On target"
-            : grade === "medium"
-              ? "Near target"
-              : "Outside target"}
-        </span>
-      )}
-      <WorkoutPreview workout={workout} calendarPresentation={calendarPresentation} onOpen={calendarPresentation ? onClick : undefined} />
-    </Card>
-  )
-}
-
 function DraggableWorkout({
   workout,
   onOpen,
   onAction,
   disabled,
+  cut = false,
 }: {
   workout: PlannedWorkout
   onOpen: () => void
-  onAction: (action: "copy" | "delete") => void
+  onAction: (action: "copy" | "cut" | "delete") => void
   disabled: boolean
+  cut?: boolean
 }) {
+  disabled = disabled || Boolean(workout.app_pending_operation)
   const race = isRaceWorkout(workout)
   const completedActivity =
     workout.status === "completed" &&
@@ -657,6 +395,7 @@ function DraggableWorkout({
         setDropNodeRef(node)
       }}
       {...listeners}
+      data-calendar-cut={cut || undefined}
       className={`relative select-none ${isDragging ? "opacity-30" : ""} ${isOver ? "z-10 rounded-md ring-2 ring-primary ring-offset-2" : ""}`}
     >
       {isOver && (
@@ -712,10 +451,10 @@ function DayMenu({
   disabled,
   onAction,
   onCopy,
+  onCut,
   onPaste,
   pasteLabel,
   mobile,
-  onCreate,
   children,
 }: {
   day: Date
@@ -724,10 +463,10 @@ function DayMenu({
   disabled: boolean
   onAction: (action: "copy" | "delete") => void
   onCopy: () => void
+  onCut: () => void
   onPaste: () => void
   pasteLabel: string | null
   mobile: boolean
-  onCreate: () => void
   children: ReactNode
 }) {
   const label = day.toLocaleDateString("en-US", {
@@ -737,7 +476,6 @@ function DayMenu({
   })
   const chooseAction = (event: ChangeEvent<HTMLSelectElement>) => {
     const action = event.currentTarget.value
-    if (action === "create") onCreate()
     if (action === "copy") void onAction("copy")
     if (action === "delete") onAction("delete")
     // Keep the date as the selected label so the native picker can be opened
@@ -757,7 +495,6 @@ function DayMenu({
             className="absolute inset-0 z-[1] h-full w-full cursor-pointer appearance-none opacity-0"
           >
             <option value="" disabled>{label}</option>
-            <option value="create">Add workout</option>
             <option value="copy" disabled={copyCount === 0}>Copy</option>
             <option value="delete" disabled={count === 0}>Delete</option>
           </select>
@@ -766,14 +503,17 @@ function DayMenu({
         <DropdownMenu>
           <DropdownMenuTrigger
             disabled={disabled}
-            render={<button type="button" aria-label={`Actions for ${label}`} className="calendar-day-menu-trigger" />}
+            render={<button type="button" aria-label={`Actions for ${label}`} className="calendar-day-menu-trigger" onKeyDown={event => {
+              if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && pasteLabel) { event.preventDefault(); onPaste() }
+            }} />}
           >
             {children}
+            <Menu className="calendar-day-menu-icon" aria-hidden="true"/>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-40">
-            <DropdownMenuItem onClick={onCreate}>
-              <CalendarDays />
-              Add workout
+          <DropdownMenuContent align="start" className="calendar-context-menu">
+            <DropdownMenuItem disabled={copyCount === 0 || disabled} onClick={onCut}>
+              <Scissors />
+              Cut day
             </DropdownMenuItem>
             <DropdownMenuItem disabled={copyCount === 0 || disabled} onClick={onCopy}>
               <Copy />
@@ -950,11 +690,31 @@ export function TrainingCalendar({
   const [dragging, setDragging] = useState<PlannedWorkout | null>(null)
   const [moving, setMoving] = useState(false)
   const [moveNotice, setMoveNotice] = useState("")
-  const [calendarClipboard, setCalendarClipboard] = useState<{
-    kind: "workout" | "day"
-    workoutIds: string[]
-    label: string
-  } | null>(null)
+  const clipboardScope = trainingCacheScope()
+  const [calendarClipboard, setCalendarClipboard] = useState<CalendarClipboard | null>(() => isMobile ? null : readCalendarClipboard(clipboardScope))
+  const [weekShift, setWeekShift] = useState<CalendarClipboard | null>(null)
+  useEffect(() => {
+    if (!moveNotice || moving || calendarClipboard) return
+    const timer = window.setTimeout(() => setMoveNotice(""), 3500)
+    return () => window.clearTimeout(timer)
+  }, [moveNotice, moving, calendarClipboard])
+  const mutationLock = useRef(false)
+  const acquireCalendarMutation = () => {
+    if (mutationLock.current) return false
+    mutationLock.current = true
+    calendarRevision.current += 1
+    setMoving(true)
+    return true
+  }
+  const releaseCalendarMutation = () => {
+    calendarRevision.current += 1
+    mutationLock.current = false
+    setMoving(false)
+  }
+  const rememberClipboard = (value: CalendarClipboard | null) => {
+    writeCalendarClipboard(clipboardScope, value)
+    setCalendarClipboard(value)
+  }
   const calendarWasDragged = useRef(false)
   const calendarRevision = useRef(0)
   const sensors = useSensors(
@@ -1005,18 +765,22 @@ export function TrainingCalendar({
       setCalendarReady(true)
     }).catch(() => { if (active) setCalendarReady(true) })
     const update = (event: Event) => {
-      if (active)
+      if (active) {
         setContext((current) =>
           mergeCalendarContext(
             current,
             (event as CustomEvent<TrainingContext>).detail
           )
         )
+      }
     }
     window.addEventListener("training-context-updated", update)
+    const invalidateReads = () => { calendarRevision.current += 1 }
+    window.addEventListener("training-mutation-started", invalidateReads)
     return () => {
       active = false
       window.removeEventListener("training-context-updated", update)
+      window.removeEventListener("training-mutation-started", invalidateReads)
     }
   }, [setContext])
   useEffect(() => {
@@ -1059,29 +823,31 @@ export function TrainingCalendar({
 
   const runWorkoutAction = async (
     workout: PlannedWorkout,
-    action: "copy" | "delete"
+    action: "copy" | "cut" | "delete"
   ) => {
-    if (action === "copy" && !isMobile) {
-      setCalendarClipboard({
+    if (mutationLock.current) return
+    if ((action === "copy" || action === "cut") && !isMobile) {
+      if (calendarClipboard?.attempt) { setMoveNotice("Finish or clear the pending paste before selecting another workout."); return }
+      try { rememberClipboard({
         kind: "workout",
+        mode: action,
         workoutIds: [workout.id],
         label: workout.title,
       })
-      setMoveNotice(`Copied ${workout.title}. Choose a day and select Paste workout.`)
+      setMoveNotice(`${action === "cut" ? "Cut" : "Copied"} ${workout.title}. Choose a day and select Paste workout.`)
+      } catch (error) { setMoveNotice(error instanceof Error ? error.message : "The calendar clipboard could not be saved.") }
       return
     }
-    if (action === "delete" && !isRaceWorkout(workout)) {
-      const confirmed = await confirmWithFramework7(
+    if (action === "cut" || !acquireCalendarMutation()) return
+    calendarWasDragged.current = true
+    const before = context
+    let provisionalDelete = false
+    try {
+      if (action === "delete" && !isRaceWorkout(workout) && !await confirmWithFramework7(
         isCalendarNote(workout) ? "Delete note?" : "Delete workout?",
         `Delete “${workout.title}” from your Intervals.icu calendar?`
-      )
-      if (!confirmed) return
-    }
-    if (moving) return
-    calendarWasDragged.current = true
-    setMoving(true)
-    setMoveNotice(action === "copy" ? "Copying workout…" : "Deleting workout…")
-    try {
+      )) return
+      setMoveNotice("")
       if (
         action === "delete" &&
         isRaceWorkout(workout) &&
@@ -1114,118 +880,180 @@ export function TrainingCalendar({
         setMoveNotice(`${workout.title} deleted.`)
         return
       }
-      const result = await changeWorkout(workout.id, action)
+      if (action === "delete") {
+        provisionalDelete = true
+        setContext(current => removeVerifiedCalendarPlans(current, [workout.id]))
+      }
+      const result = await changeWorkout(workout.id, action, undefined, undefined, { feedback: false })
       if (result.context)
-        setContext((current) => ({ ...current, ...result.context }))
+        setContext((current) => action === "delete" ? removeVerifiedCalendarPlans(mergeCalendarContext(current, result.context!), [workout.id]) : mergeCalendarContext(current, result.context!))
       else if (action === "delete")
-        setContext((current) => ({
-          ...current,
-          planned: current.planned.filter((item) => item.id !== workout.id),
-          history: current.history.filter(
-            (item) => !("id" in item) || item.id !== workout.id
-          ),
-        }))
+        setContext((current) => removeVerifiedCalendarPlans(current, [workout.id]))
       setMoveNotice(
         `${workout.title} ${action === "copy" ? "copied to the same day" : "deleted"}.${!result.context ? " Refresh Intervals.icu to reload the calendar." : ""}`
       )
     } catch (error) {
+      if (provisionalDelete) setContext(current => rollbackCalendarDeletion(current, before, [workout.id]))
       setMoveNotice(
         error instanceof Error ? error.message : `Unable to ${action} workout.`
       )
     } finally {
-      setMoving(false)
+      releaseCalendarMutation()
     }
   }
 
   const runDayAction = async (day: Date, action: "copy" | "delete", count: number) => {
-    if (action === "delete") {
-      const confirmed = await confirmWithFramework7(
-        "Delete this day’s workouts?",
-        `Delete all ${count} workouts on ${day.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} from your Intervals.icu calendar?`
-      )
-      if (!confirmed) return
-    }
-    if (moving) return
+    if (!acquireCalendarMutation()) return
     calendarWasDragged.current = true
-    setMoving(true)
-    setMoveNotice(
-      action === "copy"
-        ? "Copying this day’s workouts…"
-        : "Deleting this day’s workouts…"
-    )
+    const before = context
+    let provisionalIds: string[] = []
     try {
+      if (action === "delete" && !await confirmWithFramework7(
+        "Delete this day’s planned workouts?",
+        `Delete ${count} planned workout${count === 1 ? "" : "s"} and notes on ${day.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} from Intervals.icu? Completed recordings and races stay in place.`
+      )) return
+      setMoveNotice("")
+      if (action === "delete") {
+        provisionalIds = [...new Map([...context.history, ...context.planned].map(row => [(row as PlannedWorkout).id, row as PlannedWorkout])).values()]
+          .filter(row => row.workout_date === dateKey(day) && canEditWorkout(row) && !isRaceWorkout(row)).map(row => row.id)
+        setContext(current => removeVerifiedCalendarPlans(current, provisionalIds))
+      }
       const result = await changeWorkoutDay(dateKey(day), action)
+      const confirmed = new Set(result.results.map(item => item.workoutId))
+      const unconfirmed = provisionalIds.filter(id => !confirmed.has(id))
       if (result.context)
-        setContext((current) => ({ ...current, ...result.context }))
+        setContext((current) => rollbackCalendarDeletion(mergeCalendarContext(current, result.context!), before, unconfirmed))
       else if (action === "delete") {
-        const ids = new Set(result.results.map((item) => item.workoutId))
-        setContext((current) => ({
-          ...current,
-          planned: current.planned.filter((item) => !ids.has(item.id)),
-          history: current.history.filter(
-            (item) => !("id" in item) || !ids.has(String(item.id))
-          ),
-        }))
+        const ids = result.results.map((item) => item.workoutId)
+        setContext((current) => removeVerifiedCalendarPlans(current, ids))
+        if (unconfirmed.length) setContext(current => rollbackCalendarDeletion(current, before, unconfirmed))
       }
       setMoveNotice(
         `${result.results.length} of ${result.total} workouts ${action === "copy" ? "copied to the same day" : "deleted"}.${result.failures.length ? ` ${result.failures[0].error} Refresh before retrying.` : !result.context ? " Refresh Intervals.icu to reload the calendar." : ""}`
       )
     } catch (error) {
+      if (provisionalIds.length) setContext(current => rollbackCalendarDeletion(current, before, provisionalIds))
       setMoveNotice(
         error instanceof Error
           ? error.message
           : "Unable to update this day’s workouts."
       )
     } finally {
-      setMoving(false)
+      releaseCalendarMutation()
     }
   }
 
-  const copyCalendarDay = (day: Date, workouts: PlannedWorkout[]) => {
+  const copyCalendarDay = (day: Date, workouts: PlannedWorkout[], mode: "copy" | "cut" = "copy") => {
+    if (mutationLock.current) return
+    if (calendarClipboard?.attempt) { setMoveNotice("Finish or clear the pending paste before selecting another day."); return }
     const workoutIds = workouts
-      .filter((workout) => workout.id.startsWith("event:") && canEditWorkout(workout))
+      .filter((workout) => canEditWorkout(workout) && !isRaceWorkout(workout))
       .map((workout) => workout.id)
     if (!workoutIds.length) {
       setMoveNotice("There are no planned workouts to copy from this day.")
       return
     }
+    if (workoutIds.length > 100) {setMoveNotice("Copy up to 100 planned workouts and notes at a time.");return}
     const label = day.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
     })
-    setCalendarClipboard({ kind: "day", workoutIds, label })
-    setMoveNotice(`Copied ${workoutIds.length} planned workout${workoutIds.length === 1 ? "" : "s"} from ${label}. Choose a day and select Paste day.`)
+    try {
+      rememberClipboard({ kind: "day", mode, workoutIds, label })
+      setMoveNotice(`${mode === "cut" ? "Cut" : "Copied"} ${workoutIds.length} planned workout${workoutIds.length === 1 ? "" : "s"} from ${label}. Choose a day and select Paste day.`)
+    } catch (error) { setMoveNotice(error instanceof Error ? error.message : "The calendar clipboard could not be saved.") }
   }
 
-  const pasteCalendarClipboard = async (day: Date) => {
-    const clipboard = calendarClipboard
-    if (!clipboard || moving) return
+  const pasteCalendarClipboard = async (day: Date, source = calendarClipboard) => {
+    if (!source || !acquireCalendarMutation()) return
+    let clipboard = structuredClone(source)
+    const date = clipboard.attempt?.date || dateKey(day)
     calendarWasDragged.current = true
-    setMoving(true)
-    setMoveNotice(`Pasting ${clipboard.kind === "day" ? "day" : "workout"} to ${dateKey(day)}…`)
-    let copied = 0
+    setMoveNotice("")
+    let pendingMove: { id: string; date: string } | undefined
     try {
-      for (const id of clipboard.workoutIds) {
-        const result = await changeWorkout(id, "copy", dateKey(day))
+      const attempt = clipboard.attempt || prepareCalendarPaste(clipboard, date, randomId)
+      clipboard = {...clipboard, attempt}
+      rememberClipboard(clipboard)
+      let needsRefresh = false
+      for (let index = attempt.completed; index < attempt.items.length; index++) {
+        const item = attempt.items[index]
+        const target = item.date || date
+        if (clipboard.mode === "cut") {
+          pendingMove = {id:item.id,date:target}
+          setContext(current => projectCalendarMove(current, item.id, target, dateKey(new Date())))
+        }
+        const result = clipboard.mode === "cut" ? await moveWorkoutDate(item.id, target, true, { feedback: false }) : await changeWorkout(item.id, "copy", target, item.creationId, { feedback: false })
         if (result.context)
-          setContext((current) => ({ ...current, ...result.context }))
-        copied += 1
+          setContext((current) => mergeCalendarContext(current, result.context!))
+        else if (clipboard.mode === "copy") needsRefresh = true
+        pendingMove = undefined
+        clipboard = {...clipboard, attempt: {...attempt, completed: index + 1}}
+        rememberClipboard(clipboard)
       }
-      setCalendarClipboard(null)
-      setMoveNotice(`${copied} planned workout${copied === 1 ? "" : "s"} pasted to ${dateKey(day)}.`)
+      if (needsRefresh) {
+        const refreshed = await loadFullTrainingContext(true)
+        if (refreshed) setContext(refreshed)
+      }
+      rememberClipboard(null)
+      setMoveNotice(`${attempt.items.length} planned workout${attempt.items.length === 1 ? "" : "s"} ${clipboard.mode === "cut" ? "moved" : "pasted"} to ${date}.`)
     } catch (error) {
-      if (copied > 0)
-        setCalendarClipboard((current) => current ? {
-          ...current,
-          workoutIds: current.workoutIds.slice(copied),
-        } : current)
+      if (pendingMove) {
+        const {id, date:attemptedDate} = pendingMove
+        setContext(current => rollbackCalendarMove(current, context, id, attemptedDate))
+      }
       setMoveNotice(
-        `${copied ? `${copied} workout${copied === 1 ? "" : "s"} pasted. ` : ""}${error instanceof Error ? error.message : "Unable to paste the copied workout."}`
+        `${clipboard.attempt?.completed ? `${clipboard.attempt.completed} confirmed. ` : ""}${error instanceof Error ? error.message : "Unable to confirm this paste."}`
       )
     } finally {
-      setMoving(false)
+      releaseCalendarMutation()
     }
+  }
+
+  const runWeekAction = async (start: string, workouts: PlannedWorkout[], action: "cut"|"copy"|"paste"|"shift"|"delete") => {
+    if (mutationLock.current) return
+    if (action === "paste") { await pasteCalendarClipboard(new Date(`${start}T12:00:00`)); return }
+    if (calendarClipboard?.attempt) {setMoveNotice("Finish or clear the pending paste before selecting another week.");return}
+    const eligible=workouts.filter(workout=>canEditWorkout(workout)&&!isRaceWorkout(workout))
+    if(!eligible.length)return
+    if(eligible.length>100){setMoveNotice("Choose a day instead; a calendar operation supports up to 100 planned workouts and notes.");return}
+    if(action==="delete"){
+      if(!acquireCalendarMutation())return
+      let removed=0
+      const before=context
+      let provisional=false
+      try{
+        if(!await confirmWithFramework7("Delete this week’s planned workouts?",`Delete ${eligible.length} planned workouts and notes for the week of ${start} from Intervals.icu? Completed recordings and races stay in place.`))return
+        setMoveNotice("")
+        provisional=true
+        setContext(current=>removeVerifiedCalendarPlans(current,eligible.map(workout=>workout.id)))
+        for(const workout of eligible){
+          const result=await changeWorkout(workout.id,"delete",undefined,undefined,{feedback:false})
+          const pendingIds=eligible.slice(removed).map(item=>item.id)
+          if(result.context)setContext(current=>removeVerifiedCalendarPlans(mergeCalendarContext(current,result.context!),pendingIds))
+          else setContext(current=>removeVerifiedCalendarPlans(current,[workout.id]))
+          removed++
+        }
+        setMoveNotice(`${removed} planned workouts and notes deleted.`)
+      }catch(error){
+        if(provisional)setContext(current=>rollbackCalendarDeletion(current,before,eligible.slice(removed).map(workout=>workout.id)))
+        setMoveNotice(`${removed} confirmed deleted. ${error instanceof Error?error.message:"The remaining deletions could not be confirmed."}`)
+      }
+      finally{releaseCalendarMutation()}
+      return
+    }
+    const clipboard:CalendarClipboard={kind:"week",mode:action==="copy"?"copy":"cut",sourceStart:start,workoutDates:eligible.map(workout=>workout.workout_date!),workoutIds:eligible.map(workout=>workout.id),label:`Week of ${start}`}
+    if(action==="shift"){setWeekShift(clipboard);return}
+    try{rememberClipboard(clipboard);setMoveNotice(`${action==="cut"?"Cut":"Copied"} ${eligible.length} planned workouts and notes. Choose a week and select Paste.`)}
+    catch(error){setMoveNotice(error instanceof Error?error.message:"The calendar clipboard could not be saved.")}
+  }
+
+  const clearCalendarClipboard = async () => {
+    if (mutationLock.current) return
+    if (calendarClipboard?.attempt && !await confirmWithFramework7("Clear pending paste?", "A pending copy may already exist in Intervals.icu. Clearing removes its local recovery identity; review the destination day before copying it again.")) return
+    try { rememberClipboard(null); setMoveNotice("") }
+    catch (error) { setMoveNotice(error instanceof Error ? error.message : "The clipboard could not be cleared.") }
   }
 
   const finishDrag = async ({ active, over }: DragEndEvent) => {
@@ -1242,13 +1070,14 @@ export function TrainingCalendar({
         combineTarget.status !== "completed" &&
         combineTarget.id.startsWith("event:") &&
         canEditWorkout(combineTarget) &&
-        workout.sport.toLowerCase() === combineTarget.sport.toLowerCase()
-      if (!validPair || moving) return
-      setMoving(true)
-      setMoveNotice("Combining workouts…")
+        (isMobile ? workout.sport.toLowerCase() === combineTarget.sport.toLowerCase() : sameDesktopCalendarSport(workout.sport, combineTarget.sport))
+      if (!validPair || !acquireCalendarMutation()) return
+      setMoveNotice("")
       try {
         const result = await pairCompletedWorkout(combineTarget.id, workout.id)
-        if (result.context) {
+        if (result.workout) {
+          setContext(current => applyVerifiedCalendarPair(current, combineTarget.id, workout.id, result.workout!, dateKey(new Date())))
+        } else if (result.context) {
           setContext((current) => ({ ...current, ...result.context }))
         } else {
           const refreshed = await loadFullTrainingContext(true)
@@ -1260,7 +1089,7 @@ export function TrainingCalendar({
           error instanceof Error ? error.message : "Unable to combine these workouts."
         )
       } finally {
-        setMoving(false)
+        releaseCalendarMutation()
       }
       return
     }
@@ -1269,59 +1098,36 @@ export function TrainingCalendar({
       !canEditWorkout(workout) ||
       !over ||
       String(over.id) === workout.workout_date ||
-      moving
+      !/^\d{4}-\d{2}-\d{2}$/.test(String(over.id)) ||
+      mutationLock.current
     )
       return
     const date = String(over.id)
+    if (!acquireCalendarMutation()) return
     calendarWasDragged.current = true
     const snapshot = context
-    calendarRevision.current += 1
-    const update = (item: PlannedWorkout) =>
-      item.id === workout.id
-        ? {
-            ...item,
-            workout_date: date,
-            day: new Date(`${date}T12:00:00`)
-              .toLocaleDateString("en-US", { weekday: "short" })
-              .toUpperCase(),
-            date: new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-            }),
-            status:
-              item.status === "completed"
-                ? ("completed" as const)
-                : date === dateKey(new Date())
-                  ? ("today" as const)
-                  : ("upcoming" as const),
-          }
-        : item
-    setMoving(true)
-    setMoveNotice("Saving workout date…")
-    setContext((current) => ({
-      ...current,
-      planned: current.planned.map(update),
-      history: (current.history as PlannedWorkout[]).map(
-        update
-      ) as TrainingHistoryItem[],
-    }))
+    setMoveNotice("")
+    setContext((current) => projectCalendarMove(current, workout.id, date, dateKey(new Date())))
     try {
-      const result = await moveWorkoutDate(workout.id, date, !isMobile)
+      const result = await moveWorkoutDate(workout.id, date, true, { feedback: false })
       if (result.context)
-        setContext((current) => ({ ...current, ...result.context }))
+        setContext((current) => mergeCalendarContext(current, result.context!))
       setMoveNotice(
-        `${workout.title} saved ${isMobile ? "in Supabase" : "in Intervals.icu"} for ${new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}.${"queued" in result && result.queued ? " Syncing to Intervals.icu…" : ""}`
+        `${workout.title} saved in Intervals.icu for ${new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`
       )
     } catch (error) {
-      setContext(snapshot)
+      setContext(current => rollbackCalendarMove(current, snapshot, workout.id, date))
       setMoveNotice(
         error instanceof Error ? error.message : "Unable to move workout."
       )
     } finally {
-      setMoving(false)
+      releaseCalendarMutation()
     }
   }
   const [summaryOpen, setSummaryOpen] = useState(true)
+  const [summarySaving, setSummarySaving] = useState(false)
+  const summaryPreferenceLock = useRef(false)
+  const summaryPreferenceTouched = useRef(false)
   const [metricsDate,setMetricsDate] = useState<string|null>(null)
   const metricsRows = useMemo(()=>(context.wellness_history || []).map(row=>({...row,date:String(row.date || row.id || row.timeStamp || '').slice(0,10)})).filter(row=>/^\d{4}-\d{2}-\d{2}$/.test(row.date)),[context.wellness_history])
   useEffect(() => {
@@ -1350,7 +1156,7 @@ export function TrainingCalendar({
     void apiFetch("/api/config")
       .then((r) => r.json())
       .then((c) => {
-        if (active) { anchorOperations.current.capture(); setSummaryOpen(c.calendarSummaryOpen !== false) }
+        if (active && !summaryPreferenceTouched.current) { anchorOperations.current.capture(); setSummaryOpen(c.calendarSummaryOpen !== false) }
       })
       .catch(() => {})
     return () => {
@@ -1358,6 +1164,13 @@ export function TrainingCalendar({
     }
   }, [])
   async function saveSummary(open: boolean) {
+    if (summaryPreferenceLock.current) return
+    summaryPreferenceLock.current = true
+    summaryPreferenceTouched.current = true
+    const previous = summaryOpen
+    setSummarySaving(true)
+    anchorOperations.current.capture()
+    setSummaryOpen(open)
     try {
       const r = await apiFetch("/api/config", {
         method: "POST",
@@ -1366,12 +1179,15 @@ export function TrainingCalendar({
       })
       const c = await r.json()
       if (!r.ok) throw new Error(c.error || "Could not save preference")
-      anchorOperations.current.capture()
-      setSummaryOpen(open)
     } catch (e) {
+      anchorOperations.current.capture()
+      setSummaryOpen(previous)
       setMoveNotice(
         e instanceof Error ? e.message : "Could not save preference"
       )
+    } finally {
+      summaryPreferenceLock.current = false
+      setSummarySaving(false)
     }
   }
   const weekRefs = useRef(new Map<string, HTMLElement>())
@@ -1550,6 +1366,7 @@ export function TrainingCalendar({
     }
   }, [])
 
+  const preparedCalendarWorkouts = useRef(new Set<string>())
   useEffect(() => {
     if (!calendarReady || !calendarRef.current) return
     let frame = 0
@@ -1991,6 +1808,9 @@ export function TrainingCalendar({
   const restoredWeekKey = restoredPosition.current ? dateKey(startOfMonday(new Date(`${restoredPosition.current.date}T12:00:00`))) : null
 
   const openWorkout = (workout: PlannedWorkout) => {
+    rememberWorkoutForEditing(workout)
+    prepareWorkout(workout, true)
+    if (!isMobile) prepareWorkoutEditor(workout)
     if (!isMobile && isCalendarNote(workout)) {
       setNoteEditor({ date: workout.workout_date!, workout })
       return
@@ -2013,6 +1833,47 @@ export function TrainingCalendar({
     setSelectedWorkout(workout)
   }
 
+  useEffect(() => {
+    if (!calendarReady || !calendarRef.current) return
+    // Prepare only cards near the viewport, with two bounded read groups at a
+    // time. No provider writes, whole-calendar downloads or background polling.
+    const rows = new Map(workouts.map(workout => [workout.id, workout]))
+    const queue: PlannedWorkout[] = []
+    const observed = new WeakSet<Element>()
+    let active = true, running = 0
+    const pump = () => {
+      while (active && running < 2 && queue.length) {
+        const workout = queue.shift()!
+        running++
+        void prefetchWorkoutValues(workout).finally(() => { running--; pump() })
+      }
+    }
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue
+        observer.unobserve(entry.target)
+        const workout = rows.get(entry.target.getAttribute("data-workout-id") || "")
+        if (workout && !workout.app_pending_operation) {
+          // A local calendar projection must not restart every visible read.
+          // Hover/open still validates expired caches on demand.
+          const key = JSON.stringify([trainingCacheScope(),workout.id,workout.source_updated_at || ""])
+          if (!preparedCalendarWorkouts.current.has(key)) {
+            preparedCalendarWorkouts.current.add(key)
+            if(preparedCalendarWorkouts.current.size>512)preparedCalendarWorkouts.current.delete(preparedCalendarWorkouts.current.values().next().value!)
+            queue.push(workout)
+          }
+        }
+      }
+      if (isMobile) void workoutDetailRoute.preload().catch(() => {})
+      pump()
+    }, { rootMargin: "100px" })
+    const observe = () => calendarRef.current?.querySelectorAll("[data-workout-id]").forEach(element => { if (!observed.has(element)) { observed.add(element); observer.observe(element) } })
+    const changes = new MutationObserver(observe)
+    changes.observe(calendarRef.current, { childList: true, subtree: true })
+    observe()
+    return () => { active = false; queue.length = 0; observer.disconnect(); changes.disconnect() }
+  }, [calendarReady, workouts, isMobile])
+
   if (!calendarReady) return <CalendarSkeleton />
 
   return (
@@ -2026,7 +1887,7 @@ export function TrainingCalendar({
           )
           if (combineTargets.length) return combineTargets
         }
-        return collisions
+        return collisions.filter(collision => !String(collision.id).startsWith("combine:"))
       }}
       onDragStart={({ active }) =>
         setDragging(active.data.current?.workout || null)
@@ -2171,6 +2032,17 @@ export function TrainingCalendar({
               <Button size="icon-sm" variant="ghost" aria-label="Previous calendar week" onClick={()=>stepWeek(-1)}><ChevronLeft/></Button>
               <Button size="icon-sm" variant="ghost" aria-label="Next calendar week" onClick={()=>stepWeek(1)}><ChevronRight/></Button>
             </div>
+            <div className="calendar-desktop-tools ml-auto">
+              <Button size="icon-sm" variant="ghost" aria-label="Refresh Intervals.icu" title="Refresh Intervals.icu" disabled={moving} onClick={async () => {
+                if (!acquireCalendarMutation()) return
+                try {
+                  const result = await refreshRecentIntervals(progress => setMoveNotice(progress.label))
+                  setContext(result.context)
+                  setMoveNotice(result.queue.failed || result.queue.unknown ? "Calendar refreshed. Some earlier edits still need confirmation in Settings." : "Calendar refreshed from Intervals.icu.")
+                } catch (error) { setMoveNotice(error instanceof Error ? error.message : "Calendar refresh could not be confirmed.") }
+                finally { releaseCalendarMutation() }
+              }}><RefreshCw className={moving ? "animate-spin" : ""}/></Button>
+            </div>
           </header>
         )}
         <div className="calendar-weekday-header sticky top-14 z-40 hidden h-7 shrink-0 border-b bg-background shadow-sm md:flex">
@@ -2194,6 +2066,8 @@ export function TrainingCalendar({
               size="icon-sm"
               className="calendar-summary-toggle size-6"
               onClick={() => void saveSummary(!summaryOpen)}
+              disabled={summarySaving}
+              aria-busy={summarySaving}
               aria-label={
                 summaryOpen
                   ? "Collapse weekly summary"
@@ -2205,14 +2079,15 @@ export function TrainingCalendar({
             </Button>
           </div>
         </div>
-        {moveNotice && (
-          <p
-            role="status"
-            className="border-b bg-background px-4 py-2 text-xs text-muted-foreground"
-          >
-            {moveNotice}
-          </p>
-        )}
+        {isMobile && !moving && moveNotice && <p role="status" className="border-b bg-background px-4 py-2 text-xs text-muted-foreground">{moveNotice}</p>}
+        {!isMobile && !moving && (moveNotice || calendarClipboard) && <div className="calendar-operation-notice" role="status">
+          <p>{moveNotice || (calendarClipboard?.attempt ? `A paste to ${calendarClipboard.attempt.date} needs confirmation. Resume the same paste to check its result.` : `${calendarClipboard?.mode === "cut" ? "Cut" : "Copied"}: ${calendarClipboard?.label}. Choose a ${calendarClipboard?.kind === "week" ? "week" : "day"} and select Paste.`)}</p>
+          <div>
+            {calendarClipboard?.attempt && <Button size="sm" variant="outline" disabled={moving} onClick={() => void pasteCalendarClipboard(new Date(`${calendarClipboard.attempt!.date}T12:00:00`))}>Resume paste</Button>}
+            {calendarClipboard && <Button size="sm" variant="ghost" disabled={moving} onClick={() => void clearCalendarClipboard()}>Clear clipboard</Button>}
+            {!calendarClipboard && !moving && <Button size="icon-sm" variant="ghost" aria-label="Dismiss calendar status" onClick={() => setMoveNotice("")}><X/></Button>}
+          </div>
+        </div>}
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="calendar-week-list min-w-0 flex-1 bg-muted/20">
             <div className="md:divide-y">
@@ -2275,18 +2150,15 @@ export function TrainingCalendar({
                             >
                               <DayMenu
                                 day={day}
-                                count={dayWorkouts.length}
-                                copyCount={dayCandidates.filter((workout) => workout.id.startsWith("event:") && canEditWorkout(workout)).length}
+                                count={isMobile ? dayWorkouts.length : dayCandidates.filter(workout => canEditWorkout(workout) && !isRaceWorkout(workout)).length}
+                                copyCount={dayCandidates.filter((workout) => canEditWorkout(workout) && !isRaceWorkout(workout)).length}
                                 disabled={moving}
                                 mobile={isMobile}
-                                onAction={(action) => void runDayAction(day, action, dayWorkouts.length)}
+                                onAction={(action) => void runDayAction(day, action, dayCandidates.filter(workout => canEditWorkout(workout) && !isRaceWorkout(workout)).length)}
                                 onCopy={() => copyCalendarDay(day, dayCandidates)}
+                                onCut={() => copyCalendarDay(day, dayCandidates, "cut")}
                                 onPaste={() => void pasteCalendarClipboard(day)}
-                                pasteLabel={calendarClipboard?.kind || null}
-                                onCreate={() => {
-                                  if (isMobile) { setNewWorkoutType(null); setNewWorkoutDate(dateKey(day)) }
-                                  else setAddDialogDate(dateKey(day))
-                                }}
+                                pasteLabel={calendarClipboard?.attempt || calendarClipboard?.kind === "week" ? null : calendarClipboard?.kind || null}
                               >
                                 <span className={`calendar-date-number text-[17px] leading-[20.4px] font-semibold md:px-0.5 md:text-sm md:leading-normal md:font-bold ${isPast ? "text-muted-foreground" : isToday ? "text-red-600 dark:text-red-400 md:text-primary" : "text-foreground"}`}>
                                   <span className="md:hidden">
@@ -2299,12 +2171,13 @@ export function TrainingCalendar({
                                     })}{" "}
                                   </span>
                                   {isToday && <span className="hidden md:inline md:mr-1">Today</span>}
+                                  {day.getDate() === 1 && !isToday && <span className="hidden md:inline">{day.toLocaleDateString("en-US", {month:"short"})} </span>}
                                   {day.getDate()}
                                 </span>
                               </DayMenu>
                               <div className="mobile-calendar-day-divider w-full border-b border-border/70 md:hidden" aria-hidden="true" />
                               <div className="calendar-day-workouts space-y-0 md:space-y-2">
-                                {!isMobile && notesFirst(dayWorkouts).filter(isCalendarNote).map(note=><DraggableWorkout key={note.id} workout={note} onOpen={()=>openWorkout(note)} onAction={action=>void runWorkoutAction(note,action)} disabled={moving}/>)}
+                                {!isMobile && notesFirst(dayWorkouts).filter(isCalendarNote).map(note=><DraggableWorkout key={note.id} workout={note} onOpen={()=>openWorkout(note)} onAction={action=>void runWorkoutAction(note,action)} disabled={moving} cut={calendarClipboard?.mode === "cut" && calendarClipboard.workoutIds.includes(note.id)}/>)}
                                 {!isMobile && <CalendarDailyMetrics row={metricsRows.find(row=>row.date===dayKey)} onOpen={()=>setMetricsDate(dayKey)}/>}
                                 {(isMobile ? dayWorkouts : notesFirst(dayWorkouts).filter(workout=>!isCalendarNote(workout))).map((workout, workoutIndex) =>
                                   isMobile ? (
@@ -2329,6 +2202,7 @@ export function TrainingCalendar({
                                     <DraggableWorkout
                                       key={workout.id}
                                       workout={workout}
+                                      cut={calendarClipboard?.mode === "cut" && calendarClipboard.workoutIds.includes(workout.id)}
                                       disabled={
                                         moving ||
                                         (!workout.id.startsWith("event:") &&
@@ -2343,6 +2217,19 @@ export function TrainingCalendar({
                                     />
                                   )
                                 )}
+                                  <button
+                                    type="button"
+                                    className="calendar-day-add-workout"
+                                    aria-label={`Add workout for ${day.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`}
+                                    aria-haspopup="dialog"
+                                    disabled={moving}
+                                    onClick={() => {
+                                      if (isMobile) { setNewWorkoutType(null); setNewWorkoutDate(dayKey) }
+                                      else setAddDialogDate(dayKey)
+                                    }}
+                                  >
+                                    <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+                                  </button>
                               </div>
                             </CalendarDay>
                           )
@@ -2352,17 +2239,19 @@ export function TrainingCalendar({
                         data-summary-open={summaryOpen}
                         className={`calendar-week-sidebar hidden shrink-0 self-stretch border-l bg-muted/20 transition-[width] xl:block ${summaryOpen ? "w-72" : "w-10"}`}
                       >
+                        <DesktopCalendarWeekActions start={week.key} disabled={moving} count={week.workouts.filter(workout=>canEditWorkout(workout)&&!isRaceWorkout(workout)).length} canPaste={calendarClipboard?.kind==="week"&&!calendarClipboard.attempt} onAction={action=>void runWeekAction(week.key,week.workouts,action)}/>
                         <Collapsible
                           open={summaryOpen}
                           onOpenChange={(open) => {
                             void saveSummary(open)
                           }}
                         >
-                          <CollapsibleContent className="p-3">
+                          <CollapsibleContent className="calendar-summary-content p-3">
                             <WeekSummary
                               workouts={week.workouts.filter(workout => !isCalendarNote(workout))}
                               planWeek={planWeek}
                               startDate={week.key}
+                              context={context}
                               blockStart={
                                 reportBlocks.find(
                                   (block) => block.endDate === dateKey(end)
@@ -2380,20 +2269,24 @@ export function TrainingCalendar({
             </div>
           </div>
         </div>
-        {newWorkoutDate && (
+        {newWorkoutDate && (isMobile ? (
           <WorkoutEditor
             date={newWorkoutDate}
             initialSport={newWorkoutType?.sport}
             initialName={newWorkoutType?.name}
             onClose={() => setNewWorkoutDate(null)}
           />
-        )}
+        ) : <DesktopWorkoutCreate date={newWorkoutDate} initialSport={newWorkoutType?.sport} initialName={newWorkoutType?.name} onClose={() => setNewWorkoutDate(null)} onSaved={(workout, close) => {
+          setNewWorkoutDate(null)
+          if (!close) setSelectedWorkout(workout)
+        }} />)}
         {addDialogDate && !isMobile && <CalendarAddDialog date={addDialogDate} onClose={() => setAddDialogDate(null)} onSelect={type => {
           if (type.sport === "Note") setNoteEditor({ date: addDialogDate })
           else { setNewWorkoutType({ sport: type.sport, name: type.label }); setNewWorkoutDate(addDialogDate) }
           setAddDialogDate(null)
         }} />}
-        {noteEditor && !isMobile && <CalendarNoteEditor key={noteEditor.workout?.id || noteEditor.date} {...noteEditor} onClose={() => setNoteEditor(null)} onNotice={setMoveNotice} />}
+        {noteEditor && !isMobile && <CalendarNoteEditor key={noteEditor.workout?.id || noteEditor.date} {...noteEditor} onClose={() => setNoteEditor(null)} />}
+        {weekShift && !isMobile && <DesktopCalendarShiftDialog start={weekShift.sourceStart!} count={weekShift.workoutIds.length} onClose={()=>setWeekShift(null)} onShift={date=>{setWeekShift(null);void pasteCalendarClipboard(new Date(`${date}T12:00:00`),weekShift)}}/>}
         {!isMobile && metricsDate && <Suspense fallback={<p role="status" className="text-xs text-muted-foreground">Loading daily metrics…</p>}><DailyMetricsDialog date={metricsDate} rows={metricsRows} onClose={()=>setMetricsDate(null)}/></Suspense>}
         <WorkoutDialog
           workout={selectedWorkout}
@@ -2427,9 +2320,9 @@ export function TrainingCalendar({
 const disciplineSummaryConfig = {
   swim: { label: "Swim", color: "var(--color-cyan-600)" },
   bike: { label: "Bike", color: "var(--color-violet-600)" },
-  run: { label: "Run", color: "var(--color-lime-600)" },
-  strength: { label: "Strength", color: "var(--color-orange-600)" },
-  other: { label: "Other", color: "var(--color-slate-500)" },
+  run: { label: "Run", color: "#4faa0f" },
+  strength: { label: "Strength", color: "#3c0d50" },
+  other: { label: "Other", color: "#9d34cc" },
 }
 
 function WeekSummary({
@@ -2437,35 +2330,22 @@ function WeekSummary({
   planWeek,
   startDate,
   blockStart,
+  context,
 }: {
   workouts: PlannedWorkout[]
   planWeek: AnnualPlanWeek | null
   startDate: string
   blockStart?: string
+  context: TrainingContext
 }) {
-  const completedTotalMinutes = workouts.reduce(
-    (sum, item) => sum + completedMinutes(item),
-    0
-  )
-  const plannedTotalMinutes = workouts.reduce(
-    (sum, item) => sum + workoutPlannedMinutes(item),
-    0
-  )
+  const completedDuration = desktopCalendarRecordedTotal(workouts, "duration_seconds")
+  const completedDistance = desktopCalendarRecordedTotal(workouts, "distance_meters")
   const totals = workouts.reduce<Record<string, { planned: number; completed: number }>>((result, workout) => {
-    const sport = workout.sport.toLowerCase()
-    const discipline = sport.includes("swim")
-      ? "swim"
-      : sport.includes("bike") || sport.includes("brick")
-        ? "bike"
-        : sport.includes("run")
-          ? "run"
-          : sport.includes("strength")
-            ? "strength"
-            : "other"
+    const discipline = calendarDiscipline(workout.sport)
     const current = result[discipline] ?? { planned: 0, completed: 0 }
     result[discipline] = {
       planned: current.planned + workoutPlannedMinutes(workout),
-      completed: current.completed + completedMinutes(workout),
+      completed: current.completed + (desktopCalendarRecordedTotal([workout], "duration_seconds").value ?? 0) / 60,
     }
     return result
   }, {})
@@ -2478,38 +2358,24 @@ function WeekSummary({
       fill: config.color,
     }))
     .filter((item) => item.planned > 0 || item.completed > 0)
-  const plannedTss = workoutTssTotal(workouts, "planned")
   const completedTss = workoutTssTotal(workouts, "completed")
   const endDay = new Date(Date.parse(`${startDate}T12:00:00Z`) + 6 * 86400000).toISOString().slice(0,10)
   const today = dateKey(new Date())
-  const metrics = startDate <= today && today <= endDay ? cachedTrainingContext().metrics : null
+  const metrics = startDate <= today && today <= endDay ? context.metrics : planWeek && [planWeek.projectedCtl,planWeek.projectedAtl,planWeek.projectedTsb].some(value=>value!=null) ? {fitness:planWeek.projectedCtl ?? undefined,fatigue:planWeek.projectedAtl ?? undefined,form:planWeek.projectedTsb ?? undefined} : null
   const summaryClock = (minutes: number) => {
     const roundedMinutes = Math.round(minutes)
+    if (!roundedMinutes) return "00:00"
     return `${Math.floor(roundedMinutes / 60)}:${String(roundedMinutes % 60).padStart(2, "0")}`
   }
-  const totalsDistance = sportData.map(item=>({label:item.label,swim:item.discipline==="swim",meters:workouts.filter(workout=>workout.sport.toLowerCase().includes(item.discipline) || (item.discipline==="bike" && /ride/i.test(workout.sport))).reduce((sum,workout)=>sum+(workout.workout_summary?.completed?.distance_meters || 0),0)})).filter(item=>item.meters>0)
+  const totalsDistance = sportData.map(item=>({label:item.label,swim:item.discipline==="swim",total:desktopCalendarRecordedTotal(workouts.filter(workout=>calendarDiscipline(workout.sport)===item.discipline),"distance_meters")})).filter(item=>item.total.value!=null&&item.total.value>0)
+  const elevation = desktopCalendarRecordedTotal(workouts,"elevation_gain")
+  const work = desktopCalendarRecordedTotal(workouts,"work_kj")
+  const actualTitle = (label: string, total: RecordedCalendarTotal) => `${label}: ${!total.expected ? "no completed workouts" : total.value == null ? "recorded measurement unavailable" : `recorded values from ${total.known} of ${total.expected} completed workouts`}`
+  const summaryBar = (planned: number, completed: number, color: string) => ({"--calendar-summary-color":color,"--calendar-completed-share":`${planned>0?Math.min(100,completed/planned*100):completed>0?100:0}%`}) as React.CSSProperties
 
   return (
     <div className="calendar-week-summary space-y-3">
       {metrics && <div className="calendar-summary-fitness">{([['fitness','Fitness','CTL'],['fatigue','Fatigue','ATL'],['form','Form','TSB']] as const).map(([key,label,unit])=><div key={key} data-metric={key}><span>{label}</span><div><strong>{metrics[key] == null ? '—' : Math.round(metrics[key]!)}</strong> {unit}</div></div>)}</div>}
-      <table className="calendar-summary-metrics" aria-label="Planned versus completed weekly metrics">
-        <colgroup><col style={{width:'55%'}}/><col/><col/></colgroup>
-        <thead>
-          <tr><th scope="col">Total</th><th scope="col">Planned</th><th scope="col">Completed</th></tr>
-        </thead>
-        <tbody>
-          <tr><th scope="row">Total Duration</th><td>{summaryClock(plannedTotalMinutes)}</td><td>{summaryClock(completedTotalMinutes)}</td></tr>
-          <tr><th scope="row">Total TSS</th><td>{plannedTss.label}</td><td>{completedTss.label}</td></tr>
-        </tbody>
-      </table>
-      {(plannedTss.partial || completedTss.partial || plannedTss.estimated || completedTss.estimated) && (
-        <div className="calendar-summary-note md:hidden">
-          {plannedTss.partial && <p>Planned TSS available for {plannedTss.available} of {plannedTss.expected} sessions.</p>}
-          {completedTss.partial && <p>Completed TSS available for {completedTss.available} of {completedTss.expected} sessions.</p>}
-          {(plannedTss.estimated || completedTss.estimated) && <p>~ Estimated TSS.</p>}
-          {(plannedTss.partial || completedTss.partial) && <p>+ Partial TSS total.</p>}
-        </div>
-      )}
       <div className="flex flex-wrap gap-1">
         <SavedReportButton kind="weekly" startDate={startDate} />
         {blockStart && (
@@ -2518,13 +2384,13 @@ function WeekSummary({
       </div>
       {sportData.length > 0 && (
         <table className="calendar-summary-sports" aria-label="Weekly duration by sport">
-          <colgroup><col style={{width:'55%'}}/><col/><col/></colgroup>
+          <colgroup><col style={{width:'44%'}}/><col/><col/></colgroup>
           <thead>
             <tr><th scope="col">Sport</th><th scope="col">Planned</th><th scope="col">Completed</th></tr>
           </thead>
           <tbody>
             {sportData.map((item) => (
-              <tr key={item.discipline}>
+              <tr key={item.discipline} style={summaryBar(item.planned,item.completed,item.fill)}>
                 <th scope="row"><span className="calendar-sport-key" style={{ backgroundColor: item.fill }} aria-hidden="true" />{item.label} Duration</th>
                 <td>{summaryClock(item.planned)}</td><td>{summaryClock(item.completed)}</td>
               </tr>
@@ -2532,14 +2398,22 @@ function WeekSummary({
           </tbody>
         </table>
       )}
-      {!!totalsDistance.length && <dl className="calendar-summary-distances">{totalsDistance.map(item=><div key={item.label}><dt>{item.label}</dt><dd><strong>{item.swim ? Math.round(item.meters/.9144).toLocaleString() : (item.meters/1609.344).toFixed(2)}</strong> {item.swim ? 'yds':'mi'}</dd></div>)}</dl>}
+      <dl className="calendar-summary-distances">
+        <div title={actualTitle("Duration",completedDuration)}><dt>Duration</dt><dd><strong>{completedDuration.value == null ? "—" : summaryClock(completedDuration.value/60)}</strong> hms</dd></div>
+        <div title={actualTitle("Distance",completedDistance)}><dt>Distance</dt><dd><strong>{completedDistance.value == null ? "—" : (completedDistance.value/1609.344).toFixed(2)}</strong> mi</dd></div>
+        <div title={`${completedTss.estimated ? "Estimated " : "Recorded "}TSS available for ${completedTss.available} of ${completedTss.expected} completed workouts`}><dt>TSS</dt><dd><strong>{!completedTss.expected ? "0" : completedTss.label}</strong> TSS</dd></div>
+        {totalsDistance.map(item=><div key={item.label} title={actualTitle(`${item.label} distance`,item.total)}><dt>{item.label}</dt><dd><strong>{item.swim ? Math.round(item.total.value!/.9144).toLocaleString() : (item.total.value!/1609.344).toFixed(2)}</strong> {item.swim ? 'yds':'mi'}</dd></div>)}
+        {elevation.value!=null && elevation.value>0 && <div title={actualTitle("Elevation gain",elevation)}><dt>El. Gain</dt><dd><strong>{Math.round(elevation.value / .3048).toLocaleString()}</strong> ft</dd></div>}
+        {work.value!=null && work.value>0 && <div title={actualTitle("Work",work)}><dt>Work</dt><dd><strong>{Math.round(work.value).toLocaleString()}</strong> kJ</dd></div>}
+      </dl>
       {planWeek && (
-        <div className="space-y-1.5 pt-3">
+        <div className="calendar-summary-atp space-y-1.5 pt-3">
+          {planWeek.targetHours != null && <p>ATP {summaryClock(planWeek.targetHours * 60)}:00 <small>h:m:s</small></p>}
           <p className="text-base leading-snug font-bold">
-            {phaseLabel(planWeek)}
+            ATP Period {phaseLabel(planWeek)}
           </p>
           {planWeek.notes && (
-            <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
+            <p className="calendar-summary-plan-notes text-sm leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
               {planWeek.notes}
             </p>
           )}
@@ -2560,19 +2434,43 @@ export function WorkoutDialog({
 }) {
   const isMobile = useIsMobile()
   const workout = useEditedWorkout(initialWorkout)
+  const workoutFiles = useWorkoutFiles({workout:workout || undefined, model:workout?.editor_model})
+  const desktopDialog = useRef<HTMLDivElement>(null)
   const [analysisOpen, setAnalysisOpen] = useState(false)
+  const [analysis360Open, setAnalysis360Open] = useState(false)
+  const [commentsTarget, setCommentsTarget] = useState<HTMLDivElement | null>(null)
   const [footerTarget, setFooterTarget] = useState<HTMLDivElement | null>(null)
   const [intervalEditorOpen, setIntervalEditorOpen] = useState(false)
   const [previewSaving, setPreviewSaving] = useState(false)
+  const [previewDeleting, setPreviewDeleting] = useState(false)
+  const [expanded,setExpanded] = useState(false)
   const [metadata, setMetadata] = useState<DesktopWorkoutMetadata>({name:"",date:"",time:""})
   const [deleteError, setDeleteError] = useState("")
-  useEffect(()=>{setAnalysisOpen(false);setIntervalEditorOpen(false)}, [workout?.id])
-  useEffect(()=>setMetadata({name:workout?.title || "",date:workout?.workout_date || "",time:workout?.scheduled_start_at?.slice(11,16) || ""}), [workout?.id,workout?.title,workout?.workout_date,workout?.scheduled_start_at])
+  useEffect(() => {
+    if (!workout) return
+    prepareWorkout(workout, true)
+    if (workout.status === "completed") void workoutAnalysis360Route.preload().catch(() => {})
+    else prepareWorkoutEditor(workout)
+  }, [workout])
+  useEffect(()=>{setAnalysisOpen(false);setAnalysis360Open(false);setIntervalEditorOpen(false)}, [workout?.id])
+  const metadataId=workout?.id, metadataTitle=workout?.title, metadataDate=workout?.workout_date, metadataStart=workout?.scheduled_start_at
+  useEffect(()=>setMetadata({name:metadataTitle || "",date:metadataDate || "",time:metadataStart?.slice(11,16) || "",...(metadataId ? readWorkoutSaveDraft<PlannedSaveDraft>(trainingCacheScope(),metadataId,"totals",validPlannedSaveDraft)?.value.metadata : {})}), [metadataId,metadataTitle,metadataDate,metadataStart])
   if (!workout) return null
   const desktopCompleted = workout.status === "completed" && !isMobile
-  const deleteSelected = async () => {
-    if (!canEditWorkout(workout) || !await confirmWithFramework7("Delete workout", `Delete ${workout.title}?`)) return
-    try {await changeWorkout(workout.id,"delete");onOpenChange(false)} catch(e) {setDeleteError(e instanceof Error ? e.message : "The delete could not be confirmed.")}
+  const deleteSelected = async (propagate = false) => {
+    if (previewDeleting || !canEditWorkout(workout)) return
+    setPreviewDeleting(true)
+    setDeleteError("")
+    try {
+      if (!await confirmWithFramework7("Delete workout", `Delete ${workout.title}?`)) return
+      await changeWorkout(workout.id,"delete")
+      onOpenChange(false)
+    } catch(e) {
+      setDeleteError(e instanceof Error ? e.message : "The delete could not be confirmed.")
+      if(propagate)throw e
+    } finally {
+      setPreviewDeleting(false)
+    }
   }
   const completed = completedMinutes(workout)
   const completedValues = workout.workout_summary?.completed
@@ -2606,29 +2504,22 @@ export function WorkoutDialog({
       })
     : workout.date
 
-  if (desktopCompleted && analysisOpen) {
-    return <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent initialFocus={false} showCloseButton={false} className="desktop-workout-completed desktop-workout-analysis-dialog min-h-0 gap-0 overflow-hidden bg-background p-0">
-        <DialogTitle className="sr-only">{workout.title}</DialogTitle>
-        <DialogDescription className="sr-only">{date}</DialogDescription>
-        <DesktopWorkoutHeader workout={workout} busy={previewSaving} onClose={()=>onOpenChange(false)} onSummary={()=>setAnalysisOpen(false)}/>
-        <div className="desktop-workout-dialog-body">
-          <main className="desktop-workout-analysis-main" aria-label="Workout analysis workspace">
-            <Suspense fallback={<ChartSkeleton className="border"/>}><WorkoutAnalysis workout={workout}/></Suspense>
-          </main>
-        </div>
-        <footer className="desktop-workout-dialog-footer">
-          <button type="button" className="desktop-workout-save-close" onClick={()=>onOpenChange(false)}>Close</button>
-        </footer>
-      </DialogContent>
-    </Dialog>
-  }
 
   return (
-    <Dialog open={Boolean(workout)} onOpenChange={(open)=>{if (!previewSaving) onOpenChange(open)}}>
-      <DialogContent initialFocus={isMobile ? undefined : false} showCloseButton={isMobile} className={`no-scrollbar max-h-[94vh] gap-3 overflow-y-auto p-0 sm:max-w-5xl ${isMobile ? "" : "desktop-workout-preview rounded-md"}`}>
+    <Dialog open={Boolean(workout)} onOpenChange={(open)=>{if (!previewSaving && !previewDeleting) onOpenChange(open)}}>
+      <DialogContent ref={desktopDialog} initialFocus={isMobile ? undefined : false} showCloseButton={isMobile} className={`no-scrollbar max-h-[94vh] gap-3 overflow-y-auto p-0 sm:max-w-5xl ${expanded && !isMobile ? "desktop-workout-dialog-expanded" : ""} ${isMobile ? "" : desktopCompleted && analysis360Open ? "desktop-workout-360-dialog" : desktopCompleted && analysisOpen ? "desktop-workout-completed desktop-workout-analysis-dialog" : "desktop-workout-preview rounded-md"}`}>
         {isMobile&&<div className="absolute top-2 right-11"><WorkoutEditorMenu workout={workout}/></div>}
-        {!isMobile&&<><DialogTitle className="sr-only">{workout.title}</DialogTitle><DialogDescription className="sr-only">{date}</DialogDescription><DesktopWorkoutHeader workout={workout} busy={previewSaving} onClose={()=>onOpenChange(false)} metadata={canEditWorkout(workout)?metadata:undefined} onMetadataChange={setMetadata} onAnalyze={desktopCompleted?()=>setAnalysisOpen(true):undefined} onEdit={!desktopCompleted&&canEditWorkout(workout)?()=>setIntervalEditorOpen(true):undefined}/></>}
+        {!isMobile&&<><DialogTitle className="sr-only">{workout.title}</DialogTitle><DialogDescription className="sr-only">{date}</DialogDescription>{!analysis360Open&&<DesktopWorkoutHeader workout={workout} expanded={expanded} onToggleExpanded={()=>setExpanded(value=>!value)} busy={previewSaving || previewDeleting} onClose={()=>onOpenChange(false)} metadata={canEditWorkout(workout)?metadata:undefined} onMetadataChange={setMetadata} onAnalyze={desktopCompleted&&!analysisOpen?()=>setAnalysisOpen(true):undefined} onAnalyze360={desktopCompleted?()=>setAnalysis360Open(true):undefined} onSummary={analysisOpen?()=>setAnalysisOpen(false):undefined} onEdit={!desktopCompleted&&canEditWorkout(workout)?()=>setIntervalEditorOpen(true):undefined}
+          onUpload={!desktopCompleted ? workoutFiles.upload : undefined}
+          onExport={/^event:\d+$/.test(workout.id) || workout.editor_model ? workoutFiles.exportWorkout : undefined}
+          settings={canEditWorkout(workout) ? <DesktopWorkoutSummarySettings getRoot={() => desktopDialog.current}/> : undefined}
+          actions={canEditWorkout(workout) ? <>
+            <button type="button" disabled={previewSaving || previewDeleting} onClick={() => setIntervalEditorOpen(true)}>Edit Workout</button>
+            <button type="button" disabled={previewSaving || previewDeleting} onClick={workoutFiles.exportWorkout}>Export Workout</button>
+            <button type="button" disabled={previewSaving || previewDeleting} onClick={() => void deleteSelected()}>Delete Workout</button>
+          </> : undefined}
+          recurrence={!desktopCompleted && /^event:\d+$/.test(workout.id) ? <WorkoutRecurrenceControl workoutId={workout.id} date={metadata.date || workout.workout_date || workout.date} disabled={previewSaving || previewDeleting}/> : undefined}
+        />}</>}
         {isMobile&&<DialogHeader className="border-b px-5 pt-5 pr-12 pb-4">
           <DialogDescription className="text-sm font-semibold text-blue-600 dark:text-blue-400">
             {date}
@@ -2636,7 +2527,9 @@ export function WorkoutDialog({
           </DialogDescription>
         </DialogHeader>}
 
-        <div className={isMobile?"space-y-4 px-5 pb-6":"desktop-workout-dialog-body"}>
+        {desktopCompleted && analysis360Open && <Suspense fallback={<Analysis360Skeleton/>}><WorkoutAnalysis360 key={workout.id} workout={workout} busy={previewSaving} onSummary={()=>{setAnalysis360Open(false);setAnalysisOpen(false)}} onClassicAnalyze={()=>{setAnalysis360Open(false);setAnalysisOpen(true)}} onClose={()=>onOpenChange(false)} onCommentsTarget={setCommentsTarget}/></Suspense>}
+        {desktopCompleted && analysisOpen && !analysis360Open && <div className="desktop-workout-dialog-body"><main className="desktop-workout-analysis-main" aria-label="Workout analysis workspace"><Suspense fallback={<WorkoutAnalysisSkeleton/>}><WorkoutAnalysis workout={workout}/></Suspense></main></div>}
+        <div hidden={desktopCompleted && (analysisOpen || analysis360Open)} className={isMobile?"space-y-4 px-5 pb-6":"desktop-workout-dialog-body"}>
           <section
             className={isMobile?`rounded-xl border px-4 py-3 shadow-sm ${workout.status === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100" : "border-sky-200 bg-sky-50 text-sky-950 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100"}`:"desktop-workout-planned-profile"}
             aria-label="Workout overview"
@@ -2685,7 +2578,7 @@ export function WorkoutDialog({
               )}
           </section>
 
-          {!isMobile ? <DesktopWorkoutDetails workout={workout} metadata={canEditWorkout(workout)?metadata:undefined} onClose={()=>onOpenChange(false)} onDelete={canEditWorkout(workout)?()=>void deleteSelected():undefined} footerTarget={footerTarget} onBusyChange={setPreviewSaving}/> : <div className="grid items-start gap-5 lg:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)]">
+          {!isMobile ? <DesktopWorkoutDetails workout={workout} metadata={canEditWorkout(workout)?metadata:undefined} onClose={()=>onOpenChange(false)} onDelete={canEditWorkout(workout)?()=>void deleteSelected():undefined} footerTarget={footerTarget} commentsTarget={analysis360Open?commentsTarget:null} onBusyChange={setPreviewSaving}/> : <div className="grid items-start gap-5 lg:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)]">
             <WorkoutSummary workout={workout} showElapsed={false} embedded />
             <div className="min-w-0 rounded-xl border bg-card p-4 shadow-sm">
               <WorkoutDescription workout={workout} title="Description" />
@@ -2701,7 +2594,8 @@ export function WorkoutDialog({
           </Suspense>}
         </div>
         {!isMobile&&<div className="desktop-workout-footer-slot" ref={setFooterTarget}/>}
-        {intervalEditorOpen&&<WorkoutEditor workout={workout} onClose={()=>setIntervalEditorOpen(false)}/>}
+        {intervalEditorOpen&&<WorkoutEditor workout={workout} onClose={()=>setIntervalEditorOpen(false)} onSaveClose={()=>onOpenChange(false)} onDelete={()=>deleteSelected(true)}/>}
+        {workoutFiles.dialogs}
       </DialogContent>
     </Dialog>
   )

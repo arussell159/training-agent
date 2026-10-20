@@ -82,7 +82,7 @@ export function parseTestWorkout(description) {
       };
     }
     if (/\bramp\b/i.test(text)) s.ramp = true;
-    if (/Press lap/i.test(text)) s.press_lap = true;
+    if (/Press lap/i.test(text)) s.until_lap_press = true;
     s.intensity = text.match(/intensity=(\w+)/)?.[1] || "active";
     const cadence = text.match(/(\d+)(?:-(\d+))?rpm/);
     if (cadence)

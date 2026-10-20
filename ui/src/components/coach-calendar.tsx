@@ -1,7 +1,21 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { LoaderCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { coachRequest, type CalendarProposal } from "@/lib/coach-client"
+import {
+  acceptCoachSchedulingReceipt,
+  confirmCoachWorkouts,
+} from "@/lib/training-context"
+import { withRequestDeadline } from "@/lib/request-deadline"
+
+const readProposal = <T,>(path: string, signal?: AbortSignal, data?: object) =>
+  withRequestDeadline(
+    async (requestSignal) =>
+      (await coachRequest(path, data, requestSignal)).json() as Promise<T>,
+    30_000,
+    signal,
+    "The calendar status could not be loaded. Try checking it again."
+  )
 
 const labels: Record<CalendarProposal["state"], string> = {
   preview_pending: "Checking workout preview…",
@@ -14,6 +28,18 @@ const labels: Record<CalendarProposal["state"], string> = {
   expired: "Preview expired",
   preview_failed: "Preview needs correction",
 }
+const validProposal = (p: CalendarProposal) =>
+  p &&
+  typeof p.id === "string" &&
+  Object.hasOwn(labels, p.state) &&
+  Array.isArray(p.workouts) &&
+  p.workouts.every(
+    (w) =>
+      w &&
+      typeof w.name === "string" &&
+      typeof w.date === "string" &&
+      typeof w.description === "string"
+  )
 
 export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
   const [proposals, setProposals] = useState<CalendarProposal[]>([])
@@ -23,15 +49,28 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
   } | null>(null)
   const [error, setError] = useState("")
   const [revision, setRevision] = useState(0)
+  const latest = useRef<CalendarProposal[]>([])
+  const deciding = useRef(false)
 
   useEffect(() => {
     const abort = new AbortController()
     let timer: ReturnType<typeof setTimeout>
+    let reading = false
     async function refresh() {
+      if (reading || abort.signal.aborted) return
+      reading = true
+      clearTimeout(timer)
+      let polling = false
       try {
         if (document.hidden) return
-        const response = await coachRequest("calendar", undefined, abort.signal)
-        const result: { proposals: CalendarProposal[] } = await response.json()
+        const result = await readProposal<{ proposals: CalendarProposal[] }>(
+          "calendar",
+          abort.signal
+        )
+        if (!Array.isArray(result.proposals))
+          throw Error("Calendar proposals could not be loaded.")
+        if (!result.proposals.every(validProposal))
+          throw Error("Calendar proposals could not be loaded.")
         const pending = result.proposals
           .filter((p) =>
             ["preview_pending", "queued", "unknown"].includes(p.state)
@@ -39,21 +78,42 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
           .slice(0, 4)
         const updated = await Promise.allSettled(
           pending.map(async (p) => {
-            const response = await coachRequest(
+            return readProposal<CalendarProposal>(
               `calendar/${p.id}`,
-              undefined,
               abort.signal
             )
-            return (await response.json()) as CalendarProposal
           })
         )
         if (abort.signal.aborted) return
+        if (
+          updated.some(
+            (r) => r.status === "fulfilled" && !validProposal(r.value)
+          )
+        )
+          throw Error("Calendar status could not be verified.")
         const fresh = new Map(
           updated
             .filter((r) => r.status === "fulfilled")
             .map((r) => [r.value.id, r.value])
         )
-        setProposals(result.proposals.map((p) => fresh.get(p.id) || p))
+        const next = result.proposals.map((p) => fresh.get(p.id) || p)
+        for (const proposal of next) {
+          const previous = latest.current.find(
+            (item) => item.id === proposal.id
+          )
+          if (
+            previous &&
+            previous.state !== "applied" &&
+            proposal.state === "applied" &&
+            proposal.transport === "direct"
+          )
+            acceptCoachSchedulingReceipt(proposal)
+        }
+        latest.current = next
+        setProposals(next)
+        polling = next.some((p) =>
+          ["preview_pending", "queued", "unknown"].includes(p.state)
+        )
         const failed = updated.find((r) => r.status === "rejected")
         setError(
           failed?.status === "rejected"
@@ -63,21 +123,30 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
             : ""
         )
       } catch (problem) {
-        if (!abort.signal.aborted)
+        if (
+          !abort.signal.aborted &&
+          (problem as { status?: number }).status !== 503
+        )
           setError(
             problem instanceof Error
               ? problem.message
               : "Unable to check calendar proposals."
           )
       } finally {
-        if (!abort.signal.aborted)
+        reading = false
+        if (!abort.signal.aborted && polling)
           timer = setTimeout(() => void refresh(), 15000)
       }
     }
     void refresh()
+    const visible = () => {
+      if (!document.hidden) void refresh()
+    }
+    document.addEventListener("visibilitychange", visible)
     return () => {
       abort.abort()
       clearTimeout(timer)
+      document.removeEventListener("visibilitychange", visible)
     }
   }, [refreshKey, revision])
 
@@ -85,19 +154,28 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
     proposal: CalendarProposal,
     action: "confirm" | "decline"
   ) {
-    if (busy) return
+    if (deciding.current) return
+    deciding.current = true
     setBusy({ id: proposal.id, action })
     setError("")
     try {
-      const response = await coachRequest(
-        `calendar/${proposal.id}/${action}`,
-        {}
-      )
-      const updated = (await response.json()) as CalendarProposal
+      const updated =
+        action === "confirm"
+          ? await confirmCoachWorkouts(proposal)
+          : await readProposal<CalendarProposal>(
+              `calendar/${proposal.id}/decline`,
+              undefined,
+              {}
+            )
       setProposals((current) =>
         current.map((p) => (p.id === updated.id ? updated : p))
       )
     } catch (problem) {
+      const updated = (problem as { proposal?: CalendarProposal }).proposal
+      if (updated)
+        setProposals((current) =>
+          current.map((p) => (p.id === updated.id ? updated : p))
+        )
       setError(
         problem instanceof Error
           ? problem.message
@@ -107,12 +185,13 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
       )
     } finally {
       setBusy(null)
+      deciding.current = false
       setRevision((value) => value + 1)
     }
   }
 
   const visible = proposals.filter(
-    (proposal) => !["queued", "applied", "declined"].includes(proposal.state)
+    (proposal) => !["applied", "declined"].includes(proposal.state)
   )
   if (!visible.length && !error) return null
   return (
@@ -182,6 +261,17 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
               </Button>
             </div>
           )}
+          {proposal.transport === "direct" &&
+            proposal.phase === "push" &&
+            proposal.state === "unknown" && (
+              <Button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => void decide(proposal, "confirm")}
+              >
+                {busy?.id === proposal.id ? "Checking…" : "Recheck & finish"}
+              </Button>
+            )}
           {proposal.runUrl &&
             ["unknown", "not_applied", "preview_failed"].includes(
               proposal.state

@@ -12,6 +12,7 @@ import { dailyWorkouts, dashboardToday } from "@/lib/dashboard-metrics"
 import { WorkoutProfile } from "@/components/workout-profile"
 import { formatWorkoutTss, workoutTime } from "@/lib/workout-metrics"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
+import { createDaySwipeGesture } from "@/lib/home-workout-interactions"
 import {
   type PlannedWorkout,
   type TrainingContext,
@@ -103,7 +104,7 @@ function SessionCard({
       </CardHeader>
       <CardContent className="flex flex-1 flex-col justify-end gap-0">
         <div className="h-20 shrink-0 overflow-hidden">
-          {workout && <WorkoutProfile workout={workout} compact tall />}
+          {workout && <WorkoutProfile workout={workout} compact tall passive />}
         </div>
         <div className="grid grid-cols-3 gap-3 border-t pt-4">
           <div>
@@ -141,8 +142,7 @@ export function MobileDailySessions({
   const today = dashboardToday(context)
   const [selectedDate, setSelectedDate] = useState(today)
   const [activeSession, setActiveSession] = useState(0)
-  const swipeStart = useRef<{ id: number; x: number; y: number } | null>(null)
-  const ignoreClickUntil = useRef(0)
+  const gesture = useRef(createDaySwipeGesture())
   const selectedSessions = dailyWorkouts(context, selectedDate)
   const visibleSession = Math.min(activeSession, Math.max(0, selectedSessions.length - 1))
 
@@ -152,25 +152,17 @@ export function MobileDailySessions({
   }, [today])
 
   const moveDay = (offset: number) => {
-    ignoreClickUntil.current = Date.now() + 500
     setActiveSession(0)
     setSelectedDate((day) => dateAt(day, offset))
   }
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.isPrimary) swipeStart.current = { id: event.pointerId, x: event.clientX, y: event.clientY }
+    if (event.isPrimary) gesture.current.begin({ id: event.pointerId, x: event.clientX, y: event.clientY })
   }
 
   const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
-    const start = swipeStart.current
-    swipeStart.current = null
-    if (!start || start.id !== event.pointerId) return
-
-    const deltaX = event.clientX - start.x
-    const deltaY = event.clientY - start.y
-    if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.25) return
-
-    moveDay(deltaX < 0 ? 1 : -1)
+    const offset = gesture.current.end({ id: event.pointerId, x: event.clientX, y: event.clientY })
+    if (offset) moveDay(offset)
   }
 
   return (
@@ -178,9 +170,8 @@ export function MobileDailySessions({
       className="col-span-2 min-w-0 touch-pan-y md:hidden"
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
-      onPointerCancel={() => {
-        swipeStart.current = null
-      }}
+      onPointerCancel={() => gesture.current.cancel()}
+      onClickCapture={event => {if(gesture.current.consumeClick()){event.preventDefault();event.stopPropagation()}}}
     >
       <SessionCard
         workout={selectedSessions[visibleSession]}
@@ -189,13 +180,11 @@ export function MobileDailySessions({
         sessionCount={selectedSessions.length}
         onMoveDay={moveDay}
         onSelectSession={(index) => {
-          if (Date.now() >= ignoreClickUntil.current) setActiveSession(index)
+          setActiveSession(index)
         }}
         onOpen={() => {
-          if (Date.now() >= ignoreClickUntil.current) {
-            const workout = selectedSessions[visibleSession]
-            if (workout) onWorkoutOpen?.(workout)
-          }
+          const workout = selectedSessions[visibleSession]
+          if (workout) onWorkoutOpen?.(workout)
         }}
       />
     </div>

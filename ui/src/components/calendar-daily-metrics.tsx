@@ -1,4 +1,4 @@
-import { HeartPulse } from "lucide-react"
+import { HeartPulse, EllipsisVertical } from "lucide-react"
 export function CalendarDailyMetrics({
   row,
   onOpen,
@@ -36,6 +36,10 @@ export function CalendarDailyMetrics({
       <span>
         <HeartPulse />
         Metrics
+        <EllipsisVertical
+          className="calendar-metrics-options"
+          aria-hidden="true"
+        />
       </span>
       <p>
         {values[0].label}:{" "}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useEffect, useRef, useState } from "react"
 import {
   Activity,
   ArrowUpRight,
@@ -16,11 +16,17 @@ import { dailyWorkouts, dashboardToday } from "@/lib/dashboard-metrics"
 import type { PlannedWorkout, TrainingContext } from "@/lib/training-context"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
 import { formatWorkoutTss, workoutTime } from "@/lib/workout-metrics"
-import { RecoveryTrendCard, SleepCard } from "@/components/section-cards"
-import { NutritionHomeCard } from "@/components/nutrition-summary"
-import { EventsCard } from "@/components/race-events"
+import { MobileHomeDetailsSkeleton } from "@/components/loading-layouts"
 import { Skeleton } from "@/components/ui/skeleton"
 import { HomePhoto, sessionPhoto } from "@/components/home-photo"
+import { PageErrorBoundary } from "./page-error-boundary"
+export { MobileHomeHeading } from "./mobile-home-heading"
+
+const MobileHomeDetails = lazy(() =>
+  import("./mobile-home-details").then((module) => ({
+    default: module.MobileHomeDetails,
+  }))
+)
 
 function shiftDay(day: string, offset: number) {
   const date = new Date(`${day}T12:00:00Z`)
@@ -30,28 +36,6 @@ function shiftDay(day: string, offset: number) {
 
 function navigate(item: string) {
   window.dispatchEvent(new CustomEvent("app-navigate", { detail: { item } }))
-}
-
-export function MobileHomeHeading({
-  title,
-  action,
-  item,
-}: {
-  title: string
-  action?: string
-  item?: string
-}) {
-  return (
-    <div className="home-section-heading">
-      <h2>{title}</h2>
-      {action && item && (
-        <button type="button" onClick={() => navigate(item)}>
-          {action}
-          <ChevronRight size={14} aria-hidden="true" />
-        </button>
-      )}
-    </div>
-  )
 }
 
 function SportIcon({ sport, size = 20 }: { sport: string; size?: number }) {
@@ -391,7 +375,27 @@ export function MobileHomeOverview({
   loading: boolean
   onWorkoutOpen: (workout: PlannedWorkout) => void
 }) {
-  const today = dashboardToday(context)
+  const detailRegion = useRef<HTMLDivElement>(null)
+  const [detailsVisible, setDetailsVisible] = useState(false)
+  useEffect(() => {
+    const element = detailRegion.current
+    if (!element) return
+    if (typeof IntersectionObserver === "undefined") {
+      setDetailsVisible(true)
+      return
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setDetailsVisible(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: "120px 0px" }
+    )
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   return (
     <>
@@ -401,26 +405,17 @@ export function MobileHomeOverview({
         loading={loading}
         onWorkoutOpen={onWorkoutOpen}
       />
-      <section className="home-recovery-section" aria-label="Daily snapshot">
-        <MobileHomeHeading title="Daily snapshot" />
-        <div className="home-recovery-grid">
-          <RecoveryTrendCard context={context} metric="hrv" />
-          <RecoveryTrendCard context={context} metric="resting_hr" />
-          <SleepCard context={context} showTrend />
-          <NutritionHomeCard date={today} compact />
-        </div>
-      </section>
-      <section className="home-race-section" aria-label="Race calendar">
-        <MobileHomeHeading
-          title="On the horizon"
-          action="View plan"
-          item="Annual Plan"
-        />
-        <div className="home-race-photo-card">
-          <HomePhoto photo="bike-bridge" frame="race" />
-          <EventsCard context={context} />
-        </div>
-      </section>
+      <div ref={detailRegion} className="home-deferred-details">
+        <PageErrorBoundary resetKey="home-details">
+          <Suspense fallback={<MobileHomeDetailsSkeleton />}>
+            {detailsVisible && !loading ? (
+              <MobileHomeDetails context={context} />
+            ) : (
+              <MobileHomeDetailsSkeleton />
+            )}
+          </Suspense>
+        </PageErrorBoundary>
+      </div>
     </>
   )
 }

@@ -228,6 +228,31 @@ test("offline failure cannot return false success", async () => {
     (e) => e.code === "SAVE_UNCONFIRMED"
   );
 });
+
+test("explicit provider rejection keeps its status instead of appearing as an uncertain save", async () => {
+  for (const status of [400, 404, 409, 422, 429]) {
+    const provider = fakeProvider(fixtureEvent("Swim"));
+    const loaded = await loadWorkoutEditor(provider.request, "event:100");
+    loaded.model.name = "Changed swim title";
+    let writes = 0;
+    const request = (path, options) => {
+      if (options?.method === "PUT") {
+        writes++;
+        throw Object.assign(Error("Provider rejected input"), { status });
+      }
+      return provider.request(path, options);
+    };
+    await assert.rejects(
+      saveWorkoutEditor(request, "event:100", {
+        model: loaded.model,
+        revision: loaded.revision,
+      }),
+      (error) => error.status === status && error.code === "PROVIDER_REJECTED"
+    );
+    assert.equal(writes, 1);
+    assert.equal(provider.event().name, "Swim custom title");
+  }
+});
 test("uncertain writes are read back, and retry does not write twice", async () => {
   const p = fakeProvider(fixtureEvent(), { uncertain: true }),
     l = await loadWorkoutEditor(p.request, "event:100");
@@ -352,7 +377,7 @@ test("pool defaults retain distance with lap ending and timed rest through save 
   assert.equal(reloaded.model.steps[1].steps[0].end.pressLap, true);
   assert.deepEqual(reloaded.issues, []);
   const corrupted = structuredClone(saved.event);
-  delete corrupted.workout_doc.steps[1].press_lap;
+  delete corrupted.workout_doc.steps[1].until_lap_press;
   assert.match(verifyParsedWorkout(l.model, corrupted).join(" "), /lap ending/);
 });
 test("validation rejects empty date, invalid numbers and repeat expansion bombs", () => {
@@ -361,6 +386,46 @@ test("validation rejects empty date, invalid numbers and repeat expansion bombs"
   model.steps[1].repetitions = 100;
   model.steps[1].sets = 100;
   assert.match(validateWorkout(model).join(" "), /limited/);
+});
+
+test("provider until_lap_press keeps an existing swim editable through a rest change and readback", async () => {
+  const model = importWorkout(fixtureEvent("Swim")).model;
+  const description = serializeWorkout(model);
+  const event = {
+    ...fixtureEvent("Swim"),
+    description,
+    workout_doc: parseTestWorkout(description),
+  };
+  assert.equal(event.workout_doc.steps[0].until_lap_press, true);
+  const provider = fakeProvider(event);
+  const loaded = await loadWorkoutEditor(provider.request, "event:100");
+  assert.deepEqual(loaded.issues, []);
+  loaded.model.steps[1].recovery.end.value = 30;
+  const saved = await saveWorkoutEditor(provider.request, "event:100", {
+    model: loaded.model,
+    revision: loaded.revision,
+  });
+  assert.equal(saved.verified, true);
+  const reloaded = await loadWorkoutEditor(provider.request, "event:100");
+  assert.deepEqual(reloaded.issues, []);
+  assert.equal(reloaded.model.steps[1].recovery.end.value, 30);
+  assert.equal(reloaded.model.steps[1].steps[0].end.pressLap, true);
+  assert.equal(provider.calls.filter((call) => call.method === "PUT").length, 1);
+});
+
+test("provider lap fields preserve explicit false and accept legacy press_lap", () => {
+  for (const field of ["until_lap_press", "press_lap"]) {
+    const event = fixtureEvent("Swim");
+    event.workout_doc.steps = [
+      { distance: 100, duration: 100, [field]: false, pace: { value: 90, units: "%pace" } },
+      { duration: 20, [field]: true, intensity: "rest" },
+    ];
+    event.description = "Pool length: 25y\n- 100mtr 90% Pace\n- Press lap 20s intensity=rest";
+    const imported = importWorkout(event);
+    assert.deepEqual(imported.issues, []);
+    assert.equal(imported.model.steps[0].end.pressLap, false);
+    assert.equal(imported.model.steps[1].end.kind, "lap");
+  }
 });
 test("revision is deterministic independent of object key order", () => {
   const e = fixtureEvent();

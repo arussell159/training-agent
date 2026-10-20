@@ -41,6 +41,18 @@ export async function fetchHistoricalWorkout(request, id, { now = new Date() } =
   }
   const today = athleteLocalDate(now, "America/Chicago");
   if (kind === "activity") return compact(mapIntervalsWorkout(item, today, null, true));
+  // An explicit provider link can point to a recording on another day. A
+  // same-day list lookup would silently turn that completed event back into a plan.
+  if (/^i?[1-9]\d*$/.test(String(item.paired_activity_id || ""))) {
+    let paired;
+    try {
+      paired = await request(`/activity/${item.paired_activity_id}`);
+    } catch (error) {
+      if (error.status !== 404) throw error;
+    }
+    if (dated(paired) && String(paired.id) === String(item.paired_activity_id))
+      return compact(mapIntervalsWorkout(item, today, paired, false));
+  }
   const date = day(item.start_date_local);
   const activities = (
     (await request(

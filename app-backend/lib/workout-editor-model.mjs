@@ -1,5 +1,6 @@
 // Shared by the browser and the authenticated backend. No provider writes here.
 import { stripPlannedValues } from "./planned-workout-values.mjs";
+import { stripWorkoutCommentText } from "./workout-comment-text.mjs";
 export const DEFINITION_MARKER = "\n\nIntervals.icu device definition:\n";
 const DATA_MARKER = "\n\n```\nWorkout editor v1\n";
 export const roles = ["warmup", "active", "recovery", "rest", "cooldown", "other"];
@@ -626,7 +627,7 @@ export function serializeWorkout(model) {
   return text;
 }
 export function readableDescription(description) {
-  const head = stripPlannedValues(description).split(DEFINITION_MARKER)[0];
+  const head = stripPlannedValues(stripWorkoutCommentText(description)).split(DEFINITION_MARKER)[0];
   return head.startsWith("```\n") && head.endsWith("\n```") ? head.slice(4, -4) : head;
 }
 // This app's pool convention is numeric yards under Intervals metre tokens.
@@ -750,6 +751,7 @@ export function importWorkout(event) {
     "cooldown",
     "intensity",
     "press_lap",
+    "until_lap_press",
   ]);
   const parse = (nodes, depth = 0) => {
     if (depth > 6) {
@@ -782,18 +784,19 @@ export function importWorkout(event) {
           if (!["value", "start", "end", "units"].includes(field))
             issues.push(`Unsupported ${key} target field “${field}”`);
       const target = fromTarget(s[kinds[0]], kinds[0], s.ramp, paceUnit);
+      const lapEnd = s.until_lap_press ?? s.press_lap;
       const end =
         s.distance > 0
           ? {
               kind: "distance",
               value: s.distance,
               unit: swim || s.distance_units === "yards" ? "yd" : "m",
-              ...(s.press_lap ? { pressLap: true } : {}),
+              ...(lapEnd != null ? { pressLap: Boolean(lapEnd) } : {}),
             }
-          : { kind: s.press_lap ? "lap" : "time", value: s.duration || 0, unit: "s" };
+          : { kind: lapEnd ? "lap" : "time", value: s.duration || 0, unit: "s" };
       // Pool work defaults to lap-button ending without discarding its planned
       // distance. Explicit provider lap settings and timed rests stay intact.
-      if (swim && role !== "rest" && s.press_lap == null && end.kind !== "lap") end.pressLap = true;
+      if (swim && role !== "rest" && lapEnd == null && end.kind !== "lap") end.pressLap = true;
       return {
         id: uid(),
         kind: "step",
@@ -939,7 +942,7 @@ export function verifyParsedWorkout(model, event, legacy = false) {
         errors.push(`${label}: distance was not parsed as prescribed`);
     } else if (!near(Number(a.duration), e.value, 0.6))
       errors.push(`${label}: duration was not parsed as prescribed`);
-    if (Boolean(a.press_lap) !== (e.kind === "lap" || Boolean(e.pressLap)))
+    if (Boolean(a.until_lap_press ?? a.press_lap) !== (e.kind === "lap" || Boolean(e.pressLap)))
       errors.push(`${label}: lap ending was not retained`);
     const t = step.target,
       key = t.kind;

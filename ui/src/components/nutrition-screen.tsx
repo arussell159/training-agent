@@ -45,6 +45,26 @@ export function NutritionScreen({
     if (root) root.inert = true
     document.body.classList.add("nutrition-flow-open")
     document.body.style.overflow = "hidden"
+    const overlay = screen.current
+    let frame = 0
+    const positionToast = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const controls = overlay?.querySelector(".nutrition-search-controls")
+        const header = overlay?.querySelector(".nutrition-flow-navbar")
+        const bottom = (controls || header)?.getBoundingClientRect().bottom
+        if (bottom != null) document.body.style.setProperty("--app-toast-reserved-top", `${Math.ceil(bottom + 8)}px`)
+        else document.body.style.removeProperty("--app-toast-reserved-top")
+      })
+    }
+    const resize = new ResizeObserver(positionToast)
+    if (overlay) resize.observe(overlay)
+    const changes = new MutationObserver(positionToast)
+    if (overlay) changes.observe(overlay, {childList: true, subtree: true})
+    window.addEventListener("resize", positionToast)
+    window.visualViewport?.addEventListener("resize", positionToast)
+    overlay?.addEventListener("scroll", positionToast, true)
+    positionToast()
     if (!screen.current?.contains(document.activeElement))
       screen.current?.focus()
     const pop = () => {
@@ -64,6 +84,13 @@ export function NutritionScreen({
       window.removeEventListener("keydown", key)
       document.body.style.overflow = overflow
       document.body.classList.remove("nutrition-flow-open")
+      cancelAnimationFrame(frame)
+      resize.disconnect()
+      changes.disconnect()
+      window.removeEventListener("resize", positionToast)
+      window.visualViewport?.removeEventListener("resize", positionToast)
+      overlay?.removeEventListener("scroll", positionToast, true)
+      document.body.style.removeProperty("--app-toast-reserved-top")
       if (root) root.inert = wasInert || false
       queueMicrotask(() => {
         if (!mounted.current && history.state?.nutritionScreen === marker)
@@ -77,7 +104,7 @@ export function NutritionScreen({
       ref={screen}
       tabIndex={-1}
       aria-label={title}
-      className="framework7-root nutrition-surface nutrition-screen"
+      className="framework7-root nutrition-surface nutrition-screen app-surface-enter"
     >
       <MobileSiteNavbar
         title={title}

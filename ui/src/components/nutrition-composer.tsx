@@ -12,6 +12,8 @@ import { FoodThumbnail } from "./food-thumbnail"
 import { portionLabel } from "@/lib/nutrition-math"
 import { randomId } from "@/lib/random-id"
 import { NutritionScreen, nutritionSaveClass } from "./nutrition-screen"
+import { useToastManager } from "@/components/ui/toast"
+import { loadFoodLibrary, searchFoods } from "@/lib/nutrition-read-cache"
 import {
   blankFood,
   displayNutrient,
@@ -59,6 +61,9 @@ export function NutritionComposer({
   onMoveExisting?: (meal: Meal) => Promise<void>
   onDeleteExisting?: () => Promise<void>
 }) {
+  const toast = useToastManager()
+  const saveLock = useRef(false)
+  const productAddLock = useRef(false)
   const [searchRetry, setSearchRetry] = useState(0)
   const [tab, setTab] = useState<Tab>(mode === "write" ? "type" : "all")
   const [pane, setPane] = useState<Pane>(
@@ -85,6 +90,11 @@ export function NutritionComposer({
     request = useRef<AbortController | null>(null),
     operation = useRef<string>(randomId())
   const searchHost = useRef<HTMLDivElement>(null)
+  const clearSearch = () => {
+    setQuery("")
+    // Refocus during the original tap so iOS keeps/reopens the keyboard.
+    searchHost.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus({ preventScroll: true })
+  }
   const browseScroll = useRef(0)
   const searchResults = useRef<{
     query: string
@@ -124,9 +134,9 @@ export function NutritionComposer({
   )
   useEffect(() => {
     alive.current = true
-    void nutritionRequest<FoodLibrary>("/library")
-      .then(setLibrary)
-      .catch((e) => setError(e.message))
+    void loadFoodLibrary()
+      .then(value => { if (alive.current) setLibrary(value) })
+      .catch((e) => { if (alive.current) setError(e.message) })
     return () => {
       alive.current = false
       request.current?.abort()
@@ -206,11 +216,7 @@ export function NutritionComposer({
     setError("")
     const controller = new AbortController(),
       timer = setTimeout(() => {
-        void nutritionRequest<{ products: FoodProduct[] }>(
-          `/search?q=${encodeURIComponent(query.trim())}`,
-          undefined,
-          controller.signal
-        )
+        void searchFoods(query, controller.signal, searchRetry)
           .then((result) => {
             if (!controller.signal.aborted) {
               const complete = result.products.filter((p) => p.complete)
@@ -228,7 +234,7 @@ export function NutritionComposer({
           .finally(() => {
             if (!controller.signal.aborted) setBusy(false)
           })
-      }, 750)
+      }, 120)
     return () => {
       clearTimeout(timer)
       controller.abort()
@@ -287,7 +293,7 @@ export function NutritionComposer({
         e.missingValues?.length
     )
   async function save() {
-    if (saving) return
+    if (saveLock.current) return
     if (!valid()) {
       setError("Check the food names, portions and macros.")
       return
@@ -296,14 +302,17 @@ export function NutritionComposer({
       addIngredients(draft)
       return
     }
+    saveLock.current = true
+    const notification = toast.add({ title: existing ? "Saving changes…" : `Adding to ${titleCase(meal)}…`, type: "loading", timeout: 0 })
     setSaving(true)
     setError("")
     try {
+      await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
       await onSave(draft, operation.current)
+      toast.update(notification, { title: existing ? "Changes saved" : `Added to ${titleCase(meal)}`, type: "success", timeout: 4000 })
       if (!existing) recordRecentFoods(draft)
       if (!existing && mode !== "manual" && tab !== "type") {
-        const name = draft.map((entry) => titleCase(entry.name)).join(", ")
-        setNotice(`Added ${name} to ${titleCase(meal)}.`)
+        setNotice("")
         changeDraft([])
         setProduct(null)
         setCustomId(null)
@@ -314,17 +323,22 @@ export function NutritionComposer({
         onClose()
       }
     } catch (e) {
+      toast.update(notification, { title: "Food wasn’t confirmed", description: (e as Error).message, type: "error", timeout: 8000 })
       setError((e as Error).message)
     } finally {
+      saveLock.current = false
       if (alive.current) setSaving(false)
     }
   }
-  async function quickAdd(key: string, entries: FoodEntry[], name: string) {
-    if (saving) return
+  async function quickAdd(key: string, entries: FoodEntry[], name: string, activeNotification?: string) {
+    if (saveLock.current) return
     if (ingredients) {
       addIngredients(entries)
+      if (activeNotification) toast.update(activeNotification, { title: "Ingredient added", type: "success", timeout: 3500 })
       return
     }
+    saveLock.current = true
+    const notification = activeNotification || toast.add({ title: `Adding ${name}…`, description: titleCase(meal), type: "loading", timeout: 0 })
     setSaving(true)
     setError("")
     let pending = quickOperations.current.get(key)
@@ -336,37 +350,48 @@ export function NutritionComposer({
       quickOperations.current.set(key, pending)
     }
     try {
+      await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
       await onSave(pending.entries, pending.id)
+      toast.update(notification, { title: `Added ${name}`, description: titleCase(meal), type: "success", timeout: 4000 })
       recordRecentFoods(pending.entries)
       quickOperations.current.delete(key)
-      setNotice(`Added ${name} to ${titleCase(meal)}.`)
+      setNotice("")
     } catch (e) {
+      toast.update(notification, { title: "Food wasn’t confirmed", description: (e as Error).message, type: "error", timeout: 8000 })
       setError((e as Error).message)
     } finally {
+      saveLock.current = false
       if (alive.current) setSaving(false)
     }
   }
   async function saveLibrary(item: SavedFood) {
+    if (saveLock.current) return
     if (!library) {
       setError("Your food library is still loading.")
       return
     }
+    saveLock.current = true
+    const notification = toast.add({ title: "Saving food…", type: "loading", timeout: 0 })
     setSaving(true)
     setError("")
     try {
+      await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
       const result = await nutritionRequest<FoodLibrary>("/library", {
         action: "save",
         item,
         revision: library.revision,
       })
       setLibrary(result)
+      toast.update(notification, { title: "Food saved", type: "success", timeout: 3500 })
       return true
     } catch (e) {
+      toast.update(notification, { title: "Food wasn’t saved", description: (e as Error).message, type: "error", timeout: 8000 })
       setError((e as Error).message)
       void nutritionRequest<FoodLibrary>("/library")
         .then(setLibrary)
         .catch(() => {})
     } finally {
+      saveLock.current = false
       if (alive.current) setSaving(false)
     }
   }
@@ -401,7 +426,7 @@ export function NutritionComposer({
       setPane("browse")
       setTab("mine")
       setQuery("")
-      setNotice("Saved to My foods.")
+      setNotice("")
     }
   }
   function addIngredients(entries: FoodEntry[]) {
@@ -417,6 +442,30 @@ export function NutritionComposer({
     cancel()
   }
   async function loadProduct(p: FoodProduct, addNow: boolean) {
+    if (addNow) {
+      if (saveLock.current || productAddLock.current) return
+      productAddLock.current = true
+      const notification = toast.add({ title: `Adding ${p.name}…`, description: titleCase(meal), type: "loading", timeout: 0 })
+      const controller = new AbortController()
+      request.current = controller
+      setBusy(true)
+      setError("")
+      try {
+        await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
+        const product = p.complete && p.servingId ? p : (await nutritionRequest<{ product: FoodProduct }>(`/product?id=${encodeURIComponent(p.code)}`, undefined, controller.signal)).product
+        if (!alive.current || controller.signal.aborted) throw new Error("Food entry cancelled.")
+        if (!product.complete || !product.servingId) throw new Error("This food has no complete serving. Try another match.")
+        await quickAdd(`product-${p.code}`, [foodFromProduct(product, meal)], p.name, notification)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "This food could not be added."
+        toast.update(notification, { title: "Food wasn’t confirmed", description: message, type: "error", timeout: 8000 })
+        if (alive.current) setError(message)
+      } finally {
+        productAddLock.current = false
+        if (alive.current) setBusy(false)
+      }
+      return
+    }
     await run(
       (signal) =>
         nutritionRequest<{ product: FoodProduct }>(
@@ -428,8 +477,7 @@ export function NutritionComposer({
         if (!result.product.complete || !result.product.servingId)
           throw Error("This food has no complete serving. Try another match.")
         const entry = foodFromProduct(result.product, meal)
-        if (addNow) void quickAdd(`product-${p.code}`, [entry], p.name)
-        else review([entry], result.product)
+        review([entry], result.product)
       }
     )
   }
@@ -610,6 +658,7 @@ export function NutritionComposer({
           className="nutrition-row-action bg-muted/70"
           aria-label={`Add one serving of ${item.name}`}
           disabled={saving || busy}
+          onMouseDown={event => { if (document.activeElement?.matches('input[type="search"]')) event.preventDefault() }}
           onClick={() =>
             void (p
               ? loadProduct(p, true)
@@ -652,7 +701,7 @@ export function NutritionComposer({
                   if (tab === "type") selectTab("all")
                   setQuery(e.target.value)
                 }}
-                onSearchbarClear={() => setQuery("")}
+                onSearchbarClear={clearSearch}
               >
                 <Search
                   slot="input-wrap-start"
@@ -663,7 +712,9 @@ export function NutritionComposer({
                     slot="input-wrap-end"
                     className="nutrition-search-clear"
                     aria-label="Clear food search"
-                    onClick={() => setQuery("")}
+                    type="button"
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={clearSearch}
                   >
                     <X className="size-4" />
                   </button>

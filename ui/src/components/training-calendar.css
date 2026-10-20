@@ -1,356 +1,225 @@
-/* Calendar presentation is isolated from mobile rows and Library cards. */
-@media (width >= 48rem) {
+@media (max-width: 767px) {
+  .calendar-day-add-workout {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    margin: 8px 0 0 auto;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--primary);
+    background: transparent;
+    cursor: pointer;
+  }
+  .calendar-day-add-workout:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .calendar-day-add-workout:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+}
+
+/* Desktop calendar presentation. */
+@media (min-width: 768px) {
   .training-calendar {
-    color: var(--foreground);
+    --calendar-toolbar-height: 55px;
+    font-family: var(--font-sans);
     background: var(--background);
   }
-
   .calendar-desktop-toolbar {
+    height: var(--calendar-toolbar-height);
     border-bottom: 1px solid var(--border);
     background: var(--background);
   }
-
+  .calendar-desktop-toolbar button {
+    font-weight: 400;
+  }
   .calendar-desktop-month-trigger {
     display: inline-flex;
     align-items: center;
     gap: 8px;
+    flex-shrink: 0;
     color: var(--foreground);
+    font-size: 20px;
+    font-weight: 400;
+    white-space: nowrap;
   }
-
+  .calendar-desktop-navigation {
+    flex: 0 0 auto;
+  }
   .calendar-weekday-header {
-    border-color: var(--border);
+    top: var(--calendar-toolbar-height);
     background: var(--background);
     box-shadow: none;
   }
-
   .calendar-weekday-label {
-    border-color: var(--border);
-    color: var(--foreground);
-    font-size: 12px;
-    font-weight: 650;
-    letter-spacing: 0.035em;
+    border-right: 0;
+    font-weight: 400;
+    letter-spacing: 0;
   }
-
+  .calendar-week-list,
+  .calendar-week,
+  .calendar-week-grid {
+    border-color: var(--border);
+    background: var(--background);
+  }
+  .calendar-day-cell .mobile-calendar-day-heading {
+    position: relative;
+    top: 0;
+    display: flex;
+    align-items: center;
+    width: calc(100% + 8px);
+    height: 28px;
+    min-height: 28px;
+    margin: 0 -4px 4px;
+  }
+  .calendar-date-number {
+    display: inline-flex;
+    width: auto;
+    min-width: 0;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    font-size: 11px;
+    color: var(--foreground);
+  }
+  .calendar-day-cell[data-calendar-today="true"] .calendar-date-number {
+    color: white;
+  }
   .calendar-day-menu-trigger {
     display: flex;
     width: 100%;
     min-width: 0;
     align-items: center;
-    border: 0;
-    margin: 0;
     padding: 0;
+    margin: 0;
+    border: 0;
     color: inherit;
     background: transparent;
     font: inherit;
     text-align: left;
     cursor: pointer;
   }
-
   .calendar-day-menu-trigger:focus-visible {
     outline: 2px solid var(--primary);
-    outline-offset: 1px;
+    outline-offset: -2px;
   }
-
-  .calendar-week-list,
-  .calendar-week,
-  .calendar-week-grid,
-  .calendar-day-cell {
-    border-color: var(--border);
-    background: var(--background);
-  }
-
-  .calendar-day-cell {
-    padding: 8px 4px;
-  }
-
   .calendar-day-cell[data-calendar-drop-active="true"] {
     background: color-mix(in srgb, var(--primary) 12%, var(--background));
   }
-
-  .calendar-date-number {
-    display: inline-flex;
-    width: auto;
-    margin-inline: 0;
-    min-width: 24px;
-    height: 24px;
-    align-items: center;
-    justify-content: flex-start;
-    color: var(--foreground);
-    padding-inline: 0;
-    font-size: 14px;
-    font-weight: 700;
-    line-height: 24px;
-    background: transparent;
-  }
-
-  .calendar-day-cell[data-calendar-current-week="true"] .calendar-date-number {
-    color: var(--muted-foreground);
-  }
-
-  .calendar-day-cell[data-calendar-current-week="true"]
-    .mobile-calendar-day-heading {
+  .calendar-day-workouts {
     display: flex;
-    position: relative;
-    top: 0;
-    width: calc(100% + 8px);
-    min-height: 28px;
-    align-items: center;
-    gap: 0.35rem;
-    margin-inline: -4px;
-    padding-inline: 4px;
-    padding-block: 2px;
-    background: var(--muted);
-  }
-
-  .calendar-day-cell[data-calendar-today="true"] .mobile-calendar-day-heading {
-    border-radius: 0;
-    color: var(--primary-foreground);
-    background: var(--primary);
-  }
-
-  .calendar-day-cell[data-calendar-today="true"] .calendar-date-number {
-    color: var(--primary-foreground);
-  }
-
-  .calendar-workout-card {
-    --calendar-card-padding-x: 8px;
-    --calendar-card-padding-bottom: 9px;
-    --calendar-status-accent: var(--primary);
-    --calendar-status-text: var(--primary);
+    flex-direction: column;
     gap: 8px;
-    border: 0;
-    border-radius: 6px;
-    padding: 9px var(--calendar-card-padding-x);
-    color: var(--card-foreground);
-    background: var(--card);
-    box-shadow:
-      0 2px 6px rgb(15 23 42 / 20%),
-      0 1px 2px rgb(15 23 42 / 10%);
-    transition: background-color 120ms ease;
   }
-
-  .calendar-workout-sport {
+  .calendar-day-workouts > * {
+    margin-block: 0 !important;
+  }
+  .calendar-workout-card {
+    font-size: 12px;
+  }
+  .calendar-workout-card:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+  .calendar-workout-metrics {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    border: 0;
+    padding: 0;
+  }
+  .calendar-workout-metric {
+    display: block;
+    min-width: 0;
+    letter-spacing: 0;
+  }
+  .calendar-workout-metric dd {
+    min-width: 0;
+    color: inherit;
+    font-variant-numeric: tabular-nums;
+  }
+  .calendar-workout-metric-value {
+    font-weight: 700;
+  }
+  .calendar-workout-description {
     display: none;
   }
-
-  .calendar-workout-card[data-calendar-completed="true"]::before {
-    position: absolute;
-    inset: 0 0 auto;
-    height: 16px;
-    border-radius: 6px 6px 0 0;
-    background: var(--calendar-status-accent);
-    content: "";
+  .calendar-workout-options > svg {
+    transform: rotate(90deg);
   }
-
-  .calendar-workout-card[data-calendar-completed="true"] {
-    padding-top: 24px;
-    background: color-mix(
-      in srgb,
-      var(--calendar-status-accent) 8%,
-      var(--card)
-    );
+  .calendar-daily-metrics {
+    text-align: left;
+    background: var(--card);
+    color: var(--foreground);
+    cursor: pointer;
   }
-
-  .calendar-workout-card[data-completion-grade="planned"] {
-    --calendar-status-accent: var(--border);
-    --calendar-status-text: var(--muted-foreground);
-    border-top-width: 1px;
+  .calendar-daily-metrics > span {
+    display: flex;
+    align-items: center;
   }
-
-  .calendar-workout-card[data-completion-grade="unknown"] {
-    --calendar-status-accent: var(--muted-foreground);
-    --calendar-status-text: var(--muted-foreground);
+  .calendar-daily-metrics svg {
+    color: #8a95a5;
   }
-
-  .calendar-workout-card[data-completion-grade="good"] {
-    --calendar-status-accent: #78cb28;
-    --calendar-status-text: #146d35;
+  .calendar-daily-metrics small {
+    display: block;
+    font-size: 11px;
   }
-
-  .calendar-workout-card[data-completion-grade="medium"] {
-    --calendar-status-accent: #ffd55b;
-    --calendar-status-text: #865403;
-  }
-
-  .calendar-workout-card[data-completion-grade="failed"] {
-    --calendar-status-accent: #f5403e;
-    --calendar-status-text: #a82323;
-  }
-
-  .dark .calendar-workout-card[data-completion-grade="good"] {
-    --calendar-status-text: #6dd99d;
-  }
-
-  .dark .calendar-workout-card[data-completion-grade="medium"] {
-    --calendar-status-text: #ffd080;
-  }
-
-  .dark .calendar-workout-card[data-completion-grade="failed"] {
-    --calendar-status-text: #ff9b9b;
-  }
-
-  .calendar-workout-card:hover {
-    background: var(--muted);
-  }
-  .calendar-workout-card[data-calendar-completed="true"]:hover {
-    background: color-mix(
-      in srgb,
-      var(--calendar-status-accent) 12%,
-      var(--card)
-    );
-  }
-
   .calendar-note-card {
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 8px;
+    position: relative;
+    overflow: hidden;
+    border-radius: 4px;
+    border: 0;
+    color: var(--card-foreground);
     background: var(--card);
     cursor: pointer;
+  }
+  .calendar-note-card::before {
+    position: absolute;
+    inset: 0 0 auto;
+    height: 12px;
+    background: #414e6c;
+    content: "";
   }
   .calendar-note-card p {
     white-space: pre-line;
     overflow-wrap: anywhere;
   }
-  .calendar-add-dialog {
-    width: min(695px, calc(100vw - 48px));
-    max-width: none;
-    padding: 28px 32px;
+  .calendar-day-add-workout {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 100%;
+    height: 48px;
+    padding: 0;
+    border: 1px solid #a6b3cd;
+    border-radius: 0;
+    background: transparent;
+    color: #7b8aa8;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
   }
-  .calendar-add-options {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 16px;
+  .calendar-day-cell:hover .calendar-day-add-workout:not(:disabled),
+  .calendar-day-cell:focus-within .calendar-day-add-workout:not(:disabled) {
+    opacity: 1;
+    pointer-events: auto;
   }
-  .calendar-add-options button {
-    justify-content: flex-start;
+  .calendar-day-add-workout:hover {
+    background: var(--accent);
+    color: var(--primary);
   }
-
-  .calendar-workout-card:focus-visible {
+  .calendar-day-add-workout:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
   }
-
-  .calendar-workout-heading {
-    gap: 6px;
-  }
-
-  .calendar-workout-sport-row {
-    min-width: 0;
-    gap: 5px;
-  }
-
-  .calendar-workout-sport {
-    min-width: 0;
-    flex: 1;
-    overflow-wrap: anywhere;
-    color: var(--muted-foreground);
-    font-size: 12px;
-    line-height: 16px;
-  }
-
-  .calendar-workout-options:not(:disabled) {
-    color: var(--muted-foreground);
-    opacity: 1;
-  }
-
-  .calendar-workout-title {
-    color: #1a202e;
-    font-size: 13px;
-    font-weight: 500;
-    line-height: 15px;
-    padding-bottom: 4px;
-    overflow-wrap: anywhere;
-  }
-
-  .calendar-workout-card .calendar-workout-title {
-    -webkit-line-clamp: 3;
-  }
-
-  .calendar-workout-status {
-    color: var(--calendar-status-text);
-    font-size: 13px;
-    font-weight: 650;
-    line-height: 19px;
-  }
-
-  .calendar-workout-metrics {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-    border: 0;
-    padding: 0;
-  }
-
-  .calendar-workout-metric {
-    display: block;
-    min-width: 0;
-    letter-spacing: 0em;
-    line-height: 1.25;
-  }
-
-  .calendar-workout-metric dt {
-    color: var(--muted-foreground);
-    font-size: 11px;
-    font-weight: 400;
-  }
-
-  .calendar-workout-metric dd {
-    min-width: 0;
-    color: #1a202e;
-    font-size: 12px;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    overflow-wrap: anywhere;
-  }
-
-  .calendar-workout-metric-value {
-    color: #1a202e;
-    font-weight: 700;
-  }
-
-  .calendar-workout-metric-unit {
-    color: #1a202e;
-    font-weight: 400;
-  }
-
-  .calendar-workout-duration dd {
-    font-size: 12px;
-    font-weight: 700;
-    line-height: 1.25;
-  }
-
-  .calendar-workout-description {
-    -webkit-line-clamp: 3;
-    color: #1a202e;
-    font-size: 11px;
-    font-weight: 400;
-    letter-spacing: 0em;
-    line-height: 1.25;
-  }
-
-  .calendar-workout-profile {
-    margin: 0 calc(-1 * var(--calendar-card-padding-x))
-      calc(-1 * var(--calendar-card-padding-bottom));
-    padding-top: 2px;
-  }
-
-  .calendar-workout-profile [aria-label="Intervals.icu workout profile"],
-  .calendar-workout-profile [aria-label^="Workout profile ·"] {
-    gap: 1px;
-    border-bottom: 0;
-  }
-
-  .calendar-workout-profile [data-workout-profile] button span.absolute {
-    border-radius: 0;
-    background-color: #c5cbd5;
-    box-shadow: none;
-  }
-
-  .dark .calendar-workout-profile [data-workout-profile] button span.absolute {
-    background-color: #64748b;
-  }
-
   .calendar-race-card > [data-slot="card"] {
     border: 1px solid var(--border);
     border-top: 3px solid var(--primary);
@@ -359,32 +228,26 @@
     background: var(--card);
     box-shadow: none;
   }
-
   .calendar-summary-header {
     position: relative;
+    display: flex;
     justify-content: center;
     border-color: var(--border);
-    border-top: 0 !important;
+    border-top: 0;
     border-bottom: 0;
     background: var(--background);
-    padding: 0;
   }
-
   .calendar-summary-header-title {
     color: var(--muted-foreground);
     font-size: 12px;
     font-weight: 400;
-    letter-spacing: 0.04em;
     text-transform: uppercase;
   }
-
   .calendar-summary-toggle {
     position: absolute;
     top: 50%;
-    left: 4px;
     transform: translateY(-50%);
   }
-
   .calendar-summary-toggle,
   .calendar-summary-toggle:hover,
   .calendar-summary-toggle:active,
@@ -392,268 +255,398 @@
     background: transparent;
     box-shadow: none;
   }
-
   .calendar-week-sidebar {
+    display: block;
     border-color: var(--border);
-    background: var(--card);
+    transition: none;
   }
-
   .calendar-summary-metrics,
   .calendar-summary-sports {
     width: 100%;
-    table-layout: fixed;
     border-collapse: collapse;
     color: var(--foreground);
-    font-size: 13px;
     font-variant-numeric: tabular-nums;
   }
-
   .calendar-summary-metrics th,
   .calendar-summary-metrics td,
   .calendar-summary-sports th,
   .calendar-summary-sports td {
-    border-bottom: 1px solid var(--border);
-    padding: 7px 3px;
+    border: 0;
     text-align: right;
-    overflow-wrap: anywhere;
   }
-
   .calendar-summary-metrics th:first-child,
   .calendar-summary-sports th:first-child {
     text-align: left;
+    white-space: nowrap;
   }
-
-  .calendar-summary-metrics thead th,
-  .calendar-summary-sports thead th {
+  .calendar-summary-metrics thead th {
     color: var(--muted-foreground);
-    font-size: 12px;
-    font-weight: 500;
+    font-weight: 400;
+    white-space: nowrap;
   }
-
-  .calendar-summary-metrics tbody td {
-    font-size: 14px;
-    font-weight: 700;
+  .calendar-summary-sports thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
   }
-
-  .calendar-summary-metrics tbody th,
-  .calendar-summary-sports tbody th {
-    font-weight: 600;
-  }
-
-  .calendar-summary-sports tbody tr:last-child > * {
-    border-bottom: 0 !important;
-  }
-
-  .calendar-week-summary > div:last-child {
-    border-top: 0 !important;
-  }
-
-  .calendar-summary-note {
-    color: var(--muted-foreground);
-    font-size: 12px;
-    line-height: 17px;
-  }
-
-  .calendar-sport-key {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    margin-right: 5px;
-    border-radius: 1px;
-  }
-}
-
-/* Seven days still need readable words when the desktop window is narrow. */
-@media (48rem <= width < 64rem) {
-  .calendar-day-cell {
-    padding-inline: 4px;
-  }
-
-  .calendar-workout-card {
-    --calendar-card-padding-x: 6px;
-    --calendar-card-padding-bottom: 8px;
-    gap: 6px;
-    padding: 8px var(--calendar-card-padding-x);
-  }
-  .calendar-workout-card[data-calendar-completed="true"] {
-    padding-top: 24px;
-  }
-
-  .calendar-workout-sport {
+  .calendar-sport-key,
+  .calendar-week-summary > .flex.flex-wrap {
     display: none;
   }
-
-  .calendar-workout-title {
-    font-size: 13px;
-    line-height: 22px;
+  .calendar-summary-distances {
+    display: grid;
   }
-
-  .calendar-workout-duration dd {
-    white-space: nowrap;
+  .calendar-summary-distances > div {
+    display: flex;
+    justify-content: center;
+    align-items: baseline;
+    gap: 5px;
   }
-}
-
-/* Desktop measurements from the live reference calendar. */
-@media (min-width: 768px) {
-  .calendar-desktop-month-trigger {
-    font-size: 20px;
+  .calendar-summary-atp p {
+    text-align: center;
     font-weight: 400;
-    width: 248px;
-    flex: 0 0 248px;
-    white-space: nowrap;
   }
-  .calendar-desktop-navigation {
-    flex: 0 0 auto;
+  .calendar-week-summary .calendar-summary-atp .calendar-summary-plan-notes {
+    display: none !important;
   }
-  .calendar-desktop-toolbar {
-    height: 55px;
+  .calendar-add-dialog {
+    width: min(695px, calc(100vw - 48px));
+    max-width: none;
+    padding: 28px 32px;
+  }
+  .calendar-add-options {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 16px;
   }
-  .calendar-desktop-toolbar button {
+  .calendar-add-options button {
+    position: relative;
+    justify-content: center;
+    height: 34px;
+    border-radius: 4px;
+    border-color: #d5dbea;
+    background: var(--background);
+    font-size: 14px;
     font-weight: 400;
+  }
+  .calendar-add-options button svg { position: absolute; left: 12px; width: 20px; height: 20px; }
+  body:has(.calendar-add-dialog) [data-slot="dialog-overlay"] { backdrop-filter: none; }
+}
+
+/* Desktop calendar measurements: 28px day headers, 12px compliance strips,
+   28px sport rows, 15px title lines and flush 20px workout profiles. */
+@media (min-width: 768px) {
+  .calendar-navigation-rail,
+  .calendar-navigation-rail > aside,
+  .calendar-navigation-rail > aside > nav {
+    width: 64px;
+  }
+  .training-calendar {
+    color: #1a202e;
+  }
+  .calendar-desktop-toolbar {
+    padding-inline: 16px;
+    gap: 16px;
+  }
+  .calendar-desktop-month-trigger {
+    width: 212px;
+    flex-basis: 212px;
+    border-radius: 3px;
+  }
+  .calendar-desktop-month-trigger > svg {
+    color: #2444ed;
+  }
+  .calendar-desktop-navigation {
+    gap: 4px;
+  }
+  .calendar-desktop-navigation > button {
+    height: 30px;
+    border-radius: 3px;
+    box-shadow: none;
+    font-size: 12px;
+  }
+  .calendar-desktop-navigation > button:first-child {
+    padding-inline: 12px;
+    border: 1px solid #d8dbe3;
+    background: #fafbfc;
+  }
+  .calendar-weekday-header {
+    height: 30px;
+    border-color: #d8dbe3;
   }
   .calendar-weekday-label {
-    font-weight: 400;
-    letter-spacing: 0;
-    border-right: 0;
+    padding-inline: 4px;
+    color: #394253;
+    font-size: 12px;
+    line-height: 20px;
+  }
+  .calendar-week-grid {
+    min-height: 150px;
+  }
+  .calendar-day-cell {
+    padding: 0 4px 4px;
+    border-color: #dedee4;
+    background: var(--background);
+  }
+  .calendar-day-cell .mobile-calendar-day-heading,
+  .calendar-day-cell[data-calendar-current-week="true"]
+    .mobile-calendar-day-heading {
+    padding: 0 4px;
+  }
+  .calendar-day-cell[data-calendar-current-week="true"]
+    .mobile-calendar-day-heading {
+    background: #e9ebf2;
+  }
+  .calendar-day-cell[data-calendar-today="true"] .mobile-calendar-day-heading {
+    background: #203be7;
+  }
+  .calendar-day-menu-trigger {
+    min-height: 28px;
+    justify-content: space-between;
+  }
+  .calendar-day-menu-icon {
+    width: 18px;
+    height: 18px;
+    color: #7c879b;
+    visibility: hidden;
+  }
+  .calendar-day-cell:hover .calendar-day-menu-icon,
+  .calendar-day-menu-trigger:focus-visible .calendar-day-menu-icon,
+  .calendar-day-menu-trigger[aria-expanded="true"] .calendar-day-menu-icon {
+    visibility: visible;
+  }
+  .calendar-day-cell[data-calendar-today="true"] .calendar-day-menu-icon {
+    color: white;
   }
   .calendar-date-number {
-    font-size: 11px;
+    height: 28px;
+    line-height: 28px;
     font-weight: 400;
-    height: 24px;
-    line-height: 24px;
   }
-  .calendar-workout-card {
-    --calendar-card-padding-bottom: 4px;
-    gap: 4px;
-    padding: 4px var(--calendar-card-padding-x);
-    border-radius: 3px;
-    box-shadow: 0 1px 2px rgba(26, 32, 46, 0.3);
-  }
-  .calendar-workout-card[data-calendar-completed="true"] {
-    padding-top: 16px;
-  }
-  .calendar-workout-card[data-calendar-completed="true"]::before {
-    height: 12px;
-    border-radius: 3px 3px 0 0;
+  .calendar-workout-card,
+  .calendar-workout-card[data-calendar-completed="true"],
+  .calendar-workout-card[data-calendar-skipped="true"] {
+    --calendar-status-accent: #dce0e8;
+    --calendar-card-padding-bottom: 0px;
+    display: flex;
+    gap: 0;
+    padding: 12px 0 0;
+    border: 0;
+    border-radius: 4px;
+    overflow: hidden;
+    color: #1a202e;
+    background-image: linear-gradient(
+      to bottom,
+      var(--calendar-status-accent) 0 12px,
+      transparent 12px
+    );
+    background-origin: border-box;
+    background-clip: border-box;
+    box-shadow: 0 1px 3px rgb(26 32 46 / 28%);
+    transition: box-shadow 120ms ease;
   }
   .calendar-workout-card[data-completion-grade="good"] {
-    background: #eff6e9;
+    --calendar-status-accent: #78cb28;
+    background-color: #eff6e9;
   }
   .calendar-workout-card[data-completion-grade="medium"] {
-    background: #fffcee;
+    --calendar-status-accent: #ffd55b;
+    background-color: #fffcee;
   }
   .calendar-workout-card[data-completion-grade="failed"] {
     --calendar-status-accent: #fe9301;
-    background: #fffcee;
-  }
-  .calendar-workout-card[data-completion-grade="unknown"] {
-    --calendar-status-accent: #dce0e8;
+    background-color: #fffcee;
   }
   .calendar-workout-card[data-calendar-skipped="true"] {
-    padding-top: 16px;
-    background: #feebeb;
+    --calendar-status-accent: #f5403e;
+    background-color: #feebeb;
   }
-  .calendar-workout-card[data-calendar-skipped="true"]::before {
-    position: absolute;
-    inset: 0 0 auto;
-    height: 12px;
-    border-radius: 3px 3px 0 0;
-    background: #f5403e;
-    content: "";
+  .calendar-workout-card:hover {
+    box-shadow: 0 4px 8px rgb(26 32 46 / 25%);
+  }
+  .calendar-workout-card[aria-disabled="true"] {
+    cursor: progress;
   }
   .calendar-workout-heading {
-    gap: 1px;
-  }
-  .calendar-workout-title {
-    padding-bottom: 3px;
-    line-height: 17px;
-    font-size: 13px;
-  }
-  .calendar-workout-metrics {
     gap: 0;
   }
-  .calendar-workout-metric dd {
-    line-height: 16px;
+  .calendar-workout-sport-row {
+    height: 28px;
+    min-height: 28px;
+    padding: 0 4px 0 6px;
   }
   .calendar-workout-sport-row > svg {
     width: 20px;
     height: 20px;
   }
-  .calendar-workout-description {
+  .calendar-workout-sport {
     display: none;
   }
   .calendar-workout-options {
-    width: 20px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
+    padding: 2px;
+    margin: 0;
+    color: #5b667b;
+    border-radius: 50%;
   }
-  .calendar-workout-options > svg {
-    transform: rotate(90deg);
+  .calendar-workout-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    padding: 0 8px;
+    margin-bottom: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 15px;
+    overflow-wrap: anywhere;
   }
-  .calendar-day-workouts {
-    display: flex;
-    flex-direction: column;
+  .calendar-workout-metrics {
+    gap: 1px;
+    margin: 4px 8px 8px;
+  }
+  .calendar-workout-metric dd,
+  .calendar-workout-duration dd {
+    font-size: 12px;
+    line-height: 15px;
+    font-weight: 700;
+  }
+  .calendar-workout-metric-unit {
+    font-size: 11px;
+    font-weight: 400;
+  }
+  .calendar-workout-profile {
+    padding: 0;
+    margin: 0;
+  }
+  .calendar-workout-profile:empty {
+    display: none;
+  }
+  .calendar-workout-profile-chart {
+    display: block;
+    width: 100%;
+    height: 20px;
+    color: #c5cbd5;
+  }
+  [data-calendar-cut="true"]
+    > :is(.calendar-workout-card, .calendar-note-card) {
+    opacity: 0.48;
+    outline: 1px dashed #667897;
+    outline-offset: -1px;
+  }
+  .calendar-workout-card:has(.calendar-workout-options[aria-expanded="true"]) {
+    background-color: #b7c5f0;
+    box-shadow: 0 4px 8px rgb(26 32 46 / 30%);
+  }
+  .calendar-daily-metrics {
+    padding: 0 8px 4px;
+    border: 0;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 17px;
+    box-shadow: 0 1px 3px rgb(26 32 46 / 28%);
+  }
+  .calendar-daily-metrics > span {
+    height: 28px;
+    margin: 0 0 4px;
     gap: 8px;
+    font-weight: 400;
   }
-  .calendar-day-workouts > * {
+  .calendar-daily-metrics svg {
+    width: 20px;
+    height: 20px;
+  }
+  .calendar-daily-metrics .calendar-metrics-options {
+    width: 18px;
+    height: 18px;
+    margin-left: auto;
+    color: #5b667b;
+  }
+  .calendar-daily-metrics p {
+    margin: 0;
+  }
+  .calendar-daily-metrics small {
     margin-top: 0;
+    line-height: 17px;
+  }
+  .calendar-note-card {
+    padding: 12px 0 4px;
+    box-shadow: 0 1px 3px rgb(26 32 46 / 28%);
+  }
+  .calendar-note-card > div:first-child {
+    height: 28px;
+    min-height: 28px;
+    padding: 0 4px 0 8px;
+    align-items: center;
+  }
+  .calendar-note-title {
+    margin: 0;
+    padding: 0 8px 4px;
+    font-size: 13px;
+    line-height: 15px;
+  }
+  .calendar-note-card > p {
+    padding-inline: 8px;
+    font-size: 11px;
+    line-height: 16px;
+  }
+  .calendar-note-options {
+    width: 24px;
+    height: 24px;
+    padding: 2px;
+    margin: 0;
   }
   .calendar-week-sidebar {
-    width: 260px;
-    transition: none;
+    position: relative;
+    width: 278px;
+    padding-left: 32px;
+    background: var(--background);
   }
   .calendar-week-sidebar[data-summary-open="false"] {
-    width: 40px;
+    width: 32px;
+    padding: 0;
   }
   .calendar-summary-header {
-    width: 260px;
+    width: 278px;
+    padding-left: 32px;
   }
   .calendar-summary-header[data-summary-open="false"] {
-    width: 40px;
+    width: 32px;
+    padding: 0;
   }
-  .calendar-summary-metrics td,
-  .calendar-summary-metrics th,
-  .calendar-summary-sports td,
-  .calendar-summary-sports th {
-    padding: 3px 0;
-    border-bottom: 0;
+  .calendar-summary-toggle {
+    left: 34px;
   }
-  .calendar-summary-metrics thead,
-  .calendar-summary-sports thead {
-    font-size: 10px;
+  .calendar-summary-header[data-summary-open="false"] .calendar-summary-toggle {
+    left: 3px;
   }
-  .calendar-summary-sports tbody tr {
-    border-bottom: 4px solid #dce0e8;
+  .calendar-summary-content {
+    border-left: 1px solid var(--border);
+    padding: 16px 10px 16px 6px;
   }
-  .calendar-summary-sports tbody tr:has([style*="cyan"]) {
-    border-color: #16a3b9;
+  .calendar-week-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
   }
-  .calendar-summary-sports tbody tr:has([style*="violet"]) {
-    border-color: #8026b2;
+  .calendar-week-summary > * {
+    margin-block: 0;
   }
-  .calendar-summary-sports tbody tr:has([style*="lime"]) {
-    border-color: #4fa000;
-  }
-  .dark .calendar-workout-card {
-    background: var(--card);
-  }
-  .dark .calendar-workout-card[data-calendar-completed="true"] {
-    background: color-mix(
-      in srgb,
-      var(--calendar-status-accent) 8%,
-      var(--card)
-    );
-  }
-}
-
-@media (min-width: 768px) {
   .calendar-summary-fitness {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 5px;
-    padding: 4px 0 8px;
     text-align: center;
-    font-size: 11px;
+    padding: 0 0 8px;
+    gap: 2px;
+    font-size: 12px;
+    line-height: 19px;
+  }
+  .calendar-summary-fitness strong {
+    font-size: 14px;
+    font-weight: 400;
   }
   .calendar-summary-fitness [data-metric="fitness"] {
     color: #2444db;
@@ -664,155 +657,210 @@
   .calendar-summary-fitness [data-metric="form"] {
     color: #ec7306;
   }
-  .calendar-summary-fitness strong {
-    font-size: 16px;
-    font-weight: 400;
-  }
-  .calendar-summary-metrics thead,
-  .calendar-summary-sports thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-  }
-  .calendar-summary-metrics tbody tr {
-    border-bottom: 5px solid #223e84;
-  }
-  .calendar-summary-metrics tbody tr:last-child {
-    border-color: #dce0e8;
-  }
-  .calendar-summary-sports {
-    margin-top: 0 !important;
-  }
-  .calendar-summary-distances {
-    margin-top: 28px;
-    display: grid;
-    gap: 8px;
+  .calendar-summary-fitness [data-metric] > div {
     font-size: 11px;
   }
-  .calendar-summary-distances > div {
-    display: flex;
-    justify-content: center;
-    align-items: baseline;
-    gap: 5px;
+  .calendar-summary-metrics,
+  .calendar-summary-sports {
+    table-layout: fixed;
+    font-size: 12px;
+  }
+  .calendar-summary-metrics thead th {
+    padding: 0 0 4px;
+    font-size: 10px;
+    line-height: 14px;
+  }
+  .calendar-summary-metrics tbody tr,
+  .calendar-summary-sports tbody tr {
+    border: 0;
+    background-image: linear-gradient(
+      to right,
+      var(--calendar-summary-color) 0 var(--calendar-completed-share),
+      color-mix(in srgb, var(--calendar-summary-color) 45%, white)
+        var(--calendar-completed-share) 100%
+    );
+    background-size: 100% 4px;
+    background-position: bottom;
+    background-repeat: no-repeat;
+  }
+  .calendar-summary-metrics tbody th,
+  .calendar-summary-sports tbody th {
+    padding: 0 0 6px;
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 400;
+  }
+  .calendar-summary-metrics tbody td,
+  .calendar-summary-sports tbody td {
+    padding: 0 0 6px;
+    font-size: 13px;
+    line-height: 16px;
+    font-weight: 400;
+    white-space: nowrap;
+  }
+  .calendar-summary-metrics tbody td:last-child,
+  .calendar-summary-sports tbody td:last-child {
+    font-weight: 600;
+  }
+  .calendar-summary-distances {
+    margin-top: 40px;
+    gap: 7px;
+    font-size: 11px;
+    line-height: 19px;
   }
   .calendar-summary-distances strong {
     font-size: 16px;
     font-weight: 400;
   }
-  .calendar-week-summary > .flex.flex-wrap {
-    display: none;
+  .calendar-summary-atp {
+    padding-top: 12px;
   }
-  .calendar-week-summary > div:last-child p {
+  .calendar-summary-atp p {
+    display: block !important;
+    font-size: 11px !important;
+    line-height: 20px !important;
+  }
+  .calendar-summary-atp p + p {
+    margin-top: 4px;
+  }
+  .calendar-context-menu {
+    min-width: 108px;
+    padding: 8px 0;
+    border-radius: 4px;
+    font: 400 13px/16px var(--font-sans);
+    box-shadow: 0 8px 16px rgb(26 32 46 / 28%);
+  }
+  .calendar-context-menu [data-slot="dropdown-menu-item"] {
+    gap: 12px;
+    min-height: 32px;
+    padding: 6px 16px;
+    border-radius: 0;
+    font-size: 13px;
+  }
+  .calendar-context-menu [data-slot="dropdown-menu-item"] > svg {
+    width: 18px;
+    height: 18px;
+    color: #778196;
+  }
+  .calendar-operation-notice {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: min(620px, calc(100vw - 104px));
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--popover);
+    color: var(--popover-foreground);
+    box-shadow: 0 4px 20px rgb(26 32 46 / 18%);
     font-size: 12px;
     line-height: 18px;
-    font-weight: 400;
-    text-align: center;
   }
-  .calendar-week-summary .calendar-summary-note {
-    font-size: 10px;
-    line-height: 14px;
+  .calendar-operation-notice > p {
+    min-width: 0;
+  }
+  .calendar-operation-notice > div {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 4px;
+  }
+  .dark .training-calendar {
+    color: var(--foreground);
+  }
+  .dark
+    .calendar-day-cell[data-calendar-current-week="true"]
+    .mobile-calendar-day-heading {
+    background: #242b3b;
+  }
+  .dark
+    .calendar-day-cell[data-calendar-today="true"]
+    .mobile-calendar-day-heading {
+    background: #2340e5;
+  }
+  .dark .calendar-workout-profile-chart {
+    color: #768399;
+  }
+  .dark .calendar-workout-card {
+    background-color: var(--card);
+  }
+  .dark .calendar-workout-card[data-calendar-completed="true"],
+  .dark .calendar-workout-card[data-calendar-skipped="true"] {
+    background-color: color-mix(
+      in srgb,
+      var(--calendar-status-accent) 9%,
+      var(--card)
+    );
   }
 }
 
 @media (min-width: 768px) {
-  .calendar-day-cell {
-    padding-top: 0;
+  .calendar-desktop-toolbar {
+    padding-left: 26px;
+    gap: 4px;
   }
-  .calendar-day-cell .mobile-calendar-day-heading {
-    top: 0;
-    margin-bottom: 4px;
-    min-height: 28px;
+  .calendar-desktop-month-trigger {
+    width: 184px;
+    flex-basis: 184px;
+    padding-inline: 0;
+    font-variant-numeric: tabular-nums;
   }
-  .calendar-day-cell[data-calendar-today="true"] .mobile-calendar-day-heading {
-    background: #2340e5;
+  .calendar-desktop-navigation {
+    gap: 0;
   }
-  .calendar-day-workouts > * {
-    margin-block: 0 !important;
+  .calendar-desktop-navigation > button:first-child {
+    margin-right: 12px;
   }
-  .calendar-summary-metrics th,
-  .calendar-summary-sports th {
-    font-weight: 400;
-    white-space: nowrap;
-    font-size: 11px;
+  .calendar-week-actions {
+    position: absolute;
+    top: 8px;
+    left: 3px;
+    width: 26px;
   }
-  .calendar-sport-key {
-    display: none;
-  }
-  .calendar-week-summary > div:last-child p + p {
-    display: none;
-  }
-  .calendar-daily-metrics {
-    border: 1px solid #e3e6ed;
+  .calendar-week-actions button {
+    width: 24px;
+    height: 24px;
+    padding: 4px;
+    color: #7a8495;
     border-radius: 3px;
-    padding: 8px;
-    text-align: left;
-    color: var(--foreground);
-    background: var(--card);
-    box-shadow: 0 1px 2px rgba(26, 32, 46, 0.2);
-    cursor: pointer;
-    font-size: 11px;
-    line-height: 17px;
   }
-  .calendar-daily-metrics > span {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 6px;
-  }
-  .calendar-daily-metrics svg {
+  .calendar-week-actions button > svg {
     width: 18px;
     height: 18px;
-    color: #8a95a5;
   }
-  .calendar-daily-metrics small {
-    display: block;
-    font-size: 11px;
+  .calendar-shift-dialog {
+    width: min(560px, calc(100vw - 48px));
+    max-width: none;
+    border-radius: 8px;
+    gap: 24px;
   }
-}
-@media (min-width: 768px) {
-  .training-calendar {
-    --calendar-toolbar-height: 55px;
-    font-family: var(--font-sans);
+  .calendar-shift-dialog input {
+    border-radius: 4px;
   }
-  .calendar-desktop-toolbar {
-    height: var(--calendar-toolbar-height);
+  .calendar-shift-dialog input[type="radio"] {
+    accent-color: #2340e5;
   }
-  .calendar-weekday-header {
-    top: var(--calendar-toolbar-height);
+  .dark .calendar-workout-card {
+    color: var(--card-foreground);
   }
-  .calendar-workout-title {
-    display: block;
-    -webkit-line-clamp: unset;
-    overflow: visible;
+  .dark .calendar-weekday-label {
+    color: var(--foreground);
   }
-  .calendar-workout-card {
-    font-size: 12px;
-  }
-  /* Today aligns to this heading's actual top, without a negative offset. */
-  .calendar-day-cell .mobile-calendar-day-heading,
-  .calendar-day-cell[data-calendar-current-week="true"] .mobile-calendar-day-heading {
-    position: relative;
-    top: 0;
-    display: flex;
-    align-items: center;
-    width: calc(100% + 8px);
-    height: 28px;
-    min-height: 28px;
-    margin: 0 -4px 4px;
-    padding: 2px 4px;
-  }
-  .calendar-week-sidebar {
-    display: block;
-  }
-  .calendar-summary-header {
-    display: flex;
+  .dark .calendar-desktop-navigation > button:first-child {
+    background: var(--muted);
+    border-color: var(--border);
   }
 }
 @media (768px <= width < 1000px) {
   .calendar-week-sidebar,
   .calendar-summary-header {
     display: none;
+  }
+  .calendar-operation-notice {
+    flex-wrap: wrap;
   }
 }

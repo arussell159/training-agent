@@ -6,18 +6,21 @@ export function createSharedRequestCache<T>(
     weight = () => 1,
     timeoutMs = 20000,
     maxEntries = 8,
+    ttlMs = Infinity,
   }: {
     maxWeight?: number
     weight?: (value: T) => number
     timeoutMs?: number
     maxEntries?: number
+    ttlMs?: number
   } = {}
 ) {
-  const values = new Map<string, { value: T; weight: number }>()
+  const values = new Map<string, { value: T; weight: number; expires: number }>()
   const requests = new Map<
     string,
     { controller: AbortController; promise: Promise<T>; users: number }
   >()
+  const controllers = new Set<AbortController>()
   const entryLimit = Number.isFinite(maxEntries)
     ? Math.max(0, Math.floor(maxEntries))
     : 8
@@ -25,6 +28,11 @@ export function createSharedRequestCache<T>(
   let totalWeight = 0
   const peek = (key: string) => {
     const entry = values.get(key)
+    if (entry && entry.expires <= Date.now()) {
+      values.delete(key)
+      totalWeight -= entry.weight
+      return undefined
+    }
     if (entry) {
       values.delete(key)
       values.set(key, entry)
@@ -37,7 +45,16 @@ export function createSharedRequestCache<T>(
       generation++
       values.clear()
       totalWeight = 0
-      for (const request of requests.values()) request.controller.abort()
+      for (const controller of controllers) controller.abort()
+      controllers.clear()
+      requests.clear()
+    },
+    invalidate() {
+      // Active views may finish reading their snapshot. Future readers must
+      // fetch again, and older responses must not repopulate the cache.
+      generation++
+      values.clear()
+      totalWeight = 0
       requests.clear()
     },
     get(key: string, signal?: AbortSignal): Promise<T> {
@@ -48,6 +65,7 @@ export function createSharedRequestCache<T>(
       let request = requests.get(key)
       if (!request || request.controller.signal.aborted) {
         const controller = new AbortController()
+        controllers.add(controller)
         const version = generation
         const timer = setTimeout(
           () =>
@@ -81,7 +99,7 @@ export function createSharedRequestCache<T>(
               }
               if (Number.isFinite(cost) && cost <= maxWeight) {
                 totalWeight -= values.get(key)?.weight ?? 0
-                values.set(key, { value, weight: cost })
+                values.set(key, { value, weight: cost, expires: Date.now() + ttlMs })
                 totalWeight += cost
                 while (totalWeight > maxWeight || values.size > entryLimit) {
                   const first = values.keys().next().value!
@@ -94,6 +112,7 @@ export function createSharedRequestCache<T>(
           })
           .finally(() => {
             clearTimeout(timer)
+            controllers.delete(controller)
             if (requests.get(key) === entry) requests.delete(key)
           })
         requests.set(key, entry)

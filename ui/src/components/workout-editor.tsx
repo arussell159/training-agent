@@ -1,8 +1,10 @@
+import { preloadable } from "@/lib/preloadable"
+import { loadWorkoutEditor, type WorkoutEditorRead } from "@/lib/workout-read-cache"
 import "@/lib/framework7-workout-controls"
 import { Skeleton } from "@/components/ui/skeleton"
-import { canEditWorkout } from "@/lib/workout-permissions"
 import {
   createContext,
+  Suspense,
   useContext,
   useEffect,
   useRef,
@@ -34,7 +36,6 @@ import {
   Ellipsis,
   GripVertical,
   LoaderCircle,
-  Pencil,
   Plus,
   Redo2,
   Repeat2,
@@ -48,7 +49,6 @@ import { Input } from "@/components/ui/input"
 import { LiquidGlassLayer } from "@/components/ui/liquid-glass-layer"
 import "../../node_modules/framework7/components/range/range.css"
 import {
-  MobileActionMenu,
   MobileSelect,
 } from "@/components/ui/mobile-native-controls"
 import {
@@ -79,28 +79,28 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { apiFetch } from "@/lib/api-client"
-import { validatedTrainingContext, validatedTrainingWorkout } from "@/lib/training-context-validation"
 import {
   cachedTrainingContext,
-  rememberTrainingContext,
-  rememberLiveTrainingContext,
   trainingCacheScope,
+  beginOptimisticWorkoutWrite,
+  writeWorkoutEditor,
   type PlannedWorkout,
-  type TrainingContext,
+  type WorkoutSummaryValues,
 } from "@/lib/training-context"
+import { desktopBuilderTotals, desktopProfileDropSlot, desktopProfileRange } from "@/lib/desktop-workout-builder"
+import { changedPlannedValues, formatPlannedValue, plannedValueDraft, updatePlannedValueDraft, type PlannedValueKey } from "@/lib/planned-workout-values"
+import type { DesktopWorkoutMetadata } from "./desktop-workout-header"
+import { WorkoutAttachments, WorkoutEquipment, WorkoutPersonalNotes, useWorkoutPersonalFields } from "./desktop-workout-personal-fields"
+import { normalizeWorkoutLocalMetadata, type WorkoutLocalMetadata } from "@/lib/workout-local-metadata"
+import { useWorkoutFiles } from "./workout-file-actions"
+import { WorkoutRecurrenceControl } from "./desktop-workout-recurrence"
+import { applyWorkoutRecurrence, type WorkoutRecurrenceDraft } from "@/lib/workout-recurrence"
 import {
   chartSegments,
   clone,
@@ -127,7 +127,6 @@ import {
   validateWorkout,
   workoutOutline,
   workoutTotals,
-  type ImportResult,
   type Role,
   type Step,
   type Target,
@@ -152,14 +151,17 @@ import {
 } from "../../../app-backend/lib/workout-editor-inputs.mjs"
 import "./workout-editor.css"
 
-const ZoneSettingsContext = createContext<SportZoneSettings[]>([])
-type Loaded = ImportResult & {
-  revision: string
-  scheduledTime: string
-  zoneSettings?: SportZoneSettings[]
-  zoneError?: string
-  isNew?: boolean
+const desktopBuilder = preloadable(() => import("./desktop-workout-builder").then(module => ({default: module.DesktopWorkoutBuilder})), () => <DesktopBuilderSkeleton/>)
+const DesktopWorkoutBuilder = desktopBuilder.Component
+if (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches) void desktopBuilder.preload().catch(() => {})
+function DesktopBuilderSkeleton() {
+  return <div className="dtb-loading" role="status" aria-label="Loading desktop workout builder"><div className="dtb-loading-header"><Skeleton className="h-6 w-72 rounded"/><Skeleton className="h-24 w-3/4 rounded"/></div><Skeleton className="h-40 w-full rounded"/><div className="dtb-loading-panels"><div><Skeleton className="h-5 w-full rounded"/>{Array.from({length:8},(_,index)=><Skeleton key={index} className="h-6 w-full rounded"/>)}</div><div><Skeleton className="h-44 w-full rounded"/><Skeleton className="h-44 w-full rounded"/></div></div></div>
 }
+
+const ZoneSettingsContext = createContext<SportZoneSettings[]>([])
+type Loaded = WorkoutEditorRead
+
+export type DesktopBuilderSubmission = { close: boolean; values: Partial<WorkoutSummaryValues>; time: string; comment: string; personal?: WorkoutLocalMetadata; personalId?: string; recurrence?: WorkoutRecurrenceDraft | null }
 type SavedBlock = {
   id: string
   name?: string
@@ -172,6 +174,7 @@ type Draft = {
   creationId?: string
   creationAttempted?: boolean
   savedId?: string
+  desktop?: {time: string; draft: Record<PlannedValueKey,string>; comment: string; commentId: string; autoCalculate: boolean; manualValues?: boolean; descriptionOverride?: string; personal?: WorkoutLocalMetadata; personalId?: string; recurrence?: WorkoutRecurrenceDraft | null}
 }
 const tones: Record<Role, string> = {
   warmup: "#66a8a0",
@@ -2565,18 +2568,31 @@ function IntervalChart({
   selected,
   select,
   commit,
+  desktop = false,
 }: {
   model: WorkoutModel
   selected: string[]
   select: (id: string, multi: boolean, reveal?: boolean) => void
   commit: (m: WorkoutModel) => void
+  desktop?: boolean
 }) {
   const [hovered, setHovered] = useState<string | null>(null)
+  const chartElement = useRef<HTMLElement>(null)
+  const [chartWidth, setChartWidth] = useState(600)
+  useEffect(() => {
+    if (!desktop || !chartElement.current) return
+    const observer = new ResizeObserver(([entry]) => setChartWidth(entry.contentRect.width))
+    observer.observe(chartElement.current)
+    return () => observer.disconnect()
+  }, [desktop])
   const [gesture, setGesture] = useState<{
     id: string
     selectionId: string
     multi: boolean
-    mode: "duration" | "intensity"
+    mode: "duration" | "intensity" | "reorder"
+    pointerId: number
+    drop?: ReturnType<typeof desktopProfileDropSlot>
+    dragged?: boolean
     x: number
     y: number
     width: number
@@ -2604,10 +2620,16 @@ function IntervalChart({
         )
     )
   const total = chart.segments.reduce((n, s) => n + s.width, 0) || 1,
-    maximum = Math.max(1.3, ...chart.segments.flatMap((s) => [s.start, s.end]))
+    maximum = Math.max(desktop ? 1.5 : 1.3, ...chart.segments.flatMap((s) => [s.start, s.end, ...(desktop ? [desktopProfileRange(s).high] : [])]))
   let position = 0
   const width = Math.max(600, Math.min(12000, chart.segments.length * 20))
-  const height = (v: number) => 16 + (Math.max(0, v) / maximum) * 140
+  const height = (v: number) => (desktop ? 0 : 16) + (Math.max(0, v) / maximum) * (desktop ? 150 : 140)
+  const profileWidths = new Map<string, number>()
+  if (desktop) for (const segment of chart.segments) {
+    const id = groupId(segment.step)
+    profileWidths.set(id, (profileWidths.get(id) || 0) + segment.width)
+  }
+  const profileBlocks = desktop ? model.steps.map((node) => ({ id: node.id, width: profileWidths.get(node.id) || 0 })) : []
   const begin = (
     e: React.PointerEvent<SVGElement>,
     step: Step,
@@ -2616,6 +2638,7 @@ function IntervalChart({
   ) => {
     if (e.button !== 0) return
     e.stopPropagation()
+    if (desktop) e.preventDefault()
     e.currentTarget.setPointerCapture(e.pointerId)
     const screenScale =
       e.currentTarget.ownerSVGElement!.getBoundingClientRect().width / width
@@ -2623,7 +2646,8 @@ function IntervalChart({
       id: step.id,
       selectionId: groupId(step),
       multi: e.shiftKey || e.metaKey || e.ctrlKey,
-      mode,
+      mode: desktop ? "reorder" : mode,
+      pointerId: e.pointerId,
       x: e.clientX,
       y: e.clientY,
       width: segmentWidth * screenScale,
@@ -2632,10 +2656,22 @@ function IntervalChart({
     })
   }
   const drag = (e: React.PointerEvent<SVGElement>) => {
-    if (!gesture) return
+    if (!gesture || e.pointerId !== gesture.pointerId) return
     const dx = e.clientX - gesture.x,
       dy = e.clientY - gesture.y
-    if (Math.abs(dx) + Math.abs(dy) < 5) return
+    if (Math.abs(dx) + Math.abs(dy) < 5) {
+      if (gesture.mode === "reorder" && gesture.drop) setGesture({ ...gesture, drop: null })
+      return
+    }
+    if (gesture.mode === "reorder") {
+      const bounds = e.currentTarget.ownerSVGElement!.getBoundingClientRect()
+      setGesture({
+        ...gesture,
+        dragged: true,
+        drop: desktopProfileDropSlot(profileBlocks, gesture.selectionId, (e.clientX - bounds.left) / bounds.width),
+      })
+      return
+    }
     const nodes = updateNodes(gesture.original.steps, [gesture.id], (n) => {
       if (n.kind !== "step") return n
       if (gesture.mode === "duration") {
@@ -2671,32 +2707,57 @@ function IntervalChart({
     })
     setGesture({ ...gesture, preview: { ...gesture.original, steps: nodes } })
   }
-  const finish = () => {
-    if (gesture) {
-      if (JSON.stringify(gesture.preview) !== JSON.stringify(gesture.original))
+  const finish = (e: React.PointerEvent<SVGElement>) => {
+    if (gesture && e.pointerId === gesture.pointerId) {
+      if (gesture.mode === "reorder") {
+        if (gesture.drop) commit({ ...gesture.original, steps: moveNode(gesture.original.steps, gesture.selectionId, null, gesture.drop.index) })
+        select(gesture.selectionId, gesture.multi, true)
+      } else if (JSON.stringify(gesture.preview) !== JSON.stringify(gesture.original))
         commit(gesture.preview)
       else select(gesture.selectionId, gesture.multi, true)
       setGesture(null)
     }
   }
+  const baseTickEvery = desktop && total <= 3600 ? 300 : 900
+  const tickEvery = desktop
+    ? Math.max(baseTickEvery, Math.ceil(total / Math.max(2, Math.floor(chartWidth / 80)) / baseTickEvery) * baseTickEvery)
+    : baseTickEvery
   const tickValues = chart.axis.startsWith("Distance")
     ? [0, 0.25, 0.5, 0.75, 1].map((f) => total * f)
-    : Array.from({ length: Math.floor(total / 900) + 1 }, (_, i) => i * 900)
+    : Array.from({ length: Math.floor(total / tickEvery) + 1 }, (_, i) => i * tickEvery)
+  if (desktop && tickValues.at(-1) !== total) {
+    if (tickValues.length > 1 && (total-tickValues.at(-1)!) / total * chartWidth < 72) tickValues.pop()
+    tickValues.push(total)
+  }
+  const desktopLabels = new Map<string, {x:number; width:number; y:number; label:string}>()
+  if (desktop) {
+    let offset=0
+    const roots = new Map(model.steps.map(node=>[node.id,node]))
+    for (const segment of chart.segments) {
+      const id=groupId(segment.step), node=roots.get(id), y=Math.max(0,180-height(desktopProfileRange(segment).high))
+      const label=desktopLabels.get(id)
+      if (label) {label.width+=segment.width;label.y=Math.min(label.y,y)}
+      else desktopLabels.set(id,{x:offset,width:segment.width,y,label:node?.kind==="repeat" ? `${node.repetitions} × ${node.steps.map(stepLabel).join(", ")}` : `${segment.step.label}: ${stepLabel(segment.step)}`})
+      offset+=segment.width
+    }
+  }
   const hoverNode = hovered ? findNode(model.steps, hovered) : null
   return (
     <section
+      ref={chartElement}
       className="we-chart"
       onPointerLeave={() => setHovered(null)}
       aria-label="Interactive interval chart"
     >
       <div className="overflow-x-auto pb-2">
-        <div style={{ minWidth: width }}>
+        <div style={{ minWidth: desktop ? 0 : width, position: desktop ? "relative" : undefined }}>
+          {desktop && <div className="dtb-profile-labels" aria-hidden="true">{[...desktopLabels].map(([id,label])=><span key={id} style={{left:`${label.x/total*100}%`,width:`${label.width/total*100}%`,top:`${label.y/195*100}%`}}>{label.label}</span>)}</div>}
           <svg
             role="group"
             preserveAspectRatio="none"
             aria-label={chart.axis}
             viewBox={`0 0 ${width} 195`}
-            style={{ width: "100%", minWidth: width }}
+            style={{ width: "100%", minWidth: desktop ? 0 : width }}
           >
             {[50, 100, 150].map((y) => (
               <line
@@ -2713,11 +2774,13 @@ function IntervalChart({
               const x = (position / total) * width,
                 w = (s.width / total) * width
               position += s.width
+              const range = desktop && s.step.target.mode === "range" ? desktopProfileRange(s) : null
               const active =
                   selectedGroup(groupId(s.step)) ||
                   gesture?.selectionId === groupId(s.step),
-                y1 = 180 - height(s.start),
-                y2 = 180 - height(s.end)
+                y1 = 180 - height(range ? range.low : s.start),
+                y2 = 180 - height(range ? range.low : s.end),
+                hitTop = range ? 180-height(range.high) : Math.min(y1,y2)
               return (
                 <g
                   key={s.step.id + ":" + s.index}
@@ -2728,36 +2791,41 @@ function IntervalChart({
                   }
                   onPointerEnter={() => setHovered(groupId(s.step))}
                 >
+                  {desktop && active && <rect x={x} width={w} y={5} height={175} fill="#b7bbc2" opacity=".25" pointerEvents="none"/>}
                   <polygon
                     points={`${x},180 ${x},${y1} ${x + w},${y2} ${x + w},180`}
-                    fill={tones[s.step.role]}
-                    stroke={active ? "#2563eb" : "var(--background)"}
-                    strokeWidth={active ? 1.5 : 1}
+                    fill={desktop ? s.step.target.kind === "none" ? "#a9b2c1" : active ? "#004575" : "#005b93" : tones[s.step.role]}
+                    stroke={desktop ? "#ffffff" : active ? "#2563eb" : "var(--background)"}
+                    strokeWidth={desktop ? .7 : active ? 1.5 : 1}
                     vectorEffect="non-scaling-stroke"
-                    opacity={active ? 1 : 0.8}
+                    opacity={desktop ? 1 : active ? 1 : 0.8}
                   />
+                  {range ? <rect x={x} y={hitTop} width={w} height={Math.max(1,y1-hitTop)} fill="#2844f3" stroke="white" strokeWidth=".5" vectorEffect="non-scaling-stroke"/> : desktop && <line x1={x} x2={x+w} y1={y1} y2={y2} stroke={s.step.target.kind === "none" ? "#8e99ac" : "#2844f3"} strokeWidth={2} vectorEffect="non-scaling-stroke" />}
                   <rect
                     x={x}
-                    y={Math.min(y1, y2)}
-                    width={Math.max(w - 3, 3)}
-                    height={height(Math.max(s.start, s.end))}
+                    y={hitTop}
+                    width={desktop ? Math.max(w, 1) : Math.max(w - 3, 3)}
+                    height={180-hitTop}
                     fill="transparent"
                     tabIndex={0}
                     role="button"
                     aria-label={`${s.step.label}, ${stepLabel(s.step)}, repetition ${s.iteration}`}
                     aria-pressed={Boolean(active)}
+                    aria-description={desktop ? "Drag to reorder. Edit duration and intensity in the fields below. Repeat sets move together." : undefined}
                     style={{
                       cursor:
-                        s.step.target.kind === "none" ? "pointer" : "ns-resize",
+                        desktop ? gesture?.dragged ? "grabbing" : "grab" : s.step.target.kind === "none" ? "pointer" : "ns-resize",
                       touchAction: "none",
                     }}
                     onPointerDown={(e) => begin(e, s.step, "intensity", w)}
                     onPointerMove={drag}
                     onPointerUp={finish}
                     onPointerCancel={() => setGesture(null)}
+                    onLostPointerCapture={() => setGesture(null)}
                     onFocus={() => setHovered(groupId(s.step))}
                     onBlur={() => setHovered(null)}
                     onKeyDown={(e) => {
+                      if (e.key === "Escape") setGesture(null)
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault()
                         select(groupId(s.step), e.shiftKey, true)
@@ -2766,14 +2834,15 @@ function IntervalChart({
                   >
                     <title>
                       {s.step.label} · {stepLabel(s.step)}
+                      {desktop ? " · Drag to reorder; click to edit below" : ""}
                       {s.estimated ? " · estimated width" : ""}
                     </title>
                   </rect>
-                  <rect
+                  {!desktop && <rect
                     x={x + Math.max(0, w - 5)}
-                    y={Math.min(y1, y2)}
+                    y={hitTop}
                     width={Math.min(8, Math.max(w, 3))}
-                    height={height(Math.max(s.start, s.end))}
+                    height={180-hitTop}
                     fill={active ? "var(--foreground)" : "transparent"}
                     opacity=".25"
                     style={{ cursor: "ew-resize", touchAction: "none" }}
@@ -2786,7 +2855,7 @@ function IntervalChart({
                       Resize {s.step.label} · snaps to 5 seconds or distance
                       increments
                     </title>
-                  </rect>
+                  </rect>}
                   {s.group && (
                     <line
                       x1={x}
@@ -2795,12 +2864,23 @@ function IntervalChart({
                       y2={190}
                       stroke="var(--primary)"
                       strokeWidth={3}
-                      opacity={s.iteration % 2 ? 0.6 : 0.3}
+                      opacity={desktop ? 0 : s.iteration % 2 ? 0.6 : 0.3}
                     />
                   )}
                 </g>
               )
             })}
+            {desktop && gesture?.drop && <line
+              className="dtb-profile-drop-marker"
+              x1={Math.max(1, Math.min(width - 1, gesture.drop.position * width))}
+              x2={Math.max(1, Math.min(width - 1, gesture.drop.position * width))}
+              y1={5}
+              y2={180}
+              stroke="#2844f3"
+              strokeWidth={3}
+              vectorEffect="non-scaling-stroke"
+              pointerEvents="none"
+            />}
           </svg>
           <div className="we-chart-ticks" aria-label="Workout timeline">
             {tickValues.map((value) => (
@@ -2818,7 +2898,7 @@ function IntervalChart({
               >
                 {chart.axis.startsWith("Distance")
                   ? Math.round(value).toLocaleString() + " m"
-                  : Math.floor(value / 3600) +
+                  : desktop ? durationClock(value).replace(/^0(?=\d:)/, "") : Math.floor(value / 3600) +
                     ":" +
                     String(Math.floor(value / 60) % 60).padStart(2, "0")}
               </span>
@@ -2846,91 +2926,17 @@ function IntervalChart({
                     ? round(node.end.value) + " " + node.end.unit
                     : durationClock(node.end.value)) +
                   " · " +
-                  node.label
+                  node.label + (desktop ? " · " + targetLabel(node.target) : "")
                 : stepLabel(node)}
             </p>
           ))}
         </div>
       )}
-      {chart.placeholder && (
-        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-          Distance steps without a convertible pace have unknown duration. Their
-          chart widths use a 60-second placeholder; totals exclude those unknown
-          durations.
-        </p>
-      )}
     </section>
   )
 }
 
-export function WorkoutEditorMenu({
-  workout,
-  className = "",
-  onSaved,
-}: {
-  workout: PlannedWorkout
-  className?: string
-  onSaved?: (w: PlannedWorkout) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const editable = canEditWorkout(workout)
-  if (!editable) return null
-  return (
-    <>
-      <MobileActionMenu
-        label="Workout options"
-        className={className}
-        actions={[
-          {
-            value: "edit",
-            label: editable
-              ? "Edit Workout"
-              : "Completed activity is read-only",
-            disabled: !editable,
-            onSelect: () => setOpen(true),
-          },
-        ]}
-      >
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className={className}
-                aria-label="Workout options"
-              />
-            }
-          >
-            <Ellipsis size={18} />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              disabled={!editable}
-              onClick={() => setOpen(true)}
-            >
-              <Pencil size={16} />
-              Edit Workout
-            </DropdownMenuItem>
-            {!editable && (
-              <p className="max-w-56 p-2 text-xs text-muted-foreground">
-                Completed activity data is read-only. Open its planned calendar
-                workout to edit the prescription.
-              </p>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </MobileActionMenu>
-      {open && (
-        <WorkoutEditor
-          workout={workout}
-          onClose={() => setOpen(false)}
-          onSaved={onSaved}
-        />
-      )}
-    </>
-  )
-}
+
 export function WorkoutEditor({
   workout,
   date,
@@ -2938,7 +2944,12 @@ export function WorkoutEditor({
   initialName,
   initialFocusId,
   onClose,
+  onSaveClose,
   onSaved,
+  initialModel,
+  onApplyDraft,
+  initialDesktopDraft,
+  onDelete,
 }: {
   workout?: PlannedWorkout
   date?: string
@@ -2946,8 +2957,14 @@ export function WorkoutEditor({
   initialName?: string
   initialFocusId?: string
   onClose: () => void
-  onSaved?: (w: PlannedWorkout) => void
+  onSaveClose?: () => void
+  onSaved?: (w: PlannedWorkout, close?: boolean) => void
+  initialModel?: WorkoutModel
+  onApplyDraft?: (model: WorkoutModel, submission?: DesktopBuilderSubmission) => void | Promise<void>
+  initialDesktopDraft?: Omit<DesktopBuilderSubmission, "close">
+  onDelete?: () => Promise<void> | void
 }) {
+  const mobile = useIsMobile()
   const editorId = workout?.id || "new:" + date
   const editorUrl = workout
     ? "/api/workouts/" + encodeURIComponent(workout.id) + "/editor"
@@ -2955,23 +2972,20 @@ export function WorkoutEditor({
   const [loaded, setLoaded] = useState<Loaded | null>(null),
     [loadError, setLoadError] = useState("")
   const [reloadKey, setReloadKey] = useState(0)
+  const [initialDesktopSnapshot] = useState(initialDesktopDraft)
   useEffect(() => {
     const controller = new AbortController()
     setLoadError("")
-    apiFetch(editorUrl, {
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const data = await response.json()
-        if (!response.ok)
-          throw Error(data.error || "Could not load the workout")
-        setLoaded(data)
+    loadWorkoutEditor(editorUrl, controller.signal, reloadKey > 0)
+      .then((data) => {
+        if (controller.signal.aborted) return
+        setLoaded(initialModel ? { ...data, model: { ...initialModel, thresholds: initialModel.thresholds || data.model.thresholds }, manualDescription:initialModel.notes, ...(initialDesktopSnapshot ? { plannedValues: initialDesktopSnapshot.values, scheduledTime: initialDesktopSnapshot.time, initialComment: initialDesktopSnapshot.comment } : {}) } : data)
       })
       .catch((e) => {
         if (!controller.signal.aborted) setLoadError(e.message)
       })
     return () => controller.abort()
-  }, [editorUrl, reloadKey, workout])
+  }, [editorUrl, reloadKey, workout, initialModel, initialDesktopSnapshot])
   if (loaded)
     return (
       <EditorWorkspace
@@ -2980,7 +2994,13 @@ export function WorkoutEditor({
         workoutId={editorId}
         initialFocusId={initialFocusId}
         onClose={onClose}
+        onSaveClose={onSaveClose}
         onSaved={onSaved}
+        onApplyDraft={onApplyDraft}
+        initialPersonal={initialDesktopSnapshot?.personal}
+        initialPersonalId={initialDesktopSnapshot?.personalId}
+        initialRecurrence={initialDesktopSnapshot?.recurrence}
+        onDelete={onDelete}
         onReload={() => {
           setLoaded(null)
           setReloadKey((n) => n + 1)
@@ -2994,7 +3014,7 @@ export function WorkoutEditor({
         if (!v) onClose()
       }}
     >
-      <DialogContent showCloseButton={false}>
+      <DialogContent showCloseButton={false} className={mobile ? undefined : "we-dialog we-tp-desktop dtb-loading-dialog"}>
         <div className="flex min-w-0 items-center justify-between gap-3 pr-8">
           <DialogTitle>{workout ? "Edit Workout" : "Create Workout"}</DialogTitle>
           <button
@@ -3012,7 +3032,7 @@ export function WorkoutEditor({
         </DialogDescription>
         {loadError ? (
           <Button onClick={() => setReloadKey((n) => n + 1)}>Retry</Button>
-        ) : (
+        ) : !mobile ? <DesktopBuilderSkeleton/> : (
           <div role="status" aria-label="Loading workout editor" className="space-y-4">
             <Skeleton className="h-14 w-full rounded-2xl" />
             <div className="grid grid-cols-2 gap-4"><Skeleton className="h-14 rounded-2xl" /><Skeleton className="h-14 rounded-2xl" /></div>
@@ -3023,47 +3043,34 @@ export function WorkoutEditor({
     </Dialog>
   )
 }
-export function useEditedWorkout<T extends PlannedWorkout | null>(
-  initial: T
-): T {
-  const [updated, setUpdated] = useState<PlannedWorkout | null>(null)
-  useEffect(() => {
-    const listener = (event: Event) => {
-      const workout = (event as CustomEvent<PlannedWorkout>).detail
-      if (workout.id === initial?.id) setUpdated(workout)
-    }
-    const refresh = () => {
-      const context = cachedTrainingContext()
-      const workout = [...context.planned, ...context.history].find(
-        (item): item is PlannedWorkout =>
-          "id" in item && item.id === initial?.id
-      )
-      if (workout) setUpdated(workout)
-    }
-    window.addEventListener("workout-editor-saved", listener)
-    window.addEventListener("training-context-updated", refresh)
-    return () => {
-      window.removeEventListener("workout-editor-saved", listener)
-      window.removeEventListener("training-context-updated", refresh)
-    }
-  }, [initial?.id])
-  return (updated?.id === initial?.id ? updated : initial) as T
-}
+export { useEditedWorkout } from "@/hooks/use-edited-workout"
 
 function EditorWorkspace({
   loaded,
   workoutId,
   initialFocusId,
   onClose,
+  onSaveClose,
   onSaved,
   onReload,
+  onApplyDraft,
+  onDelete,
+  initialPersonal,
+  initialPersonalId,
+  initialRecurrence,
 }: {
   loaded: Loaded
   workoutId: string
   initialFocusId?: string
   onClose: () => void
-  onSaved?: (w: PlannedWorkout) => void
+  onSaveClose?: () => void
+  onSaved?: (w: PlannedWorkout, close?: boolean) => void
   onReload: () => void
+  onApplyDraft?: (model: WorkoutModel, submission?: DesktopBuilderSubmission) => void | Promise<void>
+  onDelete?: () => Promise<void> | void
+  initialPersonal?: WorkoutLocalMetadata
+  initialPersonalId?: string
+  initialRecurrence?: WorkoutRecurrenceDraft | null
 }) {
   const mobile = useIsMobile()
   const [history, setHistory] = useState({
@@ -3071,11 +3078,53 @@ function EditorWorkspace({
     present: loaded.model,
     future: [] as WorkoutModel[],
   })
+  const [personalScope] = useState(trainingCacheScope)
+  const draftKey = `workout-editor-draft:${personalScope}:${workoutId}`,
+    blocksKey = `workout-editor-blocks:${personalScope}`
+  const [recovered, setRecovered] = useState<Draft | null>(() => {
+    try {
+      const value = JSON.parse(localStorage.getItem(draftKey) || "null")
+      return value?.model &&
+        typeof value.revision === "string" &&
+        (!value.creationId || /^[a-zA-Z0-9-]{16,80}$/.test(value.creationId)) &&
+        (!value.savedId || /^event:[1-9]\d*$/.test(value.savedId)) &&
+        (!value.desktop?.personalId || /^(?:draft:[a-zA-Z0-9-]{16,80}|event:[1-9]\d*)$/.test(value.desktop.personalId)) &&
+        (!initialPersonalId || !value.desktop?.personalId || initialPersonalId === value.desktop.personalId) &&
+        !validateWorkout(value.model).length
+        ? value
+        : null
+    } catch {
+      return null
+    }
+  })
   const [savedId, setSavedId] = useState(loaded.isNew ? "" : workoutId)
-  const [creationId, setCreationId] = useState(uid)
+  const [creationId, setCreationId] = useState(() => recovered?.creationId || uid())
+  const [personalId] = useState(() => initialPersonalId || (loaded.isNew
+    ? recovered?.desktop?.personalId || recovered?.savedId || `draft:${creationId}`
+    : workoutId))
+  const personal = useWorkoutPersonalFields(personalScope, personalId, initialPersonal, !mobile)
+  const [recurrence, setRecurrence] = useState<WorkoutRecurrenceDraft | null>(initialRecurrence || null)
   const [creationAttempted, setCreationAttempted] = useState(false)
   const isNew = !savedId
   const model = history.present
+  const [desktopTime, setDesktopTime] = useState((loaded.scheduledTime ?? "00:00").slice(0,5))
+  const [desktopComment, setDesktopComment] = useState(loaded.initialComment || "")
+  const [desktopCommentId, setDesktopCommentId] = useState(uid)
+  const [desktopComments, setDesktopComments] = useState(loaded.comments || [])
+  const [desktopDraft, setDesktopDraft] = useState(() => plannedValueDraft(loaded.plannedValues, loaded.model.sport))
+  const [desktopSavedValues, setDesktopSavedValues] = useState(loaded.plannedValues || {})
+  const [desktopDescription, setDesktopDescription] = useState(loaded.manualDescription ?? loaded.descriptionOverride ?? loaded.model.notes ?? "")
+  const [desktopDescriptionBaseline, setDesktopDescriptionBaseline] = useState(desktopDescription)
+  const [autoCalculate, setAutoCalculateState] = useState(personal.value.autoCalculate)
+  const autoCalculateTouched = useRef(false)
+  const setAutoCalculate = (value: boolean) => { autoCalculateTouched.current = true; setAutoCalculateState(value) }
+  useEffect(() => {
+    if (!personal.loading && !autoCalculateTouched.current) setAutoCalculateState(personal.value.autoCalculate)
+  }, [personal.loading, personal.value.autoCalculate])
+  const files = useWorkoutFiles({ model, workout: savedId ? [...cachedTrainingContext().planned, ...cachedTrainingContext().history].find(row => "id" in row && row.id === savedId) as PlannedWorkout | undefined : undefined })
+  const [manualValues, setManualValues] = useState(false)
+  const [desktopExpanded,setDesktopExpanded] = useState(true)
+  const [desktopBaseline, setDesktopBaseline] = useState(() => JSON.stringify({ time: (loaded.scheduledTime ?? "00:00").slice(0,5), draft: plannedValueDraft(loaded.plannedValues, loaded.model.sport), comment: loaded.initialComment || "" }))
   const [baseline, setBaseline] = useState(JSON.stringify(loaded.model)),
     [revision, setRevision] = useState(loaded.revision)
   const [selected, setSelected] = useState<string[]>([])
@@ -3100,20 +3149,6 @@ function EditorWorkspace({
     [bulkSeconds, setBulkSeconds] = useState(60),
     [bulkTarget, setBulkTarget] = useState<Target>(defaultTarget(model.sport))
   const saveInFlight = useRef(false)
-  const draftKey = `workout-editor-draft:${trainingCacheScope()}:${workoutId}`,
-    blocksKey = `workout-editor-blocks:${trainingCacheScope()}`
-  const [recovered, setRecovered] = useState<Draft | null>(() => {
-    try {
-      const value = JSON.parse(localStorage.getItem(draftKey) || "null")
-      return value?.model &&
-        typeof value.revision === "string" &&
-        !validateWorkout(value.model).length
-        ? value
-        : null
-    } catch {
-      return null
-    }
-  })
   const [blocks, setBlocks] = useState<SavedBlock[]>(() => {
     try {
       const value = JSON.parse(localStorage.getItem(blocksKey) || "[]")
@@ -3129,11 +3164,15 @@ function EditorWorkspace({
       return []
     }
   })
+  const modelDirty = JSON.stringify(model) !== baseline
+  const desktopRemoteDirty = desktopDescription !== desktopDescriptionBaseline ||
+    JSON.stringify({time: desktopTime, draft: desktopDraft, comment: desktopComment}) !== desktopBaseline
   const saving = status === "saving",
-    dirty = JSON.stringify(model) !== baseline
+    dirty = modelDirty || (!mobile && (personal.dirty || autoCalculate !== personal.value.autoCalculate || desktopRemoteDirty || Boolean(recurrence)))
   const useSharedEditor = model.version === 1
   const commit = (next: WorkoutModel) => {
     if (saving) return
+    if (next.sport !== model.sport || JSON.stringify(next.steps) !== JSON.stringify(model.steps) || JSON.stringify(next.thresholds) !== JSON.stringify(model.thresholds)) setManualValues(false)
     setHistory((h) =>
       JSON.stringify(h.present) === JSON.stringify(next)
         ? h
@@ -3177,10 +3216,10 @@ function EditorWorkspace({
     if (reveal)
       requestAnimationFrame(() => {
         const row = document.getElementById("editor-step-" + id)
-        const scroll = row?.closest<HTMLElement>(".we-scroll")
+        const scroll = row?.closest<HTMLElement>(".dtb-details, .we-scroll")
         if (row && scroll)
           scroll.scrollTo({
-            top: Math.max(
+            top: row === scroll.querySelector(".dtb-step-card") ? 0 : Math.max(
               0,
               scroll.scrollTop +
                 row.getBoundingClientRect().top -
@@ -3320,6 +3359,7 @@ function EditorWorkspace({
           creationId,
           creationAttempted,
           savedId,
+          ...(!mobile ? {desktop: {time:desktopTime,draft:desktopDraft,comment:desktopComment,commentId:desktopCommentId,autoCalculate,manualValues,descriptionOverride:desktopDescription,personal:personal.value,personalId:personal.id,recurrence}} : {}),
         })
       )
     } catch {
@@ -3339,6 +3379,7 @@ function EditorWorkspace({
             creationId,
             creationAttempted,
             savedId,
+            ...(!mobile ? {desktop: {time:desktopTime,draft:desktopDraft,comment:desktopComment,commentId:desktopCommentId,autoCalculate,manualValues,descriptionOverride:desktopDescription,personal:personal.value,personalId:personal.id,recurrence}} : {}),
           })
         )
       } catch {
@@ -3354,6 +3395,7 @@ function EditorWorkspace({
     creationId,
     creationAttempted,
     savedId,
+    mobile, desktopTime, desktopDraft, desktopComment, desktopCommentId, autoCalculate, manualValues, desktopDescription, personal.value, personal.id, recurrence,
   ])
   useEffect(() => {
     const guard = (e: BeforeUnloadEvent) => {
@@ -3376,7 +3418,10 @@ function EditorWorkspace({
   const requestClose = () => {
     if (saving) return
     if (!dirty) {
-      onClose()
+      // A reverted edit leaves the last dirty snapshot in storage. Retire that
+      // snapshot, but keep a recovery the user has not reviewed or a failed sync.
+      if (!recovered && status === "draft") discardAndClose()
+      else onClose()
       return
     }
     if (mobile) {
@@ -3390,67 +3435,94 @@ function EditorWorkspace({
   }
   const validation = validateWorkout(model)
   const canSave =
-    !saving && (dirty || isNew) && !loaded.issues.length && !validation.length
-  const save = async () => {
+    !saving && !recovered && (mobile || !personal.busy) && (dirty || isNew) && !loaded.issues.length && !validation.length
+  const save = async (close = true) => {
     if (!canSave || saveInFlight.current) return
+    if (!mobile && !isNew && !onApplyDraft && !recurrence && !modelDirty && !desktopRemoteDirty && autoCalculate === personal.value.autoCalculate) {
+      try {
+        const value = {...personal.value, autoCalculate}
+        saveInFlight.current = true
+        setStatus("saving")
+        await personal.save(savedId, value)
+        personal.setValue(value)
+        try { localStorage.removeItem(draftKey) } catch { /* Optional recovery cache. */ }
+        setRecovered(null)
+        setError("")
+        setStatus("synced")
+        setNotice("Personal workout fields saved.")
+        if (close) (onSaveClose || onClose)()
+      } catch (reason) {
+        setStatus("failed")
+        setError(reason instanceof Error ? reason.message : "Personal fields could not be saved.")
+      } finally {
+        saveInFlight.current = false
+      }
+      return
+    }
+    if (onApplyDraft) {
+      saveInFlight.current = true
+      setStatus("saving")
+      try {
+        const values = changedPlannedValues(desktopPlanned, plannedValueDraft(null, model.sport), model.sport)
+        await onApplyDraft({...clone(model),notes:desktopDescription}, {close, values, time: desktopTime, comment: desktopComment, personal:{...personal.value,autoCalculate}, personalId:personal.id, recurrence})
+        try { localStorage.removeItem(draftKey) } catch { /* Optional local draft. */ }
+        onClose()
+      } catch (reason) { setStatus("failed"); setError(reason instanceof Error ? reason.message : "Your draft could not be saved.") }
+      finally { saveInFlight.current = false }
+      return
+    }
     saveInFlight.current = true
     setStatus("saving")
     setError("")
     storeDraft()
-    if (isNew) {
-      setCreationAttempted(true)
-      try {
-        localStorage.setItem(
-          draftKey,
-          JSON.stringify({
-            model,
-            revision,
-            creationId,
-            creationAttempted: true,
-          })
-        )
-      } catch {
-        /* In-memory state retains the attempt. */
-      }
-    }
+    let optimistic: ReturnType<typeof beginOptimisticWorkoutWrite> | undefined
+    let providerStarted = false
     try {
-      const response = await apiFetch(
-        isNew
-          ? "/api/workouts/editor"
-          : "/api/workouts/" + encodeURIComponent(savedId) + "/editor",
-        {
-          method: isNew ? "POST" : "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+      if (!mobile) await personal.save(savedId || personalId, {...personal.value, autoCalculate})
+      const desktopValues = !mobile ? changedPlannedValues(desktopPlanned, plannedValueDraft(desktopSavedValues, model.sport), model.sport) : {}
+      const priorWorkout = [...cachedTrainingContext().history, ...cachedTrainingContext().planned].find(row => "id" in row && row.id === savedId) as PlannedWorkout | undefined
+      const localTotals = workoutTotals(model)
+      const planned = { ...priorWorkout?.workout_summary?.planned, ...(mobile ? {duration_seconds:localTotals.seconds,tss:localTotals.load} : {...desktopSavedValues,...desktopValues}) }
+      const localId = savedId || `pending:${creationId}`
+      const description=(mobile?model.notes:desktopDescription) || ""
+      const patch = {title:model.name,workout_date:model.date,goal:description,details:description,editable_description:description,...(!mobile ? {manual_description:description} : {}),editor_model:clone(model),planned_values_edited:!mobile,plannedDurationMinutes:(planned.duration_seconds || 0)/60,workout_summary:{planned,completed:priorWorkout?.workout_summary?.completed || null}}
+      const localWorkout: PlannedWorkout = { id:localId,sport:model.sport,day:"",date:model.date,duration:"",status:"upcoming",...patch }
+      optimistic=beginOptimisticWorkoutWrite(isNew?{id:localId,insert:localWorkout}:{id:localId,patch})
+      if (isNew) {
+        setCreationAttempted(true)
+        try {
+          localStorage.setItem(draftKey, JSON.stringify({
+            model, revision, creationId, creationAttempted: true, savedId,
+            ...(!mobile ? {desktop: {time:desktopTime,draft:desktopDraft,comment:desktopComment,commentId:desktopCommentId,autoCalculate,manualValues,descriptionOverride:desktopDescription,personal:personal.value,personalId:personal.id,recurrence}} : {}),
+          }))
+        } catch {
+          /* In-memory state retains the attempt. */
+        }
+      }
+      providerStarted = true
+      const pending=writeWorkoutEditor(isNew?null:savedId,{
             model,
             revision,
             ...(isNew ? { creationId, reconcileOnly: creationAttempted } : {}),
-          }),
+            ...(!mobile ? { values: desktopValues, time: desktopTime || "00:00", comment: desktopComment, commentId: desktopCommentId, description: desktopDescription, descriptionMode:"manual" as const } : {}),
+      })
+      // Close both builder and preview before waiting for the provider. The
+      // retained draft, central cache and completion toast outlive this view.
+      if (close && !mobile) (onSaveClose || onClose)()
+      const data=await pending
+      const committed=optimistic.commit(data.workout,data.context)
+      data.workout=committed.workout
+      let personalMigrationFailed = false
+      if (!mobile) {
+        try {
+          await personal.save(data.workout.id, {...personal.value, autoCalculate})
+          personal.setValue({...personal.value, autoCalculate})
+          if (recurrence) { await applyWorkoutRecurrence(data.workout.id, recurrence); setRecurrence(null) }
+        } catch (reason) {
+          personalMigrationFailed = true
+          data.refreshWarning = [data.refreshWarning, reason instanceof Error ? reason.message : "Additional workout changes could not be saved. Reopen the retained draft to retry."].filter(Boolean).join(" ")
         }
-      )
-      const data = (await response.json()) as {
-        error?: string
-        code?: string
-        verified?: boolean
-        revision: string
-        context?: TrainingContext
-        workout?: PlannedWorkout
-        refreshWarning?: string
       }
-      if (
-        !response.ok &&
-        response.status >= 400 &&
-        response.status < 500 &&
-        data.code !== "CREATE_UNCONFIRMED"
-      )
-        setCreationAttempted(false)
-      if (!response.ok || !data.verified || !data.workout)
-        throw Error(
-          data.error || "Intervals.icu did not verify the saved workout"
-        )
-      data.workout=validatedTrainingWorkout(data.workout)
-      if(data.context)data.context=validatedTrainingContext(data.context)
-      if(typeof data.revision!=="string")throw Error("The saved workout revision is missing. Your draft is retained.")
       setSavedId(data.workout.id)
       setCreationAttempted(false)
       setRevision(data.revision)
@@ -3458,55 +3530,39 @@ function EditorWorkspace({
       setStatus("synced")
       setNotice(data.refreshWarning || "")
       try {
-        localStorage.removeItem(draftKey)
+        if (!personalMigrationFailed) localStorage.removeItem(draftKey)
+        else localStorage.setItem(draftKey, JSON.stringify({
+          model, revision: data.revision, creationId, creationAttempted: false, savedId: data.workout.id,
+          desktop: {time:desktopTime,draft:desktopDraft,comment:"",commentId:uid(),autoCalculate,manualValues,descriptionOverride:desktopDescription,personal:personal.value,personalId:personal.id,recurrence},
+        }))
       } catch {
         /* Optional cache. */
       }
       setRecovered(null)
-      const publishSavedContext = (context: TrainingContext) => {
-        if (mobile) rememberTrainingContext(context, "full")
-        else rememberLiveTrainingContext(context)
+      if (!mobile) {
+        setDesktopSavedValues(current => ({...current,...desktopValues}))
+        setDesktopDescriptionBaseline(desktopDescription)
+        if (desktopComment.trim()) setDesktopComments(current => [{id: `comment-${desktopCommentId}`, body: desktopComment.trim()}, ...current])
+        setDesktopComment("")
+        setDesktopCommentId(uid())
+        setDesktopBaseline(JSON.stringify({time: desktopTime, draft: desktopDraft, comment: ""}))
       }
-      if (data.context) publishSavedContext(data.context)
-      else {
-        const context = cachedTrainingContext()
-        const sessions = [
-          ...new Map(
-            [...context.history, ...context.planned, data.workout].map((w) => [
-              (w as PlannedWorkout).id,
-              w,
-            ])
-          ).values(),
-        ]
-        const today = new Intl.DateTimeFormat("en-CA", {
-          timeZone: context.athlete.time_zone || "America/Chicago",
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-        }).format(new Date())
-        publishSavedContext(
-          {
-            ...context,
-            history: sessions.filter(
-              (w) => (w.workout_date || "") <= today
-            ) as TrainingContext["history"],
-            planned: sessions.filter(
-              (w) => (w.workout_date || "") >= today
-            ) as PlannedWorkout[],
-          }
-        )
-      }
-      window.dispatchEvent(
+      if(committed.applied)window.dispatchEvent(
         new CustomEvent("workout-editor-saved", { detail: data.workout })
       )
-      onSaved?.(data.workout)
-      onClose()
+      optimistic.confirm(false,data.refreshWarning)
+      if (!close || mobile) onSaved?.(data.workout, close)
+      if (close && mobile) onClose()
     } catch (e) {
+      const failure=e as Error & {status?:number;code?:string}
+      if(providerStarted && failure.status && failure.status>=400 && failure.status<500 && failure.code!=="CREATE_UNCONFIRMED")setCreationAttempted(false)
+      optimistic?.fail(close && !mobile ? new Error(`${e instanceof Error ? e.message : "The save could not be confirmed."} Reopen the workout to restore your draft.`) : e)
       setStatus("failed")
       setError(
         e instanceof Error ? e.message : "Save failed. Your draft is retained."
       )
     } finally {
+      optimistic?.finish()
       saveInFlight.current = false
     }
   }
@@ -3522,7 +3578,15 @@ function EditorWorkspace({
   useEffect(() => {
     keyActions.current = { save, undo, redo, duplicate, remove, group, saving }
   })
-  const totals = workoutTotals(model)
+  const totals = mobile ? workoutTotals(model) : desktopBuilderTotals(model)
+  const autoValues: Partial<WorkoutSummaryValues> = {
+    duration_seconds: !model.steps.length || totals.unknownTime || totals.open ? null : totals.seconds,
+    distance_meters: !model.steps.length || totals.unknownDistance ? null : /swim/i.test(model.sport) ? totals.distance / .9144 : totals.distance,
+    average_speed: totals.unknownDistance || totals.unknownTime || !totals.seconds || !totals.distance ? null : totals.distance / (/swim/i.test(model.sport) ? .9144 : 1) / totals.seconds,
+    tss: !model.steps.length || totals.load == null ? null : Math.round(totals.load),
+    intensity_factor: totals.load == null || !totals.seconds ? null : Math.sqrt(totals.load / (totals.seconds / 3600 * 100)),
+  }
+  const desktopPlanned = autoCalculate && !manualValues && model.steps.length ? { ...desktopDraft, ...Object.fromEntries(Object.entries(autoValues).map(([key,value]) => [key, formatPlannedValue(key as PlannedValueKey, value, model.sport)])) } : desktopDraft
   const durationText = `${totals.open ? "Open · " : totals.unknownTime ? "At least " : totals.estimated ? "≈ " : ""}${durationClock(totals.seconds)}`
   const saveBlock = () => {
     const chosen: WorkoutNode[] = []
@@ -3568,7 +3632,7 @@ function EditorWorkspace({
         <DialogContent
           showCloseButton={false}
           fullscreen={mobile}
-          className={`we-dialog ${!mobile && useSharedEditor ? "we-shared-desktop" : ""}`}
+          className={`we-dialog ${!mobile ? `we-tp-desktop ${desktopExpanded?"":"dtb-compact"}` : ""}`}
           onKeyDown={(e) => {
             const a = keyActions.current,
               typing =
@@ -3643,13 +3707,41 @@ function EditorWorkspace({
               {error}
             </p>
           )}
-          {useSharedEditor ? (
+          {!mobile ? <>
+            <DialogTitle className="sr-only">Workout Builder</DialogTitle>
+            <DialogDescription className="sr-only">Build structured workout blocks, edit planned values, and save to Intervals.icu.</DialogDescription>
+            {files.dialogs}
+            <Suspense fallback={<DesktopBuilderSkeleton/>}><DesktopWorkoutBuilder key={model.sport} model={model} commit={commit} zones={loaded.zoneSettings || []} selected={selected} select={select} expanded={desktopExpanded} onToggleExpanded={()=>setDesktopExpanded(value=>!value)}
+              onUpload={files.upload} onExport={files.exportWorkout}
+              recurrence={<WorkoutRecurrenceControl workoutId={savedId || undefined} date={model.date} disabled={saving} {...(!savedId ? {draft:recurrence,onDraftChange:setRecurrence} : {})}/>}
+              onSport={sport => {const setting=sportZoneSettings(loaded.zoneSettings || [],sport);setAutoCalculate(true);commit({...model,sport,poolLength:/swim/i.test(sport)?model.poolLength || "25y":"",thresholds:{ftp:setting?.ftp || null,pace:setting?.threshold_pace || null}})}}
+              chart={<IntervalChart model={model} selected={selected} select={select} commit={commit} desktop/>}
+              metadata={{name: model.name, date: model.date, time: desktopTime}}
+              onMetadata={(value: DesktopWorkoutMetadata) => { setDesktopTime(value.time); if (value.date && (value.name !== model.name || value.date !== model.date)) commit({...model,name:value.name,date:value.date}) }}
+              planned={desktopPlanned} onPlanned={(key,value) => { setDesktopDraft(updatePlannedValueDraft(desktopPlanned,key,value,model.sport,autoCalculate));setManualValues(true) }} autoCalculate={autoCalculate} onAutoCalculate={value => {if(!value)setDesktopDraft(desktopPlanned);setManualValues(!value);setAutoCalculate(value)}}
+              comment={desktopComment} onComment={setDesktopComment} comments={desktopComments}
+              description={desktopDescription} onDescription={setDesktopDescription}
+              descriptionHeading={<WorkoutAttachments personal={personal}/>}
+              personalFields={<WorkoutPersonalNotes value={personal.value} onChange={personal.setValue} disabled={saving}/>}
+              equipment={<WorkoutEquipment value={personal.value} onChange={personal.setValue} scope={personalScope} options={personal.equipmentOptions} sport={model.sport} disabled={saving}/>}
+              onSave={close => void save(close)} onClose={requestClose} onDelete={onDelete ? async () => {setStatus("saving");try {await onDelete()} finally {setStatus("draft")}} : undefined} canSave={canSave} saving={saving} dirty={dirty} error={error} notice={notice || (status === "synced" ? "Saved to Intervals.icu." : loaded.zoneError || loaded.warnings.join(" "))} onReload={!isNew ? ()=>setReloadOpen(true) : undefined}
+              validation={[...loaded.issues,...validation]} undo={undo} redo={redo} canUndo={history.past.length>0} canRedo={history.future.length>0} isNew={isNew}
+              recovery={recovered ? <div className="dtb-draft-recovery"><span>A local draft is available.{recovered.revision !== loaded.revision ? " The provider version changed; review before saving." : ""}</span><button type="button" onClick={() => {
+                commit(recovered.model)
+                if (recovered.savedId) setSavedId(recovered.savedId)
+                if (recovered.creationId) setCreationId(recovered.creationId)
+                setCreationAttempted(Boolean(recovered.creationAttempted))
+                setRevision(recovered.revision)
+                if (recovered.desktop) {setDesktopTime(recovered.desktop.time);setDesktopDraft(recovered.desktop.draft);setDesktopComment(recovered.desktop.comment);setDesktopCommentId(recovered.desktop.commentId);setAutoCalculate(recovered.desktop.autoCalculate);setManualValues(recovered.desktop.manualValues ?? true);setDesktopDescription(recovered.desktop.descriptionOverride ?? recovered.model.notes ?? "");if(recovered.desktop.personal)personal.setValue(normalizeWorkoutLocalMetadata(recovered.desktop.personal));setRecurrence(recovered.desktop.recurrence || null)}
+                setRecovered(null)
+              }}>Restore draft</button><button type="button" onClick={() => {try {localStorage.removeItem(draftKey)} catch {/* Optional. */} onReload()}}>Discard saved draft</button></div> : undefined}/></Suspense>
+          </> : useSharedEditor ? (
             <>
               {!mobile && (
                 <header className="we-header">
                   <div>
                     <DialogTitle className="text-lg font-semibold">
-                      {isNew ? "Create Workout" : "Edit Workout"}
+                      {onApplyDraft ? "Build Workout" : isNew ? "Create Workout" : "Edit Workout"}
                     </DialogTitle>
                     <DialogDescription className="sr-only">
                       Edit intervals in the same compact workflow used on
@@ -3742,7 +3834,7 @@ function EditorWorkspace({
                         ? "Saving…"
                         : status === "failed"
                           ? "Retry Save"
-                          : isNew
+                          : onApplyDraft ? "Use Workout" : isNew
                             ? creationAttempted
                               ? "Recheck creation"
                               : "Create Workout"
@@ -3841,7 +3933,7 @@ function EditorWorkspace({
                       } catch {
                         /* Optional. */
                       }
-                      setRecovered(null)
+                      onReload()
                     }}
                   >
                     Discard saved draft

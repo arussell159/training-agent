@@ -1,6 +1,7 @@
 import { ChartSkeleton } from "@/components/loading-layouts"
+import { WorkoutAnalysisSkeleton } from "@/components/workout-analysis-skeleton"
 import { METERS_PER_100_YARDS, recordedSwimYards } from "../../../app-backend/lib/swim-units.mjs"
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type CSSProperties } from "react"
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type CSSProperties } from "react"
 import { Sun, Watch } from "lucide-react"
 import "./workout-analysis.css"
 
@@ -18,11 +19,10 @@ import { formatDuration, formatPace } from "@/lib/duration"
 import { segmentStatistics, type RecordedPoint } from "@/lib/segment-statistics"
 import { intervalSignals } from "@/lib/interval-signals"
 import { createRouteCursorIndex, nearestRouteCursorPoint } from "@/lib/route-cursor"
-import type { PlannedWorkout, WorkoutSummaryValues } from "@/lib/training-context"
-import { structuredWorkoutProfile } from "@/lib/workout-structure"
-import { chartSegments } from "../../../app-backend/lib/workout-editor-model.mjs"
+import { cachedTrainingContext, type PlannedWorkout, type WorkoutSummaryValues } from "@/lib/training-context"
 import { WorkoutSignalStatistics } from "@/components/workout-signal-statistics"
-import { recordedChartDomain, recordedDistanceAxis, smoothedChartValue } from "@/lib/workout-chart-axis"
+import { analysisRangeMetrics } from "@/lib/analysis-360"
+import { recordedChartDomain, recordedChartSegments, recordedDistanceAxis, recordedSplitEndpointLabel, smoothedChartValue } from "@/lib/workout-chart-axis"
 import { recordedSignalStatistics, recordedSignalValue, recordedSignalInfo, formatRecordedSignal, type RecordedSignal } from "@/lib/workout-signal-statistics"
 
 type Point = RecordedPoint
@@ -47,25 +47,6 @@ type PeakEffort = Segment & { seconds:number; value:number; metric:"pace"|"power
 const cypressCenter: [number, number] = [-95.69, 29.97]
 const noRoutePoints: {time:number;latitude:number;longitude:number}[] = []
 
-function plannedProfileOverlay(workout: PlannedWorkout) {
-  if (workout.editor_model) {
-    const segments = chartSegments(workout.editor_model).segments
-    const total = segments.reduce((sum, segment) => sum + segment.width, 0)
-    const peak = Math.max(0.001, ...segments.flatMap((segment) => [segment.start, segment.end]))
-    if (!total) return []
-    let position = 0
-    return segments.flatMap((segment) => {
-      const start = { position: position / total, intensity: Math.max(0, segment.start) / peak }
-      position += segment.width
-      return [start, { position: position / total, intensity: Math.max(0, segment.end) / peak }]
-    })
-  }
-  const profile = structuredWorkoutProfile(workout.structure)
-  const total = profile.at(-1)?.position || 0
-  return total
-    ? profile.map((point) => ({ position: point.position / total, intensity: point.intensity / 100 }))
-    : []
-}
 const effortDurations = [5,10,30,60,120,300,600,1200,1800,3600,10800]
 const finite = (value:unknown): value is number => typeof value === "number" && Number.isFinite(value)
 const clock = (seconds:number) => {
@@ -242,12 +223,14 @@ export function WorkoutAnalysis({workout,onLapSelection,analysisOverride,compari
 }
 
 function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverride,comparisonMode,onComparisonStats}:{id:string;revision:string;workout:PlannedWorkout;summary?:WorkoutSummaryValues|null;onLapSelection?:(range:[number,number]|null)=>void;analysisOverride?:Analysis;comparisonMode:boolean;onComparisonStats?:(id:string,stats:WorkoutComparisonStats|null)=>void}){
+  const plotClipId=useId().replaceAll(":","")
   const mobile = useIsMobile()
   const sport=workout.sport
   const [data,setData]=useState<Analysis|null>(analysisOverride||cachedActivityAnalysis(id,revision)||null),[error,setError]=useState(""),[retry,setRetry]=useState(0),[totals,setTotals]=useState<WorkoutSummaryValues|null>(()=>cachedActivitySummary(id,revision)||summary||null)
   const [chartRange,setRange]=useState<[number,number]|null>(null),[cursor,setCursor]=useState<number|null>(null),[selection,setSelection]=useState<[number,number]|null>(null),[selected,setSelected]=useState(""),[hovered,setHovered]=useState<Segment|null>(null)
+  const [selectedRange,setSelectedRange]=useState<[number,number]|null>(null)
   const [hiddenTracks,setHiddenTracks]=useState<string[]>(()=>comparisonMode?[]:/run|swim/i.test(sport)?["speed"]:["pace"])
-  const [selectionPanel,setSelectionPanel]=useState<"laps"|"peaks">("laps")
+  const [selectionPanel,setSelectionPanel]=useState<"laps"|"peaks"|"segments">("laps")
   const [chartAxis,setChartAxis]=useState<"time"|"distance">("time")
   const [smoothing,setSmoothing]=useState(5)
   const analysisRoot=useRef<HTMLElement>(null)
@@ -259,7 +242,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
     const fit=()=>{
       const bounds=plot.getBoundingClientRect(),below=charts.getBoundingClientRect().bottom-bounds.bottom
       const available=body.getBoundingClientRect().bottom-parseFloat(getComputedStyle(body).paddingBottom)-below-bounds.top-body.scrollTop-2
-      const height=`${Math.max(64,Math.min(324,Math.floor(available)))}px`
+      const height=`${Math.max(64,Math.floor(available))}px`
       if(root.style.getPropertyValue("--analysis-plot-height")!==height)root.style.setProperty("--analysis-plot-height",height)
     }
     fit()
@@ -290,7 +273,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
   useEffect(()=>{
     const controller=new AbortController()
     effortEdited.current=false;appliedEffort.current=""
-    setResolvedEffortKey("");setEffortRange(null);setRange(null);setSelected("");setSelection(null);setHovered(null);setCursor(null)
+    setResolvedEffortKey("");setEffortRange(null);setRange(null);setSelectedRange(null);setSelected("");setSelection(null);setHovered(null);setCursor(null)
     setEffortMessage("");setEffortLoading(Boolean(effortTarget))
     if(effortTarget)void loadActivityEffort(effortTarget,revision,controller.signal,effortRetry).then(result=>{
       if(controller.signal.aborted)return
@@ -308,9 +291,9 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
     appliedEffort.current=key
     if(!activityEffortPlotRange(effortRange,data.duration)){setEffortMessage("Exact bounds fall outside the loaded recording chart.");return}
     if(effortEdited.current)return
-    setRange(effortRange);setSelected("requested-effort");setSelection(null);setHovered(null);setCursor(null)
+    setRange(effortRange);setSelectedRange(effortRange);setSelected("requested-effort");setSelection(null);setHovered(null);setCursor(null)
   },[data,effortRange,effortTarget,effortRetry,resolvedEffortKey,effortIdentity])
-  const gesture=useRef<{x:number;time:number;range:[number,number];overview:boolean;pan:boolean}|null>(null)
+  const gesture=useRef<{x:number;time:number}|null>(null)
   const draggedChart=useRef(false)
   useEffect(()=>{if(analysisOverride)return;const controller=new AbortController();void loadActivitySummary(id,revision,controller.signal).then(values=>{if(!controller.signal.aborted)setTotals({...summary,...values})}).catch(()=>{});return()=>controller.abort()},[id,revision,summary,analysisOverride])
   useEffect(()=>{if(analysisOverride){setData(analysisOverride);return}const controller=new AbortController();setError("");void loadActivityAnalysis(id,revision,controller.signal).then(value=>{if(!controller.signal.aborted)setData(value)}).catch(reason=>{if(!controller.signal.aborted)setError(reason instanceof Error?reason.message:"Workout analysis could not be loaded.")});return()=>controller.abort()},[id,retry,revision,analysisOverride])
@@ -319,35 +302,33 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
   const available=useMemo(()=>({elevation:Boolean(data?.points.some(point=>point.elevation!=null)),power:Boolean(data?.points.some(point=>point.power!=null)),speed:Boolean(data?.points.some(point=>point.speed!=null)),heartRate:Boolean(data?.points.some(point=>point.heartRate!=null)),cadence:Boolean(data?.points.some(point=>point.cadence!=null))}),[data])
   const paceDistance=swim?METERS_PER_100_YARDS:1609.344
   const viewStart=view[0],viewEnd=view[1]
-  const signalStatistics=useMemo(()=>mobile?[]:recordedSignalStatistics(data?.points||[],viewStart,viewEnd,sport),[data,viewStart,viewEnd,sport,mobile])
+  const analysisSelection=selectedRange??range
+  const statisticsStart=analysisSelection?.[0]??viewStart,statisticsEnd=analysisSelection?.[1]??viewEnd
+  const wholeSignalStatistics=useMemo(()=>mobile?[]:recordedSignalStatistics(data?.points||[],0,duration,sport),[data,duration,sport,mobile])
+  const signalStatistics=useMemo(()=>mobile?[]:statisticsStart===0&&statisticsEnd===duration?wholeSignalStatistics:recordedSignalStatistics(data?.points||[],statisticsStart,statisticsEnd,sport),[data,statisticsStart,statisticsEnd,duration,sport,mobile,wholeSignalStatistics])
+  const recordedContext=mobile?null:cachedTrainingContext()
+  const recordedFtp=bike&&recordedContext?.source!=="local-preview"?recordedContext?.athlete.zones?.bike_ftp:null
+  const effectiveFtp=finite(totals?.normalized_power)&&finite(totals?.intensity_factor)&&totals.intensity_factor>0?totals.normalized_power/totals.intensity_factor:finite(recordedFtp)&&recordedFtp>0?recordedFtp:null
+  const inspectorMetrics=useMemo(()=>mobile?null:analysisRangeMetrics(data?.points||[],statisticsStart,statisticsEnd,effectiveFtp),[data,mobile,statisticsStart,statisticsEnd,effectiveFtp])
   const allSignalTracks=useMemo<RecordedSignal[]>(()=>comparisonMode||mobile
     ? [...(available.speed?[run||swim?"pace" as const:"speed" as const]:[]),...(available.power?["power" as const]:[]),...(available.heartRate?["heartRate" as const]:[]),...(available.cadence?["cadence" as const]:[])]
-    : signalStatistics.map(row=>row.key),[comparisonMode,mobile,available,run,swim,signalStatistics])
+    : wholeSignalStatistics.map(row=>row.key),[comparisonMode,mobile,available,run,swim,wholeSignalStatistics])
   const signalTracks=allSignalTracks.filter(key=>!hiddenTracks.includes(key))
-  const colors:Record<string,string>=comparisonMode?{pace:"#0284c7",speed:"#0284c7",power:"#6d28d9",heartRate:"#dc2626",cadence:"#c026d3"}:Object.fromEntries(signalStatistics.map(row=>[row.key,recordedSignalInfo(row.key,sport).color]))
+  const colors:Record<string,string>=comparisonMode?{pace:"#0284c7",speed:"#0284c7",power:"#6d28d9",heartRate:"#dc2626",cadence:"#c026d3"}:Object.fromEntries(wholeSignalStatistics.map(row=>[row.key,recordedSignalInfo(row.key,sport).color]))
   const value=(point:Point,key:string)=>recordedSignalValue(point,key as RecordedSignal,sport)
   const unit=(key:string)=>recordedSignalInfo(key as RecordedSignal,sport).unit
   const label=(key:string)=>recordedSignalInfo(key as RecordedSignal,sport).label
   const format=(entry:number|null|undefined,key:string)=>formatRecordedSignal(entry,key as RecordedSignal,sport)
   const visible=useMemo(()=>data?.points.filter(point=>point.time>=viewStart&&point.time<=viewEnd)||[],[data,viewStart,viewEnd])
-  // Cursor and selection updates must not re-smooth thousands of samples.
+  // Sample only when the window or smoothing changes; cursor movement reuses paths.
   const chartSamples=useMemo(()=>{
-    const samples=new Map<string,Map<number,number|null>>()
-    if(mobile)return samples
-    const stride=Math.max(1,Math.floor(visible.length/1800))
-    for(const key of allSignalTracks){
-      const entries=new Map<number,number|null>()
-      for(let index=0;index<visible.length;index+=stride)
-        entries.set(index,comparisonMode?recordedSignalValue(visible[index],key,sport):smoothedChartValue(visible,index,smoothing,point=>recordedSignalValue(point,key,sport)))
-      samples.set(key,entries)
-    }
+    const samples=new Map<string,ReturnType<typeof recordedChartSegments>>()
+    if(mobile||!data)return samples
+    for(const key of allSignalTracks)
+      samples.set(key,recordedChartSegments(data.points,viewStart,viewEnd,(point,index)=>comparisonMode?recordedSignalValue(point,key,sport):smoothedChartValue(data.points,index,smoothing,entry=>recordedSignalValue(entry,key,sport)),1800))
     return samples
-  },[visible,allSignalTracks,comparisonMode,mobile,smoothing,sport])
-  const elevationProfile=useMemo(()=>mobile?[]:(data?.points||[]).map((point,index)=>{
-    const nearby=data!.points.slice(Math.max(0,index-3),index+4).map(entry=>recordedSignalValue(entry,"elevation",sport)).filter(finite)
-    return {...point,smoothedElevation:nearby.length?nearby.reduce((sum,entry)=>sum+entry,0)/nearby.length:null}
-  }),[data,mobile,sport])
-  const nearest=cursor==null?null:visible.reduce<Point|null>((best,point)=>!best||Math.abs(point.time-cursor)<Math.abs(best.time-cursor)?point:best,null)
+  },[data,viewStart,viewEnd,allSignalTracks,comparisonMode,mobile,smoothing,sport])
+  const nearest=cursor==null?null:(data?.points||[]).reduce<Point|null>((best,point)=>!best||Math.abs(point.time-cursor)<Math.abs(best.time-cursor)?point:best,null)
   const activeStats=useMemo(()=>rangeStatistics(data?.points||[],viewStart,viewEnd),[data,viewStart,viewEnd]),wholeStats=useMemo(()=>rangeStatistics(data?.points||[],0,duration),[data,duration])
   const effortMetric = run || swim ? "pace" : "power"
   const peaks = useMemo(
@@ -356,18 +337,49 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
       [mobile, data, duration, effortMetric, paceDistance]
     ),
     terrain = useMemo(() => mobile ? [] : elevationSegments(data?.points || []), [mobile, data])
-  const plannedOverlay=useMemo(()=>plannedProfileOverlay(workout),[workout])
   const splitDistance=bike?8046.72:1609.344
-  const splits=useMemo<Segment[]>(()=>swim?[]:distanceSplits(data?.points||[],splitDistance).map(split=>({id:`split-${split.number}`,label:bike?`${split.number*5} mi`:`${split.number} mi`,start:split.start,end:split.end,distance:split.distance,kind:"split",color:"#cbd5e1"})),[bike,data,splitDistance,swim])
+  const splits=useMemo<Segment[]>(()=>swim?[]:distanceSplits(data?.points||[],splitDistance).map(split=>({id:`split-${split.number}`,label:recordedSplitEndpointLabel(distanceAxis,split.end),start:split.start,end:split.end,distance:split.distance,kind:"split",color:"#cbd5e1"})),[data,distanceAxis,splitDistance,swim])
   const laps:Segment[]=(data?.laps||[]).map(lap=>({...lap,kind:"lap",color:"#94a3b8"}))
   const swimIntervals=useMemo(()=>swim?intervalSignals(data?.points||[],data?.laps||[]):[],[data,swim])
   const routePoints=useMemo(()=>createRouteCursorIndex(data?.points||[]),[data])
   const routeCursorPoint=nearestRouteCursorPoint(routePoints,cursor)
   const requestedSegment:Segment|null=visibleEffortRange?{id:"requested-effort",label:"Selected peak effort",start:visibleEffortRange[0],end:visibleEffortRange[1],kind:"effort"}:null
   const selectedSegment=[...laps,...splits,...terrain,...peaks,...(requestedSegment?[requestedSegment]:[])].find(segment=>segment.id===selected)
-  const highlight=selection?{start:Math.min(...selection),end:Math.max(...selection)}:hovered||selectedSegment||(range?{start:range[0],end:range[1]}:null)
-  const graphHover=hovered&&hovered.end>viewStart&&hovered.start<viewEnd?{start:Math.max(viewStart,hovered.start),end:Math.min(viewEnd,hovered.end)}:null
-  useEffect(()=>onLapSelection?.(range),[range,onLapSelection])
+  const inspectorWhole=!analysisSelection
+  const inspectorTotal=inspectorWhole?totals:null
+  const inspectorNumber=(entry:number|null|undefined,digits=0)=>finite(entry)?entry.toFixed(digits):"—"
+  const inspectorDuration=inspectorTotal?.duration_seconds??(inspectorWhole&&finite(data?.duration)?data.duration:inspectorMetrics?.duration)
+  const inspectorDistance=inspectorTotal?.distance_meters??inspectorMetrics?.distance
+  const inspectorPower=inspectorTotal?.average_power??inspectorMetrics?.power
+  const inspectorNp=inspectorTotal?.normalized_power??inspectorMetrics?.normalizedPower
+  const inspectorHr=inspectorTotal?.average_hr??inspectorMetrics?.heartRate
+  const inspectorGain=inspectorTotal?.elevation_gain??(available.elevation?inspectorMetrics?.gain:null)
+  const inspectorLoss=inspectorTotal?.elevation_loss??(available.elevation?inspectorMetrics?.loss:null)
+  const inspectorOverview={
+    title:inspectorWhole?"Entire Workout":selectedSegment?.label||"Selection",
+    primary:[
+      {label:"Duration",value:inspectorDuration==null?"—":clock(inspectorDuration)},
+      {label:"Distance",value:inspectorNumber(inspectorDistance==null?null:inspectorDistance/(swim ? 0.9144 : 1609.344),swim?0:2),unit:swim?"yds":"mi"},
+      {label:"TSS",value:inspectorNumber(inspectorTotal?.tss??inspectorMetrics?.tss)},
+    ],
+    details:[
+      {label:"Work",value:inspectorNumber(inspectorTotal?.work_kj??inspectorMetrics?.work),unit:"kJ"},
+      {label:"IF",value:inspectorNumber(inspectorTotal?.intensity_factor??inspectorMetrics?.intensity,2)},
+      {label:"NP",value:inspectorNumber(inspectorNp),unit:"W"},
+      {label:"VI",value:inspectorNumber(inspectorNp!=null&&inspectorPower&&inspectorPower>0?inspectorNp/inspectorPower:null,2)},
+      {label:"Pw:Hr",value:"—",unit:"%"},
+      {label:"EF",value:inspectorNumber(inspectorNp!=null&&inspectorHr&&inspectorHr>0?inspectorNp/inspectorHr:null,2)},
+      {label:"El. Gain",value:inspectorNumber(inspectorGain==null?null:inspectorGain/.3048),unit:"ft"},
+      {label:"Grade",value:inspectorNumber(inspectorMetrics?.grade,1),unit:"%"},
+      {label:"El. Loss",value:inspectorNumber(inspectorLoss==null?null:inspectorLoss/.3048),unit:"ft"},
+      {label:"VAM",value:inspectorNumber(inspectorGain!=null&&inspectorDuration!=null&&inspectorDuration>0?inspectorGain/inspectorDuration*3600:null),unit:"m/h"},
+      {label:"W/kg",value:"—"},
+    ],
+  }
+  const highlight=selection?{start:Math.min(...selection),end:Math.max(...selection)}:hovered||(selectedRange?{start:selectedRange[0],end:selectedRange[1]}:selectedSegment)||(range?{start:range[0],end:range[1]}:null)
+  const graphSelection=comparisonMode?(selection?{start:Math.min(...selection),end:Math.max(...selection)}:null):highlight
+  const graphHighlight=graphSelection&&graphSelection.end>viewStart&&graphSelection.start<viewEnd?{start:Math.max(viewStart,graphSelection.start),end:Math.min(viewEnd,graphSelection.end)}:null
+  useEffect(()=>onLapSelection?.(analysisSelection),[analysisSelection,onLapSelection])
   const comparisonStart=selection?Math.min(selection[0],selection[1]):hovered?.start??range?.[0]??null
   const comparisonEnd=selection?Math.max(selection[0],selection[1]):hovered?.end??range?.[1]??null
   useEffect(()=>{
@@ -378,47 +390,47 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
     const stats=rangeStatistics(data.points,start,end)
     onComparisonStats(workout.id,{selected,start,end,distance:stats.distance,speed:stats.speed,power:stats.power,heartRate:stats.heartRate,cadence:stats.cadence})
   },[comparisonMode,onComparisonStats,workout.id,data,duration,comparisonStart,comparisonEnd])
-  const selectSegment=(segment:Segment)=>{const start=Math.max(0,segment.start),end=Math.min(duration,segment.end);if(end<=start)return;effortEdited.current=true;setRange([start,end]);setSelected(segment.id);setSelection(null);setCursor(null)}
-  const reset=()=>{effortEdited.current=true;setRange(null);setSelected("");setHovered(null);setSelection(null);setCursor(null)}
+  const selectRange=(first:number,last:number,segmentId="")=>{
+    const start=Math.max(0,Math.min(first,last)),end=Math.min(duration,Math.max(first,last))
+    if(end<=start)return
+    effortEdited.current=true
+    if(comparisonMode)setRange([start,end])
+    else setSelectedRange([start,end])
+    setSelected(segmentId);setSelection(null);setCursor(null)
+  }
+  const selectSegment=(segment:Segment)=>selectRange(segment.start,segment.end,segment.id)
+  const reset=()=>{effortEdited.current=true;setRange(null);setSelectedRange(null);setSelected("");setHovered(null);setSelection(null);setCursor(null)}
+  const zoomToSelection=()=>{if(!selectedRange)return;effortEdited.current=true;setRange(selectedRange);setCursor(null)}
+  const unzoom=()=>{effortEdited.current=true;setRange(null);setCursor(null)}
+  const canZoom=Boolean(selectedRange&&(!range||selectedRange[0]!==range[0]||selectedRange[1]!==range[1]))
   const resetFromChartClick=()=>{if(draggedChart.current){draggedChart.current=false;return}reset()}
   const plotLeft=comparisonMode?12:136,plotWidth=comparisonMode?1056:812,plotRight=plotLeft+plotWidth
-  const distanceMode=!comparisonMode&&chartAxis==="distance"&&Boolean(distanceAxis)
+  const distanceMode=!comparisonMode&&chartAxis==="distance"&&Boolean(distanceAxis&&distanceAxis.atTime(viewEnd)>distanceAxis.atTime(viewStart))
   const coordinate=(time:number)=>distanceMode?distanceAxis!.atTime(time):time
-  const x=(time:number,overview=false)=>{const start=coordinate(overview?0:view[0]),end=coordinate(overview?duration:view[1]);return plotLeft+(coordinate(time)-start)/Math.max(.001,end-start)*plotWidth}
+  const x=(time:number)=>{const start=coordinate(view[0]),end=coordinate(view[1]);return plotLeft+(coordinate(time)-start)/Math.max(.001,end-start)*plotWidth}
   const timelinePosition=(time:number)=>(coordinate(time)-coordinate(0))/Math.max(.001,coordinate(duration)-coordinate(0))
-  const timeAt=(event:PointerEvent<SVGSVGElement>,overview=false)=>{const bounds=event.currentTarget.getBoundingClientRect(),fraction=Math.max(0,Math.min(1,((event.clientX-bounds.left)/bounds.width*1080-plotLeft)/plotWidth)),start=coordinate(overview?0:view[0]),end=coordinate(overview?duration:view[1]),position=start+fraction*(end-start);return distanceMode?distanceAxis!.atDistance(position):position}
-  const move=(event:PointerEvent<SVGSVGElement>,overview=false)=>{const time=timeAt(event,overview);setCursor(time);const active=gesture.current;if(!active)return;if(active.pan){const bounds=event.currentTarget.getBoundingClientRect(),delta=distanceMode?(time-active.time):(active.overview?1:-1)*(event.clientX-active.x)/bounds.width*1080/plotWidth*(active.overview?duration:active.range[1]-active.range[0]),width=active.range[1]-active.range[0],start=Math.max(0,Math.min(duration-width,active.range[0]+delta));setRange([start,start+width])}else setSelection([active.time,time])}
-  const down=(event:PointerEvent<SVGSVGElement>,overview=false)=>{if(event.button!==0)return;effortEdited.current=true;draggedChart.current=false;event.currentTarget.setPointerCapture(event.pointerId);const time=timeAt(event,overview),pan=overview&&Boolean(range)&&time>=view[0]&&time<=view[1];gesture.current={x:event.clientX,time,range:[view[0],view[1]],overview,pan};if(!pan)setSelection([time,time]);setSelected("")}
-  const up=(event:PointerEvent<SVGSVGElement>)=>{const active=gesture.current;if(!active)return;const time=timeAt(event,active.overview),moved=Math.abs(event.clientX-active.x)>5;if(moved){draggedChart.current=true;window.setTimeout(()=>{draggedChart.current=false},0)}if(!active.pan&&moved&&Math.abs(time-active.time)>=2)setRange([Math.min(time,active.time),Math.max(time,active.time)]);gesture.current=null;setSelection(null);if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId)}
+  const timeAt=(event:PointerEvent<SVGSVGElement>)=>{const bounds=event.currentTarget.getBoundingClientRect(),fraction=Math.max(0,Math.min(1,((event.clientX-bounds.left)/bounds.width*1080-plotLeft)/plotWidth)),start=coordinate(view[0]),end=coordinate(view[1]),position=start+fraction*(end-start);return distanceMode?distanceAxis!.atDistance(position):position}
+  const move=(event:PointerEvent<SVGSVGElement>)=>{const time=timeAt(event);setCursor(time);if(gesture.current)setSelection([gesture.current.time,time])}
+  const down=(event:PointerEvent<SVGSVGElement>)=>{if(event.button!==0)return;effortEdited.current=true;draggedChart.current=false;event.currentTarget.setPointerCapture(event.pointerId);const time=timeAt(event);gesture.current={x:event.clientX,time};setSelection([time,time]);setSelected("")}
+  const up=(event:PointerEvent<SVGSVGElement>)=>{const active=gesture.current;if(!active)return;const time=timeAt(event),moved=Math.abs(event.clientX-active.x)>5;if(moved){draggedChart.current=true;window.setTimeout(()=>{draggedChart.current=false},0)}if(moved&&Math.abs(time-active.time)>=2)selectRange(active.time,time);gesture.current=null;setSelection(null);if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId)}
   if(error&&!data)return <div role="alert" className={`flex min-h-[350px] items-center justify-center gap-3 border p-4 text-sm ${!comparisonMode?"md:min-h-[682px]":""}`}><span>{error}</span><Button variant="outline" size="sm" onClick={()=>setRetry(value=>value+1)}>Retry</Button></div>
   if(!data){
     if(mobile||comparisonMode)return <ChartSkeleton className="border" />
-    return <section aria-label="Loading recorded workout analysis" aria-busy="true" className="workout-analysis-desktop analysis-combined analysis-loading hidden min-w-0 md:block">
-      <section className="analysis-overview" aria-label="Workout overview">
-        <div className="analysis-route min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} compact/></div>
-      </section>
-      <ChartSkeleton className="analysis-charts"/>
-      <aside className="analysis-inspector" aria-label="Loading signal statistics"><ChartSkeleton className="analysis-statistics"/></aside>
-    </section>
+    return <WorkoutAnalysisSkeleton/>
   }
   if(!data.points.length||(!allSignalTracks.length&&!available.elevation&&!data.dfa))return <div className={`flex min-h-[350px] items-center justify-center border border-dashed p-5 text-sm text-muted-foreground ${!comparisonMode?"md:min-h-[682px]":""}`}>No recorded signal stream is available for this activity.</div>
   const effortPending=effortLoading||resolvedEffortKey!==effortIdentity
   const effortNotice=effortTarget?<div role="status" aria-live="polite" data-selected-activity-effort className="flex min-h-9 items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs"><span>{effortPending?"Finding exact selected effort…":effortMessage|| (visibleEffortRange?`Selected effort · ${clock(visibleEffortRange[0])}–${clock(visibleEffortRange[1])}`:"Exact recorded bounds are unavailable for this effort.")}</span>{!effortPending&&effortMessage&&<Button variant="outline" size="sm" onClick={()=>setEffortRetry(value=>value+1)}>Retry effort</Button>}</div>:null
   if(mobile)return <>{effortNotice}<MobileWorkoutSignals points={data.points} laps={data.laps} duration={duration} sport={sport} summary={totals} dfa={data.dfa} highlightRange={effortMessage?null:visibleEffortRange} onLapSelect={lap=>setSelected(lap?.id||"")} afterLaps={<WorkoutMapSplits workout={workout} analysis={data}/>}/></>
   const height=comparisonMode?176:250,graphHeight=comparisonMode?142:214
-  const elevationValues=elevationProfile.map(point=>point.smoothedElevation).filter(finite),elevationMin=elevationValues.reduce((a,b)=>Math.min(a,b),Infinity),elevationMax=elevationValues.reduce((a,b)=>Math.max(a,b),-Infinity),elevationSpan=Math.max(1,elevationMax-elevationMin),elevationY=(entry:number)=>92-(entry-elevationMin)/elevationSpan*66
-  let fullElevationPath="",previousElevation=false
-  for(const point of elevationProfile){if(point.smoothedElevation==null){previousElevation=false;continue}fullElevationPath+=`${previousElevation?"L":"M"}${x(point.time,true).toFixed(1)},${elevationY(point.smoothedElevation).toFixed(1)} `;previousElevation=true}
-  const plannedProfilePath=plannedOverlay.map(point=>`${point.position===0?"M":"L"}${(plotLeft+point.position*plotWidth).toFixed(1)},${(92-(.12+point.intensity*.76)*66).toFixed(1)}`).join(" ")
-  const plannedProfileFill=plannedProfilePath?`${plannedProfilePath} L${plotRight},92 L${plotLeft},92 Z`:""
   const distancePoints=data.points.filter(point=>finite(point.distance)),firstRecordedDistance=distancePoints[0]?.distance??0
   const axisLabels=(start:number,end:number)=>Array.from({length:6},(_,index)=>{
     const time=start+(end-start)*index/5,point=distancePoints.reduce<Point|null>((best,entry)=>!best||Math.abs(entry.time-time)<Math.abs(best.time-time)?entry:best,null)
     if(!point||!finite(point.distance))return "—"
     const meters=Math.max(0,(distanceMode ? distanceAxis!.atTime(start)+(distanceAxis!.atTime(end)-distanceAxis!.atTime(start))*index/5 : point.distance)-firstRecordedDistance)
-    return swim?`${Math.round(recordedSwimYards(meters)).toLocaleString()} yd`:`${(meters/1609.344).toFixed(index===0?0:1)} mi`
+    return swim?`${Math.round(recordedSwimYards(meters)).toLocaleString()} yd`:`${(meters/1609.344).toFixed(index===0&&meters<.001?0:1)} mi`
   })
-  const overviewDistanceLabels=axisLabels(0,duration),viewDistanceLabels=axisLabels(viewStart,viewEnd)
+  const viewDistanceLabels=axisLabels(viewStart,viewEnd)
   const overviewDistance=totals?.distance_meters??wholeStats.distance,overviewSpeed=totals?.average_speed??wholeStats.speed
   const overviewPrimary=[
     {label:"Distance",value:overviewDistance!=null?(swim?`${Math.round(recordedSwimYards(overviewDistance)).toLocaleString()} yd`:`${(overviewDistance/1609.344).toFixed(2)} mi`):"—"},
@@ -441,32 +453,19 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
       ? swimIntervals.filter(interval=>interval.lap.end>viewStart&&interval.lap.start<viewEnd).map(interval=>value(interval.point,key)).filter((entry):entry is number=>entry!=null)
       : []
     const lapAveraged=intervalValues.length>0
-    const values=lapAveraged?intervalValues:visible.map(point=>value(point,key)).filter((entry):entry is number=>entry!=null)
+    const values=lapAveraged?intervalValues:[...visible.map(point=>value(point,key)).filter((entry):entry is number=>entry!=null),...(chartSamples.get(key)||[]).flat().map(point=>point.value)]
     const rawMin=values.length?values.reduce((a,b)=>Math.min(a,b),Infinity):0,rawMax=values.length?values.reduce((a,b)=>Math.max(a,b),-Infinity):1,padding=Math.max((rawMax-rawMin)*.08,key==="pace"?1:.5),domain=recordedChartDomain(rawMin,rawMax,key==="pace"),min=comparisonMode?rawMin-padding:domain.minimum,max=comparisonMode?rawMax+padding:domain.maximum,span=Math.max(1,max-min),top=12,graphBottom=height-12
     const average=key==="pace"?(activeStats.speed?paceDistance/activeStats.speed:null):key==="speed"?(activeStats.speed!=null?activeStats.speed*2.2369362920544:null):key==="power"?activeStats.power:key==="heartRate"?activeStats.heartRate:activeStats.cadence
     const livePoint=lapAveraged?swimIntervals.find(interval=>cursor!=null&&cursor>=interval.lap.start&&cursor<=interval.lap.end)?.point:nearest
     return {key,rawMin,rawMax,min,max,span,top,graphBottom,average,peak:key==="pace"?rawMin:rawMax,live:livePoint?value(livePoint,key):null,lapAveraged}
   })
   const toggleTrack=(key:string)=>setHiddenTracks(current=>current.includes(key)?current.filter(item=>item!==key):[...current,key])
-  const elevationPanel=!comparisonMode&&available.elevation&&!hiddenTracks.includes("elevation")?<section className="analysis-elevation" aria-label="Elevation profile">
-    <div className="analysis-elevation-heading"><span>Elevation <span className="text-muted-foreground">ft</span></span><span className="text-muted-foreground">Full workout · drag to select or pan</span></div>
-    <div className="relative">
-      <svg viewBox="0 0 1080 100" preserveAspectRatio="none" className="block h-20 w-full cursor-crosshair touch-none select-none" role="img" aria-label="Smoothed full workout elevation profile. Click to reset zoom." onClick={resetFromChartClick} onPointerDown={event=>down(event,true)} onPointerMove={event=>move(event,true)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}} onPointerLeave={()=>{if(!gesture.current)setCursor(null)}}>
-        {[0,.5,1].map(fraction=><line key={fraction} x1={plotLeft} x2={plotRight} y1={92-fraction*66} y2={92-fraction*66} stroke="currentColor" opacity=".07"/>)}
-        {fullElevationPath&&<path d={`${fullElevationPath}L${plotRight},92 L${plotLeft},92 Z`} fill="#94a3b8" fillOpacity=".4" stroke="#64748b" strokeWidth="1.5" strokeLinejoin="round"/>}
-        {highlight&&<rect x={x(highlight.start,true)} y="14" width={Math.max(2,x(highlight.end,true)-x(highlight.start,true))} height="78" fill="#0284c7" fillOpacity=".16"/>}
-        {selection&&<rect x={Math.min(x(selection[0],true),x(selection[1],true))} y="14" width={Math.abs(x(selection[1],true)-x(selection[0],true))} height="78" fill="#0284c7" fillOpacity=".14"/>}
-      </svg>
-      {plannedProfilePath&&<svg viewBox="0 0 1080 100" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 block h-20 w-full" aria-hidden="true"><path d={plannedProfileFill} fill="#38bdf8" fillOpacity=".035"/><path d={plannedProfilePath} fill="none" stroke="#0284c7" strokeWidth="2" strokeOpacity=".3" strokeLinejoin="round"/></svg>}
-    </div>
-    <DistanceAxis labels={overviewDistanceLabels}/>
-  </section>:null
   return <>
     {effortNotice}
     <section ref={analysisRoot} aria-label="Recorded workout analysis" data-selected-effort-start={selected==="requested-effort"?range?.[0]:undefined} data-selected-effort-end={selected==="requested-effort"?range?.[1]:undefined} className={`workout-analysis-desktop hidden min-w-0 space-y-3 md:block ${comparisonMode?"workout-analysis-comparison":"analysis-combined"}`}>
       {!comparisonMode&&<section className={`analysis-overview grid ${routePoints.length>1||swim?"analysis-overview-with-map lg:grid-cols-2":"grid-cols-1"}`} aria-label="Workout overview">
         {!swim||routePoints.length>1
-          ? <div className="analysis-route min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} timedPoints={routePoints} highlightRange={highlight?[highlight.start,highlight.end]:null} cursorPoint={routeCursorPoint} compact/></div>
+          ? <div className="analysis-route min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Activity route map"><DesktopWorkoutRouteMap workout={workout} timedPoints={routePoints} highlightRange={highlight?[highlight.start,highlight.end]:null} cursorPoint={routeCursorPoint} onCursorTimeChange={setCursor} compact/></div>
           : swim
             ? <div className="analysis-route relative min-w-0 border-b lg:border-r lg:border-b-0" aria-label="Approximate pool workout area"><MapboxRouteMap points={noRoutePoints} center={cypressCenter} interactive={false} className="relative min-h-[300px] w-full bg-muted/25 lg:h-full"/><span className="pointer-events-none absolute top-3 left-3 rounded-md border bg-background/90 px-2.5 py-1.5 text-xs font-medium shadow-sm">Cypress, Texas · approximate area</span></div>
             : null}
@@ -477,7 +476,12 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
 
         <div className="min-w-0">
           <section className={comparisonMode?"min-w-0":"analysis-charts min-w-0"} aria-label="Workout charts and selected-range summary">
-          {!comparisonMode&&<div className="analysis-chart-heading"><div className="analysis-axis-controls" aria-label="Chart horizontal axis"><button type="button" aria-pressed={!distanceMode} onClick={()=>setChartAxis("time")}>Time</button><button type="button" aria-pressed={distanceMode} disabled={!distanceAxis} onClick={()=>setChartAxis("distance")}>Dist</button></div><input className="analysis-smoothing" type="range" min="0" max="30" step="1" aria-label="Graph smoothing in seconds" aria-valuetext={`${smoothing} seconds`} title={`Graph smoothing: ${smoothing} seconds`} value={smoothing} onChange={event=>setSmoothing(Number(event.target.value))}/><div className="analysis-signal-controls" aria-label="Show or hide recorded signals">{allSignalTracks.map(key=><button key={key} type="button" aria-label={`${label(key)} graph`} aria-pressed={!hiddenTracks.includes(key)} title={`Show or hide ${label(key).toLowerCase()}`} onClick={()=>toggleTrack(key)} style={{"--signal-color":recordedSignalInfo(key,sport).color} as CSSProperties}>{key==="heartRate"?"BPM":key==="power"?"W":key==="cadence"?(swim||run?"SPM":"RPM"):key==="speed"?"MPH":key==="elevation"?"FT":label(key)}</button>)}</div></div>}
+          {!comparisonMode&&<div className="analysis-chart-heading"><div className="analysis-axis-controls" aria-label="Chart horizontal axis"><button type="button" aria-pressed={!distanceMode} onClick={()=>setChartAxis("time")}>Time</button><button type="button" aria-pressed={distanceMode} disabled={!distanceAxis} onClick={()=>setChartAxis("distance")}>Dist</button></div>
+            <div className="analysis-zoom-controls" aria-label="Chart zoom">
+              <button type="button" disabled={!canZoom} aria-label="Zoom to selected range" onClick={zoomToSelection}>Zoom</button>
+              <button type="button" disabled={!range} aria-label="Unzoom to full workout" onClick={unzoom}>Unzoom</button>
+            </div>
+            <input className="analysis-smoothing" type="range" min="0" max="30" step="1" aria-label="Graph smoothing in seconds" aria-valuetext={`${smoothing} seconds`} title={`Graph smoothing: ${smoothing} seconds`} value={smoothing} onChange={event=>setSmoothing(Number(event.target.value))}/><div className="analysis-signal-controls" aria-label="Show or hide recorded signals">{allSignalTracks.map(key=><button key={key} type="button" aria-label={`${label(key)} graph`} aria-pressed={!hiddenTracks.includes(key)} title={`Show or hide ${label(key).toLowerCase()}`} onClick={()=>toggleTrack(key)} style={{"--signal-color":recordedSignalInfo(key,sport).color} as CSSProperties}>{key==="heartRate"?"BPM":key==="power"?"W":key==="cadence"?(swim||run?"SPM":"RPM"):key==="speed"?"MPH":key==="elevation"?"FT":label(key)}</button>)}</div></div>}
           {comparisonMode&&<div className="flex flex-wrap gap-2 border-b px-3 py-2" aria-label="Show or hide recorded signals">{allSignalTracks.map(key=><Button key={key} variant={hiddenTracks.includes(key)?"ghost":"outline"} size="sm" aria-pressed={!hiddenTracks.includes(key)} onClick={()=>setHiddenTracks(current=>current.includes(key)?current.filter(item=>item!==key):[...current,key])} className="gap-2"><span className="size-2.5 rounded-full" style={{backgroundColor:colors[key]}}/>{label(key)}{cursor!=null&&!hiddenTracks.includes(key)&&<span className="tabular-nums text-muted-foreground">{format(trackMetrics.find(metric=>metric.key===key)?.live,key)}</span>}</Button>)}</div>}
           {!comparisonMode&&<div className="analysis-timelines" aria-label="Laps and segments">
             <TimelineRow label="Laps" segments={laps} duration={duration} selected={selected} onSelect={selectSegment} onHover={setHovered} position={timelinePosition}/>
@@ -489,11 +493,13 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
           {!!signalTracks.length&&<div aria-label="Recorded signal graphs">
             <DistanceAxis labels={viewDistanceLabels} fullWidth={comparisonMode}/>
             <div className={comparisonMode?"relative":"analysis-signal-plot relative"}>
-              <svg viewBox={`0 0 1080 ${height}`} preserveAspectRatio="none" className={`block w-full cursor-crosshair touch-none select-none ${comparisonMode?"":"analysis-signal-svg"}`} style={{height}} role="img" aria-label="Recorded signals. Hover for live values, drag to zoom, click to reset, or use arrow keys to pan." tabIndex={0} onClick={resetFromChartClick} onKeyDown={event=>{if(!range||!["ArrowLeft","ArrowRight"].includes(event.key))return;event.preventDefault();setSelected("");const width=range[1]-range[0],start=Math.max(0,Math.min(duration-width,range[0]+width*.1*(event.key==="ArrowRight"?1:-1)));setRange([start,start+width])}} onPointerDown={event=>down(event)} onPointerMove={event=>move(event)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}} onPointerLeave={()=>{if(!gesture.current)setCursor(null)}}>
+              <svg viewBox={`0 0 1080 ${height}`} preserveAspectRatio="none" className={`block w-full cursor-crosshair touch-none select-none ${comparisonMode?"":"analysis-signal-svg"}`} style={{height}} role="img" aria-label={comparisonMode?"Recorded signals. Hover for live values, drag to zoom, click to reset, or use arrow keys to pan.":"Recorded signals. Hover for live values, drag to select, use Zoom to enlarge the selection, click to reset, or use arrow keys to pan."} tabIndex={0} onClick={resetFromChartClick} onKeyDown={event=>{if(!["ArrowLeft","ArrowRight","Home","End","Escape"].includes(event.key))return;event.preventDefault();if(event.key==="Escape"){setCursor(null);return}if(event.key==="Home"||event.key==="End"){setCursor(event.key==="Home"?view[0]:view[1]);return}if(!range){setCursor(current=>Math.max(0,Math.min(duration,(current??0)+duration/100*(event.key==="ArrowRight"?1:-1))));return}setSelected("");const width=range[1]-range[0],start=Math.max(0,Math.min(duration-width,range[0]+width*.1*(event.key==="ArrowRight"?1:-1)));setRange([start,start+width])}} onPointerDown={event=>down(event)} onPointerMove={event=>move(event)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}} onPointerLeave={()=>{if(!gesture.current)setCursor(null)}}>
+                <defs><clipPath id={plotClipId}><rect x={plotLeft} y={height-12-graphHeight} width={plotWidth} height={graphHeight}/></clipPath></defs>
+                <g clipPath={`url(#${plotClipId})`}>
                 {[...trackMetrics].sort((a,b)=>a.key==="elevation"?-1:b.key==="elevation"?1:0).map(metric=>{
                   const {key,top,graphBottom,min,max,span}=metric
                   const y=(entry:number)=>graphBottom-(key==="pace"?max-entry:entry-min)/span*graphHeight
-                  let path=""
+                  let path="",area=""
                   if(metric.lapAveraged){
                     for(const interval of swimIntervals){
                       const start=Math.max(viewStart,interval.lap.start),end=Math.min(viewEnd,interval.lap.end),entry=value(interval.point,key)
@@ -501,35 +507,33 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
                       path+=`M${x(start).toFixed(1)},${y(entry).toFixed(1)} L${x(end).toFixed(1)},${y(entry).toFixed(1)} `
                     }
                   }else{
-                    let previous=false
-                    const stride=Math.max(1,Math.floor(visible.length/1800))
-                    for(let index=0;index<visible.length;index+=stride){
-                      const point=visible[index],entry=chartSamples.get(key)?.get(index)??null
-                      if(entry==null){previous=false;continue}
-                      path+=`${previous?"L":"M"}${x(point.time).toFixed(1)},${y(entry).toFixed(1)} `
-                      previous=true
+                    for(const segment of chartSamples.get(key)||[]){
+                      const line=segment.map((point,index)=>`${index?"L":"M"}${x(point.time).toFixed(2)},${y(point.value).toFixed(2)}`).join(" ")
+                      path+=line+" "
+                      if(key==="elevation"&&segment.length>1)
+                        area+=`${line} L${x(segment.at(-1)!.time).toFixed(2)},${graphBottom} L${x(segment[0].time).toFixed(2)},${graphBottom} Z `
                     }
                   }
-                  return <g key={key} data-recorded-signal={key}>{metric===trackMetrics[0]&&<rect x={plotLeft} y={top} width={plotWidth} height={height-24} fill="currentColor" fillOpacity=".012"/>}{(metric===trackMetrics[0])&&[0,.5,1].map(fraction=><line key={fraction} x1={plotLeft} x2={plotRight} y1={graphBottom-fraction*graphHeight} y2={graphBottom-fraction*graphHeight} stroke="currentColor" opacity=".07"/>)}{(metric===trackMetrics[0])&&laps.filter(lap=>lap.start>=view[0]&&lap.start<=view[1]).map(lap=><line key={lap.id} x1={x(lap.start)} x2={x(lap.start)} y1={top} y2={height-12} stroke="currentColor" opacity=".1" strokeDasharray="3 3"/>)}<path d={key==="elevation"&&path&&visible.every(point=>value(point,key)!=null)?path+" L"+plotRight+","+graphBottom+" L"+plotLeft+","+graphBottom+" Z":path} fill={key==="elevation"&&visible.every(point=>value(point,key)!=null)?colors[key]:"none"} fillOpacity=".5" stroke={colors[key]} strokeWidth={comparisonMode?2:1.85} strokeLinejoin="round"/></g>
+                  return <g key={key} data-recorded-signal={key}>{metric===trackMetrics[0]&&<rect x={plotLeft} y={top} width={plotWidth} height={height-24} fill="currentColor" fillOpacity=".012"/>}{(metric===trackMetrics[0])&&[0,.5,1].map(fraction=><line key={fraction} x1={plotLeft} x2={plotRight} y1={graphBottom-fraction*graphHeight} y2={graphBottom-fraction*graphHeight} stroke="currentColor" opacity=".07"/>)}{(metric===trackMetrics[0])&&laps.filter(lap=>lap.start>=view[0]&&lap.start<=view[1]).map(lap=><line key={lap.id} x1={x(lap.start)} x2={x(lap.start)} y1={top} y2={height-12} stroke="currentColor" opacity=".1" strokeDasharray="3 3"/>)}{area&&<path data-elevation-fill d={area} fill={colors[key]} fillOpacity=".5" stroke="none"/>}<path d={path} fill="none" stroke={colors[key]} strokeWidth={comparisonMode?2:1.85} strokeLinejoin="round"/></g>
                 })}
-                {graphHover&&<rect x={x(graphHover.start)} y="0" width={Math.max(2,x(graphHover.end)-x(graphHover.start))} height={height} fill="#64748b" fillOpacity=".14"/>}{selection&&<rect x={Math.min(x(selection[0]),x(selection[1]))} y="0" width={Math.abs(x(selection[1])-x(selection[0]))} height={height} fill="currentColor" fillOpacity=".055"/>}{nearest&&<line x1={x(nearest.time)} x2={x(nearest.time)} y1="0" y2={height} stroke="currentColor" opacity=".4" strokeDasharray="3 3"/>}
+                {graphHighlight&&<rect className="analysis-range-highlight" x={x(graphHighlight.start)} y={height-12-graphHeight} width={Math.max(2,x(graphHighlight.end)-x(graphHighlight.start))} height={graphHeight} fill={comparisonMode?"currentColor":"#0284c7"} fillOpacity={comparisonMode?".055":".14"}/>}{nearest&&nearest.time>=viewStart&&nearest.time<=viewEnd&&<line x1={x(nearest.time)} x2={x(nearest.time)} y1={height-12-graphHeight} y2={height-12} stroke="currentColor" opacity=".4" strokeDasharray="3 3"/>}
+                </g>
               </svg>
               {!comparisonMode&&(["left","right"] as const).map(side=><div key={side} className={`analysis-overlay-axes analysis-overlay-axes-${side}`} aria-hidden="true">{trackMetrics.filter(metric=>["power","pace","dfaA1"].includes(metric.key)===(side==="left")).map(metric=><div key={metric.key} style={{color:colors[metric.key]}}><span className="analysis-axis-unit">{metric.key==="cadence"?(swim||run?"spm":"rpm"):metric.key==="pace"?"pace":unit(metric.key)}</span><div><span>{format(metric.key==="pace"?metric.min:metric.max,metric.key)}</span><span>{format((metric.min+metric.max)/2,metric.key)}</span><span>{format(metric.key==="pace"?metric.max:metric.min,metric.key)}</span></div></div>)}</div>)}
             </div>
-            {!comparisonMode&&<><div className="analysis-time-axis" aria-label={distanceMode?"Recorded distance axis":"Elapsed time axis"}>{Array.from({length:6},(_,index)=><span key={index}>{distanceMode?viewDistanceLabels[index]:clock(viewStart+(viewEnd-viewStart)*index/5)}</span>)}</div><p className="analysis-chart-help">Hover to inspect · drag to zoom · click to reset</p></>}
-            {!comparisonMode&&range&&(!available.elevation||hiddenTracks.includes("elevation"))&&<div className="border-t px-4 py-1" aria-label="Pan selected chart range"><svg viewBox="0 0 1080 22" preserveAspectRatio="none" className="block h-6 w-full cursor-grab touch-none active:cursor-grabbing" role="slider" aria-label="Click to reset zoom or drag the selected range to pan" aria-valuemin={0} aria-valuemax={Math.round(duration)} aria-valuenow={Math.round(view[0])} aria-valuetext={`${clock(view[0])} to ${clock(view[1])}`} onClick={resetFromChartClick} onPointerDown={event=>down(event,true)} onPointerMove={event=>move(event,true)} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;setSelection(null)}}><rect x={plotLeft} y="8" width={plotWidth} height="6" rx="3" fill="currentColor" opacity=".08"/><rect x={x(view[0],true)} y="5" width={Math.max(8,x(view[1],true)-x(view[0],true))} height="12" rx="3" fill="#64748b" fillOpacity=".35" stroke="#475569" strokeWidth="1"/></svg></div>}
+            {!comparisonMode&&<><div className="analysis-time-axis" aria-label={distanceMode?"Recorded distance axis":"Elapsed time axis"}>{Array.from({length:6},(_,index)=><span key={index}>{distanceMode?viewDistanceLabels[index]:clock(viewStart+(viewEnd-viewStart)*index/5)}</span>)}</div><p className="analysis-chart-help">Hover to inspect · drag to select · Zoom to enlarge · click to reset</p></>}
           </div>}
-          {elevationPanel}
           </section>
         </div>
       </div>
       </div>
-      {!comparisonMode&&<div className="analysis-inspector"><WorkoutSignalStatistics rows={signalStatistics} sport={sport} rangeLabel={range?`${selectedSegment?.label||"Selected range"} · ${clock(viewStart)}–${clock(viewEnd)}`:"Full workout"} cursor={nearest}/>{!comparisonMode&&<aside className="analysis-sidebar relative min-w-0" aria-label="Laps and peak efforts"><div className="analysis-sidebar-scroll">
-          <div className="analysis-selection-tabs" aria-label="Select analysis list"><button type="button" aria-pressed={selectionPanel==="laps"} onClick={()=>setSelectionPanel("laps")}>Laps</button><button type="button" aria-pressed={selectionPanel==="peaks"} onClick={()=>setSelectionPanel("peaks")}>Peak {effortMetric}</button></div>
-          {selectionPanel==="laps"&&<div className="analysis-lap-list"><button type="button" aria-pressed={!range} onClick={reset}><span>Entire workout</span><span>{clock(duration)}</span></button>{laps.map(lap=><button key={lap.id} type="button" aria-pressed={selected===lap.id} onPointerEnter={()=>setHovered(lap)} onPointerLeave={()=>setHovered(null)} onClick={()=>selectSegment(lap)}><span>{lap.label}</span><span>{clock(lap.end-lap.start)}</span></button>)}</div>}
+      {!comparisonMode&&<div className="analysis-inspector"><WorkoutSignalStatistics rows={signalStatistics} sport={sport} rangeLabel={analysisSelection?`${selectedSegment?.label||"Selected range"} · ${clock(statisticsStart)}–${clock(statisticsEnd)}`:"Full workout"} cursor={nearest} overview={inspectorOverview}/>{!comparisonMode&&<aside className="analysis-sidebar relative min-w-0" aria-label="Laps and peak efforts"><div className="analysis-sidebar-scroll">
+          <div className="analysis-selection-tabs" aria-label="Select analysis list"><button type="button" aria-pressed={selectionPanel==="laps"} onClick={()=>setSelectionPanel("laps")}>Laps</button><button type="button" aria-pressed={selectionPanel==="peaks"} onClick={()=>setSelectionPanel("peaks")}>Peak {effortMetric}</button>{(splits.length>0||terrain.length>0)&&<button type="button" aria-pressed={selectionPanel==="segments"} onClick={()=>setSelectionPanel("segments")}>Segments</button>}</div>
+          {selectionPanel==="laps"&&<div className="analysis-lap-list"><button type="button" aria-pressed={!analysisSelection} onClick={reset}><span>Entire workout</span><span>{clock(duration)}</span></button>{laps.map(lap=><button key={lap.id} type="button" aria-pressed={selected===lap.id} onPointerEnter={()=>setHovered(lap)} onPointerLeave={()=>setHovered(null)} onClick={()=>selectSegment(lap)}><span>{lap.label}</span><span>{clock(lap.end-lap.start)}</span></button>)}</div>}
+          {selectionPanel==="segments"&&<div className="analysis-lap-list analysis-segment-list">{[{label:"Splits",segments:splits},{label:"Terrain",segments:terrain}].filter(group=>group.segments.length).map(group=><section key={group.label} aria-label={group.label}><h3>{group.label}</h3>{group.segments.map(segment=><button key={segment.id} type="button" aria-pressed={selected===segment.id} onPointerEnter={()=>setHovered(segment)} onPointerLeave={()=>setHovered(null)} onClick={()=>selectSegment(segment)}><span>{segment.label}</span><span>{clock(segment.end-segment.start)}</span></button>)}</section>)}</div>}
           {selectionPanel==="peaks"&&<>
           <div className="analysis-peaks min-w-0">
-          <div className="border-b px-4 py-3"><h2 className="text-sm font-medium">Peak {effortMetric}</h2><p className="mt-0.5 text-[10px] text-muted-foreground">Hover to preview · click to zoom</p></div>
+          <div className="border-b px-4 py-3"><h2 className="text-sm font-medium">Peak {effortMetric}</h2><p className="mt-0.5 text-[10px] text-muted-foreground">Hover to preview · click to select · Zoom to enlarge</p></div>
           <div className="py-1">{peaks.map(effort=><button key={effort.id} type="button" aria-pressed={selected===effort.id} onPointerEnter={()=>setHovered(effort)} onPointerLeave={()=>setHovered(current=>current?.id===effort.id?null:current)} onFocus={()=>setHovered(effort)} onBlur={()=>setHovered(current=>current?.id===effort.id?null:current)} onClick={()=>selectSegment(effort)} className={`flex min-h-9 w-full items-center justify-between gap-3 px-4 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${selected===effort.id?"bg-muted":""}`}><span>{effort.label}</span><span className="tabular-nums">{effort.metric==="pace"?`${pace(effort.value)} ${unit("pace")}`:`${Math.round(effort.value)} W`}</span></button>)}</div>
         </div></>}
         </div></aside>}</div>}

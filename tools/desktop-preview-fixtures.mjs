@@ -150,7 +150,7 @@ export function createDesktopPreviewFixtures(now = new Date(), { gps = false } =
   const anchor = new Date(`${today}T12:00:00Z`);
   anchor.setUTCDate(anchor.getUTCDate() - ((anchor.getUTCDay() + 6) % 7));
   const monday = dateKey(anchor),
-    version = `local-preview-${today}`;
+    version = `local-preview-${today}-${now.getTime()}`;
   const rows = (start, end) => {
     const result = [];
     const first = new Date(`${start}T12:00:00Z`);
@@ -238,6 +238,11 @@ export function createDesktopPreviewFixtures(now = new Date(), { gps = false } =
         time_zone: "America/Chicago",
         phase: "Build",
         zones: { bike_ftp: 250, run_threshold_pace: "7:15", swim_css: "1:45", threshold_hr: 167 },
+        sport_settings: [
+          { types: ["Ride", "Bike", "VirtualRide"], ftp: 250, power_zones: [55, 75, 90, 105, 120, 150, 999] },
+          { types: ["Run"], threshold_pace: 1609.344 / 435, pace_zones: [80, 90, 95, 100, 110, 999] },
+          { types: ["Swim"], threshold_pace: 91.44 / 105, pace_zones: [80, 90, 95, 100, 110, 999] },
+        ],
       },
       metrics: { fitness: 64, fatigue: 70, form: -6 },
       wellness: { hrv: 58, resting_hr: 48, sleep: 28800 },
@@ -248,6 +253,9 @@ export function createDesktopPreviewFixtures(now = new Date(), { gps = false } =
         sleepSecs: 28800,
         sleepScore: 86,
         sleepQuality: 4,
+        ctl: 64 + index - 13,
+        atl: 70 + (index - 13) * 2,
+        tsb: -6 - (index - 13),
       })),
       planned: workouts,
       history: workouts.filter((row) => row.status === "completed"),
@@ -331,8 +339,7 @@ export function createDesktopPreviewFixtures(now = new Date(), { gps = false } =
         : undefined;
     return native && workout ? { ...workout, id: `activity:${id}`, activity_id: id } : workout;
   };
-  const analysis = (id) => {
-    const workout = lookup(id);
+  const analysisForWorkout = (workout) => {
     if (!workout?.workout_summary.completed) return null;
     const values = workout.workout_summary.completed,
       duration = values.duration_seconds,
@@ -352,7 +359,7 @@ export function createDesktopPreviewFixtures(now = new Date(), { gps = false } =
             ? Math.round(84 + 6 * Math.sin(index / 9))
             : Math.round(165 + 5 * Math.sin(index / 9)),
           power: bike ? Math.round(184 + 37 * Math.sin(index / 19)) : null,
-          elevation: workout.sport === "Swim" ? null : 180 + 24 * Math.sin(index / 31),
+          elevation: workout.sport === "Swim" ? null : 180 + 50 * Math.sin(index / 31),
           ...(gps && workout.sport !== "Swim" ? {
             latitude: 30 + .018 * Math.sin(fraction * Math.PI * 2),
             longitude: -95.66 + .025 * Math.cos(fraction * Math.PI * 2),
@@ -373,6 +380,7 @@ export function createDesktopPreviewFixtures(now = new Date(), { gps = false } =
       intervals: [],
     };
   };
+  const analysis = (id) => analysisForWorkout(lookup(id));
   const events = [
     {
       id: "preview-race",
@@ -491,6 +499,7 @@ export function createDesktopPreviewFixtures(now = new Date(), { gps = false } =
     nutrition,
     lookup,
     analysis,
+    analysisForWorkout,
     events,
     annualPlans: { plans: [plan], activeId: plan.id },
   };

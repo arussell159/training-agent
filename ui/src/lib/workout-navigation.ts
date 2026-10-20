@@ -1,5 +1,5 @@
 import type { PlannedWorkout } from "@/lib/training-context"
-import { validatedTrainingWorkout } from "./training-context-validation.ts"
+import { validatedTrainingWorkout,validatedLibraryWorkout } from "./training-context-validation.ts"
 import { clearActivityEffortParams, ACTIVITY_EFFORT_SELECTION_EVENT } from "./activity-effort-navigation.ts"
 
 const STORAGE_KEY = "training-agent-open-workout-v1"
@@ -24,7 +24,7 @@ export function restoreOpenWorkout(candidates: unknown[] = []) {
   )
   if (current) {
     try {
-      return validatedTrainingWorkout(current)
+      return id.startsWith("library:")?validatedLibraryWorkout(current):validatedTrainingWorkout(current)
     } catch {
       /* Try the saved snapshot next. */
     }
@@ -33,7 +33,7 @@ export function restoreOpenWorkout(candidates: unknown[] = []) {
     const saved = JSON.parse(
       sessionStorage.getItem(STORAGE_KEY) || "null"
     ) as PlannedWorkout | null
-    return saved?.id === id ? validatedTrainingWorkout(saved) : null
+    return saved?.id === id ? id.startsWith("library:")?validatedLibraryWorkout(saved):validatedTrainingWorkout(saved) : null
   } catch {
     return null
   }

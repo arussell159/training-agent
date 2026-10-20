@@ -1,13 +1,19 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { apiFetch } from "@/lib/api-client"
-import { randomId } from "@/lib/random-id"
+import { cachedWorkoutValues, loadWorkoutValues, clearWorkoutReads } from "@/lib/workout-read-cache"
+import { Skeleton } from "./ui/skeleton"
+import {
+  useWorkoutTextDraft,
+  type WorkoutTextDraft,
+} from "@/hooks/use-workout-text-draft"
 import {
   cachedActivitySummary,
   loadActivitySummary,
 } from "@/lib/activity-analysis"
 import {
   savePlannedWorkoutValues,
+  beginWorkoutSaveFeedback,
+  trainingCacheScope,
   type PlannedWorkout,
   type WorkoutSummaryValues,
 } from "@/lib/training-context"
@@ -16,106 +22,65 @@ import {
   formatPlannedValue,
   plannedValueDraft,
   plannedValueRows,
+  mergeLoadedPlannedDraft,
+  updatePlannedValueDraft,
 } from "@/lib/planned-workout-values"
-import { WorkoutDescription } from "@/components/workout-description"
 import "./desktop-workout-details.css"
 import type { DesktopWorkoutMetadata } from "./desktop-workout-header"
+import { readWorkoutSaveDraft, retainWorkoutSaveDraft, clearWorkoutSaveDraft, validPlannedSaveDraft, type PlannedSaveDraft } from "@/lib/workout-save-drafts"
+import {
+  useWorkoutPersonalFields,
+  WorkoutDescriptionInput,
+  WorkoutDetailNavigation,
+  WorkoutEquipment,
+  WorkoutPersonalNotes,
+  WorkoutAttachments,
+} from "./desktop-workout-personal-fields"
 type DetailOptions = {
   metadata?: DesktopWorkoutMetadata
   onClose?: () => void
   onDelete?: () => void
   footerTarget?: HTMLElement | null
+  commentsTarget?: HTMLElement | null
   onBusyChange?: (busy: boolean) => void
 }
 
-interface Comment {
-  id: string
-  body: string
-  workout_id: string
-  type?: string
-  comment_type?: string
-  created_at: string
-}
 function PlannedComments({
-  workoutId,
-  type = "pre",
+  text,
+  busy,
+  showEmpty = false,
 }: {
-  workoutId: string
-  type?: "pre" | "post"
+  text: WorkoutTextDraft
+  busy: boolean
+  showEmpty?: boolean
 }) {
-  const [comments, setComments] = useState<Comment[]>([]),
-    [draft, setDraft] = useState("")
-  const [creationId, setCreationId] = useState(randomId),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState("")
-  useEffect(() => {
-    const controller = new AbortController()
-    void apiFetch(`/api/comments?${new URLSearchParams({ workoutId })}`, {
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const data = await response.json()
-        if (!response.ok || !Array.isArray(data.comments))
-          throw Error(data.error || "Comments could not be loaded.")
-        if (!controller.signal.aborted) setComments(data.comments)
-      })
-      .catch((e) => {
-        if (!controller.signal.aborted) setError(e.message)
-      })
-    return () => controller.abort()
-  }, [workoutId])
-  const add = async () => {
-    setBusy(true)
-    setError("")
-    try {
-      const response = await apiFetch("/api/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workoutId,
-          body: draft,
-          type,
-          creationId,
-        }),
-        signal: AbortSignal.timeout(30_000),
-      })
-      const comment = (await response.json()) as Comment & { error?: string }
-      if (
-        !response.ok ||
-        !comment.id ||
-        comment.workout_id !== workoutId ||
-        comment.body !== draft.trim()
-      )
-        throw Error(
-          comment.error ||
-            "The comment save could not be confirmed. Your draft is retained."
-        )
-      setComments((previous) => [
-        comment,
-        ...previous.filter((item) => item.id !== comment.id),
-      ])
-      setDraft("")
-      setCreationId(randomId())
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : "The comment save could not be confirmed."
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
   return (
     <section
       className="desktop-planned-comments"
       aria-label={
-        type === "pre" ? "Planned workout comments" : "Post-activity comments"
+        text.type === "pre"
+          ? "Planned workout comments"
+          : "Post-activity comments"
       }
     >
-      <h3>{type === "pre" ? "Comments" : "Post-activity Comments"}</h3>
-      {comments
-        .filter((item) => (item.type || item.comment_type) === type)
+      <h3>Post-activity Comments</h3>
+      {text.commentsLoading && !text.comments.length && (
+        <div
+          role="status"
+          aria-label="Loading workout comments"
+          className="space-y-2 py-2"
+        >
+          <Skeleton className="h-3 w-4/5" />
+          <Skeleton className="h-3 w-3/5" />
+        </div>
+      )}
+      {showEmpty &&
+        !text.commentsLoading &&
+        !text.comments.some(
+          (item) => (item.type || item.comment_type) === text.type
+        ) && <p className="a360-no-comments">No comments just yet</p>}
+      {text.comments
+        .filter((item) => (item.type || item.comment_type) === text.type)
         .map((comment) => (
           <article key={comment.id}>
             <p>{comment.body}</p>
@@ -131,27 +96,20 @@ function PlannedComments({
         ))}
       <textarea
         aria-label={
-          type === "pre"
+          text.type === "pre"
             ? "New planned workout comment"
             : "New post-activity comment"
         }
         placeholder="Enter a new comment"
         maxLength={2000}
-        value={draft}
+        value={text.comment}
         disabled={busy}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(event) => text.setComment(event.target.value)}
       />
       <div className="desktop-workout-detail-actions">
-        <button
-          type="button"
-          disabled={busy || !draft.trim()}
-          onClick={() => void add()}
-        >
-          {busy ? "Saving…" : "Add comment"}
-        </button>
-        <span>{draft.length} / 2000</span>
+        <span>{text.comment.length} / 2000</span>
       </div>
-      {error && <p role="alert">{error}</p>}
+      {text.commentsError && <p role="alert">{text.commentsError}</p>}
     </section>
   )
 }
@@ -164,20 +122,30 @@ function PlannedTotals({
   onDelete,
   footerTarget,
   onBusyChange,
+  text,
+  personal,
 }: {
+  text: WorkoutTextDraft
+  personal: ReturnType<typeof useWorkoutPersonalFields>
   workout: PlannedWorkout
   readOnly: boolean
 } & DetailOptions) {
   const editable = /^event:[1-9]\d*$/.test(workout.id) && !readOnly
+  const [scope] = useState(trainingCacheScope)
+  const [recovered] = useState(() => readWorkoutSaveDraft<PlannedSaveDraft>(scope, workout.id, "totals",validPlannedSaveDraft)?.value)
   const [saved, setSaved] = useState(() =>
-    plannedValueDraft(workout.workout_summary?.planned, workout.sport)
+    plannedValueDraft(cachedWorkoutValues(workout.id)?.workout.workout_summary?.planned || workout.workout_summary?.planned, workout.sport)
   )
-  const [draft, setDraft] = useState(saved),
-    [revision, setRevision] = useState("")
-  const [busy, setBusy] = useState(false),
-    [loading, setLoading] = useState(editable),
+  const [draft, setDraft] = useState(() => ({...saved, ...Object.fromEntries(Object.entries(recovered?.values || {}).map(([key,value]) => [key,formatPlannedValue(key as Parameters<typeof formatPlannedValue>[0],value,workout.sport)]))})),
+    [revision, setRevision] = useState(() => cachedWorkoutValues(workout.id)?.revision || "")
+  const [localBusy, setBusy] = useState(false),
+    [loading, setLoading] = useState(editable && !cachedWorkoutValues(workout.id)),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("")
+  const busy = localBusy || personal.busy || Boolean(workout.app_pending_operation)
+  const saving = useRef(false)
+  const savedRef = useRef(saved)
+  savedRef.current = saved
   useEffect(() => {
     onBusyChange?.(busy)
     return () => onBusyChange?.(false)
@@ -208,24 +176,19 @@ function PlannedTotals({
   const load = useCallback(
     async (signal?: AbortSignal) => {
       if (!editable) return
-      setLoading(true)
+      const beforeRead = savedRef.current
+      setLoading(!cachedWorkoutValues(workout.id))
       setError("")
       setNotice("")
       try {
-        const response = await apiFetch(
-          `/api/workouts/${encodeURIComponent(workout.id)}/planned-values`,
-          { signal }
-        )
-        const data = await response.json()
-        if (!response.ok || !data.revision || data.workout?.id !== workout.id)
-          throw Error(data.error || "Planned values could not be loaded.")
+        const data = await loadWorkoutValues(workout.id, signal)
         if (signal?.aborted) return
         const next = plannedValueDraft(
           data.workout.workout_summary?.planned,
           workout.sport
         )
         setSaved(next)
-        setDraft(next)
+        setDraft(current => mergeLoadedPlannedDraft(current, beforeRead, next))
         setRevision(data.revision)
       } catch (e) {
         if (!signal?.aborted)
@@ -257,15 +220,8 @@ function PlannedTotals({
       setLoading(true)
       void (async () => {
         try {
-          const response = await apiFetch(
-            `/api/workouts/${encodeURIComponent(workout.id)}/planned-values`,
-            { signal: request.signal }
-          )
-          const data = await response.json()
-          if (!response.ok || !data.revision || data.workout?.id !== workout.id)
-            throw Error(
-              data.error || "Saved workout values could not be refreshed."
-            )
+          clearWorkoutReads()
+          const data = await loadWorkoutValues(workout.id, request.signal)
           if (request.signal.aborted) return
           const next = plannedValueDraft(
             data.workout.workout_summary?.planned,
@@ -324,68 +280,97 @@ function PlannedTotals({
         )
       )
     : {}
-  const dirty =
+  const valuesDirty =
     Object.keys(metadataPatch).length > 0 ||
     plannedValueRows(workout.sport).some(({ key }) => draft[key] !== saved[key])
+  const dirty = valuesDirty || text.dirty || personal.dirty
+  const canSave = editable || text.editable || !readOnly
   const save = async (close = false) => {
+    if (saving.current || (valuesDirty && editable && (loading || !revision))) return
+    // Validate before dismissing. The async request and global feedback survive
+    // unmounting this form; a failed attempt is restored when it is reopened.
+    let values: ReturnType<typeof changedPlannedValues>
+    try { values = valuesDirty && editable ? changedPlannedValues(draft, saved, workout.sport) : {} }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Check the planned values."); return }
+    saving.current = true
     setBusy(true)
     setError("")
     setNotice("")
+    const feedback=beginWorkoutSaveFeedback(true,workout.id)
+    let warning: string | undefined
     try {
-      const values = changedPlannedValues(draft, saved, workout.sport)
-      const result = await savePlannedWorkoutValues(
-        workout.id,
-        values,
-        revision,
-        metadataPatch
-      )
-      const next = plannedValueDraft(
-        result.workout.workout_summary?.planned,
-        workout.sport
-      )
-      setSaved(next)
-      setDraft(next)
-      setRevision(result.revision)
-      setNotice(result.refreshWarning || "Saved to Intervals.icu")
+      if (personal.dirty) await personal.save()
+      text.retain()
+      const token = valuesDirty && editable ? retainWorkoutSaveDraft(scope,workout.id,"totals",{values,metadata:metadataPatch}) : undefined
+      const pending = valuesDirty && editable ? savePlannedWorkoutValues(workout.id,values,revision,metadataPatch,{feedback:false}) : undefined
       if (close) onClose?.()
+      if (valuesDirty && editable) {
+        const result = (await pending)!
+        clearWorkoutSaveDraft(scope,workout.id,"totals",token)
+        const next = plannedValueDraft(
+          result.workout.workout_summary?.planned,
+          workout.sport
+        )
+        setSaved(next)
+        setDraft(next)
+        setRevision(result.revision)
+        warning=result.refreshWarning
+      }
+      await text.save({feedback:false})
+      if (editable && text.dirty && !close) await load()
+      setNotice(warning || "Saved")
+      feedback.confirm(warning)
     } catch (e) {
+      feedback.fail(close ? new Error(`${e instanceof Error ? e.message : "The save could not be confirmed."} Reopen the workout to review your retained draft.`) : e)
       setError(
         e instanceof Error ? e.message : "Planned values could not be saved."
       )
     } finally {
+      saving.current = false
       setBusy(false)
     }
   }
   const footer = onClose ? (
     <footer className="desktop-workout-dialog-footer">
+      {editable && <label className="desktop-workout-auto-calculate">
+        <input type="checkbox" checked={personal.value.autoCalculate} disabled={busy} onChange={event => personal.setValue({ ...personal.value, autoCalculate: event.target.checked })} />
+        Automatically calculate planned values
+      </label>}
+      {error && footerTarget && (
+        <p role="alert" className="desktop-workout-save-error">
+          {error}
+        </p>
+      )}
       {onDelete && (
         <button type="button" disabled={busy || loading} onClick={onDelete}>
           Delete
         </button>
       )}
-      {editable && <button type="button" disabled={busy} onClick={onClose}>
-        Cancel
-      </button>}
-      {editable && (
+      {canSave && (
+        <button type="button" disabled={busy} onClick={() => {clearWorkoutSaveDraft(scope,workout.id,"totals");text.discardDraft();personal.discard();onClose()}}>
+          Cancel
+        </button>
+      )}
+      {canSave && (
         <>
           <button
             type="submit"
             form={`desktop-totals-${workout.id}`}
-            disabled={busy || loading || !revision || !dirty}
+            disabled={busy || !dirty || (valuesDirty && editable && (loading || !revision))}
           >
             {busy ? "Saving…" : "Save"}
           </button>
           <button
             type="button"
             className="desktop-workout-save-close"
-            disabled={busy || (dirty && (loading || !revision))}
+            disabled={busy || (valuesDirty && editable && (loading || !revision))}
             onClick={() => (dirty ? void save(true) : onClose())}
           >
             Save &amp; Close
           </button>
         </>
       )}
-      {!editable && (
+      {!canSave && (
         <button
           type="button"
           className="desktop-workout-save-close"
@@ -405,7 +390,13 @@ function PlannedTotals({
         id={`desktop-totals-${workout.id}`}
         onSubmit={(e) => {
           e.preventDefault()
-          if (dirty && editable && revision && !busy && !loading) void save()
+          if (
+            dirty &&
+            canSave &&
+            !busy &&
+            !(valuesDirty && (loading || !revision))
+          )
+            void save()
         }}
       >
         <table>
@@ -427,30 +418,56 @@ function PlannedTotals({
             {plannedValueRows(workout.sport).map(({ key, label, unit }) => (
               <tr key={key}>
                 <th scope="row">
-                  <label className={editable && key !== "normalized_power" ? "desktop-editable-metric" : undefined} htmlFor={`${workout.id}-${key}`}>{label}</label>
+                  <label
+                    className={
+                      editable && key !== "normalized_power"
+                        ? "desktop-editable-metric"
+                        : undefined
+                    }
+                    htmlFor={`${workout.id}-${key}`}
+                  >
+                    {label}
+                  </label>
                 </th>
                 <td>
-                  {editable ? <input
-                    id={`${workout.id}-${key}`}
-                    aria-label={`Planned ${label.toLowerCase()}`}
-                    value={draft[key] || ""}
-                    readOnly={!editable || key === "normalized_power"}
-                    disabled={editable && (busy || loading || !revision)}
-                    inputMode={
-                      key === "duration_seconds" || key === "average_speed"
-                        ? "text"
-                        : "decimal"
-                    }
-                    title={key === "normalized_power" ? "Calculated from planned intervals" : `Edit planned ${label.toLowerCase()}`}
-                    onFocus={(event) => event.currentTarget.select()}
-                    onChange={(e) => {
-                      setDraft({ ...draft, [key]: e.target.value })
-                      setNotice("")
-                    }}
-                  /> : <output className="desktop-recorded-value" aria-label={`Planned ${label.toLowerCase()}`}>{draft[key] || "—"}</output>}
+                  {editable ? (
+                    <input
+                      id={`${workout.id}-${key}`}
+                      aria-label={`Planned ${label.toLowerCase()}`}
+                      value={draft[key] || ""}
+                      readOnly={!editable || key === "normalized_power"}
+                      disabled={editable && busy}
+                      inputMode={
+                        key === "duration_seconds" || key === "average_speed"
+                          ? "text"
+                          : "decimal"
+                      }
+                      title={
+                        key === "normalized_power"
+                          ? "Calculated from planned intervals"
+                          : `Edit planned ${label.toLowerCase()}`
+                      }
+                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        setDraft(current => updatePlannedValueDraft(current,key,value,workout.sport,personal.value.autoCalculate))
+                        setNotice("")
+                      }}
+                    />
+                  ) : (
+                    <output
+                      className="desktop-recorded-value"
+                      aria-label={`Planned ${label.toLowerCase()}`}
+                    >
+                      {draft[key] || "—"}
+                    </output>
+                  )}
                 </td>
                 <td>
-                  <output className="desktop-recorded-value" aria-label={`Completed ${label.toLowerCase()}`}>
+                  <output
+                    className="desktop-recorded-value"
+                    aria-label={`Completed ${label.toLowerCase()}`}
+                  >
                     {formatPlannedValue(
                       key,
                       completed[key],
@@ -464,21 +481,23 @@ function PlannedTotals({
             ))}
           </tbody>
         </table>
-        {editable && !onClose && (
+        {canSave && !onClose && (
           <div className="desktop-workout-detail-actions">
             <button
               type="submit"
-              disabled={busy || loading || !revision || !dirty}
+              disabled={busy || !dirty || (valuesDirty && editable && (loading || !revision))}
             >
-              {busy ? "Saving…" : "Save planned values"}
+              {busy ? "Saving…" : "Save workout"}
             </button>
-            <button
-              type="button"
-              disabled={busy || loading}
-              onClick={() => void load()}
-            >
-              {loading ? "Loading…" : "Reload values"}
-            </button>
+            {editable && (
+              <button
+                type="button"
+                disabled={busy || loading}
+                onClick={() => void load()}
+              >
+                {loading ? "Loading…" : "Reload values"}
+              </button>
+            )}
           </div>
         )}
         {editable && (
@@ -556,14 +575,18 @@ function PlannedTotals({
                 <th>{row.label}</th>
                 {row.values.map((value, index) => (
                   <td key={index}>
-                    <output className="desktop-recorded-value" aria-live="off"
+                    <output
+                      className="desktop-recorded-value"
+                      aria-live="off"
                       aria-label={`Recorded ${["minimum", "average", "maximum"][index]} ${row.label.toLowerCase()}`}
-                    >{formatPlannedValue(
+                    >
+                      {formatPlannedValue(
                         row.key,
                         value,
                         workout.sport,
                         true
-                      ) || "—"}</output>
+                      ) || "—"}
+                    </output>
                   </td>
                 ))}
                 <td>{row.unit}</td>
@@ -572,29 +595,40 @@ function PlannedTotals({
           </tbody>
         </table>
       </div>
+      {!readOnly && <WorkoutEquipment value={personal.value} onChange={personal.setValue} scope={scope} sport={workout.sport} disabled={busy} options={personal.equipmentOptions} />}
       {footer && (footerTarget ? createPortal(footer, footerTarget) : footer)}
     </section>
   )
 }
 
-export function DesktopWorkoutDetails({
+function DesktopWorkoutDetailsForm({
   workout,
   readOnly = false,
   metadata,
   onClose,
   onDelete,
   footerTarget,
+  commentsTarget,
   onBusyChange,
 }: {
   workout: PlannedWorkout
   readOnly?: boolean
 } & DetailOptions) {
-  const planned =
-    workout.status !== "completed" &&
-    /^event:[1-9]\d*$/.test(workout.id) &&
-    !readOnly
+  const text = useWorkoutTextDraft(workout, readOnly)
+  const [scope] = useState(trainingCacheScope)
+  const personal = useWorkoutPersonalFields(scope, workout.id)
+  const [textBusy, setTextBusy] = useState(false)
+  const handleBusy = useCallback(
+    (busy: boolean) => {
+      setTextBusy(busy)
+      onBusyChange?.(busy)
+    },
+    [onBusyChange]
+  )
   return (
-    <div className="desktop-workout-details-grid" key={workout.id}>
+    <div className="desktop-workout-details-shell" key={workout.id}>
+      <WorkoutDetailNavigation />
+      <div className="desktop-workout-details-grid">
       <PlannedTotals
         workout={workout}
         readOnly={readOnly}
@@ -602,20 +636,46 @@ export function DesktopWorkoutDetails({
         onClose={onClose}
         onDelete={onDelete}
         footerTarget={footerTarget}
-        onBusyChange={onBusyChange}
+        onBusyChange={handleBusy}
+        text={text}
+        personal={personal}
       />
       <div className="desktop-workout-detail-text">
-        {(planned ||
-          (!readOnly &&
-            workout.status === "completed" &&
-            /^(event:\d+|activity:i?\d+)$/.test(workout.id))) && (
-          <PlannedComments
-            workoutId={workout.id}
-            type={planned ? "pre" : "post"}
+        <section
+          aria-label="Workout description"
+          className="desktop-workout-description"
+        >
+          {!readOnly ? <WorkoutAttachments personal={personal} /> : <h3>
+            <label htmlFor={workout.id + "-description"}>Description</label>
+          </h3>}
+          <WorkoutDescriptionInput
+            id={workout.id + "-description"}
+            aria-label="Workout description"
+            value={text.description}
+            maxLength={30000}
+            readOnly={!text.editable}
+            disabled={textBusy}
+            onChange={(event) => text.setDescription(event.target.value)}
           />
-        )}
-        <WorkoutDescription workout={workout} title="Description" />
+        </section>
+        {text.editable &&
+          (commentsTarget ? (
+            createPortal(
+              <PlannedComments text={text} busy={textBusy} showEmpty />,
+              commentsTarget
+            )
+          ) : (
+            <PlannedComments text={text} busy={textBusy} />
+          ))}
+        {!readOnly && <WorkoutPersonalNotes value={personal.value} onChange={personal.setValue} disabled={textBusy} />}
+      </div>
       </div>
     </div>
   )
+}
+
+export function DesktopWorkoutDetails(
+  props: Parameters<typeof DesktopWorkoutDetailsForm>[0]
+) {
+  return <DesktopWorkoutDetailsForm key={props.workout.id} {...props} />
 }

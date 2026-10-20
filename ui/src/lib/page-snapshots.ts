@@ -32,7 +32,8 @@ if (typeof window !== "undefined") {
     "app-auth-required",
   ])
     window.addEventListener(event, clearPageSnapshots)
-  window.addEventListener("training-context-updated", () => {
-    for (const entry of snapshots.values()) entry.time = 0
-  })
+  for (const event of ["training-context-updated", "training-mutation-started"])
+    window.addEventListener(event, () => {
+      for (const entry of snapshots.values()) entry.time = 0
+    })
 }

@@ -2,12 +2,12 @@ import { readPageSnapshot, writePageSnapshot, pageSnapshotFresh, pageSnapshotRev
 import { ListSkeleton, WorkoutGridSkeleton } from "@/components/loading-layouts"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
-import { apiFetch } from "@/lib/api-client"
+import { loadWorkspaceRead } from "@/lib/workspace-reads"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useEffect, useMemo, useState } from "react"
 import { Activity, Bike, Footprints, Search, Waves } from "lucide-react"
 
-import { WorkoutCard } from "@/components/training-calendar"
+import { WorkoutCard } from "@/components/calendar-workout-card"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { SettingsList, SettingsListItem } from "@/components/ui/settings-list"
@@ -37,28 +37,25 @@ export function TrainingLibrary({
 
   useEffect(() => {
     const controller = new AbortController()
+    let latest = 0
     const load = async () => {
+      const request = ++latest
       const snapshotRevision = pageSnapshotRevision()
       try {
-        const response = await apiFetch("/api/workout-library", {
-          signal: controller.signal,
-        })
-        const value = await response.json()
-        if (!response.ok)
-          throw new Error(value.error || "Unable to load saved workouts.")
-        if (controller.signal.aborted) return
+        const value = await loadWorkspaceRead<{workouts: PlannedWorkout[]}>("/api/workout-library", controller.signal)
+        if (controller.signal.aborted || request !== latest) return
         writePageSnapshot("library", value.workouts || [], snapshotRevision)
         setWorkouts(value.workouts || [])
         setError("")
       } catch (error) {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted && request === latest)
           setError(
             error instanceof Error
               ? error.message
               : "Unable to load saved workouts."
           )
       } finally {
-        if (!controller.signal.aborted) setLoading(false)
+        if (!controller.signal.aborted && request === latest) setLoading(false)
       }
     }
     if (!pageSnapshotFresh("library")) void load()

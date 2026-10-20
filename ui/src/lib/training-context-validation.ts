@@ -132,6 +132,12 @@ export function validatedTrainingWorkout(value: unknown): PlannedWorkout {
     throw new Error("The saved workout is incomplete. Please retry.")
   return value as PlannedWorkout
 }
+/** Library templates have no calendar date until the athlete schedules them. */
+export function validatedLibraryWorkout(value: unknown): PlannedWorkout {
+  if(!record(value) || typeof value.id!=="string" || !/^library:[1-9]\d*$/.test(value.id))throw Error("The saved library workout could not be loaded.")
+  const workout=validatedTrainingWorkout({...value,workout_date:"2000-01-01",status:"upcoming"})
+  return {...workout,workout_date:undefined,date:typeof value.date==="string"?value.date:"Saved workout",day:""}
+}
 
 /** Reject broken responses before replacing the last usable display snapshot. */
 export function validatedTrainingContext(value: unknown): TrainingContext {

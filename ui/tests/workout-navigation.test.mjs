@@ -49,3 +49,10 @@ test("blocked storage and absent deep links cannot open a workout", () => {
   globalThis.window.location.search = "";
   assert.equal(restoreOpenWorkout([workout]), null);
 });
+test("undated library previews restore from their saved snapshot after reload",()=>{
+  globalThis.window={location:{search:"?workout=library%3A15"}};
+  const saved={...workout,id:"library:15",workout_date:undefined,date:"Saved workout"};
+  globalThis.sessionStorage={getItem:()=>JSON.stringify(saved)};
+  const restored=restoreOpenWorkout();assert.equal(restored.id,"library:15");assert.equal(restored.workout_date,undefined);assert.equal(restored.status,"upcoming");
+  globalThis.sessionStorage={getItem:()=>JSON.stringify({...saved,workout_summary:{planned:{tss:"corrupt"}}})};assert.equal(restoreOpenWorkout(),null);
+});

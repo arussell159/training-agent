@@ -26,7 +26,7 @@ const workout = {
   indoor: false,
 };
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status });
-function harness() {
+function harness(extra = {}) {
   let state = { proposals: [] },
     clock = epoch;
   const calls = [],
@@ -89,6 +89,7 @@ function harness() {
     fetchImpl,
     now: () => clock,
     uuid: () => id,
+    ...extra,
   });
   return {
     calendar,
@@ -107,6 +108,52 @@ function harness() {
   };
 }
 
+test("direct approvals use the immutable preview without dispatching a second GitHub workflow", async () => {
+  const calls = [];
+  const h = harness({
+    applyWorkouts: async (p, options) => {
+      calls.push({ p, options });
+      return { verified: true, scheduledWorkouts: [{ index: 0, workout: { id: "event:800" } }] };
+    },
+  });
+  await h.calendar.propose([workout]);
+  await assert.rejects(h.calendar.confirm(id), /successful preview/);
+  h.complete(1, "preview");
+  await h.calendar.status(id);
+  const result = await h.calendar.confirm(id);
+  assert.equal(result.state, "applied");
+  assert.equal(result.verified, true);
+  assert.equal(result.transport, "direct");
+  assert.equal(h.dispatches().length, 1);
+  assert.equal(calls[0].p.workouts[0].description, workout.description);
+  await h.calendar.confirm(id);
+  await h.calendar.status(id);
+  assert.equal(calls.length, 1);
+});
+test("uncertain direct approvals retain partial results; status only reconciles and explicit approval resumes", async () => {
+  const options = [];
+  let verified = false;
+  const h = harness({
+    applyWorkouts: async (p, input) => {
+      options.push(input);
+      return {
+        verified,
+        scheduledWorkouts: verified ? [{ index: 0, workout: { id: "event:800" } }] : [],
+        failures: [{ error: "Reply lost" }],
+      };
+    },
+  });
+  await h.calendar.propose([workout]);
+  h.complete(1, "preview");
+  await h.calendar.status(id);
+  assert.equal((await h.calendar.confirm(id)).state, "unknown");
+  assert.equal((await h.calendar.status(id)).state, "unknown");
+  assert.equal(options[1].reconcileOnly, true);
+  verified = true;
+  assert.equal((await h.calendar.confirm(id)).state, "applied");
+  assert.equal(options[2].reconcileOnly, false);
+  assert.equal(h.dispatches().length, 1);
+});
 test("preview validates exact workouts, correlates GitHub run and never confirms on behalf of athlete", async () => {
   const h = harness();
   const proposal = await h.calendar.propose([workout]);

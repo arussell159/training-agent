@@ -23,6 +23,56 @@
       window.__trainingSessionRequest = fetch('/api/handler?__api_route=auth%2Fsession', {
         credentials: 'same-origin', cache: 'no-store', priority: 'high', signal: AbortSignal.timeout(20000)
       }).catch(() => null);
+      // Each request still passes the server's full session checks. Overlap the
+      // protected snapshot with auth instead of adding another startup waterfall.
+      if (/^\/(?:calendar|week|nutrition|settings|atp|annual-plan)?\/?$/.test(location.pathname)) {
+        let version;
+        try { const metadata = JSON.parse(localStorage.getItem('training-agent-startup-metadata-v1') || 'null'); if (typeof metadata?.version === 'string' && metadata.version.length <= 200) version = metadata.version; } catch {}
+        window.__trainingContextVersion = version;
+        window.__trainingContextRequest = fetch(version ? '/api/handler?__api_route=training-updates&version=' + encodeURIComponent(version) : '/api/handler?__api_route=training-context&scope=full', {
+          credentials: 'same-origin', cache: 'no-store', priority: 'low', signal: AbortSignal.timeout(20000)
+        }).catch(() => null);
+      }
+      // Only the open workspace starts these protected reads; no other pages
+      // are crawled and no private response is persisted by this bootstrap.
+      const workspaceReads = {
+        '/coach': ['/api/coach/reports/catalog'], '/library': ['/api/workout-library'],
+        '/atp': ['/api/annual-plans'], '/annual-plan': ['/api/annual-plans'],
+        '/settings': ['/api/race-events'],
+        '/workout-reports': ['/api/training-preferences'],
+      }[location.pathname.replace(/\/+$/, '')];
+      if (workspaceReads) window.__workspaceStartupRequests = Object.fromEntries(workspaceReads.map(path => [path, fetch('/api/handler?__api_route=' + encodeURIComponent(path.slice(5)), {
+        credentials: 'same-origin', cache: 'no-store', priority: 'low', signal: AbortSignal.timeout(20000)
+      }).catch(() => null)]));
+      if (location.pathname.replace(/\/+$/, '') === '/workout-reports') {
+        let range = 'all', version = '', cachedUntil = 0;
+        try { range = JSON.parse(sessionStorage.getItem('workout-reports-view-v1') || 'null')?.filters?.range || 'all'; } catch {}
+        try {
+          const metadata = JSON.parse(localStorage.getItem('training-agent-startup-metadata-v1') || 'null');
+          if (typeof metadata?.version === 'string' && metadata.version.length <= 200) version = metadata.version;
+          const history = JSON.parse(localStorage.getItem('training-agent-reports-startup-v1') || 'null');
+          if (history?.version === version && Number.isFinite(history.expires) && history.expires <= Date.now() + 900000) cachedUntil = history.expires;
+        } catch {}
+        // Filtered reports retain their selected range. A fresh local archive
+        // needs no speculative server read; otherwise overlap its first page.
+        if (range === 'all' && cachedUntil <= Date.now()) {
+          const path = '/api/workout-history?&version=' + encodeURIComponent(version);
+          window.__workspaceStartupRequests[path] = fetch('/api/handler?__api_route=workout-history&version=' + encodeURIComponent(version), {
+            credentials: 'same-origin', cache: 'no-store', priority: 'low', signal: AbortSignal.timeout(20000)
+          }).catch(() => null);
+        }
+      }
+      if (/^\/nutrition\/?$/.test(location.pathname)) {
+        const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+        window.__nutritionStartupRequest = { date, response: fetch('/api/handler?__api_route=nutrition&date=' + date, {
+          credentials: 'same-origin', cache: 'no-store', priority: 'low', signal: AbortSignal.timeout(20000)
+        }).catch(() => null) };
+      }
+      if (location.pathname === '/' && window.matchMedia('(max-width: 767px)').matches) {
+        const image = document.createElement('link');
+        image.rel = 'preload'; image.as = 'image'; image.href = '/images/home/finish-texas.webp'; image.fetchPriority = 'high';
+        document.head.appendChild(image);
+      }
     </script>
     <style>
       html { background: #fff; color-scheme: light; }
@@ -53,6 +103,12 @@
       #boot-retry button { color: inherit; background: var(--boot-line); border: 0; border-radius: 8px; padding: 10px 18px; font: inherit; cursor: pointer; }
       #app-boot[data-page="Calendar"] .boot-card:first-child { height: 210px; }
       #app-boot[data-page="Calendar"] .boot-card { height: 210px; }
+      @media (width < 48rem) {
+        #app-boot[data-page="Home"][data-home-layout="redesign"] header { position: absolute; inset: 0 0 auto; }
+        #app-boot[data-page="Home"][data-home-layout="redesign"] .boot-content { padding: 0 20px; gap: 25px; }
+        #app-boot[data-page="Home"][data-home-layout="redesign"] .boot-card:first-child { height: 359px; margin-inline: -20px; padding-top: 76px; border-radius: 0 0 30px 30px; }
+        #app-boot[data-page="Home"][data-home-layout="redesign"] .boot-card:nth-child(2) { height: 270px; border-radius: 22px; }
+      }
       @media (min-width: 768px) {
         html { scrollbar-gutter: stable; }
         #app-boot { --boot-bg: #fff; padding-left: 72px; }
@@ -90,6 +146,14 @@
         #app-boot[data-page="Home"] .boot-card:nth-child(8) { grid-column: 1 / span 8; grid-row: 3; height: 408px; margin-top: 8px; }
         #app-boot[data-page="Home"] .boot-card:nth-child(9) { grid-column: 9 / span 8; grid-row: 3; height: 408px; margin-top: 8px; }
       }
+      #app-boot[data-page="Workspace"] .boot-content { grid-template-columns: minmax(0, 1fr); max-width: 900px; margin: 0 auto; gap: 12px; }
+      #app-boot[data-page="Workspace"] .boot-card { display: flex; height: 64px; grid-row: auto; padding: 16px; border-radius: 12px; }
+      #app-boot[data-page="Workspace"] .boot-card:first-child { height: 96px; }
+      #app-boot[data-page="Workspace"] .boot-chart, #app-boot[data-page="Workspace"] .boot-metrics { display: none; }
+      #app-boot[data-page="Workspace"] .boot-title { height: 12px; width: 45%; margin-top: 0; }
+      #app-boot[data-page="Annual Plan"] .boot-content { grid-template-columns: minmax(0, 1fr); max-width: none; }
+      #app-boot[data-page="Annual Plan"] .boot-card { display: flex; height: 40px; grid-row: auto; border-radius: 4px; }
+      #app-boot[data-page="Annual Plan"] .boot-card:first-child { height: 160px; }
     </style>
     <link rel="preload" href="/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/src/assets/fonts/alphacorsa-italic.ttf" as="font" type="font/ttf" crossorigin media="(width < 48rem)" />
@@ -122,7 +186,8 @@
     <script id="app-boot-script">
       (() => {
         const shell = document.getElementById('app-boot');
-        shell.dataset.page = /^\/(calendar|week)\/?$/.test(location.pathname) ? 'Calendar' : 'Home';
+        shell.dataset.page = /^\/(calendar|week)\/?$/.test(location.pathname) ? 'Calendar' : /^\/(atp|annual-plan)\/?$/.test(location.pathname) ? 'Annual Plan' : /^\/(coach|settings|library|workout-reports)\/?$/.test(location.pathname) ? 'Workspace' : 'Home';
+        try { shell.dataset.homeLayout = localStorage.getItem('ar-performance:mobile-home-layout') === 'classic' ? 'classic' : 'redesign'; } catch { shell.dataset.homeLayout = 'redesign'; }
         const retry = () => { document.getElementById('boot-retry').hidden = false; };
         const timer = setTimeout(retry, 15000);
         let mounted = false;
@@ -144,6 +209,10 @@
               for (const entry of list.getEntries()) console.info('[training-performance]', JSON.stringify({phase: entry.name, ms: Math.round(entry.startTime)}));
             });
             observer.observe({type: 'paint', buffered: true});
+            const largest = new PerformanceObserver(list => {
+              for (const entry of list.getEntries()) console.info('[training-performance]', JSON.stringify({phase: 'largest-contentful-paint', ms: Math.round(entry.startTime)}));
+            });
+            largest.observe({type: 'largest-contentful-paint', buffered: true});
           } catch { /* Paint diagnostics are optional on older browsers. */ }
         }
       })();

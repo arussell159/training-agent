@@ -103,11 +103,14 @@ export function prefetchWorkoutRecording(workout: {
     workout.activity_id ||
     (workout.id.startsWith("activity:") ? workout.id.slice(9) : null)
   if (!id) return
-  void loadActivityRoute(id, workout.activity_revision).catch(() => {})
+  void loadActivityRoute(id, workout.activity_revision)
+    .then(points => {
+      // Give the recording/chart priority. Mapbox is useful only for a real
+      // route; importing it for indoor and pool sessions stalls slower phones.
+      if (points.length < 2) return
+      return import("../components/mapbox-route-map").then(module => module.preloadRouteMap())
+    }).catch(() => {})
   void loadActivityAnalysis(id, workout.activity_revision).catch(() => {})
   void loadActivitySummary(id, workout.activity_revision).catch(() => {})
   void import("../components/workout-analysis").catch(() => {})
-  void import("../components/mapbox-route-map-canvas")
-    .then((module) => module.prewarmRouteMap())
-    .catch(() => {})
 }

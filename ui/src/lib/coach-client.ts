@@ -38,6 +38,9 @@ export type CalendarProposal = {
   timeZone: string
   error: string | null
   runUrl: string | null
+  transport?: "direct"
+  verified?: boolean
+  scheduledWorkouts?: {index:number;workout:import("./training-context").PlannedWorkout}[]
   workouts: {
     name: string
     date: string

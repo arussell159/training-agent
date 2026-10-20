@@ -1,5 +1,6 @@
 import { NutritionDashboardSkeleton } from "@/components/loading-layouts"
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { loadFullTrainingContext } from "@/lib/training-context"
 import "./nutrition.css"
 import { LoaderCircle, Pencil, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -15,6 +16,8 @@ import {
   foodTotals,
   meals,
   nutritionChanged,
+  beginNutritionWrite,
+  validatedNutritionView,
   nutritionRequest,
   nutritionToday,
   suggestedMeal,
@@ -28,6 +31,10 @@ import {
   type NutritionDay,
   type Targets,
 } from "@/lib/nutrition"
+import { projectNutritionChange } from "@/lib/nutrition-optimistic"
+import { prefetchNutrition } from "@/lib/nutrition"
+import { loadFoodLibrary } from "@/lib/nutrition-read-cache"
+import { performanceProbe } from "@/lib/performance-probe"
 import {
   calorieGoal,
   dailyTargets,
@@ -226,6 +233,8 @@ export function NutritionPage({
     x: number
     y: number
   } | null>(null)
+  const writeLock = useRef(false)
+  useEffect(() => { void loadFullTrainingContext().catch(() => {}) }, [])
   const [date, setDate] = useState(nutritionToday),
     { data, error, loading, reload, setData } = useNutrition(date)
   const [composer, setComposer] = useState<{
@@ -240,6 +249,21 @@ export function NutritionPage({
     [mutating, setMutating] = useState(false),
     [deleted, setDeleted] = useState<FoodEntry | null>(null)
   const exercise = useExerciseCalories(date)
+  const nutritionReady = Boolean(data)
+  useEffect(() => {
+    if (!nutritionReady) return
+    performanceProbe("nutrition-visible")
+    const frame = requestAnimationFrame(() => {
+      void loadFoodLibrary().catch(() => {})
+      for (const offset of [-1, 1]) {
+        const adjacent = new Date(`${date}T12:00:00`)
+        adjacent.setDate(adjacent.getDate() + offset)
+        const key = [adjacent.getFullYear(), String(adjacent.getMonth()+1).padStart(2,"0"), String(adjacent.getDate()).padStart(2,"0")].join("-")
+        void prefetchNutrition(key).catch(() => {})
+      }
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [date, nutritionReady])
   const weekExercise = useExerciseCaloriesForDates(
     data?.week.map((day) => day.date) || []
   )
@@ -270,6 +294,12 @@ export function NutritionPage({
     operationId: string = randomId()
   ) {
     if (!data) throw Error("Wait for your food log to load.")
+    if (writeLock.current) throw Error("A food entry is already being saved.")
+    const projected = validatedNutritionView(projectNutritionChange(data, action, entries, id), date)
+    writeLock.current = true
+    const previous = data
+    beginNutritionWrite()
+    setData(projected)
     setMutating(true)
     setMutationError("")
     try {
@@ -281,9 +311,10 @@ export function NutritionPage({
         operationId,
         revision: data.day.revision,
       })
+      const confirmed = validatedNutritionView({ ...data, day: result.day }, date)
       setData({
         ...data,
-        day: result.day,
+        day: confirmed.day,
         week: data.week.map((day) =>
           day.date === date
             ? {
@@ -295,7 +326,11 @@ export function NutritionPage({
         ),
       })
       nutritionChanged()
+    } catch (error) {
+      setData(previous)
+      throw error
     } finally {
+      writeLock.current = false
       setMutating(false)
     }
   }

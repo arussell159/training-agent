@@ -2,6 +2,50 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import { createSharedRequestCache } from "../src/lib/shared-request-cache.ts"
 
+test("mutable reads expire without retaining weight or returning stale revisions", async (t) => {
+  let now = 1000, calls = 0
+  t.mock.method(Date, "now", () => now)
+  const cache = createSharedRequestCache(async key => ({ key, revision: ++calls }), { ttlMs: 10, maxWeight: 1 })
+  assert.equal((await cache.get("event")).revision, 1)
+  now = 1009
+  assert.equal((await cache.get("event")).revision, 1)
+  now = 1010
+  assert.equal(cache.peek("event"), undefined)
+  assert.equal((await cache.get("event")).revision, 2)
+  assert.equal(cache.peek("event").revision, 2)
+  await cache.get("other")
+  assert.equal(cache.peek("event"), undefined)
+  assert.equal(cache.peek("other").revision, 3)
+})
+
+test("write invalidation preserves an active reader but cannot repopulate an obsolete snapshot", async () => {
+  const downloads = []
+  const cache = createSharedRequestCache((key, signal) => new Promise(resolve => downloads.push({key, signal, resolve})))
+  const old = cache.get("event"); await Promise.resolve()
+  cache.invalidate()
+  const fresh = cache.get("event"); await Promise.resolve()
+  assert.equal(downloads.length, 2)
+  downloads[1].resolve("new revision")
+  assert.equal(await fresh, "new revision")
+  downloads[0].resolve("old revision")
+  assert.equal(await old, "old revision")
+  assert.equal(cache.peek("event"), "new revision")
+})
+
+test("session reset also aborts readers retired by write invalidation", async () => {
+  const downloads = []
+  const cache = createSharedRequestCache((key, signal) => new Promise(resolve => downloads.push({key, signal, resolve})))
+  const old = cache.get("event"); const rejectedOld = assert.rejects(old); await Promise.resolve()
+  cache.invalidate()
+  const fresh = cache.get("event"); const rejectedFresh = assert.rejects(fresh); await Promise.resolve()
+  cache.clear()
+  await Promise.all([rejectedOld, rejectedFresh])
+  assert.ok(downloads.every(item => item.signal.aborted))
+  downloads.forEach(item => item.resolve("private data"))
+  await Promise.resolve()
+  assert.equal(cache.peek("event"), undefined)
+})
+
 test("rapid close and reopen ignores late downloads from each abandoned view", async () => {
   const downloads = []
   const cache = createSharedRequestCache(

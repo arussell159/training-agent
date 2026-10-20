@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import { appRouteItem } from "@/lib/app-route"
 import { restoreReportReader } from "@/lib/report-navigation"
+import { useMobileHomeLayout } from "@/lib/mobile-home-layout"
 
 /** Keep placeholders in the same flow as the content they replace. */
 export function LoadingRegion({
@@ -73,10 +74,14 @@ export function FitnessHistorySkeleton() {
       <Card className="fitness-history-card dashboard-fitness-history-card m-0 h-[390px] min-w-0 shrink-0 px-4 md:h-[448px]">
         <Skeleton className="h-5 w-32" />
         <div className="flex gap-2">
-          {[0, 1, 2].map((index) => <Skeleton key={index} className="h-7 w-16" />)}
+          {[0, 1, 2].map((index) => (
+            <Skeleton key={index} className="h-7 w-16" />
+          ))}
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-hidden">
-          {Array.from({ length: 16 }, (_, index) => <Skeleton key={index} className="h-3 w-full" />)}
+          {Array.from({ length: 16 }, (_, index) => (
+            <Skeleton key={index} className="h-3 w-full" />
+          ))}
         </div>
       </Card>
     </LoadingRegion>
@@ -257,7 +262,7 @@ export function HomeCardsSkeleton() {
   return (
     <LoadingRegion label="Loading dashboard">
       <div className="dashboard-card-grid grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-16">
-        <Card className="dashboard-session-card col-span-2 justify-between p-4 lg:col-span-8 lg:row-span-2 lg:col-start-1 lg:row-start-1">
+        <Card className="dashboard-session-card col-span-2 justify-between p-4 lg:col-span-8 lg:col-start-1 lg:row-span-2 lg:row-start-1">
           <div className="space-y-3">
             <Skeleton className="h-4 w-24" />
             <Skeleton className="h-8 w-3/4" />
@@ -325,6 +330,97 @@ export function HomeCardsSkeleton() {
   )
 }
 
+export function MobileHomeDetailsSkeleton() {
+  return (
+    <LoadingRegion label="Loading daily snapshot and race calendar">
+      <div className="space-y-[25px]">
+        <div className="space-y-4">
+          <Skeleton className="h-5 w-36" />
+          <div className="grid grid-cols-2 gap-3">
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="flex h-[192px] flex-col justify-between rounded-2xl border bg-card p-4"
+              >
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-7 w-20" />
+                <Skeleton className="h-12 w-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-4">
+          <Skeleton className="h-5 w-36" />
+          <Skeleton className="h-[240px] w-full rounded-[22px]" />
+        </div>
+      </div>
+    </LoadingRegion>
+  )
+}
+
+function MobileHomeCardsSkeleton() {
+  return (
+    <LoadingRegion label="Loading your training overview">
+      <div className="space-y-[25px]">
+        <div className="-mx-5 flex h-[359px] flex-col justify-between rounded-b-[30px] border-b bg-card px-5 pt-[76px] pb-5">
+          <div className="space-y-3">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-12 w-36" />
+            <Skeleton className="h-4 w-44" />
+            <Skeleton className="h-3 w-36" />
+          </div>
+          <div className="grid grid-cols-3 gap-5 rounded-2xl bg-muted/30 p-4">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="space-y-4">
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-6 w-12" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-4">
+          <Skeleton className="h-5 w-36" />
+          <div className="flex h-[245px] flex-col justify-between rounded-[22px] border bg-card p-5">
+            <Skeleton className="h-5 w-24" />
+            <Skeleton className="h-9 w-4/5" />
+            <Skeleton className="h-4 w-3/5" />
+            <div className="flex gap-4">
+              <Skeleton className="h-7 w-20" />
+              <Skeleton className="h-7 w-20" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </LoadingRegion>
+  )
+}
+
+function HomePageSkeleton() {
+  const layout = useMobileHomeLayout()
+  return (
+    <div
+      className={`mobile-dashboard ${layout === "redesign" ? "mobile-home-redesign" : ""} flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:gap-4 md:gap-6 md:p-6`}
+    >
+      {layout === "redesign" ? (
+        <>
+          <div className="md:hidden">
+            <MobileHomeCardsSkeleton />
+          </div>
+          <div className="hidden md:block">
+            <HomeCardsSkeleton />
+          </div>
+        </>
+      ) : (
+        <HomeCardsSkeleton />
+      )}
+      <div className="dashboard-history-grid grid w-full min-w-0 grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2">
+        <ChartSkeleton className="dashboard-history-card training-history-card rounded-2xl border bg-card" />
+        <FitnessHistorySkeleton />
+      </div>
+    </div>
+  )
+}
+
 function HeaderSkeleton({ filters = false }: { filters?: boolean }) {
   return (
     <div className="shrink-0 md:hidden" aria-hidden="true">
@@ -345,16 +441,24 @@ function HeaderSkeleton({ filters = false }: { filters?: boolean }) {
 export function CalendarSkeleton() {
   return (
     <div className="w-full">
-      <HeaderSkeleton />
+      <div className="md:hidden">
+        <HeaderSkeleton />
+      </div>
       <LoadingRegion label="Loading calendar">
-        <div className="hidden h-14 items-center justify-between px-4 md:flex">
-          <Skeleton className="h-6 w-36" />
-          <Skeleton className="h-9 w-24" />
+        <div className="hidden h-[55px] items-center gap-4 px-6 md:flex">
+          <Skeleton className="h-6 w-[196px]" />
+          <Skeleton className="h-[30px] w-14 rounded-sm" />
+          <Skeleton className="h-5 w-14" />
         </div>
-        <div className="hidden grid-cols-7 border-y px-2 py-3 md:grid">
-          {Array.from({ length: 7 }, (_, i) => (
-            <Skeleton key={i} className="mx-auto h-3 w-6" />
-          ))}
+        <div className="hidden h-[30px] border-y md:flex">
+          <div className="grid flex-1 grid-cols-7 items-center">
+            {Array.from({ length: 7 }, (_, i) => (
+              <Skeleton key={i} className="ml-1 h-3 w-6" />
+            ))}
+          </div>
+          <div className="hidden w-[278px] items-center justify-center min-[1000px]:flex">
+            <Skeleton className="h-3 w-16" />
+          </div>
         </div>
         <div className="space-y-8 px-4 md:hidden">
           {[0, 1, 2, 3].map((i) => (
@@ -373,11 +477,40 @@ export function CalendarSkeleton() {
             </div>
           ))}
         </div>
-        <div className="hidden grid-cols-7 md:grid">
-          {Array.from({ length: 21 }, (_, i) => (
-            <div key={i} className="h-40 space-y-3 border-r border-b p-3">
-              <Skeleton className="h-4 w-6" />
-              <Skeleton className="h-20 w-full" />
+        <div className="hidden flex-col md:flex">
+          {[0, 1, 2].map((week) => (
+            <div key={week} className="flex border-b">
+              <div className="grid min-w-0 flex-1 grid-cols-7">
+                {Array.from({ length: 7 }, (_, day) => (
+                  <div
+                    key={day}
+                    className="min-h-[216px] min-w-0 border-r px-1"
+                  >
+                    <div className="flex h-7 items-center">
+                      <Skeleton className="h-2.5 w-3" />
+                    </div>
+                    {(day + week) % 3 !== 2 && (
+                      <div className="mt-1 overflow-hidden rounded-sm border bg-card">
+                        <Skeleton className="h-3 w-full rounded-none" />
+                        <div className="space-y-2 p-2">
+                          <Skeleton className="size-4" />
+                          <Skeleton className="h-3 w-3/4" />
+                          <Skeleton className="h-2.5 w-1/2" />
+                        </div>
+                        <Skeleton className="h-5 w-full rounded-none" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="hidden w-[278px] shrink-0 border-l py-4 pr-3 pl-10 min-[1000px]:block">
+                <div className="mb-6 grid grid-cols-3 gap-3">
+                  {[0, 1, 2].map((i) => (
+                    <Skeleton key={i} className="h-7 w-full" />
+                  ))}
+                </div>
+                <Lines count={4} />
+              </div>
             </div>
           ))}
         </div>
@@ -425,16 +558,7 @@ export function ArticleSkeleton() {
 }
 
 export function PageSkeleton({ page }: { page: string }) {
-  if (page === "Home")
-    return (
-      <div className="mobile-dashboard flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:gap-4 md:gap-6 md:p-6">
-        <HomeCardsSkeleton />
-        <div className="dashboard-history-grid grid w-full min-w-0 grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2">
-          <ChartSkeleton className="dashboard-history-card training-history-card rounded-2xl border bg-card" />
-          <FitnessHistorySkeleton />
-        </div>
-      </div>
-    )
+  if (page === "Home") return <HomePageSkeleton />
   if (page === "Nutrition")
     return (
       <div className="nutrition-dashboard w-full">
@@ -509,6 +633,7 @@ export function PageSkeleton({ page }: { page: string }) {
 
 /** No private data is rendered until authentication finishes. */
 export function AppStartupSkeleton() {
+  const mobileHomeLayout = useMobileHomeLayout()
   const page = new URLSearchParams(location.search).get("workout")
     ? "Workout"
     : restoreReportReader()
@@ -533,7 +658,9 @@ export function AppStartupSkeleton() {
         <div className="hidden h-14 items-center border-b px-4 md:flex">
           <Skeleton className="h-5 w-32" />
         </div>
-        {page === "Home" && <HeaderSkeleton />}
+        {page === "Home" && mobileHomeLayout === "classic" && (
+          <HeaderSkeleton />
+        )}
         <PageSkeleton page={page} />
       </main>
       <div aria-hidden="true" inert className="md:hidden">

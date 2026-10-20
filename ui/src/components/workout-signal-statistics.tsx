@@ -6,24 +6,65 @@ import {
 } from "@/lib/workout-signal-statistics"
 import type { RecordedPoint } from "@/lib/segment-statistics"
 
+export type WorkoutSignalOverview = {
+  title: string
+  primary: { label: string; value: string; unit?: string }[]
+  details: { label: string; value: string; unit?: string }[]
+}
+
 export function WorkoutSignalStatistics({
   rows,
   sport,
   rangeLabel,
   cursor,
+  overview,
 }: {
   rows: SignalStatistics[]
   sport: string
   rangeLabel: string
   cursor: RecordedPoint | null
+  overview?: WorkoutSignalOverview
 }) {
   return (
     <aside
       className="analysis-statistics"
       aria-label="Recorded signal statistics"
     >
-      <h3>Signal statistics</h3>
-      <p className="analysis-statistics-range">{rangeLabel}</p>
+      <h3>{overview?.title || "Signal statistics"}</h3>
+      {overview && (
+        <>
+          <dl className="analysis-inspector-primary">
+            {overview.primary.map((metric) => (
+              <div key={metric.label}>
+                <dt>{metric.label}</dt>
+                <dd>
+                  {metric.value}
+                  <small>{metric.unit && ` ${metric.unit}`}</small>
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <dl className="analysis-inspector-details">
+            {overview.details.map((metric) => (
+              <div key={metric.label}>
+                <dt>{metric.label}</dt>
+                <dd>
+                  {metric.value}
+                  <small>{metric.unit && ` ${metric.unit}`}</small>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </>
+      )}
+      {(!overview || rangeLabel !== "Full workout") && (
+        <p className="analysis-statistics-range">{rangeLabel}</p>
+      )}
+      <p className="analysis-cursor-time" aria-label="Values at graph cursor">
+        {cursor
+          ? `Cursor · ${Math.floor(cursor.time / 60)}:${String(Math.floor(cursor.time % 60)).padStart(2, "0")}`
+          : "Hover over a graph or route to inspect"}
+      </p>
       <table>
         <caption className="sr-only">
           Minimum, time-weighted average and maximum of recorded signals for{" "}
@@ -35,8 +76,9 @@ export function WorkoutSignalStatistics({
             <th scope="col">Min</th>
             <th scope="col">Avg</th>
             <th scope="col">Max</th>
-            <th scope="col" className="sr-only">
-              Unit
+            <th scope="col">Cursor</th>
+            <th scope="col">
+              <span className="sr-only">Unit</span>
             </th>
           </tr>
         </thead>
@@ -57,41 +99,19 @@ export function WorkoutSignalStatistics({
                     {formatRecordedSignal(value, row.key, sport)}
                   </td>
                 ))}
+                <td className="analysis-cursor-value">
+                  {formatRecordedSignal(
+                    cursor ? recordedSignalValue(cursor, row.key, sport) : null,
+                    row.key,
+                    sport
+                  )}
+                </td>
                 <td className="analysis-statistics-unit">{info.unit}</td>
               </tr>
             )
           })}
         </tbody>
       </table>
-      {cursor && (
-        <div
-          className="analysis-cursor-statistics"
-          aria-label="Values at graph cursor"
-        >
-          <h4>
-            At {Math.floor(cursor.time / 60)}:
-            {String(Math.floor(cursor.time % 60)).padStart(2, "0")}
-          </h4>
-          <dl>
-            {rows.map((row) => {
-              const info = recordedSignalInfo(row.key, sport)
-              return (
-                <div key={row.key}>
-                  <dt>{info.label}</dt>
-                  <dd>
-                    {formatRecordedSignal(
-                      recordedSignalValue(cursor, row.key, sport),
-                      row.key,
-                      sport
-                    )}{" "}
-                    <span>{info.unit}</span>
-                  </dd>
-                </div>
-              )
-            })}
-          </dl>
-        </div>
-      )}
     </aside>
   )
 }

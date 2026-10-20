@@ -39,7 +39,7 @@ export function MobilePageTabs({
             key={id}
             id={`mobile-panel-${id}`}
             tabActive={activeItem === label}
-            className="mobile-page-tab"
+            className={`mobile-page-tab ${activeItem === label ? "app-surface-enter" : ""}`}
             {...{ role: "tabpanel" }}
             aria-label={label}
           >

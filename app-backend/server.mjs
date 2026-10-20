@@ -1,4 +1,5 @@
 import { readWorkoutLibrary, saveLibraryWorkout } from "./lib/workout-library.mjs";
+import { uploadWorkoutRecording, exportWorkoutFile } from "./lib/workout-files.mjs";
 import { previewConfig } from './lib/local-preview.mjs';
 import { createFatSecretDiary } from './lib/fatsecret-diary.mjs';
 import { createFatSecretDiaryStore } from './lib/fatsecret-diary-store.mjs';
@@ -18,6 +19,7 @@ import { createNutritionStore } from './lib/nutrition-model.mjs';
 import { localNutritionRecords } from './lib/nutrition-local-store.mjs';
 import { createCoachCalendar } from './lib/coach-calendar.mjs';
 import { createEncryptedRecordStore } from './lib/app-auth-store.mjs';
+import { createWorkoutPersonalService } from './lib/workout-personal.mjs';
 import { createAppAuth } from './lib/app-auth.mjs';
 import { coachConfig, createCoach } from './lib/github-coach.mjs';
 import { createGithubCoachSource } from './lib/github-coach-source.mjs';
@@ -45,13 +47,19 @@ import {createPerformanceHistory,performanceType,performanceWindow,performanceAc
 import {fetchHistoricalCalendar,fetchWorkoutHistoryPage,fetchHistoricalWorkout} from './lib/intervals-history.mjs';
 import {createMutationQueue,validateMutation} from './lib/mutation-queue.mjs';
 import {createMutationProjection} from './lib/mutation-projection.mjs';
-import {withDirectWorkoutWrite,reconcileDirectWorkoutWrite} from './lib/direct-workout-write.mjs';
+import {withDirectWorkoutWrite as providerWorkoutWrite,reconcileDirectWorkoutWrite} from './lib/direct-workout-write.mjs';
+import {commentWorkoutPath,loadProviderWorkoutComments,saveProviderWorkoutComment} from './lib/provider-workout-comments.mjs';
 import {preserveQueuedSnapshot} from './lib/queued-snapshot.mjs';
+import {pairClaimedIntervalsWorkout,pairedWorkoutContext} from './lib/workout-pairing.mjs';
+import {copyCalendarWorkout} from './lib/calendar-workout-copy.mjs';
+import {scheduleLibraryWorkout,scheduleCoachWorkouts} from './lib/workout-scheduling.mjs';
+import {loadWorkoutRecurrence,saveWorkoutRecurrence} from './lib/workout-recurrence.mjs';
 import {createRequestCache} from './lib/request-cache.mjs';
 import {compressAsset} from './lib/asset-compression.mjs';
 import {createTrainingUpdates} from './lib/training-updates.mjs';
 import {contentFingerprint} from './lib/content-fingerprint.mjs';
 import {updateWorkoutDescription,DEFINITION_MARKER} from './lib/workout-description.mjs';
+import {readManualWorkoutDescription} from './lib/workout-manual-description.mjs';
 import {loadWorkoutEditor,saveWorkoutEditor,loadNewWorkoutEditor,createWorkoutEditor,workoutRevision} from './lib/workout-editor.mjs';
 import {loadCalendarNote,saveCalendarNote,createCalendarNote} from './lib/calendar-notes.mjs';
 import {loadPlannedWorkoutMetrics,savePlannedWorkoutMetrics} from './lib/planned-workout-metrics.mjs';
@@ -85,10 +93,26 @@ const handleNutrition = createNutritionHttp({ catalog:nutritionCatalog, getStore
 } });
 const handleCoach = createCoachHttp({ getCalendar: async (req, config) => createCoachCalendar({
   config,
+  applyWorkouts: async (proposal,options) => {
+    const providerConfig=await readConfig();
+    const result=await scheduleCoachWorkouts(providerConfig,createIntervalsClient(providerConfig),proposal,options);
+    if(result.events.length)await persistScheduledWorkouts(providerConfig,result.events);
+    return result;
+  },
   store: createEncryptedRecordStore(await readBootstrapConfig(), `${req.headers.host}/${config.repo}@${config.branch}`, {
     namespace: 'coach-calendar', name: 'COACH_CALENDAR', fresh: () => ({ proposals: [] }), timestampCas: true,
   }),
 }) });
+async function persistScheduledWorkouts(config,results) {
+  intervalsMemoryCache=null;providerReads.clear();
+  try {
+    let snapshot=await loadSupabaseTrainingSnapshot(config) || await fetchIntervalsTrainingContext(config,{force:true});
+    if(!snapshot)throw Error('Calendar snapshot unavailable');
+    for(const result of results)snapshot=applyVerifiedEvent(snapshot,result.workoutId,result,'create');
+    await saveVerifiedSnapshot(config,{...snapshot,provider:'intervals',provider_connection:providerConnection(config)},{verifiedIds:results.map(result=>result.workoutId)});
+    return undefined;
+  } catch(error) {updateLogs('Scheduled workout refresh pending: '+error.message);return 'Saved and verified in Intervals.icu; calendar refresh is pending.';}
+}
 const handleAuth = createAppAuth({ readBootstrap: readBootstrapConfig });
 let reportServices;
 let reportSweep;
@@ -226,6 +250,12 @@ async function handleIntervalsWebhook(req,res) {
   sendWebhookJson(res,500,{error:'Webhook refresh failed; Intervals.icu can retry this delivery.'});
  }
 }
+async function withDirectWorkoutWrite(config,id,action,options){
+ providerReads.clear();
+ try { return await providerWorkoutWrite(config,id,action,options); }
+ finally { providerReads.clear(); }
+}
+
 function intervalsClient(config){
  const account=createHash('sha256').update(config.INTERVALS_API_KEY || '').digest('hex');
  return providerReads.wrap(createIntervalsClient(config),account);
@@ -627,7 +657,7 @@ async function flushMutations(config,retryFailed=false) {
     try {
       // A claim cannot reach the provider before its durable projection exists.
       try{await projection.pending(job);}catch(error){error.beforeWrite=true;throw error;}
-      const result=mutation.type==='move'?await moveIntervalsEvent(request,mutation.id,mutation.date):await updateWorkoutDescription(request,mutation.id,mutation.description);
+      const result=mutation.type==='move'?await moveIntervalsEvent(request,mutation.id,mutation.date):await updateWorkoutDescription(request,mutation.id,mutation.description,{descriptionMode:mutation.descriptionMode});
       await saveState(mutation,'synced',result,job.sequence);
     }catch(error){
       // Keep the durable optimistic edit visible while an uncertain outcome is
@@ -641,7 +671,7 @@ async function flushMutations(config,retryFailed=false) {
     const event=await createIntervalsClient(config)(kind==='event'?`/athlete/0/events/${id}`:`/activity/${id}`);
     const confirmed=mutation.type==='move'
       ?String(event.start_date_local || '').slice(0,10)===mutation.date
-      :stripPlannedValues(event.description).split(DEFINITION_MARKER)[0]===mutation.description;
+      :mutation.descriptionMode==='manual'?readManualWorkoutDescription(event)===mutation.description:stripPlannedValues(event.description).split(DEFINITION_MARKER)[0]===mutation.description;
     if(confirmed)await saveState(mutation,'synced',{event},job.sequence);
     return confirmed;
   }});
@@ -737,9 +767,8 @@ function buildConfigResponse(config) {
   return publicSettings(config);
 }
 
-function readBody(req) {
+function readBody(req, maxBytes = 1_000_000) {
   return new Promise((resolve, reject) => {
-    const maxBytes = 1_000_000;
     const chunks = [];
     let size = 0;
     let settled = false;
@@ -1544,6 +1573,32 @@ export async function handleRequest(req, res) {
       return;
     }
 
+    const workoutPersonalRoute=pathname.match(/^\/api\/workouts\/([^/]+)\/personal(?:\/attachments(?:\/([a-f0-9]{64}))?)?$/i);
+    if(workoutPersonalRoute) {
+      try {
+        const config=await readConfig(),bootstrap=await readBootstrapConfig();
+        const request=createIntervalsClient(config),id=decodeURIComponent(workoutPersonalRoute[1]),attachmentId=workoutPersonalRoute[2];
+        const service=createWorkoutPersonalService({
+          record:(key,fresh)=>createEncryptedRecordStore(bootstrap,`${req.headers.host}/${providerConnection(config)}/${key}`,{namespace:'workout-personal',name:'WORKOUT_PERSONAL',fresh,timestampCas:true}),
+          authorizeWorkout:async(workoutId)=>{
+            const path=workoutId.startsWith('event:')?`/athlete/0/events/${workoutId.slice(6)}`:`/activity/${encodeURIComponent(workoutId.slice(9))}`;
+            await request(path);
+          },
+        });
+        if(attachmentId && req.method==='GET') {
+          const file=await service.attachment(id,attachmentId),filename=encodeURIComponent(file.name).replace(/[!'()*]/g,char=>'%'+char.charCodeAt(0).toString(16));
+          res.writeHead(200,{'Content-Type':file.type,'Content-Disposition':`attachment; filename*=UTF-8''${filename}`,'X-Content-Type-Options':'nosniff','Cache-Control':'no-store'});
+          res.end(Buffer.from(file.data,'base64'));return;
+        }
+        if(attachmentId && req.method==='DELETE') {sendJson(req,res,await service.removeAttachment(id,attachmentId));return;}
+        if(pathname.endsWith('/attachments') && req.method==='POST') {sendJson(req,res,await service.upload(id,await readBody(req,3_000_000)));return;}
+        if(!pathname.includes('/attachments') && req.method==='GET') {sendJson(req,res,await service.read(id));return;}
+        if(!pathname.includes('/attachments') && req.method==='PUT') {sendJson(req,res,await service.save(id,await readBody(req)));return;}
+        res.writeHead(405,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:'Method not allowed.'}));
+      } catch(error) {res.writeHead(error.status || error.statusCode || 500,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code || 'PERSONAL_SAVE_UNCONFIRMED'}));}
+      return;
+    }
+
     const plannedMetricsRoute=pathname.match(/^\/api\/workouts\/(event%3A\d+|event:\d+)\/planned-values$/i);
     if(plannedMetricsRoute && ['GET','PUT'].includes(req.method)) {
       const config=await readConfig(),id=decodeURIComponent(plannedMetricsRoute[1]);
@@ -1566,7 +1621,7 @@ export async function handleRequest(req, res) {
             }
           } catch(error) {saved.refreshWarning='Planned values saved and verified; calendar refresh is pending.';updateLogs('Planned values refresh pending: '+error.message);}
           return saved;
-        });
+        },{recoverPending:true});
         sendJson(req,res,result);
       } catch(error) {res.writeHead(error.status || 500,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code || 'SAVE_UNCONFIRMED'}));}
       return;
@@ -1575,6 +1630,62 @@ export async function handleRequest(req, res) {
     if(pathname==='/api/workout-library' && req.method==='GET') {
       const config=await readConfig();
       sendJson(req,res,{workouts:await readWorkoutLibrary(createIntervalsClient(config))});return;
+    }
+    const libraryScheduleRoute=pathname.match(/^\/api\/workout-library\/(library(?::|%3A)[1-9]\d*)\/schedule$/i);
+    if(libraryScheduleRoute && req.method==='POST') {
+      const config=await readConfig();
+      try {
+        const result=await scheduleLibraryWorkout(config,createIntervalsClient(config),decodeURIComponent(libraryScheduleRoute[1]),await readBody(req));
+        result.refreshWarning=await persistScheduledWorkouts(config,[result]);
+        sendJson(req,res,result);
+      } catch(error) {res.writeHead(error.status || 502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code || 'SCHEDULE_UNCONFIRMED'}));}
+      return;
+    }
+    if(pathname==='/api/workout-files/upload' && req.method==='POST') {
+      try {
+        const config=await readConfig(),input=await readBody(req,3_000_000);
+        const result=input.workoutId
+          ? await withDirectWorkoutWrite(config,input.workoutId,request=>uploadWorkoutRecording(config,input,{request}))
+          : await uploadWorkoutRecording(config,input);
+        intervalsMemoryCache=null;providerReads.clear();
+        scheduleTrainingReconciliation(config);
+        sendJson(req,res,result);
+      } catch(error) {res.writeHead(error.status || error.statusCode || 502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message}));}
+      return;
+    }
+    if(pathname==='/api/workout-files/export' && req.method==='POST') {
+      try { sendJson(req,res,await exportWorkoutFile(await readConfig(),await readBody(req))); }
+      catch(error) {res.writeHead(error.status || 502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message}));}
+      return;
+    }
+    const recurrenceRoute=pathname.match(/^\/api\/workouts\/(event%3A\d+|event:\d+)\/recurrence$/i);
+    if(recurrenceRoute && ['GET','PUT','DELETE'].includes(req.method)) {
+      const config=await readConfig(),id=decodeURIComponent(recurrenceRoute[1]);
+      try {
+        if(req.method==='GET'){sendJson(req,res,await loadWorkoutRecurrence(config,id));return;}
+        const input=await readBody(req),request=createIntervalsClient(config);
+        const result=await saveWorkoutRecurrence(config,request,id,{...input,action:req.method==='DELETE'?'cancel':'schedule'},{
+          deleteWorkout:(workoutId,revision)=>withDirectWorkoutWrite(config,workoutId,async claimed=>{
+            try {
+              const current=await claimed(`/athlete/0/events/${workoutId.slice(6)}`);
+              if(workoutRevision(current)!==revision)throw Object.assign(Error('This occurrence changed. Recheck the series to preserve its individual edit.'),{status:409});
+            } catch(error){if(error.status!==404)throw error;}
+            return changeIntervalsEvent(claimed,workoutId,'delete');
+          }),
+        });
+        if(result.changes.length) {
+          intervalsMemoryCache=null;providerReads.clear();
+          try {
+            let snapshot=await loadSupabaseTrainingSnapshot(config) || await fetchIntervalsTrainingContext(config,{force:true});
+            if(snapshot) {
+              for(const receipt of result.changes)snapshot=applyVerifiedEvent(snapshot,receipt.workoutId,receipt,receipt.action==='delete'?'delete':'create');
+              result.context=await saveVerifiedSnapshot(config,snapshot,{verifiedIds:result.changes.filter(item=>item.action==='delete').map(item=>item.workoutId)});
+            }
+          } catch(error){result.refreshWarning='Repeat changes are verified; refresh the calendar to load the latest schedule.';updateLogs('Repeat calendar refresh pending: '+error.message);}
+        }
+        sendJson(req,res,result);
+      } catch(error){res.writeHead(error.status || 500,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code || 'RECURRENCE_UNCONFIRMED'}));}
+      return;
     }
     if(pathname==='/api/workouts/new/editor' && req.method==='GET') {
       const config=await readConfig();
@@ -1696,23 +1807,23 @@ export async function handleRequest(req, res) {
           }
         } catch(error) { result.refreshWarning='Saved and verified in Intervals.icu; the durable calendar refresh is pending. Refresh the calendar to retry.';updateLogs(`Workout editor context refresh pending: ${error.message}`); }
         return result;
-        });
+        },{recoverPending:true});
         sendJson(req,res,result);return;
       } catch(error) {res.writeHead(error.status || 500,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code || 'PROVIDER_ERROR'}));return;}
     }
 
     if(pathname==='/api/calendar/workout-description' && req.method==='POST'){
-      const config=await readConfig(),{id,description}=await readBody(req);
+      const config=await readConfig(),{id,description,descriptionMode}=await readBody(req);
       const result=await withDirectWorkoutWrite(config,id,async(request)=>{
-      const result=await updateWorkoutDescription(request,id,description);
+      const result=await updateWorkoutDescription(request,id,description,{descriptionMode});
       intervalsMemoryCache=null;
       const snapshot=await loadSupabaseTrainingSnapshot(config);
       if(snapshot){
-        const map=w=>w.id===id?{...w,details:description,goal:description,app_updated_at:new Date().toISOString()}:w;
+        const map=w=>w.id===id?{...w,details:description,goal:description,editable_description:description,manual_description:description,app_updated_at:new Date().toISOString()}:w;
         result.context=await saveVerifiedSnapshot(config,{...snapshot,history:snapshot.history.map(map),planned:snapshot.planned.map(map)},{verifiedIds:[id]});
       }
       return result;
-      });
+      },{recoverPending:true});
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(result));return;
     }
     const routeMap=pathname.match(/^\/api\/activities\/(i\d+|\d+)\/route$/);
@@ -1758,23 +1869,31 @@ export async function handleRequest(req, res) {
       validDate(date);
       if (!['copy','delete'].includes(action)) throw new Error('Invalid calendar day action');
       const request = intervalsClient(config);
-      const events = (await request(`/athlete/0/events?oldest=${date}&newest=${date}`) || []).filter(e => String(e.start_date_local).slice(0,10) === date);
+      const events = (await request(`/athlete/0/events?oldest=${date}&newest=${date}`) || []).filter(e => String(e.start_date_local).slice(0,10) === date && ['WORKOUT','NOTE'].includes(e.category) && !e.paired_activity_id && !e.read_only && !e.readonly && e.editable !== false && !e.athlete_cannot_edit);
       const results = [], failures = [];
+      let refreshWarning;
       for (const event of events) {
         try {results.push(await (action==='delete'?withDirectWorkoutWrite(config,`event:${event.id}`,async(claimed)=>{
           const result=await changeIntervalsEvent(claimed,`event:${event.id}`,action);
-          const saved=await loadSupabaseTrainingSnapshot(config);
-          if(saved)await saveVerifiedSnapshot(config,applyVerifiedEvent(saved,result.workoutId,result,action),{verifiedIds:[result.workoutId]});
+          try {
+            const saved=await loadSupabaseTrainingSnapshot(config);
+            if(saved)await saveVerifiedSnapshot(config,applyVerifiedEvent(saved,result.workoutId,result,action),{verifiedIds:[result.workoutId]});
+            else refreshWarning='Saved and verified in Intervals.icu; calendar refresh is pending.';
+          } catch(error) {refreshWarning='Saved and verified in Intervals.icu; calendar refresh is pending.';updateLogs(`Verified day deletion refresh pending: ${error.message}`);}
           return result;
-        }):changeIntervalsEvent(request,`event:${event.id}`,action)));}
+        },{replacePending:true}):changeIntervalsEvent(request,`event:${event.id}`,action)));}
         catch(error) {failures.push({workoutId:`event:${event.id}`,error:error.message});break;}
       }
       intervalsMemoryCache = null;
-      let snapshot=await loadSupabaseTrainingSnapshot(config);
-      if(snapshot)for(const result of results)snapshot=applyVerifiedEvent(snapshot,result.workoutId,result,action);
-      const context=snapshot?await saveVerifiedSnapshot(config,snapshot):null;
+      let context=null;
+      try {
+        let snapshot=await loadSupabaseTrainingSnapshot(config);
+        if(snapshot)for(const result of results)snapshot=applyVerifiedEvent(snapshot,result.workoutId,result,action);
+        if(snapshot)context=await saveVerifiedSnapshot(config,snapshot);
+      } catch(error) {refreshWarning='Saved and verified in Intervals.icu; calendar refresh is pending.';updateLogs(`Verified day action refresh pending: ${error.message}`);}
+      if(refreshWarning)scheduleTrainingReconciliation(config);
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-      res.end(JSON.stringify({results,failures,total:events.length,context}));
+      res.end(JSON.stringify({results,failures,total:events.length,context,...(refreshWarning?{refreshWarning}:{})}));
       return;
     }
 
@@ -1808,37 +1927,19 @@ export async function handleRequest(req, res) {
           sendJson(req,res,{verified:true,plannedId:`event:${plannedId}`,completedId:`activity:${completedId}`,context:cached});
           return;
         }
-        const verified=await withDirectWorkoutWrite(config,`activity:${completedId}`,async(request)=>{
-          const eventPath=`/athlete/0/events/${encodeURIComponent(plannedId)}`;
-          const activityPath=`/activity/${encodeURIComponent(completedId)}`;
-          const [event,activity]=await Promise.all([request(eventPath),request(activityPath)]);
-          if(!event || event.category!=='WORKOUT') throw Object.assign(Error('The planned workout could not be found.'),{status:404});
-          if(!activity || !activity.type) throw Object.assign(Error('The completed workout could not be found.'),{status:404});
-          const discipline=value=>/Ride|Bike/i.test(value||'')?'Bike':/Run/i.test(value||'')?'Run':/Swim/i.test(value||'')?'Swim':/Weight|Strength/i.test(value||'')?'Strength':value||'Other';
-          if(discipline(event.type)!==discipline(activity.type)) throw Object.assign(Error('Only workouts in the same sport can be combined.'),{status:400});
-          if(event.paired_activity_id!=null && String(event.paired_activity_id)!==String(activity.id)) throw Object.assign(Error('This planned workout is already combined with another completed workout.'),{status:409});
-          if(activity.paired_event_id!=null && String(activity.paired_event_id)!==String(plannedId)) throw Object.assign(Error('This completed workout is already combined with another planned workout.'),{status:409});
-          if(String(activity.paired_event_id)!==String(plannedId)) {
-            const saved=await request(activityPath,{method:'PUT',body:JSON.stringify({paired_event_id:Number(plannedId)})});
-            const linked=String(saved?.id)===String(activity.id) && String(saved?.paired_event_id)===String(plannedId)
-              ? saved
-              : await request(activityPath);
-            if(String(linked?.id)!==String(activity.id) || String(linked?.paired_event_id)!==String(plannedId)) throw Object.assign(Error('Intervals.icu did not confirm the workout pairing. Refresh before retrying.'),{status:502});
-          }
-          return {plannedId:`event:${plannedId}`,completedId:`activity:${activity.id}`};
-        });
+        const verified=await pairClaimedIntervalsWorkout((id,action)=>withDirectWorkoutWrite(config,id,action),`event:${plannedId}`,`activity:${completedId}`);
         intervalsMemoryCache=null;providerReads.clear();
         let context=null;
         try {
-          const refreshed=await fetchIntervalsTrainingContext(config,{force:true,includeFutureRaces:true,repairWorkoutLinks:true});
-          if(refreshed) {
-            context=await loadSupabaseTrainingSnapshot(config)
-              ? await saveVerifiedSnapshot(config,refreshed)
-              : refreshed;
+          const snapshot=await loadSupabaseTrainingSnapshot(config,null,{fresh:true});
+          if(snapshot) {
+            context=await saveVerifiedSnapshot(config,pairedWorkoutContext(snapshot,verified));
             await fs.writeFile(intervalsCachePath,JSON.stringify(context));
           }
         } catch(error) { updateLogs(`Workout pairing saved, but calendar refresh is pending: ${error.message}`); }
-        sendJson(req,res,{verified:true,...verified,context});
+        scheduleTrainingReconciliation(config);
+        const workout=mapIntervalsWorkout(verified.event,athleteLocalDate(new Date(),context?.athlete?.time_zone || 'America/Chicago'),verified.activity,false,context?.athlete?.sport_settings || []);
+        sendJson(req,res,{verified:true,plannedId:verified.plannedId,completedId:verified.completedId,workout,context});
       } catch(error) {
         res.writeHead(error.status || 500,{'Content-Type':'application/json','Cache-Control':'no-store'});
         res.end(JSON.stringify({error:error.message || 'Unable to combine these workouts.'}));
@@ -1857,13 +1958,22 @@ export async function handleRequest(req, res) {
       const apply=async(request)=>{
       const result = action === 'move'
         ? await moveIntervalsEvent(request,id,payload.date)
+        : action === 'copy' && payload.creationId ? await copyCalendarWorkout(config,createIntervalsClient(config),id,payload)
         : await changeIntervalsEvent(request,id,action,{date:payload.date});
       intervalsMemoryCache = null;
-      const snapshot=await loadSupabaseTrainingSnapshot(config);
-      const context=snapshot?await saveVerifiedSnapshot(config,applyVerifiedEvent(snapshot,id,result,action),{verifiedIds:action==='copy'?[]:[id]}):null;
-      return {...result,context};
+      let context=null,refreshWarning;
+      try {
+        const snapshot=await loadSupabaseTrainingSnapshot(config);
+        if(snapshot)context=await saveVerifiedSnapshot(config,applyVerifiedEvent(snapshot,id,result,action),{verifiedIds:action==='copy'?[]:[id]});
+        else refreshWarning='Saved and verified in Intervals.icu; calendar refresh is pending.';
+      } catch(error) {
+        refreshWarning='Saved and verified in Intervals.icu; calendar refresh is pending.';
+        updateLogs(`Verified calendar ${action} refresh pending: ${error.message}`);
+      }
+      if(refreshWarning)scheduleTrainingReconciliation(config);
+      return {...result,context,...(refreshWarning?{refreshWarning}:{})};
       };
-      const result=action==='copy'?await apply(request):await withDirectWorkoutWrite(config,id,apply);
+      const result=action==='copy'?await apply(request):await withDirectWorkoutWrite(config,id,apply,{replacePending:true});
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
       res.end(JSON.stringify(result));
       return;
@@ -1871,25 +1981,29 @@ export async function handleRequest(req, res) {
 
     if (pathname === '/api/comments' && req.method === 'GET') {
       const id=requestUrl.searchParams.get('workoutId');
-      if(!/^(event:\d+|activity:i?\d+)$/.test(id || '')) {sendJson(req,res,{error:'Choose a calendar workout.'});return;}
-      const local=await readLocalContext();
-      sendJson(req,res,{comments:(local.comments || []).filter(item=>item.workout_id===id)});return;
+      commentWorkoutPath(id);
+      const config=await readConfig(),local=await readLocalContext();
+      const result=await loadProviderWorkoutComments(intervalsClient(config),id,local.comments||[]);
+      sendJson(req,res,result);return;
     }
     if (pathname === '/api/comments' && req.method === 'POST') {
-      const payload = await readBody(req);
-      const comment = await addLocalComment(payload.workoutId, payload.body, {type:payload.type || 'post',creationId:payload.creationId});
-      const config = await readConfig();
-      const store = createContextStore(config, updateLogs);
-      if (store.ready) {
-        try {await store.upsert('athlete_comments', [{
-          id:stableUuid(`comment:${comment.id}`), athlete_id:'default',
-          workout_id:comment.workout_id || null, comment_type:comment.type,
-          body:comment.body, created_at:comment.created_at,
-        }]);} catch(error) {updateLogs('Comment table refresh pending: '+error.message);}
+      const payload=await readBody(req);
+      commentWorkoutPath(payload.workoutId);
+      const config=await readConfig(),local=await readLocalContext();
+      const result=await withDirectWorkoutWrite(config,payload.workoutId,request=>saveProviderWorkoutComment(request,payload,local.comments||[]));
+      intervalsMemoryCache=null;
+      if(result.id){
+        const comment=await addLocalComment(payload.workoutId,result.body,{type:result.type,creationId:payload.creationId});
+        const store=createContextStore(config,updateLogs);
+        if(store.ready){
+          try{await store.upsert('athlete_comments',[{
+            id:stableUuid(`comment:${comment.id}`),athlete_id:'default',
+            workout_id:comment.workout_id,comment_type:comment.type,
+            body:comment.body,created_at:comment.created_at,
+          }]);}catch(error){updateLogs('Comment table refresh pending: '+error.message);}
+        }
       }
-      res.writeHead(201, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(comment));
-      return;
+      sendJson(req,res,result);return;
     }
 
     if (req.url === '/api/start') {

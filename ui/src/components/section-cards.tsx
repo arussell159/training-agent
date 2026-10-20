@@ -323,7 +323,7 @@ export function SectionCards({
         aria-label={onWorkoutOpen && visibleTodayWorkout ? `Open ${visibleTodayWorkout.title}` : undefined}
         onClick={() => visibleTodayWorkout && onWorkoutOpen?.(visibleTodayWorkout)}
         onKeyDown={(event) => {
-          if (!onWorkoutOpen || (event.key !== "Enter" && event.key !== " "))
+          if (event.target !== event.currentTarget || !onWorkoutOpen || (event.key !== "Enter" && event.key !== " "))
             return
           event.preventDefault()
           if (visibleTodayWorkout) onWorkoutOpen(visibleTodayWorkout)

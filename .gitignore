@@ -22,6 +22,7 @@ tools/trainingpeaks-mcp-server/
 app-backend/local-edit-cache.enabled
 artifacts/reliability/
 artifacts/mobile-home-redesign/
+/artifacts/
 app-backend/supabase/.temp/
 
 .vercel

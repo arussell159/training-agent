@@ -18,6 +18,8 @@ import { ThemeProvider } from "@/components/theme-provider.tsx"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppToastProvider } from "@/components/ui/toast"
 import { performanceProbe } from "@/lib/performance-probe"
+import { InteractionFeedback } from "@/components/interaction-feedback"
+import { WorkoutSyncFeedback } from "@/components/workout-sync-feedback"
 
 // Sortable installs its touch handlers during app init. Other feature modules
 // register with their lazy route before its controls render.
@@ -82,6 +84,8 @@ createRoot(document.getElementById("root")!).render(
         <ThemeProvider>
           <TooltipProvider>
             <AppToastProvider>
+              <InteractionFeedback />
+              <WorkoutSyncFeedback />
               <App />
             </AppToastProvider>
           </TooltipProvider>

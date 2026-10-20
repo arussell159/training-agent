@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react"
-import { Ellipsis, FileText, Copy, Trash2 } from "lucide-react"
+import {
+  EllipsisVertical,
+  FileText,
+  Copy,
+  Trash2,
+  Pencil,
+  Scissors,
+} from "lucide-react"
 import { apiFetch } from "@/lib/api-client"
 import { randomId } from "@/lib/random-id"
 import {
@@ -35,18 +42,23 @@ export function CalendarNoteCard({
 }: {
   workout: PlannedWorkout
   onOpen: () => void
-  onAction: (action: "copy" | "delete") => void
+  onAction: (action: "copy" | "cut" | "delete") => void
   disabled: boolean
 }) {
+  const openAfterMenu = useRef(false)
+  disabled = disabled || Boolean(workout.app_pending_operation)
   return (
     <div
       role="button"
       tabIndex={0}
       className="calendar-note-card"
       data-calendar-note="true"
-      onClick={onOpen}
+      onClick={() => {
+        if (!disabled) onOpen()
+      }}
       onKeyDown={(event) => {
         if (
+          !disabled &&
           event.target === event.currentTarget &&
           ["Enter", " "].includes(event.key)
         ) {
@@ -58,29 +70,49 @@ export function CalendarNoteCard({
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <FileText className="size-4 shrink-0 text-slate-500" />
-          <strong className="min-w-0 text-xs font-semibold break-words">
-            {workout.title}
-          </strong>
         </div>
         <div
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
         >
-          <DropdownMenu>
+          <DropdownMenu
+            onOpenChangeComplete={(open) => {
+              if (!open && openAfterMenu.current) {
+                openAfterMenu.current = false
+                onOpen()
+              }
+            }}
+          >
             <DropdownMenuTrigger
               render={
                 <Button
                   size="icon-sm"
                   variant="ghost"
-                  className="-my-1 -mr-1"
+                  className="calendar-note-options -my-1 -mr-1"
                   disabled={disabled}
                   aria-label={`Options for ${workout.title}`}
                 />
               }
             >
-              <Ellipsis className="size-4" />
+              <EllipsisVertical className="size-4" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="calendar-context-menu">
+              <DropdownMenuItem
+                disabled={disabled}
+                onClick={() => {
+                  openAfterMenu.current = true
+                }}
+              >
+                <Pencil />
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={disabled}
+                onClick={() => onAction("cut")}
+              >
+                <Scissors />
+                Cut
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onAction("copy")}>
                 <Copy />
                 Copy
@@ -96,6 +128,9 @@ export function CalendarNoteCard({
           </DropdownMenu>
         </div>
       </div>
+      <strong className="calendar-note-title block min-w-0 text-xs font-normal break-words">
+        {workout.title}
+      </strong>
       {(workout.details || workout.goal) && (
         <p className="mt-2 line-clamp-4 text-xs text-muted-foreground">
           {workout.details || workout.goal}
@@ -109,12 +144,10 @@ export function CalendarNoteEditor({
   date,
   workout,
   onClose,
-  onNotice,
 }: {
   date: string
   workout?: PlannedWorkout
   onClose: () => void
-  onNotice: (message: string) => void
 }) {
   const draftKey = `calendar-note-draft:${trainingCacheScope()}:${workout?.id || date}`
   const [initial] = useState(() => {
@@ -212,7 +245,7 @@ export function CalendarNoteEditor({
       }
     }
     try {
-      const result = await saveCalendarNote({
+      await saveCalendarNote({
         id: workout?.id,
         name,
         description,
@@ -226,9 +259,6 @@ export function CalendarNoteEditor({
       } catch {
         /* Optional storage. */
       }
-      onNotice(
-        `${result.workout.title} saved in Intervals.icu.${result.refreshWarning ? ` ${result.refreshWarning}` : ""}`
-      )
       onClose()
     } catch (cause) {
       const failure = cause as Error & { status?: number }
@@ -263,7 +293,6 @@ export function CalendarNoteEditor({
     setError("")
     try {
       await changeWorkout(workout.id, "delete")
-      onNotice(`${name} deleted from Intervals.icu.`)
       onClose()
     } catch (cause) {
       setError(

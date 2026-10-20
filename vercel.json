@@ -22,6 +22,7 @@
     { "source": "/week", "destination": "/index.html" },
     { "source": "/library", "destination": "/index.html" },
     { "source": "/annual-plan", "destination": "/index.html" },
+    { "source": "/atp", "destination": "/index.html" },
     { "source": "/workout-reports", "destination": "/index.html" },
     { "source": "/settings", "destination": "/index.html" },
     { "source": "/nutrition", "destination": "/index.html" }

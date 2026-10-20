@@ -1,7 +1,9 @@
-import { ArrowLeft, X } from "lucide-react"
+import type { ReactNode } from "react"
+import { ArrowLeft, X, Maximize2, Minimize2, ChevronDown, Upload, Download } from "lucide-react"
 import { DesktopSportIcon } from "./desktop-sport-icon"
+import { DesktopWorkoutToolbar } from "./desktop-workout-toolbar"
 import { Button } from "@/components/ui/button"
-import { WorkoutEditorMenu } from "@/components/workout-editor"
+import { WorkoutEditorMenu } from "@/components/workout-editor-launcher"
 import {
   cachedTrainingContext,
   type PlannedWorkout,
@@ -23,10 +25,20 @@ export function DesktopWorkoutHeader({
   library = false,
   metadata,
   onMetadataChange,
+  onSportChange,
   onAnalyze,
+  onAnalyze360,
   onSummary,
   onEdit,
   busy = false,
+  isNew = false,
+  expanded = false,
+  onToggleExpanded,
+  settings,
+  actions,
+  recurrence,
+  onUpload,
+  onExport,
 }: {
   workout: PlannedWorkout
   onClose: () => void
@@ -34,10 +46,20 @@ export function DesktopWorkoutHeader({
   library?: boolean
   metadata?: DesktopWorkoutMetadata
   onMetadataChange?: (value: DesktopWorkoutMetadata) => void
+  onSportChange?: (sport: string) => void
   onAnalyze?: () => void
+  onAnalyze360?: () => void
   onSummary?: () => void
   onEdit?: () => void
   busy?: boolean
+  isNew?: boolean
+  expanded?: boolean
+  onToggleExpanded?: () => void
+  settings?: ReactNode
+  actions?: ReactNode
+  recurrence?: ReactNode
+  onUpload?: () => void
+  onExport?: () => void
 }) {
   const displayedDate = metadata?.date || workout.workout_date
   const day = displayedDate
@@ -49,6 +71,18 @@ export function DesktopWorkoutHeader({
         timeZone: "UTC",
       })
     : workout.date
+  const dayComma = day.indexOf(",")
+  const dateLabel =
+    dayComma < 0 ? (
+      day
+    ) : (
+      <>
+        <span className="desktop-workout-weekday">
+          {day.slice(0, dayComma)}
+        </span>
+        {day.slice(dayComma + 1)}
+      </>
+    )
   const start = workout.recorded_start_local || workout.scheduled_start_at
   const time =
     start && Number.isFinite(new Date(start).getTime())
@@ -70,45 +104,67 @@ export function DesktopWorkoutHeader({
   const duration =
     whole != null
       ? `${Math.floor(whole / 3600)}:${String(Math.floor((whole % 3600) / 60)).padStart(2, "0")}:${String(whole % 60).padStart(2, "0")}`
-      : workoutTime(workout).value
+      : isNew
+        ? "--:--:--"
+        : workoutTime(workout).value
   const distance = plannedDistanceLabel(workout).replace(/^[~≈]\s*/, "")
-  const distanceParts = distance.match(/^(.*?)\s+(mi|yds?|km|m)$/i)
+  const distanceParts =
+    distance.match(/^(.*?)\s+(mi|yds?|km|m)$/i) ||
+    (isNew ? ["", "--", /swim/i.test(workout.sport) ? "yds" : "mi"] : null)
   const tss = formatWorkoutTss(workout).replace(/^~\s*/, "")
-  const tssParts = tss.match(/^(.*?)\s+(TSS)$/i)
+  const tssParts =
+    tss.match(/^(.*?)\s+(TSS)$/i) || (isNew ? ["", "--", "TSS"] : null)
   return (
     <header className="desktop-workout-header">
       <div className="desktop-workout-heading-row">
         <div className="desktop-workout-date">
           {metadata && onMetadataChange ? (
             <label className="desktop-workout-date-edit">
-              {day}
+              {dateLabel}
               <input
                 type="date"
                 disabled={busy}
                 aria-label="Workout date"
                 form={`desktop-totals-${workout.id}`}
                 value={metadata.date}
+                onInput={(event) =>
+                  onMetadataChange({
+                    ...metadata,
+                    date: event.currentTarget.value,
+                  })
+                }
                 onChange={(event) =>
                   onMetadataChange({ ...metadata, date: event.target.value })
                 }
               />
             </label>
           ) : (
-            day
+            dateLabel
           )}
         </div>
         {metadata && onMetadataChange ? (
-          <input
-            className="desktop-workout-time"
-            type="time"
-            disabled={busy}
-            aria-label="Workout start time"
-            form={`desktop-totals-${workout.id}`}
-            value={metadata.time}
-            onChange={(event) =>
-              onMetadataChange({ ...metadata, time: event.target.value })
-            }
-          />
+          <label
+            className={`desktop-workout-time-edit ${!metadata.time ? "is-empty" : ""}`}
+          >
+            <input
+              className="desktop-workout-time"
+              type="time"
+              disabled={busy}
+              aria-label="Workout start time"
+              form={`desktop-totals-${workout.id}`}
+              value={metadata.time}
+              onInput={(event) =>
+                onMetadataChange({
+                  ...metadata,
+                  time: event.currentTarget.value,
+                })
+              }
+              onChange={(event) =>
+                onMetadataChange({ ...metadata, time: event.target.value })
+              }
+            />
+            {!metadata.time && <span aria-hidden="true">Enter Time ▾</span>}
+          </label>
         ) : (
           <span className="desktop-workout-time">{time || "Enter Time"}</span>
         )}
@@ -125,13 +181,25 @@ export function DesktopWorkoutHeader({
           ).map(([key, label]) =>
             metrics[key] != null && Number.isFinite(metrics[key]) ? (
               <span key={key} data-training-metric={key}>
-                {label} {Math.round(metrics[key]!)}
+                <span>{label}</span>
+                <strong>{Math.round(metrics[key]!)}</strong>
               </span>
             ) : null
           )}
         </div>
         <div className="desktop-workout-actions" inert={busy || undefined}>
-          {!library && <WorkoutEditorMenu workout={workout} />}
+          <DesktopWorkoutToolbar settings={settings} actions={actions} disabled={busy} />
+          {onToggleExpanded && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={expanded ? "Restore workout size" : "Expand workout"}
+              onClick={onToggleExpanded}
+            >
+              {expanded ? <Minimize2 /> : <Maximize2 />}
+            </Button>
+          )}
+          {!actions && !library && !isNew && <WorkoutEditorMenu workout={workout} />}
           <Button
             variant="ghost"
             size="icon-sm"
@@ -143,8 +211,14 @@ export function DesktopWorkoutHeader({
         </div>
       </div>
       <div className="desktop-workout-repeat">
-        Does not repeat{" "}
-        <span>{workout.status === "completed" ? "Completed" : "Planned"}</span>
+        {recurrence || "Does not repeat"}{" "}
+        <span>
+          {isNew
+            ? "New"
+            : workout.status === "completed"
+              ? "Completed"
+              : "Planned"}
+        </span>
       </div>
       <div className="desktop-workout-header-main">
         <div
@@ -157,6 +231,8 @@ export function DesktopWorkoutHeader({
               className="desktop-workout-title-input"
               disabled={busy}
               aria-label="Workout title"
+              placeholder={isNew ? "Untitled Workout" : undefined}
+              autoFocus={isNew}
               form={`desktop-totals-${workout.id}`}
               value={metadata.name}
               onChange={(event) =>
@@ -167,8 +243,19 @@ export function DesktopWorkoutHeader({
             <h2 title={workout.title}>{workout.title}</h2>
           )}
           <div className="desktop-workout-key-values">
-            <DesktopSportIcon sport={workout.sport} />
-            <strong>{duration}</strong>
+            {onSportChange ? <label className="desktop-workout-sport-picker">
+              <DesktopSportIcon sport={workout.sport} />
+              <ChevronDown size={12} aria-hidden="true" />
+              <select aria-label="Workout sport" disabled={busy} value={workout.sport === "Bike" ? "Ride" : workout.sport === "Strength" ? "WeightTraining" : workout.sport === "Sauna" ? "Other" : workout.sport} onChange={event => onSportChange(event.target.value)}>
+                <option value="Run">Run</option>
+                <option value="Ride">Bike</option>
+                <option value="Swim">Swim</option>
+                <option value="WeightTraining">Strength</option>
+                <option value="Walk">Walk</option>
+                <option value="Other">Other</option>
+              </select>
+            </label> : <DesktopSportIcon sport={workout.sport} />}
+            <strong className={isNew && whole == null ? "desktop-workout-empty-duration" : undefined}>{duration}</strong>
             <strong title={plannedDistanceLabel(workout)}>
               {distanceParts ? (
                 <>
@@ -202,22 +289,74 @@ export function DesktopWorkoutHeader({
               {workout.status === "completed" ? "Completed" : "Planned"}
             </span>
           </div>
+          {onExport && (
+            <button className="desktop-workout-export" type="button" aria-label="Export workout" title="Export workout" disabled={busy} onClick={onExport}>
+              <Download size={17} aria-hidden="true" />
+            </button>
+          )}
         </div>
-        {(onAnalyze || onSummary || onEdit) && (
+        {(isNew || onUpload || onAnalyze || onAnalyze360 || onSummary || onEdit) && (
           <div className="desktop-workout-view-actions">
-            {onEdit && (
+            {(isNew || onUpload) && (
+              <>
+                <button
+                  type="button"
+                  disabled={busy || !onUpload}
+                  onClick={onUpload}
+                  title={onUpload ? "Upload a workout recording" : "Save the workout before uploading a recording"}
+                >
+                  <Upload size={14} aria-hidden="true" />
+                  Upload
+                </button>
+                {!onAnalyze && <button
+                  type="button"
+                  disabled
+                  title="Analysis requires a completed recording"
+                >
+                  Analyze
+                </button>}
+                {!onAnalyze360 && <button
+                  type="button"
+                  disabled
+                  title="Analysis requires a completed recording"
+                >
+                  Analyze 360
+                </button>}
+              </>
+            )}
+            {onEdit && !onUpload && !isNew && (
               <button type="button" disabled={busy} onClick={onEdit}>
                 Edit workout
               </button>
             )}
             {onAnalyze && (
-              <button type="button" disabled={busy} onClick={onAnalyze}>
+              <button
+                type="button"
+                data-workout-view="analysis"
+                disabled={busy}
+                onClick={onAnalyze}
+              >
                 Analyze
               </button>
             )}
             {onSummary && (
-              <button type="button" disabled={busy} onClick={onSummary}>
+              <button
+                type="button"
+                data-workout-view="summary"
+                disabled={busy}
+                onClick={onSummary}
+              >
                 Summary
+              </button>
+            )}
+            {onAnalyze360 && (
+              <button
+                type="button"
+                data-workout-view="360"
+                disabled={busy}
+                onClick={onAnalyze360}
+              >
+                Analyze 360
               </button>
             )}
           </div>

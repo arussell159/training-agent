@@ -1,5 +1,116 @@
 type DistancePoint = { time: number; distance: number }
 
+export type ChartSample = { time: number; value: number | null }
+
+/** Interpolate display boundaries only between adjacent, valid recorded samples. */
+export function recordedChartWindow<T extends { time: number }>(
+  points: T[],
+  start: number,
+  end: number,
+  read: (point: T, index: number) => number | null
+): ChartSample[] {
+  if (
+    !points.length ||
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    end <= start
+  )
+    return []
+  const lowerBound = (time: number) => {
+    let left = 0,
+      right = points.length
+    while (left < right) {
+      const middle = Math.floor((left + right) / 2)
+      if (points[middle].time < time) left = middle + 1
+      else right = middle
+    }
+    return left
+  }
+  const valueAt = (index: number) => {
+    const value = read(points[index], index)
+    return value != null && Number.isFinite(value) ? value : null
+  }
+  const boundary = (time: number, index: number): ChartSample => {
+    if (points[index]?.time === time) return { time, value: valueAt(index) }
+    const before = points[index - 1],
+      after = points[index]
+    if (
+      !before ||
+      !after ||
+      after.time <= before.time ||
+      after.time - before.time > 10.000001
+    )
+      return { time, value: null }
+    const a = valueAt(index - 1),
+      b = valueAt(index)
+    return {
+      time,
+      value:
+        a == null || b == null
+          ? null
+          : a + ((b - a) * (time - before.time)) / (after.time - before.time),
+    }
+  }
+  const first = lowerBound(start),
+    last = lowerBound(end)
+  const result = [boundary(start, first)]
+  for (let index = first; index < last; index++) {
+    if (points[index].time > start)
+      result.push({ time: points[index].time, value: valueAt(index) })
+  }
+  result.push(boundary(end, last))
+  return result
+}
+
+/** Keep gaps, endpoints and bucket extrema when reducing a displayed signal. */
+export function recordedChartSegments<T extends { time: number }>(
+  points: T[],
+  start: number,
+  end: number,
+  read: (point: T, index: number) => number | null,
+  limit = 1000
+) {
+  type Segment = Array<{ time: number; value: number }>
+  const segments: Segment[] = []
+  let current: Segment = [],
+    previous: number | null = null
+  for (const point of recordedChartWindow(points, start, end, read)) {
+    if (
+      point.value == null ||
+      (previous != null && point.time - previous > 10.000001)
+    ) {
+      if (current.length) segments.push(current)
+      current = []
+    }
+    if (point.value != null)
+      current.push({ time: point.time, value: point.value })
+    previous = point.time
+  }
+  if (current.length) segments.push(current)
+  return segments.map((segment) => {
+    if (segment.length <= limit) return segment
+    const size = Math.max(
+      1,
+      Math.ceil((segment.length * 4) / Math.max(4, limit))
+    )
+    const sampled: Segment = []
+    for (let first = 0; first < segment.length; first += size) {
+      const last = Math.min(segment.length - 1, first + size - 1)
+      let minimum = first,
+        maximum = first
+      for (let index = first + 1; index <= last; index++) {
+        if (segment[index].value < segment[minimum].value) minimum = index
+        if (segment[index].value > segment[maximum].value) maximum = index
+      }
+      for (const index of [...new Set([first, minimum, maximum, last])].sort(
+        (a, b) => a - b
+      ))
+        sampled.push(segment[index])
+    }
+    return sampled
+  })
+}
+
 /** Display smoothing never fills a missing measurement or changes the recorded statistics. */
 export function smoothedChartValue<T extends { time: number }>(
   points: T[],
@@ -96,4 +207,14 @@ export function recordedDistanceAxis(
     atDistance: (distance: number) =>
       interpolate(points, distance, "distance", "time"),
   }
+}
+
+/** A partial split ends at the recorded distance, never at the next nominal marker. */
+export function recordedSplitEndpointLabel(
+  axis: ReturnType<typeof recordedDistanceAxis>,
+  end: number
+) {
+  if (!axis || !Number.isFinite(end)) return "—"
+  const miles = Math.max(0, axis.atTime(end) - axis.start) / 1609.344
+  return `${Number(miles.toFixed(2))} mi`
 }

@@ -1,4 +1,5 @@
-import { TableSkeleton } from "@/components/loading-layouts"
+import { TableSkeleton, ChartSkeleton } from "@/components/loading-layouts"
+import { preloadable } from "@/lib/preloadable"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
@@ -22,11 +23,10 @@ import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
-import { WorkoutReportCompare } from "@/components/workout-report-compare"
 import { useIsMobile } from "@/hooks/use-mobile"
 import "./workout-reports.css"
 import { apiFetch } from "@/lib/api-client"
-import { loadWorkoutHistoryPage } from "@/lib/training-history-range"
+import { loadWorkoutHistoryPage, prepareReportHistoryCache } from "@/lib/training-history-range"
 import {
   cachedTrainingContext,
   type PlannedWorkout,
@@ -61,6 +61,8 @@ type View = {
 }
 const viewKey = "workout-reports-view-v1"
 const preferenceKey = "workout_report_columns_v1"
+const compareRoute = preloadable(() => import("@/components/workout-report-compare").then(module => ({default: module.WorkoutReportCompare})), () => <ChartSkeleton />)
+const WorkoutReportCompare = compareRoute.Component
 const desktopColumnDropPriority = [
   "elevation_gain",
   "elevation_loss",
@@ -105,6 +107,7 @@ const initialView = (): View => {
     }
   }
 }
+if (initialView().filters.range === "all") prepareReportHistoryCache()
 const rangeOptions = [
   ["all", "All time"],
   ["7", "Last 7 days"],

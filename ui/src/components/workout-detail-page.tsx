@@ -1,5 +1,9 @@
+import { workoutAnalysisRoute } from "@/lib/workout-preload"
 import { ChartSkeleton } from "@/components/loading-layouts"
 import { DesktopWorkoutHeader } from "@/components/desktop-workout-header"
+import { useWorkoutFiles } from "@/components/workout-file-actions"
+import { DesktopWorkoutSummarySettings } from "@/components/desktop-workout-toolbar"
+import { WorkoutRecurrenceControl } from "@/components/desktop-workout-recurrence"
 import { DetailSheetRow } from "@/components/detail-sheet-row"
 import { canEditWorkout } from "@/lib/workout-permissions"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -8,16 +12,13 @@ import { METERS_PER_100_YARDS } from "../../../app-backend/lib/swim-units.mjs"
 import {
   WorkoutEditor,
   useEditedWorkout,
-} from "@/components/workout-editor"
-import { lazy, Suspense, useEffect, useState } from "react"
+} from "@/components/workout-editor-launcher"
+import { Suspense, useEffect, useRef, useState } from "react"
 import { formatDuration, formatPace } from "@/lib/duration"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { WorkoutDetailSurface } from "@/components/workout-detail-surface"
-const WorkoutAnalysis = lazy(() =>
-  import("@/components/workout-analysis").then((m) => ({
-    default: m.WorkoutAnalysis,
-  }))
-)
+import { LibraryWorkoutSchedule } from "@/components/library-workout-schedule"
+const WorkoutAnalysis = workoutAnalysisRoute.Component
 import { WorkoutProfile } from "@/components/workout-profile"
 import { WorkoutSummary } from "@/components/workout-summary"
 import { DesktopWorkoutDetails } from "@/components/desktop-workout-details"
@@ -386,6 +387,8 @@ export function WorkoutDetailPage({
   onBack: () => void
 }) {
   const workout = useEditedWorkout(initialWorkout)
+  const workoutFiles = useWorkoutFiles({workout, model:workout.editor_model})
+  const desktopSummary = useRef<HTMLDivElement>(null)
   const mobile = useIsMobile()
   const editable = canEditWorkout(workout)
   const library = workout.id.startsWith("library:")
@@ -554,6 +557,7 @@ export function WorkoutDetailPage({
 
   return (
     <div style={{overflowAnchor:"none"}} className={`min-h-svh w-full min-w-0 max-w-full overflow-x-clip ${mobile && workout.status !== "completed" ? "planned-workout-mobile-page" : "bg-background"}`}>
+      {workoutFiles.dialogs}
       <MobileSiteNavbar
         fixed
         className={mobile && workout.status !== "completed" ? "planned-workout-navbar" : workout.status === "completed" && !swim ? "workout-map-navbar" : undefined}
@@ -611,6 +615,7 @@ export function WorkoutDetailPage({
         </AlertDialogContent>
       </AlertDialog>
 
+      {library && <LibraryWorkoutSchedule key={workout.id} workout={workout}/>}
       {workout.status === "completed" && (
       <div className="desktop-workout-completed hidden min-h-svh min-w-0 flex-col md:flex">
         <DesktopWorkoutHeader workout={workout} onClose={onBack} back/>
@@ -769,9 +774,19 @@ export function WorkoutDetailPage({
       )}
 
       {workout.status !== "completed" && !mobile && (
-        <div className="desktop-workout-preview hidden md:block">
+        <div ref={desktopSummary} className="desktop-workout-preview hidden md:block">
           <div className="mx-auto w-full max-w-5xl px-3 pt-3">
-            <DesktopWorkoutHeader workout={workout} onClose={onBack} back library={library}/>
+            <DesktopWorkoutHeader workout={workout} onClose={onBack} back library={library} busy={deleting}
+              onUpload={!library ? workoutFiles.upload : undefined}
+              onExport={/^event:\d+$/.test(workout.id) || workout.editor_model ? workoutFiles.exportWorkout : undefined}
+              settings={editable && !library ? <DesktopWorkoutSummarySettings getRoot={() => desktopSummary.current}/> : undefined}
+              actions={editable && !library ? <>
+                <button type="button" disabled={deleting} onClick={() => openEditor()}>Edit Workout</button>
+                <button type="button" disabled={deleting} onClick={workoutFiles.exportWorkout}>Export Workout</button>
+                <button type="button" disabled={deleting} onClick={() => setDeleteOpen(true)}>Delete Workout</button>
+              </> : undefined}
+              recurrence={!library && /^event:\d+$/.test(workout.id) ? <WorkoutRecurrenceControl workoutId={workout.id} date={workout.workout_date || workout.date} disabled={deleting}/> : undefined}
+            />
             {(workout.structure||workout.editor_model)&&<div className="mt-2 overflow-hidden"><WorkoutProfile workout={workout} compact desktopDetail disableDesktopTimeline enableEditOnClick={!library}/></div>}
           </div>
 

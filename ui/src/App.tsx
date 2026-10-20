@@ -9,8 +9,11 @@ import {
   normalizeActivityEffortTarget,
 } from "@/lib/activity-effort-navigation"
 import { BackgroundSync } from "@/components/background-sync"
+import { preloadable } from "@/lib/preloadable"
+import { workoutDetailRoute, prepareWorkout } from "@/lib/workout-preload"
 import { prefetchWorkoutRecording } from "@/lib/activity-analysis"
 import { prefetchNutrition } from "@/lib/nutrition"
+import { prefetchWorkspacePage } from "@/lib/workspace-reads"
 import { flushSync } from "react-dom"
 import { SidebarNavigationSlim } from "@/components/application/app-navigation/sidebar-navigation/sidebar-slim"
 import {
@@ -92,9 +95,10 @@ const pageImports = {
   "Workout Reports": () => import("@/components/workout-reports-page"),
 }
 function preloadPage(item: string) {
-  const load = pageImports[item as keyof typeof pageImports]
+  const load = routeLoaders[item as keyof typeof routeLoaders]?.preload
   if (load) void load().catch(() => {})
   if (item === "Nutrition") void prefetchNutrition().catch(() => {})
+  prefetchWorkspacePage(item)
 }
 const TermsReferenceDialog = lazy(() =>
   import("@/components/terms-reference-dialog").then((module) => ({
@@ -112,49 +116,62 @@ const ReportReaderPage = lazy(() =>
   }))
 )
 
-const NutritionPage = lazy(() =>
-  pageImports.Nutrition().then(module => ({ default: module.NutritionPage }))
+const nutritionRoute = preloadable(() =>
+  pageImports.Nutrition().then(module => ({ default: module.NutritionPage })),
+  () => <PageSkeleton page="Nutrition" />
 )
-const SettingsWorkspace = lazy(() =>
+const settingsRoute = preloadable(() =>
   pageImports["Settings"]().then((module) => ({
     default: module.SettingsWorkspace,
-  }))
+  })),
+  () => <PageSkeleton page="Settings" />
 )
-const TrainingCalendar = lazy(() =>
+const calendarRoute = preloadable(() =>
   pageImports["Calendar"]().then((module) => ({
     default: module.TrainingCalendar,
-  }))
+  })),
+  () => <PageSkeleton page="Calendar" />
 )
-const CoachPage = lazy(() =>
+const coachRoute = preloadable(() =>
   pageImports["Coach"]().then((module) => ({
     default: module.CoachPage,
-  }))
+  })),
+  () => <PageSkeleton page="Coach" />
 )
-const TrainingDashboard = lazy(() =>
+const homeRoute = preloadable(() =>
   pageImports["Home"]().then((module) => ({
     default: module.TrainingDashboard,
-  }))
+  })),
+  () => <PageSkeleton page="Home" />
 )
-const TrainingLibrary = lazy(() =>
+const libraryRoute = preloadable(() =>
   pageImports["Library"]().then((module) => ({
     default: module.TrainingLibrary,
-  }))
+  })),
+  () => <PageSkeleton page="Library" />
 )
-const AnnualPlanCreator = lazy(() =>
+const annualPlanRoute = preloadable(() =>
   pageImports["Annual Plan"]().then((module) => ({
     default: module.AnnualPlanCreator,
-  }))
+  })),
+  () => <PageSkeleton page="Annual Plan" />
 )
-const WorkoutReportsPage = lazy(() =>
+const reportsRoute = preloadable(() =>
   pageImports["Workout Reports"]().then((module) => ({
     default: module.WorkoutReportsPage,
-  }))
+  })),
+  () => <PageSkeleton page="Workout Reports" />
 )
-const WorkoutDetailPage = lazy(() =>
-  import("@/components/workout-detail-page").then((module) => ({
-    default: module.WorkoutDetailPage,
-  }))
-)
+const WorkoutDetailPage = workoutDetailRoute.Component
+const routeLoaders = { Home: homeRoute, Calendar: calendarRoute, Nutrition: nutritionRoute, Settings: settingsRoute, Coach: coachRoute, Library: libraryRoute, "Annual Plan": annualPlanRoute, "Workout Reports": reportsRoute }
+const NutritionPage = nutritionRoute.Component
+const SettingsWorkspace = settingsRoute.Component
+const TrainingCalendar = calendarRoute.Component
+const CoachPage = coachRoute.Component
+const TrainingDashboard = homeRoute.Component
+const TrainingLibrary = libraryRoute.Component
+const AnnualPlanCreator = annualPlanRoute.Component
+const WorkoutReportsPage = reportsRoute.Component
 
 const navigation = [
   { label: "Home", icon: Home },
@@ -186,10 +203,10 @@ function itemPath(item: string) {
 
 // Fetch the current view's code while the server verifies the session.
 if (workoutRouteId())
-  void import("@/components/workout-detail-page").catch(() => {})
+  void workoutDetailRoute.preload().catch(() => {})
 else if (restoreReportReader())
   void import("@/components/report-reader-page").catch(() => {})
-else void pageImports[routeItem() as keyof typeof pageImports]().catch(() => {})
+else void routeLoaders[routeItem() as keyof typeof routeLoaders].preload().catch(() => {})
 
 function RouteScrollReset({
   route,
@@ -214,6 +231,19 @@ function AppWorkspace() {
     workoutRouteId() ? null : restoreReportReader()
   )
   const [activeItem, setActiveItem] = useState<string>(routeItem)
+  useEffect(() => {
+    if (activeItem !== "Home") return
+    let second = 0
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => {
+        // Warm the Home shortcuts after its first paint, so a food-entry tap
+        // can mount and focus its textarea during the original gesture.
+        void nutritionRoute.preload().catch(() => {})
+        void workoutDetailRoute.preload().catch(() => {})
+      })
+    })
+    return () => { cancelAnimationFrame(first); cancelAnimationFrame(second) }
+  }, [activeItem])
   const nutritionReturnRoute = useRef("Home")
   const [nutritionQuickAddRequest, setNutritionQuickAddRequest] = useState(0)
   const nutritionQuickAddSequence = useRef(0)
@@ -315,8 +345,9 @@ function AppWorkspace() {
     let active = true
     setWorkoutLoadError(null)
     const controller = new AbortController()
-    void import("@/lib/training-history-range")
-      .then(({ loadHistoricalWorkout }) => loadHistoricalWorkout(id, { signal: controller.signal, force: workoutLoadAttempt > 0 }))
+    void (id.startsWith("library:")
+      ? import("@/lib/workout-read-cache").then(({loadLibraryWorkout})=>loadLibraryWorkout(id,controller.signal,workoutLoadAttempt>0))
+      : import("@/lib/training-history-range").then(({ loadHistoricalWorkout }) => loadHistoricalWorkout(id, { signal: controller.signal, force: workoutLoadAttempt > 0 })))
       .then((workout) => {
         if (!active || workoutRouteId() !== id) return
         if (workout) {
@@ -474,14 +505,17 @@ function AppWorkspace() {
   }, [selectItem])
 
   const openWorkout = (workout: PlannedWorkout) => {
-    prefetchWorkoutRecording(workout)
+    if (workout.app_pending_operation) return
     workoutReturnRoute.current = activeItem
     workoutReturnScroll.current = window.scrollY
     routeScrollTarget.current = 0
     setCalendarReturnScroll(null)
-    rememberOpenWorkout(workout)
     setPendingWorkoutId(null)
-    startTransition(() => setSelectedWorkout(workout))
+    setSelectedWorkout(workout)
+    rememberOpenWorkout(workout)
+    void workoutDetailRoute.preload().catch(() => {})
+    prepareWorkout(workout)
+    prefetchWorkoutRecording(workout)
   }
 
   useEffect(() => {

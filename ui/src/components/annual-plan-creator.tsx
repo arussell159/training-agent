@@ -27,6 +27,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { apiFetch } from "@/lib/api-client"
+import { loadWorkspaceRead } from "@/lib/workspace-reads"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useSheetDismiss } from "@/hooks/use-sheet-dismiss"
 import { Sheet } from "framework7-react"
@@ -498,10 +499,7 @@ export function AnnualPlanCreator() {
     if (pageSnapshotFresh("annual-plan")) return
     Promise.all([
       loadTrainingContext(false, "full").catch(() => cachedTrainingContext()),
-      apiFetch("/api/annual-plans").then(async (response) => {
-        if (!response.ok) throw new Error("Unable to load annual plans")
-        return response.json() as Promise<{ plans: AnnualPlan[]; activeId?: string | null }>
-      }),
+      loadWorkspaceRead<{ plans: AnnualPlan[]; activeId?: string | null }>("/api/annual-plans"),
     ]).then(([nextContext, result]) => {
       if (!active) return
       setContext(nextContext)

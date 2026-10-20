@@ -302,6 +302,7 @@ export async function nutritionRequest<T>(
   payload?: unknown,
   signal?: AbortSignal
 ): Promise<T> {
+  if (payload !== undefined && path.startsWith("/library")) window.dispatchEvent(new Event("food-library-updated"))
   return withRequestDeadline(
     async (requestSignal) => {
       const response = await apiFetch(`/api/nutrition${path}`, {
@@ -426,9 +427,13 @@ function load(date: string, refresh = false) {
   const underway = pending.get(key)
   if (underway) return underway
   const version = generation
-  const request = nutritionRequest<NutritionView>(
-    `?date=${encodeURIComponent(date)}`
-  )
+  const startupTarget = window as Window & { __nutritionStartupRequest?: { date: string; response: Promise<Response | null> } }
+  const startup = !refresh && startupTarget.__nutritionStartupRequest?.date === date ? startupTarget.__nutritionStartupRequest : undefined
+  if (startup) delete startupTarget.__nutritionStartupRequest
+  const request = (async () => {
+    const response = startup ? await startup.response : null
+    return response?.ok ? await response.json() as NutritionView : await nutritionRequest<NutritionView>(`?date=${encodeURIComponent(date)}`)
+  })()
     .then((value) => {
       if (generation !== version || scope !== deviceCacheScope())
         throw new DOMException("Aborted", "AbortError")
@@ -461,6 +466,7 @@ if (typeof window !== "undefined")
     "app-auth-required",
   ])
     window.addEventListener(event, () => {
+      delete (window as Window & { __nutritionStartupRequest?: unknown }).__nutritionStartupRequest
       generation++
       cache.clear()
       pending.clear()
@@ -481,6 +487,11 @@ export function nutritionChanged() {
     /* Storage is optional. */
   }
   window.dispatchEvent(new Event("nutrition-updated"))
+}
+export function beginNutritionWrite() {
+  // A pre-save GET must never paint over the local change or its confirmation.
+  generation++
+  pending.clear()
 }
 export function useNutrition(date: string) {
   const [data, setData] = useState<NutritionView | null>(() =>

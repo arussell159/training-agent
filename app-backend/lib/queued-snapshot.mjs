@@ -1,5 +1,6 @@
 import { athleteLocalDate } from "./athlete-date.mjs";
 import { syncRevision } from "./sync-record-revision.mjs";
+import { preserveRecordedWorkout, recordingAfterPlanDeletion } from "./workout-recording-merge.mjs";
 
 // Whole-context writers retain queue edits accepted after their source read.
 // Settled queue fields can be refreshed normally once the source read is current.
@@ -31,7 +32,11 @@ export function preserveQueuedSnapshot(current, incoming, { verifiedIds = [] } =
     );
     for (const id of verified) {
       if (sourceRows.has(id)) currentRows.set(id, sourceRows.get(id));
-      else currentRows.delete(id);
+      else {
+        const recording = recordingAfterPlanDeletion(currentRows.get(id));
+        if (recording && !currentRows.has(recording.id)) currentRows.set(recording.id, recording);
+        currentRows.delete(id);
+      }
     }
     incoming = {
       ...current,
@@ -83,7 +88,7 @@ export function preserveQueuedSnapshot(current, incoming, { verifiedIds = [] } =
         workout.sync_sequence > 0 &&
         workout.sync_sequence >= (newer?.sync_sequence || 0))
     )
-      sessions.set(String(workout.id), workout);
+      sessions.set(String(workout.id), preserveRecordedWorkout(workout, newer));
     else if (newer && workout.sync_sequence > 0)
       // Provider refreshes may correct settled fields but must retain accepted
       // edit watermarks, so a delayed enqueue projection cannot replay them.
@@ -96,6 +101,14 @@ export function preserveQueuedSnapshot(current, incoming, { verifiedIds = [] } =
       });
   }
   const today = athleteLocalDate(new Date(), incoming.athlete?.time_zone || "America/Chicago");
+  for (const [id, workout] of sessions) {
+    if (!deleted[id]) continue;
+    const recording = recordingAfterPlanDeletion(workout);
+    if (recording) {
+      if (!sessions.has(recording.id)) sessions.set(recording.id, recording);
+      sessions.delete(id);
+    }
+  }
   const rows = [...sessions.values()].filter(
     (workout) =>
       !deleted[String(workout.id)] ||

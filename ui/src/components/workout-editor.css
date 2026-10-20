@@ -8,6 +8,14 @@
   padding: 0;
   overflow: hidden;
 }
+@media (min-width: 768px) {
+  [role="dialog"].we-dialog.we-tp-desktop { width: calc(100vw - 24px); max-width: 1900px !important; height: calc(100dvh - 24px); max-height: calc(100dvh - 24px); border-radius: 8px; }
+  .dtb-loading { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 20px; padding: 16px; }
+  .dtb-loading-header { display: flex; flex-direction: column; gap: 16px; }
+  .dtb-loading-panels { display: grid; grid-template-columns: 40% minmax(0,1fr); gap: 28px; overflow: hidden; }
+  .dtb-loading-panels > div { display: flex; flex-direction: column; gap: 8px; }
+  .dtb-loading-dialog > div:first-child { padding: 16px; }
+}
 .we-mobile-editor {
   display: flex;
   min-height: 0;

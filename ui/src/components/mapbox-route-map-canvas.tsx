@@ -33,6 +33,7 @@ export function MapboxRouteMapCanvas({
   center,
   highlightRange,
   cursorPoint,
+  onCursorTimeChange,
   className,
   interactive = true,
   topPadding = 0,
@@ -43,6 +44,8 @@ export function MapboxRouteMapCanvas({
   const highlightedRef = useRef<MapRoutePoint[]>([])
   const cursorRef = useRef<MapRoutePoint | null>(null)
   const syncCursorRef = useRef<(() => void) | null>(null)
+  const hoverCallback = useRef(onCursorTimeChange)
+  hoverCallback.current = onCursorTimeChange
   cursorRef.current = isRouteCursorPoint(cursorPoint) ? cursorPoint : null
   const cursorLatitude = cursorRef.current?.latitude,
     cursorLongitude = cursorRef.current?.longitude
@@ -68,9 +71,9 @@ export function MapboxRouteMapCanvas({
           Number.isFinite(point.latitude) &&
           Number.isFinite(point.longitude) &&
           Math.abs(point.latitude) <= 85 &&
-          Math.abs(point.longitude) <= 180,
+          Math.abs(point.longitude) <= 180
       ),
-    [points],
+    [points]
   )
   const highlightStart = highlightRange?.[0],
     highlightEnd = highlightRange?.[1]
@@ -79,25 +82,27 @@ export function MapboxRouteMapCanvas({
       highlightStart != null && highlightEnd != null
         ? valid.filter(
             (point) =>
-              point.time >= highlightStart && point.time <= highlightEnd,
+              point.time >= highlightStart && point.time <= highlightEnd
           )
         : [],
-    [highlightStart, highlightEnd, valid],
+    [highlightStart, highlightEnd, valid]
   )
   highlightedRef.current = highlighted
+  const timedPointsRef = useRef(valid)
+  timedPointsRef.current = valid
 
   // Adding real playback timestamps must not destroy and reload an identical map.
   const geometryKey = useMemo(
     () =>
       JSON.stringify(valid.map((point) => [point.latitude, point.longitude])),
-    [valid],
+    [valid]
   )
   const positions = useMemo<MapRoutePoint[]>(
     () =>
       (JSON.parse(geometryKey) as [number, number][]).map(
-        ([latitude, longitude], time) => ({ latitude, longitude, time }),
+        ([latitude, longitude], time) => ({ latitude, longitude, time })
       ),
-    [geometryKey],
+    [geometryKey]
   )
 
   useEffect(() => {
@@ -132,10 +137,33 @@ export function MapboxRouteMapCanvas({
       logoPosition: "bottom-left",
     })
     mapRef.current = map
+    const routeHover = (event: mapboxgl.MapMouseEvent) => {
+      if (!hoverCallback.current) return
+      const samples = timedPointsRef.current
+      let closest: MapRoutePoint | null = null,
+        distance = 24
+      const stride = Math.max(1, Math.floor(samples.length / 1200))
+      for (let index = 0; index < samples.length; index += stride) {
+        const point = samples[index],
+          pixel = map.project([point.longitude, point.latitude])
+        const delta = Math.hypot(
+          pixel.x - event.point.x,
+          pixel.y - event.point.y
+        )
+        if (delta < distance) {
+          closest = point
+          distance = delta
+        }
+      }
+      hoverCallback.current(closest?.time ?? null)
+    }
+    const clearHover = () => hoverCallback.current?.(null)
+    map.on("mousemove", routeHover)
+    map.on("mouseout", clearHover)
     if (interactive)
       map.addControl(
         new mapboxgl.NavigationControl({ showCompass: false }),
-        "top-left",
+        "top-left"
       )
     const startMarker = hasRoute
       ? new mapboxgl.Marker({
@@ -248,6 +276,8 @@ export function MapboxRouteMapCanvas({
     observer.observe(container.current)
     return () => {
       observer.disconnect()
+      map.off("mousemove", routeHover)
+      map.off("mouseout", clearHover)
       startMarker.remove()
       finishMarker?.remove()
       cursorMarker?.remove()
@@ -275,8 +305,7 @@ export function MapboxRouteMapCanvas({
   useEffect(() => {
     const map = mapRef.current
     const source = map?.getSource("highlighted-route") as
-      | mapboxgl.GeoJSONSource
-      | undefined
+      mapboxgl.GeoJSONSource | undefined
     if (source) source.setData(line(highlighted))
   }, [highlighted])
 

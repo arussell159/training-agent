@@ -6,6 +6,9 @@
 **/.env*
 *.log
 **/*.log
+**/*.cache
+**/*.cache.*
+**/*.tmp
 artifacts/
 node_modules/
 ui/node_modules/

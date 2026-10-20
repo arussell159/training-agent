@@ -18,7 +18,10 @@ const shellReads = createSharedRequestCache(
       RequestCache,
       [string, string][],
     ]
-    const response = await fetch(toFunctionUrl(path), {
+    const startup = typeof window === "undefined" ? undefined : (window as Window & { __workspaceStartupRequests?: Record<string, Promise<Response | null>> }).__workspaceStartupRequests
+    const early = cache !== "reload" ? startup?.[path] : undefined
+    if (startup?.[path]) delete startup[path]
+    const response = (early ? await early : null) ?? await fetch(toFunctionUrl(path), {
       credentials: "same-origin",
       cache,
       signal,
@@ -36,9 +39,11 @@ const shellReads = createSharedRequestCache(
 
 let authenticated = false
 let authRevision = 0
+export function apiSessionRevision() { return authenticated ? authRevision : null }
 export function setApiAuthenticated(value: boolean, newSession = false) {
   if (authenticated !== value || newSession) authRevision++
   authenticated = value
+  if (!value && typeof window !== "undefined") delete (window as Window & { __workspaceStartupRequests?: unknown }).__workspaceStartupRequests
 }
 
 export async function apiFetch(
@@ -90,7 +95,7 @@ export async function apiFetch(
     })
   const share =
     (!options?.method || options.method.toUpperCase() === "GET") &&
-    /^\/api\/(config|annual-plans|training-history|training-updates|training-context)(?:\?|$)/.test(path) &&
+    /^\/api\/(config|annual-plans|training-history|training-updates|training-context|training-preferences|workout-history|workout-library|race-events|coach\/reports\/catalog)(?:\?|$)/.test(path) &&
     !options?.body &&
     !options?.mode &&
     !options?.integrity &&

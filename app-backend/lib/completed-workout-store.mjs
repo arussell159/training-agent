@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { contentFingerprint } from "./content-fingerprint.mjs";
+import { preserveRecordedWorkout } from "./workout-recording-merge.mjs";
 
 export function providerConnection(config) {
   return createHash("sha256")
@@ -156,6 +157,12 @@ export function mergeTrainingSnapshot(previous, incoming, range) {
   // A normal full sync covers a rolling provider window, not the whole archive.
   range ||= incoming.cached_ranges?.[0];
   if (!range) return incoming;
+  const providerRows = new Map(
+    [...(incoming.history || []), ...(incoming.planned || [])].map((workout) => [
+      String(workout.id),
+      workout,
+    ])
+  );
   const merge = (oldRows = [], newRows = []) => {
     const recent = new Map(
       oldRows
@@ -177,7 +184,9 @@ export function mergeTrainingSnapshot(previous, incoming, range) {
                 previous.app_deleted_workouts?.[String(w.id)] > incoming.sync_started_at
               )
           ),
-          ...recent.values(),
+          ...[...recent.values()].map((workout) =>
+            preserveRecordedWorkout(workout, providerRows.get(String(workout.id)))
+          ),
         ].map((w) => [String(w.id), w])
       ).values(),
     ].sort(

@@ -1,18 +1,12 @@
 import { useEffect, useState } from "react"
 import { FileText } from "lucide-react"
-import { coachRequest } from "@/lib/coach-client"
+import { loadWorkspaceRead } from "@/lib/workspace-reads"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { BlockReportBody, WeeklyReportBody, periodLabel, type CatalogReport } from "@/components/catalog-report-body"
+import { BlockReportBody, WeeklyReportBody, periodLabel, type CatalogReport } from "@/components/catalog-report-preview"
 
-let request: Promise<CatalogReport[]> | null = null
-let expires = 0
 function loadReports() {
-  if (!request || Date.now() >= expires) {
-    expires = Date.now() + 60_000
-    request = coachRequest("reports/catalog").then(response => response.json()).then(value => value.reports || []).catch(error => { request = null; throw error })
-  }
-  return request
+  return loadWorkspaceRead<{reports: CatalogReport[]}>("/api/coach/reports/catalog").then(value => value.reports)
 }
 
 // Read-only: a button exists only for a report already stored in the app.

@@ -166,6 +166,7 @@ export function createCoachCalendar({
   fetchImpl = fetch,
   now = Date.now,
   uuid = randomUUID,
+  applyWorkouts,
 }) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(config.repo) || !config.branch)
     throw new CoachError("Configure the training data repository first.", 503);
@@ -219,6 +220,13 @@ export function createCoachCalendar({
       timeZone,
       error: p.error || null,
       runUrl: p.runId ? `https://github.com/${config.repo}/actions/runs/${p.runId}` : null,
+      ...(p.transport === "direct"
+        ? {
+            transport: "direct",
+            verified: p.state === "applied",
+            scheduledWorkouts: p.scheduledWorkouts || [],
+          }
+        : {}),
     };
   }
   async function record(id) {
@@ -288,6 +296,8 @@ export function createCoachCalendar({
   }
   async function status(id) {
     let p = await record(id);
+    if (p.transport === "direct")
+      return p.state === "applied" ? publicProposal(p) : applyDirect(p, true);
     if (
       p.state === "ready" &&
       (p.createdAt + DAY < now() || p.workouts.some((w) => w.date < today()))
@@ -375,6 +385,26 @@ export function createCoachCalendar({
     });
     return publicProposal(p);
   }
+  async function applyDirect(p, reconcileOnly = false) {
+    let result;
+    try {
+      result = await applyWorkouts(p, { reconcileOnly });
+    } catch (error) {
+      result = { verified: false, scheduledWorkouts: [], failures: [{ error: error.message }] };
+    }
+    const complete =
+      result.verified === true && result.scheduledWorkouts?.length === p.workouts.length;
+    p = await update(p.id, (current) => {
+      if (current.state === "applied") return;
+      current.state = complete ? "applied" : "unknown";
+      current.scheduledWorkouts = result.scheduledWorkouts || [];
+      current.error = complete
+        ? null
+        : result.failures?.[0]?.error ||
+          "Scheduling could not be confirmed. Recheck this same proposal before creating another plan.";
+    });
+    return publicProposal(p);
+  }
   return {
     checkSetup,
     status,
@@ -456,8 +486,11 @@ export function createCoachCalendar({
         p.dispatchedAt = now();
         p.runId = null;
         p.error = null;
+        if (applyWorkouts) p.transport = "direct";
         return { existing: false, p: structuredClone(p) };
       });
+      if (claim.p.transport === "direct")
+        return claim.p.state === "applied" ? publicProposal(claim.p) : applyDirect(claim.p);
       return claim.existing ? publicProposal(claim.p) : dispatch(claim.p);
     },
   };

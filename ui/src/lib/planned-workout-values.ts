@@ -11,6 +11,18 @@ export type PlannedValueKey =
   | "tss"
   | "intensity_factor"
   | "work_kj"
+
+// A background read can update untouched values, but must not replace typing
+// that started while the provider revision was being loaded.
+export function mergeLoadedPlannedDraft(
+  current: Record<PlannedValueKey, string>,
+  baseline: Record<PlannedValueKey, string>,
+  remote: Record<PlannedValueKey, string>
+) {
+  return Object.fromEntries(Object.entries(remote).map(([key, value]) => [key,
+    current[key as PlannedValueKey] === baseline[key as PlannedValueKey] ? value : current[key as PlannedValueKey],
+  ])) as Record<PlannedValueKey, string>
+}
 export function plannedValueRows(sport: string) {
   const swim = /swim/i.test(sport),
     bike = /bike|ride/i.test(sport)
@@ -130,7 +142,42 @@ export function changedPlannedValues(
 ) {
   return Object.fromEntries(
     plannedValueRows(sport)
-      .filter(({ key }) => draft[key] !== saved[key])
-      .map(({ key }) => [key, parsePlannedValue(key, draft[key], sport)])
+      .filter(({ key }) => (draft[key] || "") !== (saved[key] || ""))
+      .map(({ key }) => [key, parsePlannedValue(key, draft[key] || "", sport)])
   ) as Partial<WorkoutSummaryValues>
+}
+
+// Recalculate the third planned value from the two inputs the athlete supplies.
+// Incomplete typing stays untouched; calculation never reformats the active field.
+export function updatePlannedValueDraft(
+  current: Record<PlannedValueKey, string>,
+  key: PlannedValueKey,
+  text: string,
+  sport: string,
+  automatic = true
+) {
+  const next = { ...current, [key]: text }
+  if (!automatic || !["duration_seconds", "distance_meters", "average_speed"].includes(key)) return next
+  const read = (field: PlannedValueKey) => {
+    try {
+      const raw = next[field] || ""
+      const value = parsePlannedValue(field, field === "duration_seconds" && /^\d+:[0-5]\d$/.test(raw) ? `0:${raw}` : raw, sport)
+      return value != null && value > 0 ? value : null
+    } catch { return null }
+  }
+  if (read(key) == null) return next
+  const duration = read("duration_seconds"), distance = read("distance_meters"), speed = read("average_speed")
+  let target: PlannedValueKey, value: number
+  if (key !== "duration_seconds" && distance && speed) {
+    target = "duration_seconds"; value = distance / speed
+  } else if (key === "duration_seconds" && duration && distance) {
+    target = "average_speed"; value = distance / duration
+  } else if (key !== "distance_meters" && duration && speed) {
+    target = "distance_meters"; value = duration * speed
+  } else if (duration && distance) {
+    target = "average_speed"; value = distance / duration
+  } else return next
+  if (!Number.isFinite(value) || value <= 0 || (target === "duration_seconds" && value > 604800)) return next
+  next[target] = formatPlannedValue(target, value, sport)
+  return next
 }

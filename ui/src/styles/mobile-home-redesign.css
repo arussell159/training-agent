@@ -46,6 +46,13 @@
     width: auto;
   }
 
+  .home-deferred-details {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 25px;
+  }
+
   .home-athlete-hero {
     --home-photo-radius: 0 0 30px 30px;
     --home-photo-soften: 2px;

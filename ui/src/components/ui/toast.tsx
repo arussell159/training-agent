@@ -8,7 +8,7 @@ export function AppToastProvider({ children }: { children: ReactNode }) {
     <ToastPrimitive.Provider timeout={5000} limit={3}>
       {children}
       <ToastPrimitive.Portal>
-        <ToastPrimitive.Viewport className="pointer-events-none fixed inset-x-0 top-[calc(var(--app-viewport-top,0px)+env(safe-area-inset-top)+0.75rem)] z-[15000] mx-auto flex w-full max-w-sm flex-col gap-2 px-3 outline-none md:inset-x-auto md:top-auto md:right-4 md:bottom-4 md:mx-0 md:w-96 md:max-w-[calc(100vw-2rem)] md:px-0">
+        <ToastPrimitive.Viewport className="app-toast-viewport pointer-events-none fixed inset-x-0 mx-auto flex w-full max-w-sm flex-col gap-2 px-3 outline-none md:inset-x-auto md:mx-0 md:w-96 md:max-w-[calc(100vw-2rem)] md:px-0">
           <ToastList />
         </ToastPrimitive.Viewport>
       </ToastPrimitive.Portal>

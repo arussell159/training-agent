@@ -7,7 +7,7 @@ import {
   type Catalog,
   type CatalogReport,
   type Filter,
-} from "@/components/catalog-report-body"
+} from "@/components/catalog-report-preview"
 import { filterCoachReports, groupOtherReportsByType, groupWeeklyReportsByMonth, groupWorkoutReportsByWeek, reportDisplayTitle, REPORT_FILTERS } from "../../../app-backend/lib/coach-report-display.mjs"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
@@ -26,7 +26,8 @@ import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useSheetDismiss } from "@/hooks/use-sheet-dismiss"
-import { coachRequest } from "@/lib/coach-client"
+import { loadWorkspaceRead } from "@/lib/workspace-reads"
+import { CoachCalendar } from "@/components/coach-calendar"
 
 export function CoachPage() {
   const mobile = useIsMobile()
@@ -68,22 +69,19 @@ export function CoachPage() {
 
   useEffect(() => {
     const controller = new AbortController()
+    let latest = 0
     async function load() {
+      const request = ++latest
       const snapshotRevision = pageSnapshotRevision()
       try {
-        const response = await coachRequest(
-          "reports/catalog",
-          {},
-          controller.signal
-        )
-        const value = (await response.json()) as Catalog
-        if (!controller.signal.aborted) {
+        const value = await loadWorkspaceRead<Catalog>("/api/coach/reports/catalog", controller.signal)
+        if (!controller.signal.aborted && request === latest) {
           writePageSnapshot("coach", { reports: value.reports || [] }, snapshotRevision)
           setCatalog({ reports: value.reports || [] })
           setError("")
         }
       } catch (problem) {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted && request === latest)
           setError(
             problem instanceof Error
               ? problem.message
@@ -187,6 +185,7 @@ export function CoachPage() {
             <h1 className="text-2xl font-medium tracking-tight">Coach</h1>
             <p className="mt-1 text-sm text-muted-foreground">Your training reports and weekly insights.</p>
           </header>
+          <CoachCalendar refreshKey={revision}/>
           <div
             role="group"
             aria-label="Filter reports"
