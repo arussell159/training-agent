@@ -1,9 +1,24 @@
 import "@/lib/framework7-searchbar"
 import { ListSkeleton } from "@/components/loading-layouts"
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 import { flushSync } from "react-dom"
 import { Searchbar } from "framework7-react"
-import { Search, Star, Plus, LoaderCircle, X, Utensils, ArrowUp, Trash2 } from "lucide-react"
+import {
+  Search,
+  Star,
+  Plus,
+  LoaderCircle,
+  X,
+  Utensils,
+  ArrowUp,
+  Trash2,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
@@ -14,6 +29,13 @@ import { randomId } from "@/lib/random-id"
 import { NutritionScreen, nutritionSaveClass } from "./nutrition-screen"
 import { useToastManager } from "@/components/ui/toast"
 import { loadFoodLibrary, searchFoods } from "@/lib/nutrition-read-cache"
+import { deviceCacheScope } from "@/lib/device-cache"
+import {
+  readNutritionComposerDraft,
+  writeNutritionComposerDraft,
+  clearNutritionComposerDraft,
+  getNutritionComposerStorage,
+} from "@/lib/nutrition-composer-draft"
 import {
   blankFood,
   displayNutrient,
@@ -64,23 +86,49 @@ export function NutritionComposer({
   const toast = useToastManager()
   const saveLock = useRef(false)
   const productAddLock = useRef(false)
+  const [draftScope] = useState(deviceCacheScope)
+  const [restoredDraft] = useState(() => {
+    try {
+      return existing
+        ? null
+        : readNutritionComposerDraft(
+            getNutritionComposerStorage(),
+            draftScope,
+            date,
+            meal
+          )
+    } catch {
+      return null
+    }
+  })
   const [searchRetry, setSearchRetry] = useState(0)
-  const [tab, setTab] = useState<Tab>(mode === "write" ? "type" : "all")
+  const [detailRetry, setDetailRetry] = useState(0)
+  const [tab, setTab] = useState<Tab>("all")
+  const [searching, setSearching] = useState(false)
+  const [composing, setComposing] = useState(false)
   const [pane, setPane] = useState<Pane>(
     existing ? "detail" : mode === "manual" ? "custom" : "browse"
   )
-  const [query, setQuery] = useState(""),
-    [text, setText] = useState("")
+  const [query, setQuery] = useState(restoredDraft?.query || ""),
+    [text, setText] = useState(restoredDraft?.text || "")
 
   const [products, setProducts] = useState<FoodProduct[] | null>(null),
     [library, setLibrary] = useState<FoodLibrary | null>(null)
   const [draft, setDraft] = useState<FoodEntry[]>(
-    existing ? [existing] : mode === "manual" ? [blankFood(meal)] : []
+    existing
+      ? [existing]
+      : restoredDraft?.draft || (mode === "manual" ? [blankFood(meal)] : [])
   )
-  const [product, setProduct] = useState<FoodProduct | null>(null),
-    [customId, setCustomId] = useState<string | null>(null),
-    [customName, setCustomName] = useState("")
-  const [ingredients, setIngredients] = useState<FoodEntry[] | null>(null)
+  const [product, setProduct] = useState<FoodProduct | null>(
+      restoredDraft?.product || null
+    ),
+    [customId, setCustomId] = useState<string | null>(
+      restoredDraft?.customId || null
+    ),
+    [customName, setCustomName] = useState(restoredDraft?.customName || "")
+  const [ingredients, setIngredients] = useState<FoodEntry[] | null>(
+    restoredDraft?.ingredients || null
+  )
   const [notes, setNotes] = useState(""),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -88,12 +136,48 @@ export function NutritionComposer({
     [saving, setSaving] = useState(false)
   const alive = useRef(true),
     request = useRef<AbortController | null>(null),
-    operation = useRef<string>(randomId())
+    operation = useRef<string>(restoredDraft?.operationId || randomId())
+  useEffect(() => {
+    if (existing || draftScope !== deviceCacheScope()) return
+    try {
+      writeNutritionComposerDraft(getNutritionComposerStorage(), draftScope, {
+        date,
+        meal,
+        savedAt: Date.now(),
+        query,
+        text,
+        draft,
+        pane,
+        product,
+        customId,
+        customName,
+        ingredients,
+        operationId: operation.current,
+      })
+    } catch {
+      /* Optional draft storage must not prevent opening the editor. */
+    }
+  }, [
+    date,
+    meal,
+    existing,
+    draftScope,
+    query,
+    text,
+    draft,
+    pane,
+    product,
+    customId,
+    customName,
+    ingredients,
+  ])
   const searchHost = useRef<HTMLDivElement>(null)
   const clearSearch = () => {
     setQuery("")
     // Refocus during the original tap so iOS keeps/reopens the keyboard.
-    searchHost.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus({ preventScroll: true })
+    searchHost.current
+      ?.querySelector<HTMLInputElement>('input[type="search"]')
+      ?.focus({ preventScroll: true })
   }
   const browseScroll = useRef(0)
   const searchResults = useRef<{
@@ -117,33 +201,58 @@ export function NutritionComposer({
     input?.focus({ preventScroll: true })
   }, [])
   useEffect(() => {
-    const input = searchHost.current?.querySelector<HTMLInputElement>('input[type="search"]')
+    const input = searchHost.current?.querySelector<HTMLInputElement>(
+      'input[type="search"]'
+    )
     if (!input) return
-    input.enterKeyHint = "send"
+    input.enterKeyHint = "search"
+    input.maxLength = 100
+    const startComposition = () => setComposing(true)
+    const endComposition = () => {
+      setComposing(false)
+      setQuery(input.value)
+    }
     const submit = (event: KeyboardEvent) => {
-      if (event.key !== "Enter" || !query.trim()) return
+      if (
+        event.key !== "Enter" ||
+        event.isComposing ||
+        composing ||
+        !query.trim()
+      )
+        return
       event.preventDefault()
       setSearchRetry((value) => value + 1)
       input.blur()
     }
     input.addEventListener("keydown", submit)
-    return () => input.removeEventListener("keydown", submit)
-  }, [pane, tab, query])
+    input.addEventListener("compositionstart", startComposition)
+    input.addEventListener("compositionend", endComposition)
+    return () => {
+      input.removeEventListener("keydown", submit)
+      input.removeEventListener("compositionstart", startComposition)
+      input.removeEventListener("compositionend", endComposition)
+    }
+  }, [pane, tab, query, composing])
   const quickOperations = useRef(
     new Map<string, { entries: FoodEntry[]; id: string }>()
   )
   useEffect(() => {
     alive.current = true
     void loadFoodLibrary()
-      .then(value => { if (alive.current) setLibrary(value) })
-      .catch((e) => { if (alive.current) setError(e.message) })
+      .then((value) => {
+        if (alive.current) setLibrary(value)
+      })
+      .catch((e) => {
+        if (alive.current) setError(e.message)
+      })
     return () => {
       alive.current = false
       request.current?.abort()
     }
   }, [])
   useEffect(() => {
-    if (!detailFatSecretFoodId || product?.code === detailFatSecretFoodId) return
+    if (!detailFatSecretFoodId || product?.code === detailFatSecretFoodId)
+      return
     const controller = new AbortController()
     void nutritionRequest<{ product: FoodProduct }>(
       `/product?id=${encodeURIComponent(detailFatSecretFoodId)}`,
@@ -152,13 +261,13 @@ export function NutritionComposer({
     )
       .then((result) => {
         if (!controller.signal.aborted) setProduct(result.product)
-    })
+      })
       .catch((e) => {
         if (!controller.signal.aborted && alive.current)
           setError(e instanceof Error ? e.message : "Could not load servings.")
       })
     return () => controller.abort()
-  }, [detailFatSecretFoodId, product?.code])
+  }, [detailFatSecretFoodId, product?.code, detailRetry])
   const changeDraft = (next: FoodEntry[]) => {
     operation.current = randomId()
     setDraft(next)
@@ -202,8 +311,10 @@ export function NutritionComposer({
   }
   useEffect(() => {
     if (pane !== "browse") return
-    if (tab !== "all" || query.trim().length < 2) {
+    if (tab !== "all" || query.trim().length < 2 || composing) {
       setProducts(null)
+      setSearching(false)
+      setError("")
       return
     }
     const cached = searchResults.current
@@ -211,8 +322,7 @@ export function NutritionComposer({
       setProducts(cached.products)
       return
     }
-    setProducts(null)
-    setBusy(true)
+    setSearching(true)
     setError("")
     const controller = new AbortController(),
       timer = setTimeout(() => {
@@ -232,15 +342,15 @@ export function NutritionComposer({
             if (!controller.signal.aborted) setError(e.message)
           })
           .finally(() => {
-            if (!controller.signal.aborted) setBusy(false)
+            if (!controller.signal.aborted) setSearching(false)
           })
-      }, 120)
+      }, 250)
     return () => {
       clearTimeout(timer)
       controller.abort()
-      setBusy(false)
+      setSearching(false)
     }
-  }, [query, tab, pane, searchRetry])
+  }, [query, tab, pane, searchRetry, composing])
   function selectTab(next: Tab) {
     cancel()
     if (next === "type") {
@@ -294,6 +404,10 @@ export function NutritionComposer({
     )
   async function save() {
     if (saveLock.current) return
+    if (draftScope !== deviceCacheScope()) {
+      setError("Your account changed. Reopen Add food in the intended account.")
+      return
+    }
     if (!valid()) {
       setError("Check the food names, portions and macros.")
       return
@@ -303,16 +417,34 @@ export function NutritionComposer({
       return
     }
     saveLock.current = true
-    const notification = toast.add({ title: existing ? "Saving changes…" : `Adding to ${titleCase(meal)}…`, type: "loading", timeout: 0 })
+    const notification = toast.add({
+      id: "nutrition-save",
+      title: existing ? "Saving changes…" : `Adding to ${titleCase(meal)}…`,
+      description: null,
+      actionProps: undefined,
+      type: "loading",
+      timeout: 0,
+    })
     setSaving(true)
     setError("")
     try {
-      await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
+      const storage = getNutritionComposerStorage()
       await onSave(draft, operation.current)
-      toast.update(notification, { title: existing ? "Changes saved" : `Added to ${titleCase(meal)}`, type: "success", timeout: 4000 })
+      clearNutritionComposerDraft(storage, draftScope, date, meal)
+      toast.update(notification, {
+        title: existing
+          ? "Changes saved"
+          : `Added ${draft.map((entry) => entry.name).join(", ")} to ${draft.some((entry) => entry.meal !== meal) ? "your food log" : titleCase(meal)}.`,
+        type: "success",
+        description: null,
+        actionProps: undefined,
+        timeout: 5500,
+      })
       if (!existing) recordRecentFoods(draft)
       if (!existing && mode !== "manual" && tab !== "type") {
         setNotice("")
+        setQuery("")
+        setText("")
         changeDraft([])
         setProduct(null)
         setCustomId(null)
@@ -323,22 +455,48 @@ export function NutritionComposer({
         onClose()
       }
     } catch (e) {
-      toast.update(notification, { title: "Food wasn’t confirmed", description: (e as Error).message, type: "error", timeout: 8000 })
+      toast.update(notification, {
+        title: "Food wasn’t confirmed",
+        description: (e as Error).message,
+        type: "error",
+        timeout: 8000,
+      })
       setError((e as Error).message)
     } finally {
       saveLock.current = false
       if (alive.current) setSaving(false)
     }
   }
-  async function quickAdd(key: string, entries: FoodEntry[], name: string, activeNotification?: string) {
+  async function quickAdd(
+    key: string,
+    entries: FoodEntry[],
+    name: string,
+    activeNotification?: string
+  ) {
     if (saveLock.current) return
     if (ingredients) {
       addIngredients(entries)
-      if (activeNotification) toast.update(activeNotification, { title: "Ingredient added", type: "success", timeout: 3500 })
+      if (activeNotification)
+        toast.update(activeNotification, {
+          title: "Ingredient added",
+          description: null,
+          actionProps: undefined,
+          type: "success",
+          timeout: 3500,
+        })
       return
     }
     saveLock.current = true
-    const notification = activeNotification || toast.add({ title: `Adding ${name}…`, description: titleCase(meal), type: "loading", timeout: 0 })
+    const notification =
+      activeNotification ||
+      toast.add({
+        id: "nutrition-save",
+        title: `Adding ${name}…`,
+        description: titleCase(meal),
+        actionProps: undefined,
+        type: "loading",
+        timeout: 0,
+      })
     setSaving(true)
     setError("")
     let pending = quickOperations.current.get(key)
@@ -350,14 +508,25 @@ export function NutritionComposer({
       quickOperations.current.set(key, pending)
     }
     try {
-      await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
+      getNutritionComposerStorage()
       await onSave(pending.entries, pending.id)
-      toast.update(notification, { title: `Added ${name}`, description: titleCase(meal), type: "success", timeout: 4000 })
+      toast.update(notification, {
+        title: `Added ${name} to ${titleCase(meal)}.`,
+        description: null,
+        actionProps: undefined,
+        type: "success",
+        timeout: 5500,
+      })
       recordRecentFoods(pending.entries)
       quickOperations.current.delete(key)
       setNotice("")
     } catch (e) {
-      toast.update(notification, { title: "Food wasn’t confirmed", description: (e as Error).message, type: "error", timeout: 8000 })
+      toast.update(notification, {
+        title: "Food wasn’t confirmed",
+        description: (e as Error).message,
+        type: "error",
+        timeout: 8000,
+      })
       setError((e as Error).message)
     } finally {
       saveLock.current = false
@@ -371,21 +540,38 @@ export function NutritionComposer({
       return
     }
     saveLock.current = true
-    const notification = toast.add({ title: "Saving food…", type: "loading", timeout: 0 })
+    const notification = toast.add({
+      title: "Saving food…",
+      type: "loading",
+      timeout: 0,
+    })
     setSaving(true)
     setError("")
     try {
-      await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => setTimeout(resolve, 0))
+      )
       const result = await nutritionRequest<FoodLibrary>("/library", {
         action: "save",
         item,
         revision: library.revision,
       })
       setLibrary(result)
-      toast.update(notification, { title: "Food saved", type: "success", timeout: 3500 })
+      toast.update(notification, {
+        title: "Food saved",
+        description: null,
+        actionProps: undefined,
+        type: "success",
+        timeout: 3500,
+      })
       return true
     } catch (e) {
-      toast.update(notification, { title: "Food wasn’t saved", description: (e as Error).message, type: "error", timeout: 8000 })
+      toast.update(notification, {
+        title: "Food wasn’t saved",
+        description: (e as Error).message,
+        type: "error",
+        timeout: 8000,
+      })
       setError((e as Error).message)
       void nutritionRequest<FoodLibrary>("/library")
         .then(setLibrary)
@@ -445,20 +631,54 @@ export function NutritionComposer({
     if (addNow) {
       if (saveLock.current || productAddLock.current) return
       productAddLock.current = true
-      const notification = toast.add({ title: `Adding ${p.name}…`, description: titleCase(meal), type: "loading", timeout: 0 })
+      const notification = toast.add({
+        id: "nutrition-save",
+        title: `Adding ${p.name}…`,
+        description: titleCase(meal),
+        type: "loading",
+        timeout: 0,
+      })
       const controller = new AbortController()
       request.current = controller
       setBusy(true)
       setError("")
       try {
-        await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
-        const product = p.complete && p.servingId ? p : (await nutritionRequest<{ product: FoodProduct }>(`/product?id=${encodeURIComponent(p.code)}`, undefined, controller.signal)).product
-        if (!alive.current || controller.signal.aborted) throw new Error("Food entry cancelled.")
-        if (!product.complete || !product.servingId) throw new Error("This food has no complete serving. Try another match.")
-        await quickAdd(`product-${p.code}`, [foodFromProduct(product, meal)], p.name, notification)
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => setTimeout(resolve, 0))
+        )
+        const product =
+          p.complete && p.servingId
+            ? p
+            : (
+                await nutritionRequest<{ product: FoodProduct }>(
+                  `/product?id=${encodeURIComponent(p.code)}`,
+                  undefined,
+                  controller.signal
+                )
+              ).product
+        if (!alive.current || controller.signal.aborted)
+          throw new Error("Food entry cancelled.")
+        if (!product.complete || !product.servingId)
+          throw new Error(
+            "This food has no complete serving. Try another match."
+          )
+        await quickAdd(
+          `product-${p.code}`,
+          [foodFromProduct(product, meal)],
+          p.name,
+          notification
+        )
       } catch (error) {
-        const message = error instanceof Error ? error.message : "This food could not be added."
-        toast.update(notification, { title: "Food wasn’t confirmed", description: message, type: "error", timeout: 8000 })
+        const message =
+          error instanceof Error
+            ? error.message
+            : "This food could not be added."
+        toast.update(notification, {
+          title: "Food wasn’t confirmed",
+          description: message,
+          type: "error",
+          timeout: 8000,
+        })
         if (alive.current) setError(message)
       } finally {
         productAddLock.current = false
@@ -561,7 +781,13 @@ export function NutritionComposer({
       existingFavorite
         ? { ...existingFavorite, favorite: !existingFavorite.favorite }
         : {
-            id: `diary-${existing.foodId || existing.name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 60)}`,
+            id: `diary-${
+              existing.foodId ||
+              existing.name
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, "")
+                .slice(0, 60)
+            }`,
             name: existing.name,
             entries: [existing],
             favorite: true,
@@ -570,6 +796,7 @@ export function NutritionComposer({
     )
   }
   const recentItems = recentFoodsForMeal(meal)
+  const frequentItems = recentFoodsForMeal(meal, true)
   function resultRow(item: SavedFood, p?: FoodProduct) {
     const saved = library?.items.find((i) => i.id === item.id),
       totals = foodTotals(item.entries)
@@ -658,7 +885,10 @@ export function NutritionComposer({
           className="nutrition-row-action bg-muted/70"
           aria-label={`Add one serving of ${item.name}`}
           disabled={saving || busy}
-          onMouseDown={event => { if (document.activeElement?.matches('input[type="search"]')) event.preventDefault() }}
+          onMouseDown={(event) => {
+            if (document.activeElement?.matches('input[type="search"]'))
+              event.preventDefault()
+          }}
           onClick={() =>
             void (p
               ? loadProduct(p, true)
@@ -713,7 +943,7 @@ export function NutritionComposer({
                     className="nutrition-search-clear"
                     aria-label="Clear food search"
                     type="button"
-                    onMouseDown={event => event.preventDefault()}
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={clearSearch}
                   >
                     <X className="size-4" />
@@ -727,7 +957,8 @@ export function NutritionComposer({
               items={
                 ingredients
                   ? tabs.filter(
-                      (item) => item.value === "all" || item.value === "favorites"
+                      (item) =>
+                        item.value === "all" || item.value === "favorites"
                     )
                   : tabs
               }
@@ -768,7 +999,8 @@ export function NutritionComposer({
                         event.key !== "Enter" ||
                         event.shiftKey ||
                         event.nativeEvent.isComposing
-                      ) return
+                      )
+                        return
                       event.preventDefault()
                       if (!busy && aiAvailable && text.trim()) void estimate()
                     }}
@@ -793,6 +1025,28 @@ export function NutritionComposer({
             </div>
           ) : (
             <div className="pt-5">
+              {draft.length > 0 && !existing && !ingredients && (
+                <Button
+                  variant="outline"
+                  className="mb-4 w-full"
+                  onClick={() =>
+                    setPane(
+                      customName || mode === "manual" ? "custom" : "detail"
+                    )
+                  }
+                >
+                  Review unfinished food for {titleCase(meal)} · {date}
+                </Button>
+              )}
+              {!!text && tab === "all" && (
+                <Button
+                  variant="outline"
+                  className="mb-4 w-full"
+                  onClick={() => selectTab("type")}
+                >
+                  Resume typed food entry
+                </Button>
+              )}
               {tab === "mine" && (
                 <Button
                   className={`${nutritionSaveClass} mb-4`}
@@ -812,29 +1066,76 @@ export function NutritionComposer({
               )}
               {tab === "all" ? (
                 <>
+                  {searching && (
+                    <p
+                      role="status"
+                      className="mb-3 text-sm text-muted-foreground"
+                    >
+                      Searching…
+                      {products?.length
+                        ? " Previous results remain available below."
+                        : ""}
+                    </p>
+                  )}
+                  {products?.length &&
+                  searchResults.current?.query !== query.trim() ? (
+                    <p
+                      className="mb-3 text-sm text-muted-foreground"
+                      role="status"
+                    >
+                      Previous results for “{searchResults.current?.query}”
+                    </p>
+                  ) : null}
+                  {error && query.trim().length >= 2 && (
+                    <div className="mb-4 space-y-2" role="status">
+                      <p className="text-sm">
+                        {navigator.onLine === false
+                          ? "You’re offline. Your recent foods are still available."
+                          : "Search couldn’t finish. Your food log is unchanged."}
+                      </p>
+                      <Button variant="ghost" onClick={clearSearch}>
+                        Show recent foods
+                      </Button>
+                    </div>
+                  )}
                   {query.trim().length < 2 && recentItems.length ? (
-                    <section aria-label={`Recent ${meal} foods`}>
-                      <h2 className="mb-3 text-sm font-semibold">
-                        Recent for {meal}
-                      </h2>
-                      <div className="nutrition-result-list">
-                        {recentItems.map((item) => resultRow(item))}
-                      </div>
-                    </section>
-                  ) : busy && !products?.length ? (
+                    <>
+                      {frequentItems.length > 0 && (
+                        <section
+                          aria-label="Frequently used foods"
+                          className="mb-5"
+                        >
+                          <h2 className="mb-3 text-sm font-semibold">
+                            Frequently used
+                          </h2>
+                          <div className="nutrition-result-list">
+                            {frequentItems.map((item) => resultRow(item))}
+                          </div>
+                        </section>
+                      )}
+                      <section aria-label={`Recent ${meal} foods`}>
+                        <h2 className="mb-3 text-sm font-semibold">
+                          Recent foods · {meal} first
+                        </h2>
+                        <div className="nutrition-result-list">
+                          {recentItems.map((item) => resultRow(item))}
+                        </div>
+                      </section>
+                    </>
+                  ) : searching && !products?.length ? (
                     <ListSkeleton food />
                   ) : products?.length ? (
                     <div className="nutrition-result-list">
                       {products.map((p) => resultRow(productItem(p), p))}
                     </div>
-                  ) : (
+                  ) : !error ? (
                     <div className="nutrition-empty">
                       <Search className="mx-auto mb-3 size-7 opacity-40" />
                       {query.trim().length < 2
                         ? "Search for a food or brand."
                         : "No complete matches found. Try a more specific food or brand."}
                     </div>
-                  )}
+                  ) : null}
                 </>
               ) : filteredLibrary.length ? (
                 <div className="nutrition-result-list">
@@ -1023,13 +1324,24 @@ export function NutritionComposer({
           className="mt-4 rounded-2xl bg-destructive/10 p-4 text-sm text-destructive"
         >
           {error}
-          {pane === "browse" && tab === "all" && (
+          {pane === "browse" && tab === "all" && query.trim().length >= 2 && (
             <button
               className="ml-2 underline"
               onClick={() => setSearchRetry((v) => v + 1)}
             >
               Retry search
             </button>
+          )}
+          {pane === "detail" && detailFatSecretFoodId && !product && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setError("")
+                setDetailRetry((value) => value + 1)
+              }}
+            >
+              Retry servings
+            </Button>
           )}
         </p>
       )}

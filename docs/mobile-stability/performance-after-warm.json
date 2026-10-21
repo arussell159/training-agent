@@ -1,0 +1,37 @@
+{
+  "conditions": {
+    "dist": "ui/dist",
+    "n": 40,
+    "coldSamples": 0,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "network": "40ms RTT,40Mbps down/10Mbps up; 4x CPU slowdown; local uncompressed production build + in-memory synthetic backend; no service worker; new context per cold sample",
+    "method": "Cold useful=populated .home-athlete-name + next frame. Add opening=trusted click to enabled search input + next frame. LCP/CLS lab observers; no field INP measurement.",
+    "browser": "155.0.4283.62",
+    "cpu": "Intel(R) Core(TM) Ultra 7 265"
+  },
+  "coldUseful": [],
+  "lcp": [],
+  "cls": [],
+  "warmAdd": [
+    88.5, 65.69999999925494, 81.40000000037253, 69.30000000074506, 69.29999999888241,
+    72.20000000111759, 121, 87.70000000111759, 59.5, 70.59999999962747, 113.80000000074506,
+    79.19999999925494, 67.29999999888241, 65.59999999962747, 70.20000000111759, 64.79999999888241,
+    65.59999999962747, 65, 74.59999999962747, 61.70000000111759, 63.100000001490116,
+    72.80000000074506, 123.09999999962747, 88.20000000111759, 66.59999999962747, 61.90000000037253,
+    64.40000000037253, 74.59999999962747, 59, 62, 66.40000000037253, 78.5, 70.69999999925494, 61.5,
+    256.40000000037253, 93.59999999962747, 73.19999999925494, 65.90000000037253, 74.5,
+    79.40000000037253
+  ],
+  "coldUsefulSummary": {},
+  "lcpSummary": {},
+  "clsSummary": {},
+  "warmAddSummary": {
+    "median": 70.59999999962747,
+    "p95": 121,
+    "min": 59,
+    "max": 256.40000000037253
+  }
+}

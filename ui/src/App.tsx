@@ -1,4 +1,6 @@
 import { PageSkeleton } from "@/components/loading-layouts"
+import { cn } from "@/lib/utils"
+import { installRouteScrollRestoration } from "@/lib/route-scroll-restoration"
 import { appRouteItem as routeItem } from "@/lib/app-route"
 import { restoreReportReader } from "@/lib/report-navigation"
 import {
@@ -265,19 +267,35 @@ function AppWorkspace() {
   const [activeItem, setActiveItem] = useState<string>(routeItem)
   useEffect(() => {
     if (activeItem !== "Home") return
-    let second = 0
-    const first = requestAnimationFrame(() => {
-      second = requestAnimationFrame(() => {
-        // Warm the Home shortcuts after its first paint, so a food-entry tap
-        // can mount and focus its textarea during the original gesture.
-        void nutritionRoute.preload().catch(() => {})
-        void workoutDetailRoute.preload().catch(() => {})
-      })
-    })
-    return () => {
-      cancelAnimationFrame(first)
-      cancelAnimationFrame(second)
+    let idle: number | undefined
+    const removeInputListeners = () => {
+      window.removeEventListener("pointerdown", cancel)
+      window.removeEventListener("keydown", cancel)
     }
+    const warmShortcuts = () => {
+      removeInputListeners()
+      if (document.visibilityState !== "visible") return
+      void nutritionRoute.preload().catch(() => {})
+      void workoutDetailRoute.preload().catch(() => {})
+    }
+    // Leave the primary Home data, chart and image work alone during startup.
+    // Pointer/focus intent still preloads the destination immediately.
+    const timer = window.setTimeout(() => {
+      if ("requestIdleCallback" in window)
+        idle = window.requestIdleCallback(warmShortcuts, { timeout: 1500 })
+      else warmShortcuts()
+    }, 1500)
+    function cancel() {
+      window.clearTimeout(timer)
+      if (idle !== undefined) window.cancelIdleCallback(idle)
+      removeInputListeners()
+    }
+    window.addEventListener("pointerdown", cancel, {
+      once: true,
+      passive: true,
+    })
+    window.addEventListener("keydown", cancel, { once: true })
+    return cancel
   }, [activeItem])
   const nutritionReturnRoute = useRef("Home")
   const [nutritionQuickAddRequest, setNutritionQuickAddRequest] = useState(0)
@@ -348,6 +366,7 @@ function AppWorkspace() {
   }, [])
   const workoutReturnScroll = useRef(0)
   const routeScrollTarget = useRef(0)
+  const [routeScrollVersion, setRouteScrollVersion] = useState(0)
   const workoutReturnRoute = useRef<string | null>(null)
   const clearCalendarReturnScroll = useCallback(
     () => setCalendarReturnScroll(null),
@@ -449,14 +468,17 @@ function AppWorkspace() {
         ...cachedTrainingContext().planned,
         ...cachedTrainingContext().history,
       ])
-      routeScrollTarget.current = 0
+      const restoredScroll = scroll.restore()
+      routeScrollTarget.current = restoredScroll ?? 0
       if (!restoredWorkout && route === workoutReturnRoute.current) {
-        routeScrollTarget.current = workoutReturnScroll.current
-        if (route === "Calendar")
-          setCalendarReturnScroll(workoutReturnScroll.current)
+        routeScrollTarget.current =
+          restoredScroll ?? workoutReturnScroll.current
         workoutReturnRoute.current = null
       }
+      if (!restoredWorkout && route === "Calendar")
+        setCalendarReturnScroll(routeScrollTarget.current)
       startTransition(() => {
+        setRouteScrollVersion((version) => version + 1)
         setSelectedReport(workoutRouteId() ? null : restoreReportReader())
         setSelectedWorkout(restoredWorkout)
         setPendingWorkoutId(restoredWorkout ? null : workoutRouteId())
@@ -464,7 +486,12 @@ function AppWorkspace() {
       })
       setNavigationItem(route)
     }
-    return installWorkoutNavigationBarrier(handlePopState)
+    const removeBarrier = installWorkoutNavigationBarrier(handlePopState)
+    const scroll = installRouteScrollRestoration(window)
+    return () => {
+      scroll.dispose()
+      removeBarrier()
+    }
   }, [])
   useEffect(() => {
     const update = (event: Event) => {
@@ -742,7 +769,12 @@ function AppWorkspace() {
                   !selectedWorkout &&
                   !pendingWorkoutId &&
                   !selectedReport
-                ? `home-dashboard-shell${activeItem === "Home" && mobileHomeLayout === "redesign" ? "home-redesign-shell" : ""}`
+                ? cn(
+                    "home-dashboard-shell",
+                    activeItem === "Home" &&
+                      mobileHomeLayout === "redesign" &&
+                      "home-redesign-shell"
+                  )
                 : (isCoachPage || activeItem === "Library") &&
                     !selectedWorkout &&
                     !pendingWorkoutId &&
@@ -879,7 +911,7 @@ function AppWorkspace() {
             </header>
           )}
           <main
-            className={`flex min-h-0 flex-1 ${
+            className={`flex min-h-0 min-w-0 flex-1 ${
               selectedWorkout || pendingWorkoutId
                 ? "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0"
                 : isCoachPage || activeItem === "Library"
@@ -919,7 +951,7 @@ function AppWorkspace() {
                   }
                 >
                   <RouteScrollReset
-                    route={`${activeItem}:${selectedWorkout?.id ?? ""}:${selectedReport ? JSON.stringify(selectedReport) : ""}`}
+                    route={`${activeItem}:${selectedWorkout?.id ?? ""}:${selectedReport ? JSON.stringify(selectedReport) : ""}:${routeScrollVersion}`}
                     target={routeScrollTarget}
                   />
                   {activeItem === "Settings" && !selectedReport && (

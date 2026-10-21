@@ -40,10 +40,10 @@ function ToastList() {
           )}
         </div>
         <div className="min-w-0 flex-1 space-y-1">
-          <ToastPrimitive.Title className="pr-5 text-sm leading-5 font-semibold [overflow-wrap:anywhere]" />
+          <ToastPrimitive.Title className="pr-5 text-base leading-6 font-semibold [overflow-wrap:anywhere]" />
           <ToastPrimitive.Description
             render={<div />}
-            className="text-[13px] leading-5 [overflow-wrap:anywhere] text-muted-foreground"
+            className="text-sm leading-5 [overflow-wrap:anywhere] text-muted-foreground"
           />
         </div>
         <ToastPrimitive.Close

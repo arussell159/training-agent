@@ -1,0 +1,70 @@
+# Mobile stability pass — 21 October 2026
+
+## Changes and root causes
+
+- **Home overflow and vertical gap:** the shell class string rendered `home-dashboard-shellhome-redesign-shell`. Both intended CSS selectors failed: the container kept 16px padding while its hero/carousel used −20px gutters, and header compensation failed. Baseline phone document width was viewport +4px; hero started at y=72 and greeting at y=143. Separate formatter-safe classes, shared gutter/header variables and shrinkable flex children now give document width=viewport, hero x/y=0 and greeting y=71. Deliberate carousel scrolling remains functional. Header/day/pagination targets are larger.
+- **Calendar plus buttons:** each day rendered its desktop add button unconditionally, with mobile CSS explicitly displaying it. Phone controls are removed; desktop exposure requires a fine pointer and hover, including landscape touch layouts. Date menus provide Add workout, and mobile Options includes Add workout today. Desktop behavior remains available.
+- **Food entry:** the `write` entry mode selected Type on fresh openings. Fresh Add now selects All, with immediately usable search and genuine recent/frequent foods from the account's seven loaded diary days. IDs prevent repeated refreshes inflating frequency; product, serving and quantity remain distinct. Existing diary hydration supplies this history without extra provider calls. Unfinished drafts preserve date/meal/quantity and operation identity; resuming is explicit.
+- **Search reliability:** overlapping searches, weak error classification, queued/token work outside individual timeout budgets and uncoordinated refreshes could produce misleading errors or stale results. Search now debounces 250ms, handles composition, deduplicates requests, cancels superseded subscribers, ignores stale results and retains usable content. FatSecret has a 12-second provider-operation deadline including queue/token/body/retry; browser search has a 15-second bound. One transient retry is permitted; rate limits receive a cooldown and Retry-After handling. Failed results never appear as an empty successful search.
+- **Save reliability:** operation identity previously lived only in component memory; a lost response/reload could lose recovery information. Provider hydration after a successful backend commit could also report a false failure. The existing revision/idempotency path now has a small account-scoped retained-intent journal and one app-level recovery owner. Journaling occurs synchronously before transport. Reload/reconnect/resume reuses the original ID/revision; malformed receipts cannot clear the journal. Receipt lookup precedes provider work, and no provider lookup follows a confirmed commit. Rejected optimistic updates roll back. Cross-tab invalidation refreshes the diary without applying stale responses.
+- **Confirmation:** one replaceable notification explicitly names the food and meal, uses a 16px title, remains for 5.5 seconds and clears previous error text/actions. It follows visualViewport/safe-area geometry above navigation, keyboard and editor actions. Pending/offline/error wording never claims a server save.
+- **Navigation/performance:** entry-scoped Back/Forward scroll restoration preserves the existing workout guards and history markers; fresh visits start at zero. Unrelated Home module prewarming waits for idle time and cancels on input/navigation. The existing workout save/outbox/Intervals worker is preserved.
+
+FatSecret Basic backend catalog caching was removed to respect provider permissions. Provider snapshots on the device expire after 24 hours from retrieval; recency remains based on the diary date. See [storable data](https://platform.fatsecret.com/docs/guides/storable-data) and [error codes](https://platform.fatsecret.com/docs/guides/error-codes). These permissions constrain cold catalog/history performance; credentials remain backend-only.
+
+## Working checklist and actual coverage
+
+| Route/flow                       | Loading/populated                                                              | Empty/error/offline/pending                                                                                    | Evidence                                                                           |
+| -------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Home                             | Rendered phone/tablet/desktop; carousel; scrolling; fresh/Back/Forward         | Existing startup/cache regressions; deferred chart placeholders                                                | Geometry matrix, navigation browser journey, screenshots                           |
+| Calendar                         | Rendered multiple workouts/long names; coarse landscape; desktop controls      | Existing date, DST, empty-day, viewport-anchor, navigation/gesture tests                                       | Matrix; mobile date-menu opens fully loaded editor and cancels                     |
+| Workout editing/sync             | Actual production editor plus real save worker against synthetic provider      | Five saves; ten delivery-outage/reload cycles; offline; stale concurrent tab; IDB failure; closed tabs; Cancel | `workout-commits.json`; existing regression suite                                  |
+| Nutrition/Add/serving            | Fresh All after Type; recent foods; changing searches; decimal portion; reload | Injected 429, 503 save, lost response after commit, offline search; retry; Back/body/focus cleanup             | Four-width journeys in Chromium and WebKit                                         |
+| Analysis/settings/shared dialogs | Settings geometry plus existing regression coverage                            | Existing auth/cache/navigation checks                                                                          | Automated suite; not a complete manual audit of every setting/analysis interaction |
+
+Browser geometry covers 320, 360, 390, 430, 768 and 1440px widths, plus 844×390 landscape with touch. Both Edge Chromium 155 and the installed Playwright WebKit engine passed; these are desktop browser emulations, not physical iOS/Android devices. Reduced motion is enabled in geometry checks. Representative synthetic records include long workout names, multiple same-day workouts and empty meals/days.
+
+Controlled provider tests cover hung/queued requests, cancellation, shared subscribers, stale authentication responses, refresh storms, 429/cooldown, transient 5xx, malformed payloads and details. Save tests cover duplicate submissions, immutable retries, malformed success payloads, old revisions, storage failure and account changes. Browser tests caught and corrected an unstable toast-effect recovery loop and stale failure text carried into success.
+
+## Measurements
+
+Baseline source was `4ae6708`; the preserved production build's asset names match the live deployment inspected before this pass. Paired lab runs use a 390×844 touch viewport, Edge 155, Intel Core Ultra 7 265, 4× CPU slowdown, 40ms network latency, 40Mbps down/10Mbps up, a new browser context for each cold run, disabled service worker and the same disposable APIs. Assets are uncompressed localhost production files; backend storage is synthetic memory. These are lab proxies, not field percentiles or production Supabase commit measurements. The separate five-save workout check uses a 1280×820 desktop viewport, unthrottled localhost and a synthetic provider delayed by 7000ms; its feedback/IDB timings are not mobile field results.
+
+| Measure                                        | Before                          | After                                | Target/status                                              |
+| ---------------------------------------------- | ------------------------------- | ------------------------------------ | ---------------------------------------------------------- |
+| Cold useful Home, 12 runs, median / sample p95 | 2367 / 2548ms                   | 2064 / 2382ms                        | ≤2000ms **missed** under this setup                        |
+| Home LCP, 12 runs, median / sample p95         | 2080 / 2512ms                   | 2008 / 2224ms                        | ≤2500ms met in this small lab sample                       |
+| Home CLS, 12 runs, median / maximum            | 0.066 / 0.066                   | 0.088 / 0.088                        | ≤0.1 met; not an improvement                               |
+| Warm Add opening, 40 runs, median / sample p95 | 61 / 77ms                       | 71 / 121ms                           | ≤200ms met; modest regression                              |
+| Workout visible feedback, 5 synthetic saves    | No comparable baseline          | Median 52ms; max/sample p95 86ms     | ≤100ms lab proxy met                                       |
+| Workout local IDB transaction, same 5 saves    | No comparable baseline          | Median 16ms; max/sample p95 21ms     | Local acceptance only                                      |
+| Durable application server save                | Not measured against production | Synthetic worker verified separately | ≤300ms **unverified**; local IDB is not server persistence |
+| INP                                            | No field telemetry              | No field telemetry                   | ≤200ms **unverified**; interaction proxies above           |
+
+Warm samples follow one explicit initialization opening. A preceding 12-open exploratory sequence included a 515ms outlier; the 40 warmed openings still had a 256ms maximum. These tail outliers remain visible in the raw evidence; small lab percentiles are not field guarantees.
+
+The cold-load constraint is initial shell/CSS/framework parsing and execution under CPU throttling, followed by primary data paint. Prewarming deferral improves the sample median by about 13%, but does not meet the 2-second target. The roughly 290KB uncompressed Framework7 runtime and 341KB entry chunk remain substantial; desktop map/chart modules are separate lazy chunks. Vercel compression differs from this deliberately fixed local setup. Further startup work needs a broader shell/library reduction and physical-device profiling; no faster field result is claimed.
+
+Read-only live checks before deployment: authenticated nutrition GET 1339ms, food-search endpoint 320ms, both HTTP 200. Direct live OAuth1 probe: search 226ms (upstream response headers 223ms; normalization/transport remainder about 3ms), detail 42ms (upstream 41ms). One sample each, 30 search results, one valid detail serving. No live diary or workout records were changed. Historical failures were not reproduced during these successful live reads; provider outages/IP/account restrictions remain external possibilities, not asserted diagnoses.
+
+## Verification and reproduction
+
+- `npm test`: **975 passed**.
+- `npm run test:ui`: **885 passed**, including four new registered regression files.
+- `npm run lint`, production TypeScript/Vite build and changed-file formatting pass. Nine pre-existing backend formatting failures were corrected mechanically so the repository CI format gate also passes.
+- `tools/mobile-stability-check.mjs`: before/after geometry, screenshots, document width and responsive control assertions.
+- `tools/mobile-food-journey.mjs`: disposable search/save/failure/reload journeys; supports `MOBILE_BROWSER_ENGINE=webkit` and an installed executable override.
+- `tools/mobile-navigation-check.mjs`: actual mobile tab navigation, Back/Forward scroll restoration and loaded workout creation/cancellation.
+- `tools/mobile-performance-check.mjs`: paired production lab samples; `PERF_DIST` selects baseline/current output, `PERF_SAMPLES` and `PERF_COLD_SAMPLES` select counts.
+- `tools/workout-commit-browser-check.mjs`: real worker against synthetic provider, including all-tabs-closed completion. No competing workout queue was introduced.
+- `tools/mobile-food-provider-probe.mjs` and `tools/mobile-live-probe.mjs`: bounded read-only live probes using existing environment credentials. Logs contain only statuses, counts, asset paths and timings.
+
+Committed raw paired measurements are in `docs/mobile-stability/performance-*.json`.
+
+Full local JSON evidence and additional screenshots are under ignored `artifacts/mobile-stability/`. Committed representative images: [Home before](docs/mobile-stability/home-before-390.png), [Home after](docs/mobile-stability/home-after-390.png), [Calendar before](docs/mobile-stability/calendar-before-390.png), [Calendar after](docs/mobile-stability/calendar-after-390.png), [food confirmation](docs/mobile-stability/food-confirmation-320.png).
+
+## Remaining limits and delivery
+
+The demonstrated regressions and tested recovery failures are fixed. The cold-load target remains missed under the stated throttled, uncompressed setup. Robust field p95/INP, real production save latency, physical iOS Safari/Android Chrome, installed-PWA safe areas, native keyboard/browser chrome, suspension, enlarged text and a representative very large real history remain unverified. Emulated viewport changes do not prove native keyboard or suspension behavior. Complete manual analysis/settings journeys and service-worker version migration were not newly exercised; existing focused tests remain in place. Native suspension is handled by durable retention and recovery after execution resumes, without claiming JavaScript runs while suspended.
+
+Production destination: [training-agent-omega.vercel.app](https://training-agent-omega.vercel.app). Release requires the validated commit to be pushed and deployed through the linked Vercel project, then authenticated read-only smoke checks and asset-version confirmation. The final release message records the actual commit and deployment.

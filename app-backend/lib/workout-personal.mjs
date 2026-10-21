@@ -25,7 +25,9 @@ const fail = (message, status = 400, code = "INVALID_PERSONAL_FIELDS") => {
 export function personalWorkoutId(value) {
   if (
     typeof value !== "string" ||
-    !/^(?:event:[1-9]\d*|activity:[a-zA-Z0-9_-]{1,80}|draft:[a-zA-Z0-9-]{16,80}|app:[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12})$/.test(value)
+    !/^(?:event:[1-9]\d*|activity:[a-zA-Z0-9_-]{1,80}|draft:[a-zA-Z0-9-]{16,80}|app:[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12})$/.test(
+      value
+    )
   )
     fail("Invalid workout identifier.");
   return value;

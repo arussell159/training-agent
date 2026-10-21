@@ -1,5 +1,10 @@
 import { NutritionDashboardSkeleton } from "@/components/loading-layouts"
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react"
 import { loadFullTrainingContext } from "@/lib/training-context"
 import "./nutrition.css"
 import { LoaderCircle, Pencil, Plus } from "lucide-react"
@@ -32,6 +37,13 @@ import {
   type Targets,
 } from "@/lib/nutrition"
 import { projectNutritionChange } from "@/lib/nutrition-optimistic"
+import { deviceCacheScope } from "@/lib/device-cache"
+import {
+  pendingNutritionWrite,
+  submitNutritionWrite,
+  type NutritionWrite,
+  type NutritionWriteResult,
+} from "@/lib/pending-nutrition-write"
 import { prefetchNutrition } from "@/lib/nutrition"
 import { loadFoodLibrary } from "@/lib/nutrition-read-cache"
 import { performanceProbe } from "@/lib/performance-probe"
@@ -234,7 +246,13 @@ export function NutritionPage({
     y: number
   } | null>(null)
   const writeLock = useRef(false)
-  useEffect(() => { void loadFullTrainingContext().catch(() => {}) }, [])
+  const [retainedWrite, setRetainedWrite] = useState<NutritionWrite | null>(
+    null
+  )
+  const [recoveringWrite, setRecoveringWrite] = useState(false)
+  useEffect(() => {
+    void loadFullTrainingContext().catch(() => {})
+  }, [])
   const [date, setDate] = useState(nutritionToday),
     { data, error, loading, reload, setData } = useNutrition(date)
   const [composer, setComposer] = useState<{
@@ -250,6 +268,30 @@ export function NutritionPage({
     [deleted, setDeleted] = useState<FoodEntry | null>(null)
   const exercise = useExerciseCalories(date)
   const nutritionReady = Boolean(data)
+  const refreshRetainedWrite = () => {
+    try {
+      const scope = deviceCacheScope()
+      if (scope !== "initial")
+        setRetainedWrite(pendingNutritionWrite(localStorage, scope))
+    } catch (problem) {
+      setMutationError((problem as Error).message)
+    }
+  }
+  const recoverFoodWrite = () => {
+    window.dispatchEvent(new Event("nutrition-write-retry"))
+  }
+  useEffect(() => {
+    refreshRetainedWrite()
+    const update = (event: Event) => {
+      refreshRetainedWrite()
+      const state = (event as CustomEvent<{ state?: string }>).detail?.state
+      setRecoveringWrite(state === "pending")
+      if (state === "success") setMutationError("")
+    }
+    window.addEventListener("nutrition-write-recovery", update)
+    return () => window.removeEventListener("nutrition-write-recovery", update)
+    // The shared app worker owns retries across navigation and lifecycle events.
+  }, [nutritionReady])
   useEffect(() => {
     if (!nutritionReady) return
     performanceProbe("nutrition-visible")
@@ -258,7 +300,11 @@ export function NutritionPage({
       for (const offset of [-1, 1]) {
         const adjacent = new Date(`${date}T12:00:00`)
         adjacent.setDate(adjacent.getDate() + offset)
-        const key = [adjacent.getFullYear(), String(adjacent.getMonth()+1).padStart(2,"0"), String(adjacent.getDate()).padStart(2,"0")].join("-")
+        const key = [
+          adjacent.getFullYear(),
+          String(adjacent.getMonth() + 1).padStart(2, "0"),
+          String(adjacent.getDate()).padStart(2, "0"),
+        ].join("-")
         void prefetchNutrition(key).catch(() => {})
       }
     })
@@ -295,7 +341,11 @@ export function NutritionPage({
   ) {
     if (!data) throw Error("Wait for your food log to load.")
     if (writeLock.current) throw Error("A food entry is already being saved.")
-    const projected = validatedNutritionView(projectNutritionChange(data, action, entries, id), date)
+    const projected = validatedNutritionView(
+      projectNutritionChange(data, action, entries, id),
+      date
+    )
+    const scope = deviceCacheScope()
     writeLock.current = true
     const previous = data
     beginNutritionWrite()
@@ -303,31 +353,76 @@ export function NutritionPage({
     setMutating(true)
     setMutationError("")
     try {
-      const result = await nutritionRequest<{ day: NutritionDay }>("/entries", {
+      const input: NutritionWrite = {
         date,
         action,
         entries,
         id,
         operationId,
         revision: data.day.revision,
-      })
-      const confirmed = validatedNutritionView({ ...data, day: result.day }, date)
-      setData({
-        ...data,
-        day: confirmed.day,
-        week: data.week.map((day) =>
-          day.date === date
-            ? {
-                ...day,
-                logged: result.day.entries.length > 0,
-                totals: foodTotals(result.day.entries),
-              }
-            : day
-        ),
-      })
+      }
+      const prior = pendingNutritionWrite(localStorage, scope)
+      const result = await submitNutritionWrite(
+        localStorage,
+        scope,
+        prior?.operationId === operationId ? prior : input,
+        (payload) => nutritionRequest<NutritionWriteResult>("/entries", payload)
+      )
+      if (scope !== deviceCacheScope())
+        throw Error(
+          "Your account changed during this save. Reopen the original account to confirm it."
+        )
+      if (
+        !result.day &&
+        result.revision !== (prior?.revision ?? input.revision) + 1
+      ) {
+        // A replay can confirm an earlier save after another tab edited the
+        // day. Its newer revision must never be attached to our old projection.
+        setData((current) =>
+          current?.date === date && current.day.revision <= data.day.revision
+            ? previous
+            : current
+        )
+        nutritionChanged()
+        setRetainedWrite(null)
+        return
+      }
+      const savedDay: NutritionDay = result.day || {
+        ...projected.day,
+        revision: result.revision!,
+      }
+      const confirmed = validatedNutritionView({ ...data, day: savedDay }, date)
+      setData((current) =>
+        !current ||
+        current.date !== date ||
+        current.day.revision > confirmed.day.revision
+          ? current
+          : {
+              ...current,
+              day: confirmed.day,
+              week: current.week.map((day) =>
+                day.date === date
+                  ? {
+                      ...day,
+                      logged: savedDay.entries.length > 0,
+                      totals: foodTotals(savedDay.entries),
+                    }
+                  : day
+              ),
+            }
+      )
       nutritionChanged()
+      setRetainedWrite(null)
     } catch (error) {
-      setData(previous)
+      if (scope === deviceCacheScope()) {
+        setData((current) =>
+          current?.date === date && current.day.revision <= data.day.revision
+            ? previous
+            : current
+        )
+        refreshRetainedWrite()
+        window.dispatchEvent(new Event("nutrition-write-retained"))
+      }
       throw error
     } finally {
       writeLock.current = false
@@ -386,6 +481,31 @@ export function NutritionPage({
         onTargets={() => setTargetsOpen(true)}
       />
       <div className="mobile-dashboard mx-auto w-full max-w-7xl space-y-5 px-4 pt-4 pb-8 md:px-8 lg:pt-6">
+        {retainedWrite && (
+          <div
+            role="status"
+            className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm"
+          >
+            <p className="font-semibold">
+              {navigator.onLine
+                ? "Food entry needs confirmation."
+                : "Offline — food entry retained on this device."}
+            </p>
+            <p className="mt-1">
+              Your {retainedWrite.date} entry will be checked using its original
+              save ID. It has not been confirmed saved.
+            </p>
+            <Button
+              className="mt-3 min-h-11"
+              disabled={recoveringWrite || mutating}
+              onClick={recoverFoodWrite}
+            >
+              {recoveringWrite
+                ? "Confirming food entry…"
+                : "Retry saved food entry"}
+            </Button>
+          </div>
+        )}
         {error && (
           <div
             role="alert"
@@ -409,7 +529,9 @@ export function NutritionPage({
                   nutritionSwipe.current = null
                 }}
               >
-                <h2 className="nutrition-overview-title">Calories &amp; Macros</h2>
+                <h2 className="nutrition-overview-title">
+                  Calories &amp; Macros
+                </h2>
                 {progressMetrics.map(({ key, label, color }) => {
                   const goal = resolvedTargets![key]
                   const left = goal == null ? null : goal - totals[key]
@@ -573,8 +695,16 @@ export function NutritionPage({
                     aria-label="Average daily nutrition over the last 7 days"
                   >
                     {[
-                      { key: "calories", label: "Avg daily calories", unit: "" },
-                      { key: "protein", label: "Avg daily protein", unit: " g" },
+                      {
+                        key: "calories",
+                        label: "Avg daily calories",
+                        unit: "",
+                      },
+                      {
+                        key: "protein",
+                        label: "Avg daily protein",
+                        unit: " g",
+                      },
                       { key: "fat", label: "Avg daily fat", unit: " g" },
                       { key: "carbs", label: "Avg daily carbs", unit: " g" },
                     ].map(({ key, label, unit }) => (
@@ -605,7 +735,10 @@ export function NutritionPage({
                 const entries = data.day.entries.filter((e) => e.meal === meal),
                   subtotal = foodTotals(entries)
                 return (
-                  <Card key={meal} className="nutrition-meal-card gap-0 overflow-hidden py-0">
+                  <Card
+                    key={meal}
+                    className="nutrition-meal-card gap-0 overflow-hidden py-0"
+                  >
                     <div className="nutrition-meal-header p-4">
                       <h3 className="text-lg font-semibold">
                         {titleCase(meal)}
@@ -665,16 +798,21 @@ export function NutritionPage({
                                   {entry.source === "ai" ? " · estimated" : ""}
                                 </span>
                                 <span className="nutrition-food-macros mt-1 flex max-w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-medium tabular-nums">
-                                  {progressMetrics.map(({ key, short, color }) => (
-                                    <span key={key} className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                                  {progressMetrics.map(
+                                    ({ key, short, color }) => (
                                       <span
-                                        className="size-2 rounded-full"
-                                        style={{ background: color }}
-                                        aria-hidden="true"
-                                      />
-                                      {displayNutrient(entry[key])} {short}
-                                    </span>
-                                  ))}
+                                        key={key}
+                                        className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap"
+                                      >
+                                        <span
+                                          className="size-2 rounded-full"
+                                          style={{ background: color }}
+                                          aria-hidden="true"
+                                        />
+                                        {displayNutrient(entry[key])} {short}
+                                      </span>
+                                    )
+                                  )}
                                 </span>
                               </span>
                               <Pencil className="hidden size-3 text-muted-foreground sm:block" />

@@ -146,6 +146,12 @@ export function createNutritionStore(record) {
   const month = (date) => record(date.slice(0, 7), () => ({ days: {} }));
   const library = () => record("library", () => ({ revision: 0, items: [] }));
   return {
+    async receipt(date, operationId) {
+      nutritionDate(date);
+      const state = await month(date).read();
+      const day = state.days[date];
+      return day?.operations?.includes(operationId) ? day : null;
+    },
     async view(date, resolve = async (entry) => entry) {
       nutritionDate(date);
       const dates = Array.from({ length: 7 }, (_, i) => shiftDate(date, i - 6));
@@ -170,6 +176,7 @@ export function createNutritionStore(record) {
       return {
         date,
         day: days[date] || emptyDay(),
+        recentDays: dates.map((d) => ({ date: d, entries: days[d]?.entries || [] })),
         targets: targetsAt(date),
         targetsRevision: settings.revision,
         week: dates.map((d) => ({

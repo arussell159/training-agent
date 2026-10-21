@@ -1,5 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { NutritionError } from "./nutrition-model.mjs";
+import { fatSecretResponse } from "./fatsecret-response.mjs";
 
 const encode = (value) =>
   encodeURIComponent(String(value)).replace(
@@ -19,7 +20,7 @@ export function oauth1Signature(method, url, params, secret, tokenSecret = "") {
 
 export function createFatSecretOAuth1({ env = () => process.env, fetchImpl = fetch } = {}) {
   const configured = () => Boolean(env().FATSECRET_CONSUMER_KEY && env().FATSECRET_CONSUMER_SECRET);
-  async function request(path, params = {}, { method = "GET", profile } = {}) {
+  async function request(path, params = {}, { method = "GET", profile, signal } = {}) {
     if (!configured())
       throw new NutritionError(
         "Add the FatSecret OAuth 1.0 Consumer Key and Shared Secret to .env.local and restart the preview.",
@@ -49,7 +50,7 @@ export function createFatSecretOAuth1({ env = () => process.env, fetchImpl = fet
       response = await fetchImpl(method === "GET" ? `${url}?${body}` : url, {
         method,
         redirect: "error",
-        signal: AbortSignal.timeout(15000),
+        signal: signal || AbortSignal.timeout(15000),
         ...(method === "GET"
           ? {}
           : { body, headers: { "Content-Type": "application/x-www-form-urlencoded" } }),
@@ -62,18 +63,7 @@ export function createFatSecretOAuth1({ env = () => process.env, fetchImpl = fet
         502
       );
     }
-    if (!response.ok)
-      throw new NutritionError("FatSecret could not complete this request. Please retry.", 502);
-    const data = await response.json();
-    if (data.error) {
-      const error = new NutritionError(
-        `FatSecret rejected the request (code ${Number(data.error.code) || 0}). Check your OAuth 1.0 API access.`,
-        502
-      );
-      error.providerCode = Number(data.error.code);
-      throw error;
-    }
-    return data;
+    return fatSecretResponse(response);
   }
   return { configured, request };
 }

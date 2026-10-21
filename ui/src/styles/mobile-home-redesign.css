@@ -1,6 +1,8 @@
 /* Isolated from the original homepage and every desktop breakpoint. */
 @media (width < 48rem) {
   .home-redesign-shell.home-dashboard-shell {
+    --home-gutter: 20px;
+    --home-navbar-height: 56px;
     --home-hero-ink: #172b46;
     --home-hero-muted: #53637a;
     --home-hero-accent: #2256c4;
@@ -9,7 +11,7 @@
 
   .home-redesign-shell .mobile-site-navbar {
     /* Share ATP's native fading navbar blur and let content scroll beneath it. */
-    margin-bottom: calc(-1 * var(--f7-navbar-height));
+    margin-bottom: calc(-1 * var(--home-navbar-height));
     background: transparent;
     color: var(--foreground);
   }
@@ -37,7 +39,7 @@
 
   .home-dashboard-shell .mobile-dashboard.mobile-home-redesign {
     gap: 25px;
-    padding: 0 20px 28px;
+    padding: 0 var(--home-gutter) 28px;
     background: transparent;
   }
 
@@ -59,8 +61,8 @@
     position: relative;
     isolation: isolate;
     overflow: hidden;
-    margin-inline: -20px;
-    padding: calc(56px + 15px) 20px 21px;
+    margin-inline: calc(-1 * var(--home-gutter));
+    padding: calc(var(--home-navbar-height) + 15px) var(--home-gutter) 21px;
     border-radius: 0 0 30px 30px;
     background: var(--background);
     color: var(--home-hero-ink);
@@ -298,8 +300,8 @@
   }
   .home-day-controls button {
     display: grid;
-    min-width: 34px;
-    height: 36px;
+    min-width: 44px;
+    height: 44px;
     place-items: center;
     color: var(--primary);
     font-size: 11px;
@@ -317,12 +319,12 @@
   .home-session-carousel {
     display: flex;
     gap: 12px;
-    margin-inline: -20px;
-    padding-inline: 20px;
+    margin-inline: calc(-1 * var(--home-gutter));
+    padding-inline: var(--home-gutter);
     overflow-x: auto;
     overscroll-behavior-x: contain;
     scroll-snap-type: x mandatory;
-    scroll-padding-inline: 20px;
+    scroll-padding-inline: var(--home-gutter);
     scrollbar-width: none;
   }
   .home-session-carousel::-webkit-scrollbar {
@@ -451,13 +453,14 @@
   }
   .home-carousel-pagination {
     display: flex;
+    flex-wrap: wrap;
     justify-content: center;
     margin-top: 5px;
   }
   .home-carousel-pagination button {
     display: grid;
-    width: 24px;
-    height: 24px;
+    width: 44px;
+    height: 44px;
     place-items: center;
   }
   .home-carousel-pagination span {

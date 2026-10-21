@@ -420,7 +420,8 @@ function targetSpeed(target, thresholds) {
         ? (thresholds.pace * value) / 100
         : null;
   if (target.mode === "single") return speed(target.value);
-  const start = speed(target.start), end = speed(target.end);
+  const start = speed(target.start),
+    end = speed(target.end);
   // Average in physical speed so a range's estimates do not change when
   // toggling between percentage speed and reciprocal seconds-per-distance.
   return start == null || end == null ? null : (start + end) / 2;
@@ -443,42 +444,67 @@ export function stepMetrics(step, thresholds = {}) {
 // a second-by-second array for a long steady interval or continuous ramp.
 function linearFourthMean(first, last, count) {
   if (count === 1) return first ** 4;
-  const m = count - 1, delta = last - first;
+  const m = count - 1,
+    delta = last - first;
   const second = 1 / 3 + 1 / (6 * m);
   const third = 1 / 4 + 1 / (4 * m);
   const fourth = 1 / 5 + 3 / (10 * m) + 1 / (30 * m * m) - 1 / (30 * m * m * m);
-  return Math.max(0, first ** 4 + 2 * first ** 3 * delta + 6 * first * first * delta * delta * second + 4 * first * delta ** 3 * third + delta ** 4 * fourth);
+  return Math.max(
+    0,
+    first ** 4 +
+      2 * first ** 3 * delta +
+      6 * first * first * delta * delta * second +
+      4 * first * delta ** 3 * third +
+      delta ** 4 * fourth
+  );
 }
 
 function plannedStepMetrics(step, thresholds, options) {
   const metrics = stepMetrics(step, thresholds);
-  if (options?.plannedDistanceTime === "whole-metres" && step.end.kind === "distance" && metrics.seconds != null) {
+  if (
+    options?.plannedDistanceTime === "whole-metres" &&
+    step.end.kind === "distance" &&
+    metrics.seconds != null
+  ) {
     const speed = targetSpeed(step.target, thresholds);
     // The observed native yard conversion uses this rounded reciprocal before
     // truncating metres. Keep it confined to the planned time estimate.
     const metres = step.end.unit === "yd" ? step.end.value / 1.0936133 : metrics.distance;
-    return {...metrics, seconds: Math.round(Math.trunc(metres) / speed)};
+    return { ...metrics, seconds: Math.round(Math.trunc(metres) / speed) };
   }
   return metrics;
 }
 
 function plannedPowerFromSteps(flat, thresholds = {}, options) {
   const segments = [];
-  let seconds = 0, energy = 0;
+  let seconds = 0,
+    energy = 0;
   for (const { step } of flat) {
-    const metrics = plannedStepMetrics(step, thresholds, options), target = step.target;
+    const metrics = plannedStepMetrics(step, thresholds, options),
+      target = step.target;
     if (metrics.seconds == null || metrics.open || !(metrics.seconds > 0)) return null;
-    let first = 0, last = 0;
+    let first = 0,
+      last = 0;
     if (!(step.role === "rest" && target.kind === "none")) {
-      if (target.kind !== "power" || !["w", "%ftp"].includes(target.unit) || (target.unit === "w" && !(thresholds.ftp > 0))) return null;
+      if (
+        target.kind !== "power" ||
+        !["w", "%ftp"].includes(target.unit) ||
+        (target.unit === "w" && !(thresholds.ftp > 0))
+      )
+        return null;
       const factor = target.unit === "w" ? thresholds.ftp : 100;
-      first = (target.mode === "single" ? target.value : target.mode === "range" ? (target.start + target.end) / 2 : target.start) / factor;
-      last = (target.mode === "ramp" ? target.end / factor : first);
+      first =
+        (target.mode === "single"
+          ? target.value
+          : target.mode === "range"
+            ? (target.start + target.end) / 2
+            : target.start) / factor;
+      last = target.mode === "ramp" ? target.end / factor : first;
     }
-    if (![first, last].every(value => Number.isFinite(value) && value >= 0)) return null;
+    if (![first, last].every((value) => Number.isFinite(value) && value >= 0)) return null;
     const end = seconds + metrics.seconds;
-    segments.push({start: seconds, end, first, last});
-    energy += metrics.seconds * (first + last) / 2;
+    segments.push({ start: seconds, end, first, last });
+    energy += (metrics.seconds * (first + last)) / 2;
     seconds = end;
   }
   if (!segments.length || !Number.isSafeInteger(Math.floor(seconds))) return null;
@@ -486,7 +512,7 @@ function plannedPowerFromSteps(flat, thresholds = {}, options) {
   const result = {
     seconds,
     averagePower: thresholds.ftp > 0 ? averageIntensity * thresholds.ftp : null,
-    workKilojoules: thresholds.ftp > 0 ? energy * thresholds.ftp / 1000 : null,
+    workKilojoules: thresholds.ftp > 0 ? (energy * thresholds.ftp) / 1000 : null,
     normalizedIntensity: null,
     normalizedPower: null,
     samples: 0,
@@ -494,8 +520,9 @@ function plannedPowerFromSteps(flat, thresholds = {}, options) {
   // The published NP procedure starts with a complete 30-second window. There
   // is no invented zero padding or extrapolated pre-workout power.
   if (seconds < 30) return result;
-  const indexAt = time => {
-    let low = 0, high = segments.length - 1;
+  const indexAt = (time) => {
+    let low = 0,
+      high = segments.length - 1;
     while (low < high) {
       const middle = (low + high) >>> 1;
       if (segments[middle].end <= time) low = middle + 1;
@@ -503,24 +530,41 @@ function plannedPowerFromSteps(flat, thresholds = {}, options) {
     }
     return low;
   };
-  const rolling = time => {
+  const rolling = (time) => {
     const start = time - 30;
     let amount = 0;
     for (let index = indexAt(start); index < segments.length; index++) {
       const segment = segments[index];
       if (segment.start >= time) break;
-      const from = Math.max(start, segment.start), to = Math.min(time, segment.end);
-      if (to > from) amount += (to - from) * (segment.first + (segment.last - segment.first) * ((from + to) / 2 - segment.start) / (segment.end - segment.start));
+      const from = Math.max(start, segment.start),
+        to = Math.min(time, segment.end);
+      if (to > from)
+        amount +=
+          (to - from) *
+          (segment.first +
+            ((segment.last - segment.first) * ((from + to) / 2 - segment.start)) /
+              (segment.end - segment.start));
     }
     return amount / 30;
   };
   // Only the 30 seconds after a boundary can mix distinct interval slopes.
   // Longer regions lie entirely inside one step and have a linear rolling
   // average, whose discrete fourth-power sum is evaluated analytically.
-  const boundaries = [...new Set([30, seconds + 1, ...segments.flatMap(segment => [segment.end, segment.end + 30]).filter(time => time > 30 && time <= seconds)])].sort((a,b) => a-b);
-  let fourthSum = 0, samples = 0;
+  const boundaries = [
+    ...new Set([
+      30,
+      seconds + 1,
+      ...segments
+        .flatMap((segment) => [segment.end, segment.end + 30])
+        .filter((time) => time > 30 && time <= seconds),
+    ]),
+  ].sort((a, b) => a - b);
+  let fourthSum = 0,
+    samples = 0;
   for (let index = 0; index < boundaries.length - 1; index++) {
-    const first = Math.ceil(boundaries[index]), last = Math.min(Math.floor(seconds), Math.ceil(boundaries[index + 1]) - 1), count = last - first + 1;
+    const first = Math.ceil(boundaries[index]),
+      last = Math.min(Math.floor(seconds), Math.ceil(boundaries[index + 1]) - 1),
+      count = last - first + 1;
     if (count <= 0) continue;
     if (count > 32) fourthSum += count * linearFourthMean(rolling(first), rolling(last), count);
     else for (let time = first; time <= last; time++) fourthSum += rolling(time) ** 4;
@@ -528,13 +572,21 @@ function plannedPowerFromSteps(flat, thresholds = {}, options) {
   }
   const normalizedIntensity = (fourthSum / samples) ** 0.25;
   if (!Number.isFinite(normalizedIntensity)) return result;
-  return {...result, normalizedIntensity, normalizedPower: thresholds.ftp > 0 ? normalizedIntensity * thresholds.ftp : null, samples};
+  return {
+    ...result,
+    normalizedIntensity,
+    normalizedPower: thresholds.ftp > 0 ? normalizedIntensity * thresholds.ftp : null,
+    samples,
+  };
 }
 
 /** Planned power from midpoint ranges and the documented one-second, 30s NP window. */
 export function plannedPowerMetrics(model) {
-  try { return plannedPowerFromSteps(expandSteps(model.steps), model.thresholds); }
-  catch { return null; }
+  try {
+    return plannedPowerFromSteps(expandSteps(model.steps), model.thresholds);
+  } catch {
+    return null;
+  }
 }
 
 // Planned Run stress applies the observed duration correction to the mean
@@ -542,29 +594,43 @@ export function plannedPowerMetrics(model) {
 // displayed swim IF is the square root of its stress per hour.
 function plannedPaceFromSteps(flat, model, options) {
   if (!/^(run|walk|swim)$/i.test(model.sport)) return null;
-  let seconds = 0, weighted = 0, cubed = 0;
-  for (const {step} of flat) {
+  let seconds = 0,
+    weighted = 0,
+    cubed = 0;
+  for (const { step } of flat) {
     const duration = plannedStepMetrics(step, model.thresholds, options).seconds;
     if (!(duration > 0) || step.end.kind === "lap") return null;
     seconds += duration;
     const target = step.target;
     if (step.role === "rest" && target.kind === "none") continue;
     if (target.kind !== "pace") return null;
-    const fraction = value => target.unit === "%pace" ? value / 100
-      : paceFactors[target.unit] && model.thresholds?.pace > 0 ? paceFactors[target.unit] / value / model.thresholds.pace : NaN;
+    const fraction = (value) =>
+      target.unit === "%pace"
+        ? value / 100
+        : paceFactors[target.unit] && model.thresholds?.pace > 0
+          ? paceFactors[target.unit] / value / model.thresholds.pace
+          : NaN;
     const first = fraction(target.mode === "single" ? target.value : target.start);
     const last = fraction(target.mode === "single" ? target.value : target.end);
-    if (![first, last].every(value => Number.isFinite(value) && value > 0)) return null;
-    weighted += duration * (first + last) / 2;
-    cubed += duration * (target.mode === "ramp"
-      ? (first ** 3 + first * first * last + first * last * last + last ** 3) / 4
-      : ((first + last) / 2) ** 3);
+    if (![first, last].every((value) => Number.isFinite(value) && value > 0)) return null;
+    weighted += (duration * (first + last)) / 2;
+    cubed +=
+      duration *
+      (target.mode === "ramp"
+        ? (first ** 3 + first * first * last + first * last * last + last ** 3) / 4
+        : ((first + last) / 2) ** 3);
   }
   if (!(seconds > 0)) return null;
-  const swim = /^swim$/i.test(model.sport), mean = weighted / seconds;
-  const rawLoad = swim ? cubed / 36 : mean * mean * (seconds / 60) ** 1.025 / 60 * 100;
+  const swim = /^swim$/i.test(model.sport),
+    mean = weighted / seconds;
+  const rawLoad = swim ? cubed / 36 : ((mean * mean * (seconds / 60) ** 1.025) / 60) * 100;
   const load = Math.round(rawLoad * 10) / 10;
-  return {load, intensityFactor: swim ? Math.round(Math.sqrt(load * 36 / seconds) * 100) / 100 : Math.round(mean * 100) / 100};
+  return {
+    load,
+    intensityFactor: swim
+      ? Math.round(Math.sqrt((load * 36) / seconds) * 100) / 100
+      : Math.round(mean * 100) / 100,
+  };
 }
 
 export function workoutTotals(model, options) {
@@ -643,7 +709,8 @@ export function workoutTotals(model, options) {
     });
   countRepeats(model.steps);
   const power = loadKnown && !open ? plannedPowerFromSteps(flat, model.thresholds, options) : null;
-  if (power?.normalizedIntensity != null) load = (seconds / 3600) * power.normalizedIntensity ** 2 * 100;
+  if (power?.normalizedIntensity != null)
+    load = (seconds / 3600) * power.normalizedIntensity ** 2 * 100;
   const pace = !open && !unknownTime ? plannedPaceFromSteps(flat, model, options) : null;
   return {
     seconds,

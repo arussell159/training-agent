@@ -289,7 +289,10 @@ async function save(request, id, input = {}) {
           403,
           "PERMISSION_DENIED"
         );
-      if (error.status === 429) { error.code = "PROVIDER_REJECTED"; throw error; }
+      if (error.status === 429) {
+        error.code = "PROVIDER_REJECTED";
+        throw error;
+      }
       if ([400, 404, 409, 422].includes(error.status))
         fail(
           error.status === 404
@@ -390,9 +393,9 @@ export async function createWorkoutEditor(request, input = {}, scope = "default"
                   input.description ?? (model.unstructured === true ? model.notes : "")
                 )
               : input.description != null
-                ? (typeof input.description !== "string" || input.description.length > 30000
-                    ? fail("Enter a description under 30,000 characters.")
-                    : input.description + workoutDefinitionSuffix(serializeWorkout(model)))
+                ? typeof input.description !== "string" || input.description.length > 30000
+                  ? fail("Enter a description under 30,000 characters.")
+                  : input.description + workoutDefinitionSuffix(serializeWorkout(model))
                 : serializeWorkout(model),
             values
           ),
@@ -445,7 +448,10 @@ export async function createWorkoutEditor(request, input = {}, scope = "default"
           body: JSON.stringify(body),
         });
       } catch (error) {
-        if (error.status === 429) { error.code = "CREATE_REJECTED"; throw error; }
+        if (error.status === 429) {
+          error.code = "CREATE_REJECTED";
+          throw error;
+        }
         if ([400, 401, 403, 422].includes(error.status))
           fail(
             "Intervals.icu rejected creation. Check the workout and calendar permissions.",

@@ -18,18 +18,29 @@ export function createNutritionHttp({
       throw new NutritionError("Save between 1 and 30 foods at a time.");
     return Promise.all(entries.map((entry) => hydrate(validateEntry(entry))));
   };
-  const hydrateDay = async (day) => ({
-    ...day,
-    entries: await Promise.all(day.entries.map(hydrate)),
-  });
   return async (req, res, pathname) => {
     if (pathname !== "/api/nutrition" && !pathname.startsWith("/api/nutrition/")) return false;
-    const json = (status, data) => {
+    const started = performance.now();
+    const catalogRead = async (read) => {
+      const controller = new AbortController();
+      const stop = () => {
+        if (!res.writableEnded) controller.abort();
+      };
+      res.on("close", stop);
+      try {
+        return await read(controller.signal);
+      } finally {
+        res.off("close", stop);
+      }
+    };
+    const json = (status, data, headers = {}) => {
       if (!res.destroyed && !res.writableEnded) {
         res.writeHead(status, {
           "Content-Type": "application/json",
           "Cache-Control": "no-store",
           "X-Content-Type-Options": "nosniff",
+          "Server-Timing": `nutrition;dur=${(performance.now() - started).toFixed(1)}`,
+          ...headers,
         });
         res.end(JSON.stringify(data));
       }
@@ -80,9 +91,15 @@ export function createNutritionHttp({
         await store.changeLibrary(payload);
         json(200, await store.library(hydrate));
       } else if (req.method === "GET" && pathname === "/api/nutrition/search")
-        json(200, { products: await catalog.search(url.searchParams.get("q")) });
+        json(200, {
+          products: await catalogRead((signal) =>
+            catalog.search(url.searchParams.get("q"), signal)
+          ),
+        });
       else if (req.method === "GET" && pathname === "/api/nutrition/product") {
-        const product = await catalog.product(url.searchParams.get("id"));
+        const product = await catalogRead((signal) =>
+          catalog.product(url.searchParams.get("id"), signal)
+        );
         json(
           product ? 200 : 404,
           product
@@ -122,18 +139,44 @@ export function createNutritionHttp({
         }
       } else if (req.method === "POST" && pathname === "/api/nutrition/entries") {
         const payload = await bodyJson(req, 150000);
-        if (payload.entries) payload.entries = await resolveWrites(payload.entries);
-        json(200, { day: await hydrateDay(await (await getStore(req)).change(payload)) });
+        const store = await getStore(req);
+        // Read the durable receipt before any provider work. A response lost after
+        // commit must remain recoverable even while the catalog is unavailable.
+        let saved = store.receipt ? await store.receipt(payload.date, payload.operationId) : null;
+        const replayed = Boolean(saved);
+        if (!saved) {
+          if (payload.entries) payload.entries = await resolveWrites(payload.entries);
+          saved = await store.change(payload);
+        }
+        const resolved = new Map(
+          (replayed ? [] : payload.entries || []).map((entry) => [entry.id, entry])
+        );
+        const entries = saved.entries.map((entry) =>
+          entry.source === "fatsecret" ? resolved.get(entry.id) : entry
+        );
+        // No provider request after commit: the client retains its hydrated
+        // optimistic day when older catalog entries need a separate refresh.
+        json(200, {
+          day: entries.every((entry) => entry?.name) ? { ...saved, entries } : null,
+          committed: true,
+          revision: saved.revision,
+        });
       } else if (req.method === "POST" && pathname === "/api/nutrition/targets")
         json(200, await (await getStore(req)).setTargets(await bodyJson(req, 10000)));
       else json(405, { error: "Nutrition endpoint or method not supported." });
     } catch (error) {
-      json(error.status || 502, {
-        error:
-          error instanceof NutritionError || error.status
-            ? error.message
-            : "Nutrition couldn’t finish this request. Your saved log is unchanged. Please retry.",
-      });
+      json(
+        error.status || 502,
+        {
+          error:
+            error instanceof NutritionError || error.status
+              ? error.message
+              : "Nutrition couldn’t finish this request. Your saved log is unchanged. Please retry.",
+        },
+        error.status === 429 && Number.isFinite(error.retryAfter)
+          ? { "Retry-After": String(Math.max(1, Math.ceil(error.retryAfter))) }
+          : {}
+      );
     }
     return true;
   };

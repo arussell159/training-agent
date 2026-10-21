@@ -168,12 +168,14 @@ function distance(from: Entry, to: Entry): number | null {
 
 export function pushWorkoutNavigationState(state: unknown, url: string): void {
   const previous = currentMarker()
+  window.dispatchEvent(new Event("workout-navigation-before-push"))
   window.history.pushState(
     stateWith(state, { ...previous, index: previous.index + 1 }),
     "",
     url
   )
   controller?.pushed()
+  window.dispatchEvent(new Event("workout-navigation-pushed"))
 }
 export function replaceWorkoutNavigationState(
   state: unknown,

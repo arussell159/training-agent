@@ -71,8 +71,12 @@ for (const sport of ["Run", "Ride", "Swim"])
     assert.equal(result.event.icu_intensity, original.icu_intensity);
     assert.equal(readPlannedValues(result.event.description).intensity_factor, 0.87);
     assert.equal(result.event.joules, 700000);
-    assert.equal(result.event.normalized_power,undefined,"Planned NP stays in private planned metadata, not an invented native event field");
-    assert.equal(result.event.icu_pm_np,original.icu_pm_np);
+    assert.equal(
+      result.event.normalized_power,
+      undefined,
+      "Planned NP stays in private planned metadata, not an invented native event field"
+    );
+    assert.equal(result.event.icu_pm_np, original.icu_pm_np);
     const actual = {
       id: "i9",
       moving_time: 3600,

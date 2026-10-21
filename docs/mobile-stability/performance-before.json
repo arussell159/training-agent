@@ -1,0 +1,60 @@
+{
+  "conditions": {
+    "dist": "artifacts/mobile-stability/baseline-dist",
+    "n": 12,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "network": "40ms RTT,40Mbps down/10Mbps up; 4x CPU slowdown; local uncompressed production build + in-memory synthetic backend; no service worker; new context per cold sample",
+    "method": "Cold useful=populated .home-athlete-name + next frame. Add opening=trusted click to enabled search input + next frame. LCP/CLS lab observers; no field INP measurement.",
+    "browser": "155.0.4283.62",
+    "cpu": "Intel(R) Core(TM) Ultra 7 265"
+  },
+  "coldUseful": [
+    2505.7999999988824, 1883.0999999996275, 2353.5, 2480.9000000003725, 1994.7000000011176,
+    2032.800000000745, 2412.2999999988824, 2439, 2548.2000000011176, 1821.199999999255, 2367,
+    2139.199999999255
+  ],
+  "lcp": [2512, 1936, 2388, 1896, 1808, 2080, 2440, 2236, 1972, 1872, 2200, 1944],
+  "cls": [
+    0.06578609629093574, 0.01168736119612093, 0.01168736119612093, 0.06578609629093574,
+    0.06578609629093574, 0.01168736119612093, 0.01168736119612093, 0.06578609629093574,
+    0.06578609629093574, 0.01168736119612093, 0.06578609629093574, 0.06578609629093574
+  ],
+  "warmAdd": [
+    325.40000000037253, 80.30000000074506, 85, 78.79999999888241, 80.20000000111759,
+    81.59999999962747, 70.5, 64, 75.5, 70.69999999925494, 79.69999999925494, 62.100000001490116
+  ],
+  "coldUsefulSummary": {
+    "median": 2367,
+    "p95": 2548.2000000011176,
+    "min": 1821.199999999255,
+    "max": 2548.2000000011176
+  },
+  "lcpSummary": {
+    "median": 2080,
+    "p95": 2512,
+    "min": 1808,
+    "max": 2512
+  },
+  "clsSummary": {
+    "median": 0.06578609629093574,
+    "p95": 0.06578609629093574,
+    "min": 0.01168736119612093,
+    "max": 0.06578609629093574
+  },
+  "warmAddSummary": {
+    "median": 79.69999999925494,
+    "p95": 325.40000000037253,
+    "min": 62.100000001490116,
+    "max": 325.40000000037253
+  },
+  "firstAddOpenMs": 325.40000000037253,
+  "warmAddSteadySummary": {
+    "n": 11,
+    "median": 78.79999999888241,
+    "p95": 85,
+    "max": 85
+  }
+}

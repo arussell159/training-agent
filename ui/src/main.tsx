@@ -20,10 +20,12 @@ import { AppToastProvider } from "@/components/ui/toast"
 import { performanceProbe } from "@/lib/performance-probe"
 import { InteractionFeedback } from "@/components/interaction-feedback"
 import { WorkoutSyncFeedback } from "@/components/workout-sync-feedback"
+import { NutritionSyncFeedback } from "@/components/nutrition-sync-feedback"
 import { cleanAppShellRecoveryUrl } from "@/lib/app-shell-recovery"
 
 const recoveredUrl = cleanAppShellRecoveryUrl(window.location.href)
-if (recoveredUrl) window.history.replaceState(window.history.state, "", recoveredUrl)
+if (recoveredUrl)
+  window.history.replaceState(window.history.state, "", recoveredUrl)
 
 // Sortable installs its touch handlers during app init. Other feature modules
 // register with their lazy route before its controls render.
@@ -55,21 +57,31 @@ document.addEventListener(
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    performanceProbe('shell-cache-active', { controlled: !!navigator.serviceWorker.controller })
+    performanceProbe("shell-cache-active", {
+      controlled: !!navigator.serviceWorker.controller,
+    })
   })
   window.addEventListener("load", () => {
-    void navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready).then(() => {
-      performanceProbe('shell-cache-ready', { controlled: !!navigator.serviceWorker.controller })
-    }).catch(() => {
-      // Private browsing and offline startup can disable service workers.
-    })
+    void navigator.serviceWorker
+      .register("/sw.js")
+      .then(() => navigator.serviceWorker.ready)
+      .then(() => {
+        performanceProbe("shell-cache-ready", {
+          controlled: !!navigator.serviceWorker.controller,
+        })
+      })
+      .catch(() => {
+        // Private browsing and offline startup can disable service workers.
+      })
   })
 }
 
 function BootReady() {
   useLayoutEffect(() => {
     // Keep the inline shell until the first React commit AND its styles exist.
-    ;(window as Window & { __trainingFinishBoot?: () => void }).__trainingFinishBoot?.()
+    ;(
+      window as Window & { __trainingFinishBoot?: () => void }
+    ).__trainingFinishBoot?.()
   }, [])
   return null
 }
@@ -90,6 +102,7 @@ createRoot(document.getElementById("root")!).render(
             <AppToastProvider>
               <InteractionFeedback />
               <WorkoutSyncFeedback />
+              <NutritionSyncFeedback />
               <App />
             </AppToastProvider>
           </TooltipProvider>

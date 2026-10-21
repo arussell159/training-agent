@@ -652,7 +652,10 @@ export function AppStartupSkeleton() {
       <main
         className={cn(
           "min-w-0 flex-1 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0",
-          (page === "Home" || page === "Nutrition") && "home-dashboard-shell"
+          (page === "Home" || page === "Nutrition") && "home-dashboard-shell",
+          page === "Home" &&
+            mobileHomeLayout === "redesign" &&
+            "home-redesign-shell"
         )}
       >
         <div className="hidden h-14 items-center border-b px-4 md:flex">

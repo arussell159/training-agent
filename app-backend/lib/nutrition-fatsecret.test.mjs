@@ -155,6 +155,169 @@ test("FatSecret denied IP, missing keys, timeouts and incomplete products fail w
     (e) => e.status === 502 && !e.message.includes("secret transport")
   );
 });
+
+test("simultaneous catalog reads share authentication and identical in-flight requests", async () => {
+  let tokens = 0,
+    searches = 0;
+  const catalog = createFoodCatalog({
+    env,
+    fetchImpl: async (url) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      if (url.includes("/connect/token")) {
+        tokens++;
+        return json({ access_token: "token", expires_in: 3600 });
+      }
+      searches++;
+      return json({ foods: { food: [] } });
+    },
+  });
+  await Promise.all([catalog.search("rice"), catalog.search("rice"), catalog.search("beans")]);
+  assert.equal(tokens, 1);
+  assert.equal(searches, 2);
+});
+
+test("FatSecret rate limits and malformed responses fail distinctly without retry or false empty matches", async () => {
+  for (const code of [11, 12]) {
+    let calls = 0;
+    const catalog = createFoodCatalog({
+      env: () => ({ FATSECRET_CONSUMER_KEY: "dummy", FATSECRET_CONSUMER_SECRET: "dummy" }),
+      fetchImpl: async () => {
+        calls++;
+        return json({ error: { code, message: "secret must not escape" } });
+      },
+    });
+    await assert.rejects(
+      catalog.search("rice"),
+      (error) => error.status === 429 && !error.message.includes("secret must")
+    );
+    assert.equal(calls, 1);
+  }
+  const catalog = createFoodCatalog({
+    env,
+    fetchImpl: async (url) =>
+      url.includes("/connect/token")
+        ? json({ access_token: "token", expires_in: 3600 })
+        : json({ unexpected: [] }),
+  });
+  await assert.rejects(catalog.search("rice"), /incomplete search results/);
+  await assert.rejects(catalog.product("123"), /incomplete food details/);
+});
+
+test("expired OAuth token refresh is coalesced and stale failures cannot invalidate its replacement", async () => {
+  let tokens = 0;
+  const calls = new Map();
+  const catalog = createFoodCatalog({
+    env,
+    fetchImpl: async (url, options) => {
+      if (url.includes("/connect/token"))
+        return json({ access_token: `token-${++tokens}`, expires_in: 3600 });
+      const query = new URL(url).searchParams.get("search_expression");
+      calls.set(query, (calls.get(query) || 0) + 1);
+      if (options.headers.Authorization === "Bearer token-1") return json({ error: { code: 13 } });
+      return json({ foods: { food: [] } });
+    },
+  });
+  await Promise.all([catalog.search("rice"), catalog.search("beans"), catalog.search("milk")]);
+  assert.equal(tokens, 2);
+  assert.deepEqual([...calls.values()], [2, 2, 2]);
+});
+
+test("one deadline bounds hung provider work and queued requests, then permits recovery", async () => {
+  let hung = true;
+  const catalog = createFoodCatalog({
+    deadlineMs: 30,
+    env: () => ({ FATSECRET_CONSUMER_KEY: "dummy", FATSECRET_CONSUMER_SECRET: "dummy" }),
+    fetchImpl: async () => {
+      if (hung) return new Promise(() => {});
+      return json({ foods: { food: [] } });
+    },
+  });
+  const start = performance.now();
+  const outcomes = await Promise.allSettled(
+    Array.from({ length: 6 }, (_, i) => catalog.search(`food-${i}`))
+  );
+  assert.ok(
+    outcomes.every((result) => result.status === "rejected" && result.reason.status === 504)
+  );
+  assert.ok(performance.now() - start < 250);
+  hung = false;
+  assert.deepEqual(await catalog.search("recovered"), []);
+});
+
+test("catalog retries one transient provider failure but does not retry a bad signature", async () => {
+  for (const code of [20, 8]) {
+    let calls = 0;
+    const catalog = createFoodCatalog({
+      env: () => ({ FATSECRET_CONSUMER_KEY: "dummy", FATSECRET_CONSUMER_SECRET: "dummy" }),
+      fetchImpl: async () => {
+        calls++;
+        return calls === 1 ? json({ error: { code } }) : json({ foods: { food: [] } });
+      },
+    });
+    if (code === 20) {
+      assert.deepEqual(await catalog.search("rice"), []);
+      assert.equal(calls, 2);
+    } else {
+      await assert.rejects(catalog.search("rice"), /denied/);
+      assert.equal(calls, 1);
+    }
+  }
+});
+
+test("cancelled views stop obsolete provider work without cancelling another shared consumer", async () => {
+  let upstream, complete;
+  const catalog = createFoodCatalog({
+    env: () => ({ FATSECRET_CONSUMER_KEY: "dummy", FATSECRET_CONSUMER_SECRET: "dummy" }),
+    fetchImpl: async (_url, options) => {
+      upstream = options.signal;
+      return new Promise((resolve) => {
+        complete = resolve;
+      });
+    },
+  });
+  const a = new AbortController(),
+    b = new AbortController();
+  const first = catalog.search("rice", a.signal);
+  const second = catalog.search("rice", b.signal);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  a.abort();
+  await assert.rejects(first, { name: "AbortError" });
+  assert.equal(upstream.aborted, false);
+  complete(json({ foods: { food: [] } }));
+  assert.deepEqual(await second, []);
+  const c = new AbortController();
+  const obsolete = catalog.product("123", c.signal);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  c.abort();
+  await assert.rejects(obsolete, { name: "AbortError" });
+  assert.equal(upstream.aborted, true);
+});
+
+test("provider Retry-After prevents repeated searches from hammering a rate-limited account", async () => {
+  let calls = 0,
+    clock = 0;
+  const catalog = createFoodCatalog({
+    now: () => clock,
+    env: () => ({ FATSECRET_CONSUMER_KEY: "dummy", FATSECRET_CONSUMER_SECRET: "dummy" }),
+    fetchImpl: async () => {
+      if (++calls === 1)
+        return new Response("{}", { status: 429, headers: { "Retry-After": "2" } });
+      return json({ foods: { food: [] } });
+    },
+  });
+  await assert.rejects(
+    catalog.search("rice"),
+    (error) => error.status === 429 && error.retryAfter === 2
+  );
+  await assert.rejects(
+    catalog.search("beans"),
+    (error) => error.status === 429 && error.retryAfter === 2
+  );
+  assert.equal(calls, 1);
+  clock = 2001;
+  assert.deepEqual(await catalog.search("beans"), []);
+  assert.equal(calls, 2);
+});
 test("API serving values determine nutrition and durable records contain only references", () => {
   const entry = entryFromFatSecret(product, "12", 2, "lunch", "entry-test-123");
   assert.equal(entry.calories, 260);

@@ -46,9 +46,10 @@ export function createIntervalsClient(config, fetchImpl = fetch) {
       );
       error.status = response.status;
       const retryAfter = response.headers?.get?.("Retry-After");
-      if (retryAfter) error.retryAfterMs = /^\d+(?:\.\d+)?$/.test(retryAfter)
-        ? Number(retryAfter) * 1000
-        : Math.max(0, Date.parse(retryAfter) - Date.now()) || undefined;
+      if (retryAfter)
+        error.retryAfterMs = /^\d+(?:\.\d+)?$/.test(retryAfter)
+          ? Number(retryAfter) * 1000
+          : Math.max(0, Date.parse(retryAfter) - Date.now()) || undefined;
       throw error;
     }
     const text = await response.text();

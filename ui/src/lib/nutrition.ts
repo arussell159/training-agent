@@ -11,6 +11,11 @@ import { dashboardToday } from "./dashboard-metrics"
 import { completedWorkoutCalories } from "./nutrition-math"
 import { randomId } from "./random-id"
 import { withRequestDeadline } from "./request-deadline"
+import {
+  foodSuggestions,
+  mergeFoodHistory,
+  type RecentFood,
+} from "./nutrition-recents"
 
 export const meals = ["breakfast", "lunch", "dinner", "snacks"] as const
 export type Meal = (typeof meals)[number]
@@ -93,6 +98,7 @@ export type NutritionView = {
   targetsRevision: number
   aiAvailable: boolean
   localPreview: boolean
+  recentDays?: { date: string; entries: FoodEntry[] }[]
   week: {
     date: string
     logged: boolean
@@ -157,32 +163,35 @@ export const foodTotals = (entries: FoodEntry[]) =>
     { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
   )
 
-type RecentFood = { entry: FoodEntry; loggedAt: number }
 const recentFoodsKey = () => `nutrition-search-recents:${deviceCacheScope()}`
-export function recentFoodsForMeal(meal: Meal): SavedFood[] {
+export function recentFoodsForMeal(meal: Meal, frequent = false): SavedFood[] {
   try {
-    const rows = JSON.parse(
+    let rows = JSON.parse(
       localStorage.getItem(recentFoodsKey()) || "[]"
     ) as RecentFood[]
-    const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000
-    const seen = new Set<string>()
-    return rows
-      .filter((row) => row?.entry?.meal === meal && row.loggedAt >= cutoff)
-      .sort((a, b) => b.loggedAt - a.loggedAt)
-      .filter(({ entry }) => {
-        const key = `${entry.source}:${entry.foodId || entry.name.toLowerCase()}:${entry.servingId || entry.unit}`
-        if (seen.has(key)) return false
-        seen.add(key)
-        return true
-      })
-      .slice(0, 12)
-      .map(({ entry }) => ({
-        id: `recent-${entry.id}`,
-        name: entry.name,
-        entries: [entry],
-        favorite: false,
-        custom: false,
-      }))
+    // Bootstrap suggestions from diary days already loaded by this account.
+    // Entry IDs stop reloads and cache refreshes from inflating frequency.
+    for (const [key, { view, time }] of cache) {
+      if (!key.startsWith(`${deviceCacheScope()}:`)) continue
+      for (const day of [
+        { date: view.date, entries: view.day.entries },
+        ...(view.recentDays || []),
+      ]) {
+        if (
+          !/^\d{4}-\d{2}-\d{2}$/.test(day.date) ||
+          !Array.isArray(day.entries)
+        )
+          continue
+        rows = mergeFoodHistory(
+          rows,
+          day.entries,
+          Math.min(Date.now(), Date.parse(`${day.date}T12:00:00Z`)),
+          Date.now(),
+          time
+        )
+      }
+    }
+    return foodSuggestions(rows, meal, frequent)
   } catch {
     return []
   }
@@ -192,26 +201,12 @@ export function recordRecentFoods(entries: FoodEntry[]) {
     const rows = JSON.parse(
       localStorage.getItem(recentFoodsKey()) || "[]"
     ) as RecentFood[]
-    const loggedAt = Date.now()
-    const added = entries.map((entry) => ({ entry, loggedAt }))
-    const keys = new Set(
-      added.map(
-        ({ entry }) =>
-          `${entry.source}:${entry.foodId || entry.name.toLowerCase()}:${entry.servingId || entry.unit}`
-      )
-    )
-    const retained = rows.filter(
-      ({ entry }) =>
-        !keys.has(
-          `${entry.source}:${entry.foodId || entry.name.toLowerCase()}:${entry.servingId || entry.unit}`
-        )
-    )
     localStorage.setItem(
       recentFoodsKey(),
-      JSON.stringify([...added, ...retained].slice(0, 60))
+      JSON.stringify(mergeFoodHistory(rows, entries, Date.now()))
     )
   } catch {
-    // Search suggestions are best-effort and never block saving food.
+    // Suggestions are best-effort; only confirmed saves call this helper.
   }
 }
 export const displayNutrient = (n: number | null | undefined) =>
@@ -302,7 +297,8 @@ export async function nutritionRequest<T>(
   payload?: unknown,
   signal?: AbortSignal
 ): Promise<T> {
-  if (payload !== undefined && path.startsWith("/library")) window.dispatchEvent(new Event("food-library-updated"))
+  if (payload !== undefined && path.startsWith("/library"))
+    window.dispatchEvent(new Event("food-library-updated"))
   return withRequestDeadline(
     async (requestSignal) => {
       const response = await apiFetch(`/api/nutrition${path}`, {
@@ -325,10 +321,13 @@ export async function nutritionRequest<T>(
         throw Error("Nutrition is unavailable. Please try again.")
       }
       if (!response.ok)
-        throw Error(
-          typeof data?.error === "string"
-            ? data.error
-            : "Nutrition couldn’t complete this request."
+        throw Object.assign(
+          Error(
+            typeof data?.error === "string"
+              ? data.error
+              : "Nutrition couldn’t complete this request."
+          ),
+          { status: response.status }
         )
       return data as T
     },
@@ -427,12 +426,24 @@ function load(date: string, refresh = false) {
   const underway = pending.get(key)
   if (underway) return underway
   const version = generation
-  const startupTarget = window as Window & { __nutritionStartupRequest?: { date: string; response: Promise<Response | null> } }
-  const startup = !refresh && startupTarget.__nutritionStartupRequest?.date === date ? startupTarget.__nutritionStartupRequest : undefined
+  const startupTarget = window as Window & {
+    __nutritionStartupRequest?: {
+      date: string
+      response: Promise<Response | null>
+    }
+  }
+  const startup =
+    !refresh && startupTarget.__nutritionStartupRequest?.date === date
+      ? startupTarget.__nutritionStartupRequest
+      : undefined
   if (startup) delete startupTarget.__nutritionStartupRequest
   const request = (async () => {
     const response = startup ? await startup.response : null
-    return response?.ok ? await response.json() as NutritionView : await nutritionRequest<NutritionView>(`?date=${encodeURIComponent(date)}`)
+    return response?.ok
+      ? ((await response.json()) as NutritionView)
+      : await nutritionRequest<NutritionView>(
+          `?date=${encodeURIComponent(date)}`
+        )
   })()
     .then((value) => {
       if (generation !== version || scope !== deviceCacheScope())
@@ -466,7 +477,8 @@ if (typeof window !== "undefined")
     "app-auth-required",
   ])
     window.addEventListener(event, () => {
-      delete (window as Window & { __nutritionStartupRequest?: unknown }).__nutritionStartupRequest
+      delete (window as Window & { __nutritionStartupRequest?: unknown })
+        .__nutritionStartupRequest
       generation++
       cache.clear()
       pending.clear()
@@ -476,18 +488,25 @@ if (typeof window !== "undefined")
         /* Storage is optional. */
       }
     })
-export function nutritionChanged() {
+export function nutritionChanged(broadcast = true) {
   generation++
   cache.clear()
   pending.clear()
   void deleteDeviceCachePrefix("nutrition:")
   try {
     localStorage.removeItem(SNAPSHOT_KEY)
+    if (broadcast)
+      localStorage.setItem(`nutrition-change:${deviceCacheScope()}`, randomId())
   } catch {
     /* Storage is optional. */
   }
   window.dispatchEvent(new Event("nutrition-updated"))
 }
+if (typeof window !== "undefined")
+  window.addEventListener("storage", (event) => {
+    if (event.key === `nutrition-change:${deviceCacheScope()}`)
+      nutritionChanged(false)
+  })
 export function beginNutritionWrite() {
   // A pre-save GET must never paint over the local change or its confirmation.
   generation++

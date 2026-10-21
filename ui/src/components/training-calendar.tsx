@@ -619,6 +619,7 @@ function DayMenu({
   count,
   copyCount,
   disabled,
+  onAdd,
   onAction,
   onCopy,
   onCut,
@@ -631,6 +632,7 @@ function DayMenu({
   count: number
   copyCount: number
   disabled: boolean
+  onAdd: () => void
   onAction: (action: "copy" | "delete") => void
   onCopy: () => void
   onCut: () => void
@@ -646,6 +648,7 @@ function DayMenu({
   })
   const chooseAction = (event: ChangeEvent<HTMLSelectElement>) => {
     const action = event.currentTarget.value
+    if (action === "add") onAdd()
     if (action === "copy") void onAction("copy")
     if (action === "delete") onAction("delete")
     // Keep the date as the selected label so the native picker can be opened
@@ -653,10 +656,11 @@ function DayMenu({
     event.currentTarget.value = ""
   }
   return (
-    <div className="mobile-calendar-day-heading relative -mx-4 px-4 py-0.5 md:mx-0 md:mb-3 md:px-0 md:py-0 md:pb-0">
+    <div className="mobile-calendar-day-heading relative -mx-4 flex min-h-11 items-center px-4 py-0.5 md:mx-0 md:mb-3 md:block md:min-h-0 md:px-0 md:py-0 md:pb-0">
       {mobile ? (
         <>
           {children}
+          <ChevronDown className="ml-1 inline size-3.5" aria-hidden="true" />
           <select
             aria-label={`Workout actions for ${label}`}
             disabled={disabled}
@@ -667,6 +671,7 @@ function DayMenu({
             <option value="" disabled>
               {label}
             </option>
+            <option value="add">Add workout</option>
             <option value="copy" disabled={copyCount === 0}>
               Copy
             </option>
@@ -701,6 +706,10 @@ function DayMenu({
             <Menu className="calendar-day-menu-icon" aria-hidden="true" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="calendar-context-menu">
+            <DropdownMenuItem disabled={disabled} onClick={onAdd}>
+              <Plus />
+              Add workout
+            </DropdownMenuItem>
             <DropdownMenuItem
               disabled={copyCount === 0 || disabled}
               onClick={onCut}
@@ -832,7 +841,8 @@ function CalendarWeekViewport({
     const observer = new ResizeObserver(([entry]) => {
       // ResizeObserver delivers completed layout measurements. Updating the
       // virtualization cache does not need another synchronous geometry read.
-      const height = entry.borderBoxSize[0]?.blockSize ?? entry.contentRect.height
+      const height =
+        entry.borderBoxSize[0]?.blockSize ?? entry.contentRect.height
       if (!height || height === measuredHeight.current) return
       measuredHeight.current = height
       calendarWeekHeights.set(heightKey, height)
@@ -2954,6 +2964,17 @@ function TrustedTrainingCalendar({
               : "calendar-sticky-day-navbar"
           }
           title=""
+          actions={[
+            {
+              value: "add-workout",
+              label: "Add workout today",
+              disabled: moving,
+              onSelect: () => {
+                setNewWorkoutType(null)
+                setNewWorkoutDate(dateKey(new Date()))
+              },
+            },
+          ]}
           left={
             <button
               ref={mobilePickerTriggerRef}
@@ -3380,6 +3401,12 @@ function TrustedTrainingCalendar({
                                   }
                                   disabled={moving}
                                   mobile={isMobile}
+                                  onAdd={() => {
+                                    if (isMobile) {
+                                      setNewWorkoutType(null)
+                                      setNewWorkoutDate(dayKey)
+                                    } else setAddDialogDate(dayKey)
+                                  }}
                                   onAction={(action) =>
                                     void runDayAction(
                                       day,
@@ -3595,7 +3622,8 @@ function TrustedTrainingCalendar({
                                         }
                                         disabled={
                                           moving ||
-                                          (!workout.id.startsWith("event:") && !workout.id.startsWith("app:") &&
+                                          (!workout.id.startsWith("event:") &&
+                                            !workout.id.startsWith("app:") &&
                                             !(
                                               workout.status === "completed" &&
                                               workout.id.startsWith(
@@ -3615,25 +3643,22 @@ function TrustedTrainingCalendar({
                                       />
                                     )
                                   )}
-                                  <button
-                                    type="button"
-                                    className="calendar-day-add-workout"
-                                    aria-label={`Add workout for ${day.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`}
-                                    aria-haspopup="dialog"
-                                    disabled={moving}
-                                    onClick={() => {
-                                      if (isMobile) {
-                                        setNewWorkoutType(null)
-                                        setNewWorkoutDate(dayKey)
-                                      } else setAddDialogDate(dayKey)
-                                    }}
-                                  >
-                                    <Plus
-                                      size={16}
-                                      strokeWidth={1.5}
-                                      aria-hidden="true"
-                                    />
-                                  </button>
+                                  {!isMobile && (
+                                    <button
+                                      type="button"
+                                      className="calendar-day-add-workout"
+                                      aria-label={`Add workout for ${day.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`}
+                                      aria-haspopup="dialog"
+                                      disabled={moving}
+                                      onClick={() => setAddDialogDate(dayKey)}
+                                    >
+                                      <Plus
+                                        size={16}
+                                        strokeWidth={1.5}
+                                        aria-hidden="true"
+                                      />
+                                    </button>
+                                  )}
                                 </div>
                               </CalendarDay>
                             )

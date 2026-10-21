@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createFatSecretOAuth1 } from "./fatsecret-oauth1.mjs";
+import { fatSecretResponse } from "./fatsecret-response.mjs";
 import {
   MEALS,
   NUTRIENTS,
@@ -120,18 +121,32 @@ export function createFoodCatalog({
   fetchImpl = fetch,
   env = () => process.env,
   now = Date.now,
+  deadlineMs = 12000,
 } = {}) {
   const oauth1 = createFatSecretOAuth1({ env, fetchImpl });
   let token,
     expires = 0,
     tokenPending;
   const pending = new Map();
-  const products = new Map();
+  const cooldowns = new Map();
   let active = 0;
   const queue = [];
-  const acquire = async () => {
+  const acquire = async (signal) => {
     if (active < 4) active++;
-    else await new Promise((resolve) => queue.push(resolve));
+    else
+      await new Promise((resolve, reject) => {
+        const start = () => {
+          signal.removeEventListener("abort", abort);
+          resolve();
+        };
+        const abort = () => {
+          const index = queue.indexOf(start);
+          if (index !== -1) queue.splice(index, 1);
+          reject(signal.reason);
+        };
+        queue.push(start);
+        signal.addEventListener("abort", abort, { once: true });
+      });
   };
   const release = () => {
     const next = queue.shift();
@@ -140,6 +155,34 @@ export function createFoodCatalog({
   };
   const configured = () =>
     oauth1.configured() || Boolean(env().FATSECRET_CLIENT_ID && env().FATSECRET_CLIENT_SECRET);
+  const consume = (entry, signal) => {
+    if (signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+    entry.users++;
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return false;
+        settled = true;
+        signal?.removeEventListener("abort", abort);
+        entry.users--;
+        if (!entry.users && !entry.finished)
+          entry.controller.abort(new DOMException("Aborted", "AbortError"));
+        return true;
+      };
+      const abort = () => {
+        if (finish()) reject(new DOMException("Aborted", "AbortError"));
+      };
+      signal?.addEventListener("abort", abort, { once: true });
+      entry.promise.then(
+        (value) => {
+          if (finish()) resolve(value);
+        },
+        (error) => {
+          if (finish()) reject(error);
+        }
+      );
+    });
+  };
   async function accessToken() {
     if (!configured())
       throw new NutritionError(
@@ -152,7 +195,7 @@ export function createFoodCatalog({
       const response = await fetchImpl("https://oauth.fatsecret.com/connect/token", {
         method: "POST",
         redirect: "error",
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(5000),
         headers: {
           Authorization: `Basic ${Buffer.from(`${env().FATSECRET_CLIENT_ID}:${env().FATSECRET_CLIENT_SECRET}`).toString("base64")}`,
           "Content-Type": "application/x-www-form-urlencoded",
@@ -175,86 +218,148 @@ export function createFoodCatalog({
     });
     return tokenPending;
   }
-  async function request(path, params) {
-    const key = path + new URLSearchParams(params);
-    if (pending.has(key)) return pending.get(key);
-    const job = (async () => {
-      await acquire();
+  async function request(path, params, consumerSignal) {
+    if (consumerSignal?.aborted) throw new DOMException("Aborted", "AbortError");
+    const account = JSON.stringify([env().FATSECRET_CONSUMER_KEY, env().FATSECRET_CLIENT_ID]);
+    const cooldown = cooldowns.get(account);
+    if (cooldown && cooldown.until > now()) {
+      const error = new NutritionError(
+        "FatSecret’s request limit was reached. Wait before retrying.",
+        429
+      );
+      error.retryAfter = Math.ceil((cooldown.until - now()) / 1000);
+      throw error;
+    }
+    const key = JSON.stringify([
+      env().FATSECRET_CONSUMER_KEY,
+      env().FATSECRET_CLIENT_ID,
+      path,
+      params,
+    ]);
+    const shared = pending.get(key);
+    if (shared && !shared.controller.signal.aborted) return consume(shared, consumerSignal);
+    // This deadline includes queueing, token acquisition, response bodies and retry.
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(new DOMException("Timed out", "TimeoutError")),
+      deadlineMs
+    );
+    const signal = controller.signal;
+    const entry = { controller, users: 0, finished: false, promise: null };
+    let acquired = false;
+    const work = (async () => {
       try {
-        if (oauth1.configured()) return await oauth1.request(path, params);
+        await acquire(signal);
+        acquired = true;
         const url = `https://platform.fatsecret.com/rest/${path}?${new URLSearchParams({ ...params, format: "json" })}`;
-        let response;
         for (let attempt = 0; attempt < 2; attempt++) {
-          response = await fetchImpl(url, {
-            redirect: "error",
-            signal: AbortSignal.timeout(15000),
-            headers: { Authorization: `Bearer ${await accessToken()}` },
-          });
-          if (attempt === 0 && (response.status === 401 || response.status >= 500)) {
-            if (response.status === 401) {
-              token = null;
-              expires = 0;
+          let rejectedToken;
+          try {
+            if (signal.aborted) throw signal.reason;
+            if (oauth1.configured()) return await oauth1.request(path, params, { signal });
+            rejectedToken = await accessToken();
+            if (signal.aborted) throw signal.reason;
+            return await fatSecretResponse(
+              await fetchImpl(url, {
+                redirect: "error",
+                signal,
+                headers: { Authorization: `Bearer ${rejectedToken}` },
+              })
+            );
+          } catch (error) {
+            if (signal.aborted) throw signal.reason;
+            if (
+              attempt !== 0 ||
+              (!error.transient && !(error.authentication && !oauth1.configured()))
+            )
+              throw error;
+            if (error.authentication && !oauth1.configured()) {
+              // A concurrent failure for the old token must not invalidate its replacement.
+              if (token === rejectedToken) {
+                token = null;
+                expires = 0;
+              }
             }
-            await response.body?.cancel();
-            continue;
+            await new Promise((resolve) => setTimeout(resolve, 200));
           }
-          break;
         }
-        if (!response.ok)
-          throw new NutritionError(
-            response.status === 429
-              ? "FatSecret’s request limit was reached. Please try again shortly."
-              : "FatSecret is temporarily unavailable. Please retry.",
-            502
-          );
-        const data = await response.json();
-        if (data.error)
-          throw new NutritionError(
-            Number(data.error.code) === 21
-              ? "FatSecret rejected this server's IP address. Add your public IP under Allowed IP addresses in your FatSecret API account, then retry."
-              : [2, 4, 5, 8, 10, 13, 14].includes(Number(data.error.code))
-                ? "FatSecret denied this request. Check your API access and allowed IP address."
-                : "FatSecret could not find this food. Try a more specific search.",
-            502
-          );
-        return data;
       } catch (e) {
-        if (e instanceof NutritionError) throw e;
+        if (signal.aborted)
+          throw signal.reason?.name === "AbortError"
+            ? signal.reason
+            : new NutritionError("FatSecret timed out. Please retry.", 504);
+        if (e instanceof NutritionError) {
+          if (e.status === 429)
+            cooldowns.set(account, { until: now() + (e.retryAfter || 30) * 1000 });
+          throw e;
+        }
         throw new NutritionError("FatSecret did not respond. Please retry.", 502);
       }
-    })().finally(() => {
-      release();
-      pending.delete(key);
+    })();
+    const job = Promise.race([
+      work,
+      new Promise((_, reject) => {
+        signal.addEventListener(
+          "abort",
+          () =>
+            reject(
+              signal.reason?.name === "AbortError"
+                ? signal.reason
+                : new NutritionError("FatSecret timed out. Please retry.", 504)
+            ),
+          { once: true }
+        );
+      }),
+    ]).finally(() => {
+      clearTimeout(timer);
+      entry.finished = true;
+      if (acquired) release();
+      if (pending.get(key) === entry) pending.delete(key);
     });
-    pending.set(key, job);
-    return job;
+    entry.promise = job;
+    pending.set(key, entry);
+    return consume(entry, consumerSignal);
   }
   const catalog = {
     configured,
-    async search(query) {
+    async search(query, signal) {
       if (typeof query !== "string" || query.trim().length < 2 || query.length > 100)
         throw new NutritionError("Enter a food or brand name (2–100 characters).");
       // Omitting localization parameters selects FatSecret's US database on Basic access.
-      const data = await request("foods/search/v1", {
-        search_expression: query.trim(),
-        max_results: "30",
-        page_number: "0",
-      });
-      return list(data.foods?.food)
-        .map(normalizeFatSecret)
-        .filter((p) => p?.complete);
+      const data = await request(
+        "foods/search/v1",
+        {
+          search_expression: query.trim(),
+          max_results: "30",
+          page_number: "0",
+        },
+        signal
+      );
+      if (!data.foods || typeof data.foods !== "object")
+        throw new NutritionError(
+          "FatSecret returned incomplete search results. Please retry.",
+          502
+        );
+      if (data.foods.food == null && Number(data.foods.total_results) !== 0)
+        throw new NutritionError(
+          "FatSecret returned incomplete search results. Please retry.",
+          502
+        );
+      const raw = list(data.foods.food);
+      const results = raw.map(normalizeFatSecret).filter((p) => p?.complete);
+      if (raw.length && !results.length)
+        throw new NutritionError(
+          "FatSecret returned foods without complete nutrition. Try another search.",
+          502
+        );
+      return results;
     },
-    async product(id) {
+    async product(id, signal) {
       if (!/^\d{1,20}$/.test(id || "")) throw new NutritionError("Choose a valid FatSecret food.");
-      const saved = products.get(id);
-      if (saved && saved.expires > now()) return structuredClone(saved.value);
-      const data = await request("food/v5", { food_id: id });
+      const data = await request("food/v5", { food_id: id }, signal);
       const value = normalizeFatSecret(data.food);
-      if (value) {
-        products.delete(id);
-        products.set(id, { value, expires: now() + 15 * 60_000 });
-      }
-      if (products.size > 256) products.delete(products.keys().next().value);
+      if (!value)
+        throw new NutritionError("FatSecret returned incomplete food details. Please retry.", 502);
       return value;
     },
     async hydrate(entry) {

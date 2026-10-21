@@ -487,3 +487,44 @@ test("nutrition opens share a cached view and saving food immediately invalidate
   assert.equal((await request(handler)).body.day.entries.length, 1);
   assert.equal(reads, 3);
 });
+
+test("food commit returns a durable receipt without post-commit provider work and replays during outage", async () => {
+  const store = createNutritionStore(memoryRecords());
+  let calls = 0,
+    offline = false;
+  const handler = createNutritionHttp({
+    getStore: async () => store,
+    env: () => ({}),
+    catalog: {
+      hydrate: async (entry) => {
+        calls++;
+        if (offline) throw Error("Provider unavailable");
+        return entry;
+      },
+    },
+  });
+  const payload = add({
+    entries: [food({ source: "fatsecret", foodId: "123", servingId: "456" })],
+  });
+  const saved = await request(handler, {
+    route: "/api/nutrition/entries",
+    method: "POST",
+    payload,
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.committed, true);
+  assert.equal(saved.body.revision, 1);
+  assert.equal(calls, 1);
+  offline = true;
+  const replay = await request(handler, {
+    route: "/api/nutrition/entries",
+    method: "POST",
+    payload,
+  });
+  assert.equal(replay.status, 200);
+  assert.equal(replay.body.committed, true);
+  assert.equal(replay.body.revision, 1);
+  assert.equal(calls, 1);
+  assert.equal((await store.receipt(payload.date, payload.operationId)).entries.length, 1);
+  assert.match(saved.headers["Server-Timing"], /nutrition;dur=/);
+});
