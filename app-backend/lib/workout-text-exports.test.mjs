@@ -80,6 +80,24 @@ test("ERG writes absolute watts without needing FTP, and only converts relative 
     [1.5, 94],
   ]);
 });
+
+test("mountain-bike power workouts export cycling prescriptions without admitting unrelated sports", () => {
+  const workout = model([step(80)], { sport: "MountainBikeRide", thresholds: { ftp: 250 } });
+  assert.deepEqual(points(text(workout, "mrc")), [
+    [0, 80],
+    [1.5, 80],
+  ]);
+  assert.deepEqual(points(text(workout, "erg")), [
+    [0, 200],
+    [1.5, 200],
+  ]);
+  const zwo = text(workout, "zwo");
+  assert.match(zwo, /sportType>bike<\/sportType/);
+  assert.match(zwo, /Duration="90" Power="0.8"/);
+  for (const sport of ["Rowing", "NordicSki", "Workout", "Walk"])
+    for (const format of ["mrc", "erg", "zwo"])
+      assert.throws(() => text({ ...workout, sport }, format), /cycling workouts/);
+});
 test("nested sets preserve execution counts, omitted final recovery, and between-set recovery", () => {
   const repeat = {
     ...newRepeat([step(100)]),

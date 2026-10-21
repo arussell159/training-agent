@@ -1,0 +1,81 @@
+.swt-dialog[data-slot="dialog-content"] {
+  width: 480px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: 24px;
+  gap: 16px;
+  border-radius: 8px;
+  color: #414e6c;
+  background: #fff;
+  font-family: var(--font-sans);
+}
+.swt-dialog h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.swt-dialog p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.swt-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.swt-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.swt-dialog input,
+.swt-dialog select {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #c3c7cf;
+  border-radius: 4px;
+  padding: 8px 12px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+}
+.swt-dialog button {
+  min-height: 32px;
+  padding: 4px 14px;
+  border: 1px solid #b9bfcc;
+  border-radius: 20px;
+  background: #fff;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.25;
+  cursor: pointer;
+}
+.swt-dialog button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.swt-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.swt-dialog footer button[type="submit"] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: transparent;
+}
+.swt-dialog .swt-reload {
+  align-self: flex-start;
+}
+.swt-dialog [role="alert"] {
+  color: #a32828;
+}
+.swt-dialog :focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}

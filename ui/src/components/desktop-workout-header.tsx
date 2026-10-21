@@ -9,6 +9,8 @@ import {
   type PlannedWorkout,
 } from "@/lib/training-context"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
+import { calendarAddTypes, calendarSportType, calendarSportLabel } from "@/lib/calendar-events"
+import { workoutPresentationSport, workoutSelectionKey } from "@/lib/workout-presentation"
 import { formatWorkoutTss, workoutTime } from "@/lib/workout-metrics"
 import "./workout-analysis.css"
 import "./desktop-workout-details.css"
@@ -92,6 +94,12 @@ export function DesktopWorkoutHeader({
         })
       : null
   const metrics = cachedTrainingContext().metrics
+  const canonicalSport = workout.editor_model?.sport ||
+    (workout.sport !== "Sauna" && calendarAddTypes.some(type => type.sport === workout.provider_type)
+      ? workout.provider_type
+      : undefined) || workout.sport
+  const selectionKey = workoutSelectionKey(workout)
+  const displayedSport = selectionKey.startsWith("variant:") ? workoutPresentationSport(workout) : calendarSportLabel(canonicalSport)
   const seconds = (
     workout.status === "completed"
       ? workout.workout_summary?.completed
@@ -110,7 +118,7 @@ export function DesktopWorkoutHeader({
   const distance = plannedDistanceLabel(workout).replace(/^[~≈]\s*/, "")
   const distanceParts =
     distance.match(/^(.*?)\s+(mi|yds?|km|m)$/i) ||
-    (isNew ? ["", "--", /swim/i.test(workout.sport) ? "yds" : "mi"] : null)
+    (isNew ? ["", "--", /swim/i.test(workout.sport) ? "yds" : /row/i.test(workout.sport) ? "m" : "mi"] : null)
   const tss = formatWorkoutTss(workout).replace(/^~\s*/, "")
   const tssParts =
     tss.match(/^(.*?)\s+(TSS)$/i) || (isNew ? ["", "--", "TSS"] : null)
@@ -194,6 +202,7 @@ export function DesktopWorkoutHeader({
               variant="ghost"
               size="icon-sm"
               aria-label={expanded ? "Restore workout size" : "Expand workout"}
+              disabled={busy || isNew}
               onClick={onToggleExpanded}
             >
               {expanded ? <Minimize2 /> : <Maximize2 />}
@@ -212,13 +221,11 @@ export function DesktopWorkoutHeader({
       </div>
       <div className="desktop-workout-repeat">
         {recurrence || "Does not repeat"}{" "}
-        <span>
-          {isNew
-            ? "New"
-            : workout.status === "completed"
+        {!isNew && <span>
+          {workout.status === "completed"
               ? "Completed"
               : "Planned"}
-        </span>
+        </span>}
       </div>
       <div className="desktop-workout-header-main">
         <div
@@ -244,17 +251,12 @@ export function DesktopWorkoutHeader({
           )}
           <div className="desktop-workout-key-values">
             {onSportChange ? <label className="desktop-workout-sport-picker">
-              <DesktopSportIcon sport={workout.sport} />
+              <DesktopSportIcon sport={displayedSport} />
               <ChevronDown size={12} aria-hidden="true" />
-              <select aria-label="Workout sport" disabled={busy} value={workout.sport === "Bike" ? "Ride" : workout.sport === "Strength" ? "WeightTraining" : workout.sport === "Sauna" ? "Other" : workout.sport} onChange={event => onSportChange(event.target.value)}>
-                <option value="Run">Run</option>
-                <option value="Ride">Bike</option>
-                <option value="Swim">Swim</option>
-                <option value="WeightTraining">Strength</option>
-                <option value="Walk">Walk</option>
-                <option value="Other">Other</option>
+              <select aria-label="Workout sport" disabled={busy} value={selectionKey.startsWith("variant:") ? selectionKey : calendarSportType(displayedSport)} onChange={event => onSportChange(event.target.value)}>
+                {calendarAddTypes.filter(type => type.sport !== "Note" && type.label !== "Sauna").map(type => <option key={workoutSelectionKey(type)} value={workoutSelectionKey(type)}>{type.label}</option>)}
               </select>
-            </label> : <DesktopSportIcon sport={workout.sport} />}
+            </label> : <DesktopSportIcon sport={displayedSport} />}
             <strong className={isNew && whole == null ? "desktop-workout-empty-duration" : undefined}>{duration}</strong>
             <strong title={plannedDistanceLabel(workout)}>
               {distanceParts ? (
@@ -284,12 +286,12 @@ export function DesktopWorkoutHeader({
             </strong>
           </div>
           <div className="desktop-workout-context">
-            <span>{workout.sport}</span>
+            <span>{displayedSport}</span>
             <span>
               {workout.status === "completed" ? "Completed" : "Planned"}
             </span>
           </div>
-          {onExport && (
+          {onExport && !isNew && (
             <button className="desktop-workout-export" type="button" aria-label="Export workout" title="Export workout" disabled={busy} onClick={onExport}>
               <Download size={17} aria-hidden="true" />
             </button>
@@ -301,9 +303,9 @@ export function DesktopWorkoutHeader({
               <>
                 <button
                   type="button"
-                  disabled={busy || !onUpload}
+                  disabled={busy || isNew || !onUpload}
                   onClick={onUpload}
-                  title={onUpload ? "Upload a workout recording" : "Save the workout before uploading a recording"}
+                  title={!isNew && onUpload ? "Upload a workout recording" : "Save the workout before uploading a recording"}
                 >
                   <Upload size={14} aria-hidden="true" />
                   Upload
@@ -324,9 +326,9 @@ export function DesktopWorkoutHeader({
                 </button>}
               </>
             )}
-            {onEdit && !onUpload && !isNew && (
+            {onEdit && (!onUpload || workout.unstructured || workout.editor_model?.unstructured) && !isNew && (
               <button type="button" disabled={busy} onClick={onEdit}>
-                Edit workout
+                {workout.unstructured || workout.editor_model?.unstructured ? "Build Workout" : "Edit workout"}
               </button>
             )}
             {onAnalyze && (

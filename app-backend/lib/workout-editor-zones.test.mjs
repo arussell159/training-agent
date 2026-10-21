@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { workoutZoneOptions } from "./workout-editor-zones.mjs";
-import { loadWorkoutEditor, saveWorkoutEditor } from "./workout-editor.mjs";
+import { sportZoneSettings, workoutZoneOptions } from "./workout-editor-zones.mjs";
+import { loadNewWorkoutEditor, loadWorkoutEditor, saveWorkoutEditor } from "./workout-editor.mjs";
 import { fakeProvider, fixtureEvent } from "./fixtures/workout-editor-fixtures.mjs";
 
 test("zone presets use the configured sport and retain absolute or relative units", () => {
@@ -72,4 +72,45 @@ test("zone lookup failure leaves the workout editable without fabricated ranges"
   assert.deepEqual(loaded.zoneSettings, []);
   assert.match(loaded.zoneError, /could not be loaded/);
   assert.equal(loaded.model.name, "Ride custom title");
+});
+
+test("non-cycling sports never inherit cycling thresholds or zones", async () => {
+  const cycling = { types: ["Ride"], ftp: 300, power_zones: [55, 75, 90, 999] };
+  for (const sport of ["Walk", "WeightTraining", "Other", "Workout", "Rowing", "NordicSki"]) {
+    assert.equal(sportZoneSettings([cycling], sport), undefined);
+    assert.deepEqual(workoutZoneOptions([cycling], sport), []);
+    const draft = await loadNewWorkoutEditor(
+      async () => ({ sportSettings: [cycling] }),
+      "2026-10-21",
+      { sport }
+    );
+    assert.deepEqual(draft.model.thresholds, { ftp: null, pace: null });
+  }
+  assert.equal(sportZoneSettings([cycling], "MountainBikeRide"), cycling);
+});
+
+test("rowing and skiing use only exact sport settings with correctly labelled pace distances", () => {
+  const rowing = { types: ["Rowing"], threshold_pace: 4, pace_zones: [80, 100, 120, 999] };
+  const skiing = { type: "NordicSki", threshold_pace: 4, pace_zones: [80, 100, 120, 999] };
+  const settings = [rowing, skiing];
+  assert.equal(sportZoneSettings(settings, "Rowing"), rowing);
+  assert.equal(sportZoneSettings(settings, "NordicSki"), skiing);
+  const row = workoutZoneOptions(settings, "Rowing", "secs/500m")[1];
+  assert.deepEqual(row.target, {
+    kind: "pace",
+    unit: "secs/500m",
+    mode: "range",
+    start: 156,
+    end: 125,
+  });
+  assert.match(row.label, /2:05–2:36 \/500 m/);
+  const ski = workoutZoneOptions(settings, "NordicSki", "secs/km")[1];
+  assert.deepEqual(ski.target, {
+    kind: "pace",
+    unit: "secs/km",
+    mode: "range",
+    start: 313,
+    end: 250,
+  });
+  assert.match(ski.label, /4:10–5:13 \/km/);
 });

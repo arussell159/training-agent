@@ -7,6 +7,8 @@ export const plannedValueFields = [
   "distance_meters",
   "average_speed",
   "average_power",
+  // App-owned planned NP; completed/native power fields are not writable aliases.
+  "normalized_power",
   "calories",
   "elevation_gain",
   "elevation_loss",

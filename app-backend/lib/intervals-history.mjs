@@ -1,5 +1,6 @@
 import { athleteLocalDate } from "./athlete-date.mjs";
 import { mapIntervalsWorkout, pairIntervalsWorkouts, validDate } from "./intervals.mjs";
+import { annotationOverlapsRange } from "./calendar-annotations-model.mjs";
 
 const day = (value) => String(value || "").slice(0, 10);
 const compact = ({ raw, raw_activity, ...workout }) => ({
@@ -93,13 +94,21 @@ export async function fetchHistoricalCalendar(request, range, { context, now = n
       .map((row) => mapIntervalsWorkout(row, today, null, true)),
   ]
     .map(compact)
-    .filter((row) => row.workout_date >= range.start && row.workout_date <= range.end);
+    .filter((row) =>
+      row.calendar_annotation_key
+        ? annotationOverlapsRange(row, range.start, range.end)
+        : row.workout_date >= range.start && row.workout_date <= range.end
+    );
   return {
     athlete,
     metrics: context?.metrics || {},
     wellness: context?.wellness || {},
     history: rows.filter((row) => row.workout_date <= today),
-    planned: rows.filter((row) => row.workout_date >= today),
+    planned: rows.filter((row) =>
+      row.calendar_annotation_key
+        ? annotationOverlapsRange(row, today, range.end)
+        : row.workout_date >= today
+    ),
     wellness_history: (wellness || []).map((row) => ({ ...row, date: row.id })),
     source: "intervals",
     context_scope: "range",
@@ -125,10 +134,26 @@ const reportFields = [
   "total_elevation_gain",
   "total_elevation_loss",
   "icu_training_load",
+  "power_load",
+  "hr_load",
+  "pace_load",
+  "hr_load_type",
+  "pace_load_type",
+  "icu_hr_zones",
+  "icu_hr_zone_times",
+  "icu_zone_times",
+  "pace_zone_times",
+  "gap_zone_times",
+  "use_gap_zone_times",
+  "lthr",
   "icu_intensity",
   "icu_joules",
   "icu_average_watts",
   "icu_weighted_avg_watts",
+  "icu_ftp",
+  "icu_power_zones",
+  "threshold_pace",
+  "pace_zones",
   "max_watts",
   "max_cadence",
   "average_heartrate",

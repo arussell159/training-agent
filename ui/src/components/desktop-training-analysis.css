@@ -1,0 +1,532 @@
+.dta-workspace {
+  position: relative;
+  min-width: 0;
+  color: #252a30;
+  background: #fff;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  border: 1px solid #e7e7e7;
+}
+.home-dashboard-shell:has(.dta-workspace),
+.home-dashboard-shell:has(.dta-workspace) > main {
+  min-width: 0;
+}
+.dta-workspace button,
+.dta-workspace input,
+.dta-workspace select {
+  font: inherit;
+}
+.dta-workspace button {
+  cursor: pointer;
+}
+.dta-workspace button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.dta-workspace button:focus-visible,
+.dta-workspace input:focus-visible,
+.dta-workspace select:focus-visible {
+  outline: 2px solid #2946d6;
+  outline-offset: 2px;
+}
+.dta-tabs {
+  display: flex;
+  align-items: center;
+  min-height: 64px;
+  border-bottom: 1px solid #ddd;
+  gap: 0;
+  padding: 0 8px;
+}
+.dta-tabs > [role="tab"] {
+  align-self: stretch;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 0 16px;
+  color: #757575;
+  background: transparent;
+  font-size: 15px;
+}
+.dta-tabs > [aria-selected="true"] {
+  color: #2642cf;
+  border-bottom-color: #2642cf;
+}
+.dta-tabs > .dta-overview {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #414d67;
+  padding: 8px;
+  background: transparent;
+  border: 0;
+}
+.dta-shell {
+  display: flex;
+  min-height: 600px;
+}
+.dta-rail {
+  width: 56px;
+  flex-shrink: 0;
+  border-right: 1px solid #ddd;
+}
+.dta-rail button {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 20px 2px;
+  color: #444;
+  font-size: 10px;
+  line-height: 11px;
+}
+.dta-content {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+}
+.dta-controls {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 17px 20px 0;
+  min-height: 54px;
+  flex-wrap: wrap;
+}
+.dta-controls > button {
+  border: 0;
+  background: transparent;
+  padding: 4px;
+  color: #606975;
+}
+.dta-controls > .dta-date-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  font-size: 20px;
+  color: #1c2025;
+}
+.dta-date-button svg {
+  color: #2946d6;
+}
+.dta-sport {
+  margin-left: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #555;
+  font-size: 12px;
+}
+.dta-sport select,
+.dta-controls > select {
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  background: #fff;
+  padding: 9px 24px 9px 10px;
+  color: #222;
+  min-width: 126px;
+}
+.dta-source {
+  padding: 8px 20px 23px;
+  font-size: 11px;
+  color: #777;
+  border-bottom: 1px solid #eee;
+  margin: 0;
+}
+.dta-status,
+.dta-error {
+  padding: 10px 20px;
+  margin: 0;
+  font-size: 13px;
+}
+.dta-error {
+  color: #a12121;
+  background: #fff2f2;
+}
+.dta-error button {
+  margin-left: 10px;
+  border: 1px solid currentColor;
+  background: transparent;
+  padding: 3px 8px;
+  border-radius: 3px;
+}
+.dta-date-popover {
+  position: absolute;
+  z-index: 10;
+  top: 100%;
+  left: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  max-width: 420px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 5px 16px #0002;
+}
+.dta-date-popover label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+.dta-date-popover input {
+  border: 1px solid #bbb;
+  padding: 6px;
+  min-width: 150px;
+}
+.dta-date-popover button,
+.dta-date-popover select {
+  padding: 6px 10px;
+  border: 1px solid #bbb;
+  background: #fff;
+  border-radius: 3px;
+}
+.dta-date-popover p {
+  width: 100%;
+  color: #a12121;
+  margin: 0;
+}
+.dta-date-popover select {
+  width: 100%;
+}
+.dta-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 392px));
+  align-items: start;
+  gap: 8px;
+  padding: 10px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.dta-card {
+  min-width: 0;
+  border: 1px solid #ededed;
+  border-radius: 3px;
+  box-shadow: 0 1px 2px #0003;
+  background: #fff;
+  padding: 20px 10px 12px;
+  min-height: 390px;
+}
+.dta-card h2 {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #687480;
+  margin: 0 0 8px;
+  line-height: 16px;
+}
+.dta-card > p:not(.dta-empty) {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #687480;
+  margin: 0 0 4px;
+}
+.dta-chart {
+  height: 300px;
+  min-width: 0;
+}
+.dta-card-wide {
+  grid-column: 1/-1;
+}
+.dta-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  color: #7b8490;
+  font-size: 13px;
+  text-align: center;
+  padding: 16px;
+  margin: 0;
+}
+.dta-data-note {
+  display: block;
+  font-size: 11px;
+  line-height: 16px;
+  color: #737d87;
+  margin: 7px 0 0;
+}
+.dta-fitness {
+  min-width: 0;
+}
+.dta-fitness > .dta-data-note {
+  margin: 10px 0;
+}
+.dta-library {
+  position: absolute;
+  z-index: 8;
+  left: 0;
+  top: 100px;
+  width: min(310px, 100%);
+  padding: 16px;
+  background: white;
+  box-shadow: 3px 5px 16px #0003;
+  border: 1px solid #ddd;
+}
+.dta-library header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dta-library h2 {
+  font-size: 16px;
+  margin: 0;
+}
+.dta-library header button {
+  border: 0;
+  background: transparent;
+}
+.dta-library p {
+  font-size: 12px;
+  color: #666;
+}
+.dta-library > label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 0;
+  font-size: 13px;
+}
+.dta-library > button {
+  border: 1px solid #bbb;
+  background: white;
+  border-radius: 3px;
+  padding: 6px 9px;
+  margin-top: 12px;
+}
+.dta-zone-group {
+  margin: 18px 10px;
+}
+.dta-zone-group h3 {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+}
+.dta-zone-group > p {
+  font-size: 11px;
+  color: #777;
+  margin: 4px 0 10px;
+}
+.dta-zone {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 8px 0;
+  font-size: 11px;
+}
+.dta-zone > span {
+  width: 45px;
+}
+.dta-zone > div {
+  flex: 1;
+  background: #eee;
+  height: 15px;
+}
+.dta-zone i {
+  display: block;
+  height: 100%;
+  background: #2971a2;
+}
+.dta-zone strong {
+  width: 60px;
+  font-weight: 400;
+  text-align: right;
+}
+.dta-comparison-controls {
+  padding: 50px 48px 0;
+  gap: 0;
+}
+.dta-comparison-controls > .dta-date-button {
+  font-size: 14px;
+  border: 1px solid #ccc;
+  padding: 10px;
+  border-radius: 0 3px 3px 0;
+}
+.dta-comparison-controls > select {
+  border-radius: 3px 0 0 3px;
+}
+.dta-comparison-controls > .dta-sport {
+  margin-left: 16px;
+}
+.dta-comparison-controls + .dta-source {
+  border-bottom: 0;
+  padding: 34px 48px;
+}
+.dta-comparison {
+  margin: 0 32px 28px 48px;
+  border: 1px solid #ddd;
+  border-radius: 7px;
+  padding: 12px;
+  min-width: 0;
+}
+.dta-comparison h2 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 16px;
+}
+.dta-table-tools {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 0 12px 14px;
+}
+.dta-table-tools button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: #3343af;
+  font-size: 13px;
+  padding: 3px 0;
+}
+.dta-table-scroll {
+  overflow: auto;
+  max-height: 500px;
+  min-width: 0;
+}
+.dta-comparison table {
+  border-collapse: collapse;
+  white-space: nowrap;
+  min-width: 100%;
+  font-size: 12px;
+  text-align: left;
+}
+.dta-comparison th {
+  font-weight: 400;
+  border-bottom: 1px solid #ddd;
+  border-right: 1px solid #eee;
+  position: sticky;
+  top: 0;
+  background: white;
+  z-index: 1;
+}
+.dta-comparison th,
+.dta-comparison td {
+  padding: 8px 10px;
+  max-width: 180px;
+  border-bottom: 1px solid #ddd;
+}
+.dta-comparison th button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+  white-space: nowrap;
+}
+.dta-comparison td button.dta-workout-link {
+  display: block;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.dta-comparison td button.dta-workout-link:hover {
+  text-decoration: underline;
+  color: #2946d6;
+}
+.dta-comparison input[type="checkbox"] {
+  accent-color: #2946d6;
+  width: 15px;
+  height: 15px;
+  vertical-align: middle;
+}
+.dta-columns {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border: 1px solid #ddd;
+  margin: 0 0 15px;
+}
+.dta-columns legend {
+  font-size: 12px;
+}
+.dta-columns label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.dta-filter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  padding: 0 10px 15px;
+}
+.dta-filter input {
+  border: 1px solid #bbb;
+  padding: 7px 10px;
+  min-width: 220px;
+}
+.dta-refreshing {
+  animation: dta-spin 1s linear infinite;
+}
+@keyframes dta-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 1100px) {
+  .dta-comparison-controls {
+    padding: 24px 20px 0;
+    gap: 8px;
+  }
+  .dta-comparison-controls + .dta-source {
+    padding: 18px 20px;
+  }
+  .dta-comparison {
+    margin: 0 16px 20px;
+  }
+  .dta-controls > .dta-date-button {
+    font-size: 16px;
+  }
+  .dta-sport {
+    margin-left: 0;
+  }
+  .dta-chart-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 850px) {
+  .dta-chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dta-tabs > [role="tab"] {
+    padding: 0 9px;
+    font-size: 13px;
+  }
+  .dta-overview {
+    font-size: 12px;
+  }
+  .dta-rail {
+    width: 46px;
+  }
+  .dta-date-popover {
+    left: 8px;
+  }
+  .dta-sport {
+    flex-wrap: wrap;
+  }
+  .dta-comparison-controls > .dta-sport {
+    margin-left: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dta-refreshing {
+    animation: none;
+  }
+}

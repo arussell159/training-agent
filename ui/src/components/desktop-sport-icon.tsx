@@ -1,20 +1,29 @@
 import { Bike, Dumbbell, Timer, Waves } from "lucide-react"
+import { desktopSportPaths } from "./desktop-sport-icon-paths"
+import { desktopVariantIcons } from "./desktop-variant-icon-paths"
 export function DesktopSportIcon({ sport }: { sport: string }) {
-  if (/run/i.test(sport))
+  const variantName = /^brick$/i.test(sport) ? "Brick" : /^day[ -]?off$/i.test(sport) ? "Day off" : /^custom$/i.test(sport) ? "Custom" : null
+  if (variantName) {
+    const glyph = desktopVariantIcons[variantName]
+    return <svg width="20" height="20" viewBox={glyph.viewBox} fill="none" aria-hidden="true">{glyph.paths.map((path,index)=><path key={index} {...path}/>)}</svg>
+  }
+  const glyph = /run/i.test(sport) ? "Run"
+    : /walk/i.test(sport) ? "Walk"
+    : /bike|ride|brick/i.test(sport) ? "Bike"
+    : /swim/i.test(sport) ? "Swim"
+    : /row/i.test(sport) ? "Rowing"
+    : /nordic|xc-ski/i.test(sport) ? "XC-Ski"
+    : /other|sauna|workout|crosstrain/i.test(sport) ? "Other" : null
+  if (glyph)
     return (
       <svg
         width="20"
         height="20"
-        viewBox="0 0 20 20"
+        viewBox="0 0 24 24"
         fill="none"
-        stroke="#55a81b"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
         aria-hidden="true"
       >
-        <path d="M4 3 7 2l2 5 3 3 5 3c1 .5 1.5 2 .5 3-3 2-7 1-10-1L2 11c-2-2 0-3 1-4L4 3Z" />
-        <path d="m7 6 3-1m-2 3 3-1m-1 3 3-1M2 10l6 5c3 2 6 3 9 1" />
+        {desktopSportPaths[glyph].map((path, index) => <path key={index} {...path} />)}
       </svg>
     )
   const Icon = /swim/i.test(sport)

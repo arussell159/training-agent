@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import {browserNetworkEvidence} from "./browser-network-evidence.mjs";
 
 const require = createRequire(import.meta.url);
 let playwright;
@@ -16,15 +17,21 @@ try {
 }
 const origin = process.env.APP_TEST_ORIGIN || "http://127.0.0.1:5196";
 if (!["127.0.0.1", "localhost"].includes(new URL(origin).hostname)) throw new Error("Use the disposable local preview only.");
-const output = path.resolve("artifacts/workout-parity");
+const output = path.resolve(process.env.WORKOUT_PARITY_EVIDENCE || "artifacts/workout-parity");
 await fs.mkdir(output, { recursive: true });
 const browser = await playwright.chromium.launch({ headless: true, channel: process.env.APP_TEST_BROWSER || "msedge" });
 const context = await browser.newContext({ viewport: { width: 1280, height: 820 }, colorScheme: "light" });
 const page = await context.newPage();
+const network=browserNetworkEvidence();network.attach(context);
 page.setDefaultTimeout(10000);
 const errors = [];
 const writes = [];
 page.on("pageerror", error => errors.push(error.message));
+// React error boundaries report caught render failures through the console.
+// Preserve that evidence alongside the assertion that eventually detects it.
+page.on("console", message => {
+  if (message.type() === "error") console.error(`Browser console: ${message.text()}`);
+});
 page.on("request", request => {
   if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) {
     writes.push({ method: request.method(), url: request.url() });
@@ -32,7 +39,7 @@ page.on("request", request => {
 });
 const results = [];
 const title = `Workout parity ${Date.now()}`;
-const longDescription = Array.from({ length: 16 }, (_, i) => `SET ${i + 1} — UPPER BODY + TRUNK\n35 minutes including warm-up, rests and transitions. Keep the effort controlled and record how every exercise feels.\nSource: STRENGTH_WORKOUT_REFERENCE.md version 1.0.0.\n`).join("\n");
+const longDescription = Array.from({ length: 16 }, (_, i) => `SET ${i + 1} — UPPER BODY + TRUNK\n35 minutes including warm-up, rests and transitions. Keep the effort controlled and record how every exercise feels.\nSource: STRENGTH_WORKOUT_REFERENCE.md version 1.0.0.\n`).join("\n").repeat(4).slice(0,12000);
 const providerPuts = entries => entries.filter(item => item.method === "PUT" && /\/(editor|planned-values)(?:$|[?&])/.test(decodeURIComponent(item.url)));
 const apiPath = url => new URL(url).searchParams.get("__api_route") || new URL(url).pathname;
 async function waitValue(locator, expected) {
@@ -63,6 +70,7 @@ async function clickCalendarPlus(targetPage, addLabel) {
 async function calendarEntryChecks(dayKey, addLabel) {
   for (const [width, height] of [[1280,820],[768,820],[390,844]]) {
     const checkContext = await browser.newContext({ viewport: { width, height }, colorScheme: "light" });
+    network.attach(checkContext);
     const check = await checkContext.newPage();
     check.setDefaultTimeout(10000);
     check.on("pageerror", error => errors.push(error.message));
@@ -135,11 +143,103 @@ async function openEditor() {
   await page.locator(".desktop-workout-toolbar-popover").getByRole("button", { name: /Edit workout/i }).click();
 }
 
+async function creationLifecycleChecks(addLabel) {
+  const creator = page.locator(".desktop-workout-create");
+  const disposableTitle = `${title} lifecycle`;
+  await page.getByLabel("Workout title", { exact: true }).fill(disposableTitle);
+  await page.getByLabel("Planned duration", { exact: true }).fill("0:10:00");
+  const discard = page.getByRole("alertdialog");
+  for (const dismiss of [
+    () => creator.getByRole("button", { name: "Cancel", exact: true }).click(),
+    () => creator.getByRole("button", { name: "Close workout details", exact: true }).click(),
+    () => page.keyboard.press("Escape"),
+  ]) {
+    await dismiss();
+    await discard.getByText("Discard unsaved changes?", { exact: true }).waitFor();
+    await discard.getByRole("button", { name: "Keep draft", exact: true }).click();
+    assert.equal(await creator.getByLabel("Workout title", { exact: true }).inputValue(), disposableTitle);
+    assert.equal(await creator.getByLabel("Planned duration", { exact: true }).inputValue(), "0:10:00");
+  }
+  results.push({ name: "creation-cancel-header-escape-preserve-dirty-draft", verified: true });
+
+  const creationRoute = url => apiPath(url.href) === "workouts/editor";
+  const rejectCreation = route => route.request().method() === "POST"
+    ? route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "Synthetic creation rejected; draft retained." }) })
+    : route.continue();
+  await page.route(creationRoute, rejectCreation);
+  await creator.getByRole("button", { name: "Save & Close", exact: true }).click();
+  await creator.getByRole("alert").filter({ hasText: "Synthetic creation rejected; draft retained." }).waitFor();
+  assert.equal(await creator.isVisible(), true);
+  assert.equal(await creator.getByLabel("Workout title", { exact: true }).inputValue(), disposableTitle);
+  assert.equal(await creator.getByLabel("Planned duration", { exact: true }).inputValue(), "0:10:00");
+  const rejected = await (await page.request.get(`${origin}/api/preview/provider-records`)).json();
+  assert.equal(rejected.events.some(event => event.name === disposableTitle), false);
+  await page.unroute(creationRoute, rejectCreation);
+  results.push({ name: "creation-save-close-rejection-keeps-editor-and-draft", verified: true });
+
+  let releaseWrite;
+  let signalWrite;
+  const held = new Promise(resolve => { releaseWrite = resolve; });
+  const started = new Promise(resolve => { signalWrite = resolve; });
+  const delayCreation = async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    signalWrite();
+    await held;
+    return route.continue();
+  };
+  await page.route(creationRoute, delayCreation);
+  const confirmed = page.waitForResponse(response => response.request().method() === "POST" && apiPath(response.url()) === "workouts/editor");
+  // Attach immediately so a missing request cannot turn the diagnostic timer
+  // into an unhandled rejection while the independent started signal waits.
+  void confirmed.catch(() => {});
+  await creator.getByRole("button", { name: "Save & Close", exact: true }).click();
+  let startedTimer;
+  const didStart = await Promise.race([
+    started.then(() => true),
+    new Promise(resolve => { startedTimer = setTimeout(() => resolve(false), 9000); }),
+  ]);
+  clearTimeout(startedTimer);
+  if (!didStart) {
+    await page.screenshot({path:path.join(output,"creation-retry-no-request.png"),fullPage:true});
+    const diagnostic = await creator.evaluate(element => ({
+      text: element.innerText,
+      fields: [...element.querySelectorAll("input,textarea")].map(field => ({name:field.getAttribute("aria-label"),value:field.value,disabled:field.disabled})),
+      recovery: Object.fromEntries(Object.keys(localStorage).filter(key=>key.startsWith("workout-creation-pending:")).map(key=>[key,JSON.parse(localStorage.getItem(key))])),
+    }));
+    diagnostic.native = await (await page.request.get(`${origin}/api/preview/provider-records`)).json();
+    await fs.writeFile(path.join(output,"creation-retry-no-request.json"),JSON.stringify(diagnostic,null,2));
+  }
+  assert.equal(didStart,true,"A definitively rejected creation must remain editable and permit a real retry request");
+  try {
+    assert.equal(await creator.isVisible(), true, "Save & Close must remain visible until provider confirmation");
+    assert.equal(await creator.getByRole("button", { name: "Cancel", exact: true }).isDisabled(), true);
+    assert.equal(await creator.getByRole("button", { name: "Close workout details", exact: true }).evaluate(node => Boolean(node.disabled || node.closest("[inert]"))), true,
+      "The busy header must make its close action unavailable");
+    await page.keyboard.press("Escape");
+    assert.equal(await creator.isVisible(), true);
+    assert.equal(await discard.count(), 0, "An in-flight write must not offer draft discard");
+  } finally {
+    releaseWrite();
+  }
+  assert.equal((await confirmed).ok(), true);
+  await creator.waitFor({ state: "hidden" });
+  await page.unroute(creationRoute, delayCreation);
+  await page.getByText(disposableTitle, { exact: true }).click();
+  assert.equal(await page.getByLabel("Planned duration", { exact: true }).inputValue(), "0:10:00");
+  await page.locator(".desktop-workout-preview").getByRole("button", { name: "Delete", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete", exact: true }).click();
+  await page.locator(".desktop-workout-preview").waitFor({ state: "hidden" });
+  await page.getByText(disposableTitle, { exact: true }).waitFor({ state: "hidden" });
+  results.push({ name: "creation-save-close-waits-for-confirmation-blocks-dismissal-and-reopens", verified: true });
+  await clickCalendarPlus(page, addLabel);
+  await page.getByRole("dialog").getByRole("button", { name: "Run", exact: true }).click();
+}
+
 async function assertExpandedBuilder() {
   await page.waitForFunction(() => {
     const rect = document.querySelector(".we-tp-desktop")?.getBoundingClientRect();
-    return rect && Math.abs(rect.x) < 1 && Math.abs(rect.y) < 1
-      && Math.abs(rect.width - innerWidth) < 1 && Math.abs(rect.height - innerHeight) < 1;
+    return rect && Math.abs(rect.x - 20) < 1 && Math.abs(rect.y - 10) < 1
+      && Math.abs(rect.width - (innerWidth - 40)) < 1 && Math.abs(rect.height - innerHeight * .92) < 1;
   });
   const continueButton = page.getByRole("button", { name: "Continue", exact: true });
   if (await continueButton.count()) {
@@ -271,6 +371,8 @@ try {
   } else {
     await page.getByRole("dialog").getByRole("button", { name: "Run", exact: true }).click();
     await screenshot("create-blank");
+    await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Workout title");
+    await creationLifecycleChecks(addLabel);
     await page.getByLabel("Workout title", { exact: true }).fill(title);
     await page.getByLabel("Planned duration", { exact: true }).fill("0:35:00");
     await page.getByRole("textbox", { name: "Private Notes", exact: true }).fill("Private parity note");
@@ -416,6 +518,7 @@ try {
     assert.equal(providerPuts(writes.slice(writesBefore)).length, 0, "Personal-only edit must not send a provider PUT");
     assert.equal(writes.slice(writesBefore).filter(item => item.method === "PUT" && apiPath(item.url).includes("/personal")).length, 1);
     const freshContext = await browser.newContext({ viewport: { width: 1280, height: 820 }, colorScheme: "light" });
+    network.attach(freshContext);
     const fresh = await freshContext.newPage();
     await fresh.goto(`${origin}/calendar?theme=light`, { waitUntil: "networkidle" });
     await fresh.getByText(title, { exact: true }).click();
@@ -526,7 +629,7 @@ try {
     await page.getByText("Editable swim workout", { exact: true }).click();
     await openEditor();
     await swimSteps.first().waitFor({ state: "visible" });
-    await waitValue(rest.getByLabel("Step duration", { exact: true }), "00:00:30");
+    await waitValue(rest.getByLabel("Step duration", { exact: true }), "0:00:30");
     assert.ok((await Promise.all((await swimSteps.getByRole("switch").all()).map(control => control.isChecked()))).filter(Boolean).length >= 2);
     await screenshot("existing-swim-lap-save");
     await page.getByRole("button", { name: "Close workout builder", exact: true }).click();
@@ -581,6 +684,15 @@ try {
     assert.deepEqual(retryReceipt.activityIds, uploadReceipt.activityIds);
     await screenshot("upload-verified");
     results.push({ name: "upload-recording-idempotent", verified: true, activityIds: uploadReceipt.activityIds });
+    const providerResponse = await page.request.get(`${origin}/api/preview/provider-records`);
+    assert.equal(providerResponse.ok(), true);
+    const providerRecords = await providerResponse.json();
+    const descriptions = providerRecords.writes.filter(item => typeof item.body?.description === "string");
+    assert.ok(descriptions.length > 0, "The production metadata transport was exercised");
+    for (const entry of descriptions)
+      assert.doesNotMatch(entry.body.description, /Workout editor v1|training-agent-(?:manual-description|planned-values|workout-comments)-v1|"duration_seconds":|"version":1/, `Internal metadata leaked to ${entry.path}`);
+    await fs.writeFile(path.join(output, "provider-description.txt"), descriptions.at(-1).body.description);
+    results.push({ name: "provider-descriptions-contain-no-editor-json", writes: descriptions.length });
     assert.deepEqual(errors, [], `Browser errors: ${errors.join("; ")}`);
     console.log(JSON.stringify({ checks: results.map(item => item.name), errors, writeRequests: writes.length }, null, 2));
   }
@@ -589,6 +701,7 @@ try {
   console.error((await page.locator('[role="dialog"]').allInnerTexts()).join("\n").slice(0, 12000));
   throw error;
 } finally {
+  await fs.writeFile(path.join(output,"network-workout.json"),JSON.stringify(network.entries,null,2));
   await fs.writeFile(path.join(output, "results.json"), JSON.stringify({ results, errors, writes }, null, 2));
   await browser.close();
 }

@@ -11,7 +11,7 @@ const summaries = createSharedRequestCache<WorkoutSummaryValues>(
   async (key, signal) => {
     const [, id, revision] = JSON.parse(key) as string[]
     const response = await apiFetch(
-      `/api/activities/${encodeURIComponent(id)}/summary?schema=2&v=${encodeURIComponent(revision)}`,
+      `/api/activities/${encodeURIComponent(id)}/summary?schema=3&v=${encodeURIComponent(revision)}`,
       { signal },
     )
     if (!response.ok)

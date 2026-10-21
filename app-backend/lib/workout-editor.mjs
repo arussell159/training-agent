@@ -1,4 +1,6 @@
+import { workoutRevisionInput } from "./workout-revision-input.mjs";
 import { createHash } from "node:crypto";
+import { providerWorkoutDescription } from "./workout-provider-description.mjs";
 import {
   readPlannedValues,
   withPlannedValues,
@@ -20,6 +22,9 @@ import {
   serializeWorkout,
   validateWorkout,
   verifyParsedWorkout,
+  workoutSports,
+  workoutProviderWarnings,
+  workoutDefinitionSuffix,
 } from "./workout-editor-model.mjs";
 
 function fail(message, status = 400, code = "INVALID_WORKOUT") {
@@ -29,58 +34,12 @@ function fail(message, status = 400, code = "INVALID_WORKOUT") {
   throw error;
 }
 export function workoutRevision(event) {
-  const fields = [
-    "id",
-    "updated",
-    "name",
-    "description",
-    "type",
-    "category",
-    "start_date_local",
-    "end_date_local",
-    "calendar_id",
-    "uid",
-    "external_id",
-    "paired_activity_id",
-    "workout_doc",
-    "read_only",
-    "readonly",
-    "editable",
-    "color",
-    "tags",
-    "description_locale",
-    "hide_from_athlete",
-    "custom_metadata",
-    "indoor",
-    "commute",
-    "moving_time",
-    "distance",
-    "time_target",
-    "distance_target",
-    "load_target",
-    "icu_training_load",
-    "icu_intensity",
-    "joules",
-    "athlete_cannot_edit",
-  ];
-  const stable = (value) =>
-    Array.isArray(value)
-      ? value.map(stable)
-      : value && typeof value === "object"
-        ? Object.fromEntries(
-            Object.keys(value)
-              .sort()
-              .map((k) => [k, stable(value[k])])
-          )
-        : value;
-  return createHash("sha256")
-    .update(JSON.stringify(stable(Object.fromEntries(fields.map((k) => [k, event[k] ?? null])))))
-    .digest("hex");
+  return createHash("sha256").update(workoutRevisionInput(event)).digest("hex");
 }
-function assertEditable(event) {
+export function assertEditable(event) {
   if (event.category !== "WORKOUT")
     fail("Only planned WORKOUT calendar events can be edited here.", 403, "READ_ONLY");
-  if (event.read_only || event.readonly || event.editable === false)
+  if (event.read_only || event.readonly || event.editable === false || event.athlete_cannot_edit)
     fail(
       "This Intervals.icu calendar is read-only. Edit the workout in its source calendar.",
       403,
@@ -119,8 +78,7 @@ export async function loadNewWorkoutEditor(
   { sport = "Ride", name = "New workout" } = {}
 ) {
   validDate(date);
-  if (!["Swim", "Ride", "Run", "Other", "WeightTraining"].includes(sport))
-    fail("Choose a supported workout sport.");
+  if (!workoutSports.includes(sport)) fail("Choose a supported workout sport.");
   if (typeof name !== "string" || !name.trim() || name.length > 200)
     fail("Enter a workout name under 200 characters.");
   const zones = await loadZoneSettings(request);
@@ -134,6 +92,7 @@ export async function loadNewWorkoutEditor(
       date,
       notes: "",
       poolLength: sport === "Swim" ? "25y" : "",
+      ...(sport === "Swim" ? { swimUnitMode: "explicit" } : {}),
       steps: [],
       thresholds: { ftp: setting?.ftp || null, pace: setting?.threshold_pace || null },
     },
@@ -154,6 +113,7 @@ export async function loadWorkoutEditor(request, id) {
   assertEditable(event);
   const { zoneSettings, zoneError } = await loadZoneSettings(request);
   const imported = importWorkout(event);
+  if (!imported.issues.length) imported.warnings.push(...workoutProviderWarnings(imported.model));
   const setting = sportZoneSettings(zoneSettings, imported.model.sport);
   imported.model.thresholds = {
     ftp: imported.model.thresholds?.ftp || setting?.ftp || null,
@@ -169,16 +129,17 @@ export async function loadWorkoutEditor(request, id) {
     scheduledTime: String(event.start_date_local).slice(11),
     plannedValues: readPlannedValues(event.description),
     comments: readWorkoutCommentText(event.description, id, true),
+    event,
     id,
   };
 }
-function editorDescriptionOverride(event, originalModel) {
+export function editorDescriptionOverride(event, originalModel) {
   if (hasManualWorkoutDescription(event.description)) return readManualWorkoutDescription(event);
   if (!String(event.description || "").includes(DEFINITION_MARKER)) return undefined;
   const head = readableDescription(event.description);
   return head === readableDescription(serializeWorkout(originalModel)) ? undefined : head;
 }
-function expectedPatch(existing, model, input = {}) {
+export function expectedPatch(existing, model, input = {}) {
   validDate(model.date);
   const values = {
     ...readPlannedValues(existing.description),
@@ -194,7 +155,9 @@ function expectedPatch(existing, model, input = {}) {
       creationId: input.commentId,
     }).comments;
   const manual =
-    input.descriptionMode === "manual" || hasManualWorkoutDescription(existing.description);
+    model.unstructured === true ||
+    input.descriptionMode === "manual" ||
+    hasManualWorkoutDescription(existing.description);
   let description = manual
     ? serializeManualWorkout(model, input.description ?? readManualWorkoutDescription(existing))
     : serializeWorkout(model);
@@ -203,7 +166,7 @@ function expectedPatch(existing, model, input = {}) {
   if (!manual && override != null) {
     if (typeof override !== "string" || override.length > 30000)
       fail("Enter a description under 30,000 characters.");
-    description = override + description.slice(description.indexOf(DEFINITION_MARKER));
+    description = override + workoutDefinitionSuffix(description);
   }
   const patch = {
     name: model.name.trim(),
@@ -239,11 +202,11 @@ function expectedPatch(existing, model, input = {}) {
     ["tss", "load_target"],
   ])
     if (key in (input.values || {})) patch[field] = values[key];
-  if ("intensity_factor" in (input.values || {}))
-    patch.icu_intensity = values.intensity_factor == null ? null : values.intensity_factor * 100;
+  // ICU derives icu_intensity from its own rounded load/duration. Exact manual
+  // IF belongs to the verified private planned-values document, not this native field.
   if ("work_kj" in (input.values || {}))
     patch.joules = values.work_kj == null ? null : Math.round(values.work_kj * 1000);
-  if (patch.description.length > 30000)
+  if (providerWorkoutDescription(patch.description).length > 30000)
     fail("Workout text exceeds the 30,000 character export limit.");
   return patch;
 }
@@ -326,7 +289,8 @@ async function save(request, id, input = {}) {
           403,
           "PERMISSION_DENIED"
         );
-      if ([400, 404, 409, 422, 429].includes(error.status))
+      if (error.status === 429) { error.code = "PROVIDER_REJECTED"; throw error; }
+      if ([400, 404, 409, 422].includes(error.status))
         fail(
           error.status === 404
             ? "This workout no longer exists in Intervals.icu. Your draft is retained."
@@ -347,6 +311,7 @@ async function save(request, id, input = {}) {
           event: readback,
           revision: workoutRevision(readback),
           verified: true,
+          warnings: workoutProviderWarnings(model),
         };
       } catch {
         fail(
@@ -359,7 +324,13 @@ async function save(request, id, input = {}) {
   }
   const verified = await request(path);
   assertVerified(model, verified, existing, patch);
-  return { workoutId: id, event: verified, revision: workoutRevision(verified), verified: true };
+  return {
+    workoutId: id,
+    event: verified,
+    revision: workoutRevision(verified),
+    verified: true,
+    warnings: workoutProviderWarnings(model),
+  };
 }
 
 // A stable operation ID is attached to the event. An uncertain create can only
@@ -413,9 +384,16 @@ export async function createWorkoutEditor(request, input = {}, scope = "default"
         start_date_local: `${model.date}T${time}:00`,
         description: withWorkoutCommentText(
           withPlannedValues(
-            input.descriptionMode === "manual"
-              ? serializeManualWorkout(model, input.description ?? "")
-              : serializeWorkout(model),
+            input.descriptionMode === "manual" || model.unstructured === true
+              ? serializeManualWorkout(
+                  model,
+                  input.description ?? (model.unstructured === true ? model.notes : "")
+                )
+              : input.description != null
+                ? (typeof input.description !== "string" || input.description.length > 30000
+                    ? fail("Enter a description under 30,000 characters.")
+                    : input.description + workoutDefinitionSuffix(serializeWorkout(model)))
+                : serializeWorkout(model),
             values
           ),
           comments
@@ -428,11 +406,11 @@ export async function createWorkoutEditor(request, input = {}, scope = "default"
         ["tss", "load_target"],
       ])
         if (key in values) body[field] = values[key];
-      if ("intensity_factor" in values)
-        body.icu_intensity = values.intensity_factor == null ? null : values.intensity_factor * 100;
+      // Exact manual IF is retained in private planned values above. ICU owns
+      // its derived icu_intensity; assigning it cannot establish an exact IF.
       if ("work_kj" in values)
         body.joules = values.work_kj == null ? null : Math.round(values.work_kj * 1000);
-      if (body.description.length > 30000)
+      if (providerWorkoutDescription(body.description).length > 30000)
         fail("Workout text exceeds the 30,000 character export limit");
       const verify = async (event) => {
         const saved = await request("/athlete/0/events/" + eventId("event:" + event.id));
@@ -450,6 +428,7 @@ export async function createWorkoutEditor(request, input = {}, scope = "default"
           event: saved,
           revision: workoutRevision(saved),
           verified: true,
+          warnings: workoutProviderWarnings(model),
         };
       };
       if (existing) return verify(existing);
@@ -466,6 +445,7 @@ export async function createWorkoutEditor(request, input = {}, scope = "default"
           body: JSON.stringify(body),
         });
       } catch (error) {
+        if (error.status === 429) { error.code = "CREATE_REJECTED"; throw error; }
         if ([400, 401, 403, 422].includes(error.status))
           fail(
             "Intervals.icu rejected creation. Check the workout and calendar permissions.",

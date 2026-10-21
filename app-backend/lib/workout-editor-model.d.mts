@@ -1,8 +1,9 @@
+import type { StrengthPrescription } from "./workout-strength-model.mjs";
 export type Role = "warmup" | "active" | "recovery" | "rest" | "cooldown" | "other";
 export type Target =
   | { kind: "none"; unit?: never; mode?: never; value?: never; start?: never; end?: never }
   | {
-      kind: "power" | "pace" | "hr";
+      kind: "power" | "pace" | "hr" | "rpe";
       unit: string;
       mode: "single" | "range" | "ramp";
       value?: number;
@@ -40,6 +41,14 @@ export type WorkoutModel = {
   notes: string;
   poolLength: string;
   steps: WorkoutNode[];
+  /** Exact exercise prescription; exclusive with interval steps/freeform mode. */
+  strength?: StrengthPrescription;
+  /** An explicit freeform calendar plan with no executable device intervals. */
+  unstructured?: boolean;
+  /** New swim prescriptions retain physical distance/pace units; absent on legacy yard-token records. */
+  swimUnitMode?: "explicit";
+  /** Private presentation category; its native provider sport remains Other. */
+  variant?: "brick" | "day-off" | "custom";
   thresholds?: { ftp?: number | null; pace?: number | null };
 };
 export type ImportResult = {
@@ -51,6 +60,7 @@ export type ImportResult = {
   ambiguousSwim: boolean;
 };
 export const DEFINITION_MARKER: string;
+export const workoutSports: string[];
 export const roles: Role[];
 export const roleNames: Record<Role, string>;
 export const distanceFactors: Record<string, number>;
@@ -94,6 +104,7 @@ export function expandSteps(
   limit?: number
 ): { step: Step; group: string | null; iteration: number }[];
 export function validateWorkout(model: WorkoutModel): string[];
+export function workoutProviderWarnings(model: WorkoutModel): string[];
 export function convertTarget(target: Target, unit: string, ftp?: number | null): Target;
 export function targetLabel(target: Target): string;
 export function stepLabel(node: WorkoutNode): string;
@@ -101,7 +112,15 @@ export function stepMetrics(
   step: Step,
   thresholds?: WorkoutModel["thresholds"]
 ): { seconds: number | null; distance: number | null; estimated: boolean; open: boolean };
-export function workoutTotals(model: WorkoutModel): {
+export function plannedPowerMetrics(model: WorkoutModel): {
+  seconds: number;
+  averagePower: number | null;
+  workKilojoules: number | null;
+  normalizedIntensity: number | null;
+  normalizedPower: number | null;
+  samples: number;
+} | null;
+export function workoutTotals(model: WorkoutModel, options?: {plannedDistanceTime?: "whole-metres"}): {
   seconds: number;
   distance: number;
   work: number;
@@ -114,6 +133,11 @@ export function workoutTotals(model: WorkoutModel): {
   load: number | null;
   executedSteps: number;
   repetitions: number;
+  normalizedPower?: number | null;
+  normalizedIntensity?: number | null;
+  intensityFactor?: number | null;
+  averagePower?: number | null;
+  workKilojoules?: number | null;
 };
 export function chartSegments(model: WorkoutModel): {
   segments: {
@@ -131,10 +155,15 @@ export function chartSegments(model: WorkoutModel): {
   placeholder: boolean;
 };
 export function nativeWorkoutText(model: WorkoutModel): string;
+export function workoutDefinitionSuffix(description: string): string;
 export function workoutOutline(model: WorkoutModel): string;
-export function serializeWorkout(model: WorkoutModel): string;
+export function serializeWorkout(
+  model: WorkoutModel,
+  options?: { checkProviderLength?: boolean }
+): string;
 export function readableDescription(description: string): string;
 export function readEditorModel(description: string): WorkoutModel | null;
+export function hasReadableStrengthPrescription(description: unknown): boolean;
 export function importWorkout(event: Record<string, unknown>): ImportResult;
 export function verifyParsedWorkout(model: WorkoutModel, event: Record<string, unknown>): string[];
 export function makeTemplate(name: string, sport: string): WorkoutNode[];

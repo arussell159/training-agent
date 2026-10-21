@@ -12,7 +12,7 @@ test('workspace startup overlaps only the open page protected reads, without spe
   const startup = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(match => match[1]).find(value => value.includes('__trainingSessionRequest'))
   for (const [pathname, expected] of [['/coach',['auth/session','coach/reports/catalog']],['/library/',['auth/session','workout-library']],['/atp',['auth/session','training-context','annual-plans']],['/settings',['auth/session','training-context','race-events']]]) {
     const calls = [], window = {matchMedia: () => ({matches:false})}
-    runInNewContext(startup, {window, location:{pathname}, localStorage:{getItem:()=>null}, AbortSignal, Intl, Date, encodeURIComponent,
+    runInNewContext(startup, {window, location:{pathname}, localStorage:{getItem:()=>null}, AbortSignal, AbortController, Response, DOMException, setTimeout, clearTimeout, Intl, Date, encodeURIComponent,
       fetch: (url, options) => { calls.push({path:new URL(url,'http://localhost').searchParams.get('__api_route'),options}); return Promise.resolve(null) },
     })
     assert.deepEqual(calls.map(call=>call.path),expected)
@@ -23,7 +23,7 @@ test('reports bootstrap respects saved date filters and a fresh device archive',
   const startup = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(match => match[1]).find(value => value.includes('__trainingSessionRequest'))
   function run(range, archive) {
     const calls=[]
-    runInNewContext(startup,{window:{matchMedia:()=>({matches:false})},location:{pathname:'/workout-reports'},AbortSignal,Intl,Date,encodeURIComponent,
+    runInNewContext(startup,{window:{matchMedia:()=>({matches:false})},location:{pathname:'/workout-reports'},AbortSignal,AbortController,Response,DOMException,setTimeout,clearTimeout,Intl,Date,encodeURIComponent,
       localStorage:{getItem:key=>JSON.stringify(key==='training-agent-startup-metadata-v1'?{version:'saved-v1'}:archive)},
       sessionStorage:{getItem:()=>JSON.stringify({filters:{range}})},
       fetch:url=>{calls.push(new URL(url,'http://localhost'));return Promise.resolve(null)},

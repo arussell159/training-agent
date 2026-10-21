@@ -1,5 +1,6 @@
 import {
   clone,
+  chartSegments,
   convertTarget,
   distanceFactors,
   defaultTarget,
@@ -16,6 +17,7 @@ import {
 } from "../../../app-backend/lib/workout-editor-model.mjs"
 import {
   sportZoneSettings,
+  workoutZoneOptions,
   type SportZoneSettings,
 } from "../../../app-backend/lib/workout-editor-zones.mjs"
 
@@ -97,7 +99,7 @@ export function desktopProfileRange(segment: {
   }
 }
 export function desktopBuilderTotals(model: WorkoutModel) {
-  const totals = workoutTotals(model)
+  const totals = workoutTotals(model, {plannedDistanceTime: "whole-metres"})
   if (totals.load != null || totals.open || totals.unknownTime) return totals
   let load = 0
   let flat
@@ -156,13 +158,58 @@ export const desktopTargetUnits = [
   ["secs/km", "Pace (min/km)"],
   ["secs/100y", "Pace (min/100yd)"],
   ["secs/100m", "Pace (min/100m)"],
+  ["rpe", "RPE"],
 ] as const
-export const targetKind = (unit: string): "power" | "pace" | "hr" =>
-  unit === "%ftp" || unit === "w"
-    ? "power"
-    : /hr|lthr|bpm/.test(unit)
-      ? "hr"
-      : "pace"
+export const targetKind = (unit: string): "power" | "pace" | "hr" | "rpe" =>
+  unit === "rpe"
+    ? "rpe"
+    : unit === "%ftp" || unit === "w"
+      ? "power"
+      : /hr|lthr|bpm/.test(unit)
+        ? "hr"
+        : "pace"
+export function normalizeRpeValue(value: number) {
+  if (!Number.isFinite(value))
+    throw Error("Enter a finite RPE value from 1 to 10.")
+  return Math.max(1, Math.min(10, Math.round(value)))
+}
+export function editRpeTarget(
+  target: Target,
+  key: "value" | "start" | "end",
+  value: number
+): Target {
+  if (target.kind !== "rpe") throw Error("Choose an RPE target first.")
+  const next = normalizeRpeValue(value)
+  if (target.mode === "single") return { ...target, value: next }
+  return key === "start"
+    ? { ...target, start: next, end: Math.max(next, target.end!) }
+    : { ...target, end: next, start: Math.min(next, target.start!) }
+}
+export function reshapeRpeTarget(
+  target: Target,
+  mode: "single" | "range" | "ramp"
+): Target {
+  if (target.kind !== "rpe") throw Error("Choose an RPE target first.")
+  if (mode === "ramp")
+    throw Error(
+      "RPE supports Target or Range. Use stepped blocks for changing effort."
+    )
+  if (target.mode === mode) return clone(target)
+  if (mode === "single")
+    return {
+      kind: "rpe",
+      unit: "rpe",
+      mode,
+      value: normalizeRpeValue((target.start! + target.end!) / 2),
+    }
+  return {
+    kind: "rpe",
+    unit: "rpe",
+    mode,
+    start: normalizeRpeValue(target.value! - 5),
+    end: normalizeRpeValue(target.value! + 5),
+  }
+}
 export function displayTarget(
   target: Target,
   unit: string,
@@ -220,8 +267,13 @@ export function displayTarget(
       source.mode === "single"
         ? { value: convert(source.value!) }
         : { start: convert(source.start!), end: convert(source.end!) }
-    if (Object.values(fields).every((n) => Number.isFinite(n) && n > 0))
+    if (Object.values(fields).every((n) => Number.isFinite(n) && n > 0)) {
+      // Pace is reciprocal to speed. A range has unordered physical bounds,
+      // while a ramp's start/end retain their execution direction.
+      if (source.mode === "range" && fields.start! > fields.end!)
+        [fields.start, fields.end] = [fields.end, fields.start]
       return { ...source, unit, ...fields }
+    }
   }
   throw Error(
     "Your sport threshold is needed to convert these units. The original targets are retained."
@@ -247,11 +299,11 @@ export function desktopTargetPresentation(
     try {
       const relative = displayTarget(target, relativeUnit, model, zones)
       if (relative.kind !== "none") {
-        const middle =
+        const upper =
           relative.mode === "single"
             ? relative.value!
-            : (relative.start! + relative.end!) / 2
-        const index = boundaries.findIndex((high) => middle <= high)
+            : Math.max(relative.start!, relative.end!)
+        const index = boundaries.findIndex((high) => upper <= high)
         if (index >= 0) zoneId = String(index + 1)
       }
     } catch {
@@ -282,7 +334,7 @@ export function desktopTargetPresentation(
       absoluteUnit === "w"
         ? "W"
         : absoluteUnit === "secs/100y"
-          ? "min/100yd"
+          ? "sec/100y"
           : "min/mi"
     return { zoneId, physical: `${amounts.map(format).join("-")} ${suffix}` }
   } catch {
@@ -368,6 +420,7 @@ export function reshapeDesktopTarget(
   mode: "single" | "range" | "ramp",
   model: WorkoutModel
 ): Target {
+  if (target.kind === "rpe") return reshapeRpeTarget(target, mode)
   if (target.kind === "none" || target.mode === mode) return clone(target)
   if (target.mode !== "single" && mode !== "single") return { ...target, mode }
   const centre =
@@ -417,6 +470,10 @@ export function changeDesktopTargetUnit(
   return mapDesktopSteps(model, (step) => {
     const target = step.target
     if (target.kind === "none") return step
+    if ((target.kind === "rpe") !== (unit === "rpe"))
+      throw Error(
+        "RPE cannot be converted to or from power, heart rate or pace. Remove the existing targets before choosing a different intensity type."
+      )
     // The reference reinterprets percentage prescriptions when selecting a
     // different intensity basis. Absolute units require a real conversion.
     const destinationKind = targetKind(unit)
@@ -503,8 +560,11 @@ export function builderBlock(
   model: WorkoutModel,
   unit: string,
   mode: "single" | "range",
-  length?: DesktopBlockLength
+  length: DesktopBlockLength = /swim/i.test(model.sport)
+    ? { kind: "distance", unit: "yd" }
+    : { kind: "time", unit: "s" }
 ): WorkoutNode[] {
+  const swimming = /swim/i.test(model.sport)
   const paceTargets = targetKind(unit) === "pace"
   const recoveryLow = paceTargets ? 0.75 : 0.5
   const make = (
@@ -512,9 +572,13 @@ export function builderBlock(
     low: number,
     high: number,
     seconds: number,
-    meters: number
+    meters: number,
+    rpeUpper?: number
   ) => {
     const step = newStep(model.sport, role)
+    // New reference swim blocks are prescribed by distance with the lap
+    // switch off. Imported/saved lap choices remain untouched by insertion.
+    if (swimming) step.end.pressLap = false
     step.label = {
       warmup: "Warm up",
       active: "Active",
@@ -544,7 +608,22 @@ export function builderBlock(
             end: Math.round(Math.max(a, b)),
           }
         : { kind, unit, mode, value: Math.round(intensity((low + high) / 2)) }
-    if (defaultTarget(model.sport).kind === "none")
+    if (unit === "rpe") {
+      const high =
+        rpeUpper ??
+        (role === "warmup" || role === "cooldown"
+          ? 5
+          : role === "recovery"
+            ? 7
+            : /Repeats/.test(name)
+              ? 10
+              : 8)
+      step.target =
+        mode === "range"
+          ? { kind: "rpe", unit: "rpe", mode, start: 1, end: high }
+          : { kind: "rpe", unit: "rpe", mode, value: 1 }
+    }
+    if (unit !== "rpe" && defaultTarget(model.sport).kind === "none")
       step.target = { kind: "none" }
     if (length?.kind === "distance") {
       const selectedUnit = length.unit === "s" ? "m" : length.unit
@@ -554,9 +633,10 @@ export function builderBlock(
           : selectedUnit === "mi"
             ? 1609.344
             : selectedUnit === "yd"
-              ? 0.9144
+              ? swimming ? 1 : 0.9144
               : 1
       step.end = {
+        ...step.end,
         kind: "distance",
         unit: selectedUnit,
         value: Number(
@@ -566,7 +646,7 @@ export function builderBlock(
         ),
       }
     } else if (length?.kind === "time" || step.end.kind === "time")
-      step.end = { kind: "time", unit: "s", value: seconds }
+      step.end = { ...step.end, kind: "time", unit: "s", value: seconds }
     return step
   }
   if (/Repeats/.test(name)) {
@@ -578,7 +658,8 @@ export function builderBlock(
           paceTargets ? 1.05 : three ? 0.75 : 0.85,
           paceTargets ? 1.15 : three ? 0.85 : 0.95,
           three ? 180 : 360,
-          2000
+          swimming ? (three ? 75 : 200) : 2000,
+          three ? 9 : 10
         ),
         label: "Hard",
       },
@@ -590,7 +671,7 @@ export function builderBlock(
                 paceTargets ? 1.1 : 0.9,
                 paceTargets ? 1.2 : 1,
                 60,
-                1000
+                swimming ? 25 : 1000
               ),
               label: "Harder",
             },
@@ -602,7 +683,7 @@ export function builderBlock(
           recoveryLow,
           recoveryLow + 0.1,
           three ? 60 : 180,
-          1000
+          swimming ? 50 : 1000
         ),
         label: "Easy",
       },
@@ -614,10 +695,21 @@ export function builderBlock(
       ? [0.75, 0.85, 0.95, 1.05]
       : [0.55, 0.65, 0.75, 0.85]
     const ranges = name === "Ramp Up" ? ascending : ascending.toReversed()
+    const rpeRanges = name === "Ramp Up" ? [7, 8, 9, 10] : [10, 9, 8, 7]
     return [
       {
         ...newRepeat(
-          ranges.map((low) => make("active", low, low + 0.1, 180, 1000))
+          ranges.map((low, index) => {
+            const step = make(
+              "active",
+              low,
+              low + 0.1,
+              180,
+              swimming ? 100 : 1000,
+              rpeRanges[index]
+            )
+            return unit === "rpe" ? { ...step, label: "" } : step
+          })
         ),
         label: "Ramp",
         repetitions: 1,
@@ -647,7 +739,9 @@ export function builderBlock(
     low,
     low + 0.1,
     role === "warmup" ? 1200 : role === "recovery" ? 300 : 600,
-    role === "warmup" ? 3000 : role === "active" ? 8000 : 5000
+    swimming
+      ? role === "warmup" ? 600 : role === "recovery" ? 100 : 200
+      : role === "warmup" ? 3000 : role === "active" ? 8000 : 5000
   )
   return [step]
 }
@@ -708,4 +802,66 @@ export function resizeDesktopRamp(
     return step
   })
   return { ...node, steps }
+}
+
+/** Round zone presets on selection, keeping the user's selected intensity basis. */
+export function desktopWorkoutZoneOptions(
+  model: WorkoutModel,
+  zones: SportZoneSettings[],
+  preferredUnit: string
+) {
+  const setting=sportZoneSettings(zones,model.sport)
+  const power=/ride|bike/i.test(model.sport),threshold=power?setting?.ftp:setting?.threshold_pace
+  const boundaries=power?setting?.power_zones:setting?.pace_zones
+  const distance=/swim/i.test(model.sport)?91.44:1609.344
+  const pace=(seconds:number)=>`${String(Math.floor(seconds/60)).padStart(2,"0")}:${String(seconds%60).padStart(2,"0")}`
+  return workoutZoneOptions(zones, model.sport, preferredUnit).map(option => {
+    const index=Number(option.id)-1,low=index?boundaries?.[index-1]:0,high=boundaries?.[index]
+    let label=option.label
+    if(threshold && low != null && high != null) {
+      if(power)label=`Zone ${index+1} | ${index?Math.round(threshold*low/100)+1:0} - ${Math.round(threshold*high/100)} W`
+      else if(low>0)label=`Zone ${index+1} | ${pace(Math.round(distance/(threshold*high/100)))} - ${pace(Math.round(distance/(threshold*low/100)))} ${/swim/i.test(model.sport)?"sec/100y":"min/mi"}`
+      const name=(power?setting?.power_zone_names:setting?.pace_zone_names)?.[index]
+      if(name)label+=` · ${name}`
+    }
+    const target = option.target
+    if (target.kind === "none" || target.mode !== "range") return {...option,label}
+    return {...option,label, target: {...target, start: Math.round(Math.min(target.start!, target.end!)), end: Math.round(Math.max(target.start!, target.end!))} as Target}
+  })
+}
+
+/** Use the entered distance scale and fit the entire prescribed workout. */
+export function desktopProfileAxis(model: WorkoutModel) {
+  const chart = chartSegments(model)
+  const actual = chart.segments.reduce((sum, segment) => sum + segment.width, 0) || 1
+  const distance = chart.axis.startsWith("Distance")
+  const unit = distance ? chart.segments[0]?.step.end.unit || "m" : "s"
+  const factor = distance ? distanceFactors[unit] || 1 : 1
+  return {actual, maximum: actual, factor, unit, distance}
+}
+
+/** Native distance charts use ordinary 1/2/5 ticks, rather than ten arbitrary fractions. */
+export function desktopDistanceTicks(maximum: number, factor = 1) {
+  const distance = maximum / factor
+  if (!Number.isFinite(distance) || distance <= 0 || !Number.isFinite(factor) || factor <= 0) return [0]
+  const raw = distance / 5
+  const decade = 10 ** Math.floor(Math.log10(raw))
+  const error = raw / decade
+  const interval = decade * (error >= Math.sqrt(50) ? 10 : error >= Math.sqrt(10) ? 5 : error >= Math.sqrt(2) ? 2 : 1)
+  return Array.from({length: Math.min(12, Math.floor(distance / interval + 1e-9) + 1)}, (_, index) => Number((index * interval).toPrecision(12)) * factor)
+}
+
+/** Fit observed profiles to 20-point intensity bands with 20% headroom and a 100% minimum. */
+export function desktopProfileMaximum(segments: ReturnType<typeof chartSegments>["segments"]) {
+  if (segments.some(segment => segment.step.target.kind === "rpe") && segments.every(segment => ["none", "rpe"].includes(segment.step.target.kind))) return 1
+  const peak = Math.max(0, ...segments.flatMap(segment => [segment.start, segment.end, desktopProfileRange(segment).high]))
+  return Math.max(1, Math.ceil(peak * 5 - 1e-9) / 5 * 1.2)
+}
+
+/** Keep chart labels bounded even while a very large numeric draft is visible. */
+export function desktopProfileTicks(maximum: number, rpe = false) {
+  if (rpe) return [0, 0.25, 0.5, 0.75, 1]
+  if (!Number.isFinite(maximum) || maximum <= 0) return [0, 0.5, 1]
+  const interval = maximum <= 1 ? 0.25 : Math.max(0.5, Math.ceil(maximum / 6 * 2) / 2)
+  return Array.from({length: Math.min(8, Math.floor(maximum / interval) + 1)}, (_, index) => index * interval)
 }

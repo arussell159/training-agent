@@ -41,6 +41,27 @@ test("official SDK emits a valid FIT workout with every repeated run step and pa
   assert.equal(steps[2].intensity, 4);
   assert.equal(steps[9].intensity, 3);
 });
+
+test("FIT exports retain walking, mountain biking, rowing, skiing and generic cardio sport identity", () => {
+  for (const [sport, expectedSport, expectedSubSport] of [
+    ["Walk", "walking", "generic"],
+    ["MountainBikeRide", "cycling", "mountain"],
+    ["Rowing", "rowing", "generic"],
+    ["NordicSki", "crossCountrySkiing", "generic"],
+    ["Workout", "training", "cardioTraining"],
+  ]) {
+    const step = newStep(sport);
+    step.end = { kind: "time", value: 1200, unit: "s" };
+    step.target = { kind: "none" };
+    const bytes = encodeWorkoutFit(model([step], sport));
+    const messages = decoded(bytes);
+    assert.equal(messages.workoutMesgs[0].sport, expectedSport);
+    assert.equal(messages.workoutMesgs[0].subSport, expectedSubSport);
+    assert.equal(messages.workoutStepMesgs[0].durationValue, 1200000);
+    assert.equal(messages.workoutStepMesgs[0].targetType, "open");
+    assert.equal(readFitWorkoutSteps(bytes).length, 1);
+  }
+});
 test("the reported two-mile 10:30-per-mile workout exports distance and speed without provider conversion", () => {
   const step = newStep("Run");
   step.end = { kind: "distance", value: 2, unit: "mi" };

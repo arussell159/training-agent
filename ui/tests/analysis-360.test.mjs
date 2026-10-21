@@ -1,5 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
+import { historicalAnalysisThresholds, recordedAnalysisThresholds } from "../../app-backend/lib/recorded-analysis-thresholds.mjs"
 import {
   analysisSelection,
   analysisRangeMetrics,
@@ -9,6 +10,9 @@ import {
   analysisZoneTimes,
   validAnalysisTiles,
   defaultAnalysisTiles,
+  canAddAnalysisTile,
+  restoreAnalysisTile,
+  MAX_ANALYSIS_TILES,
   analysisCsv,
   analysisSignalValue,
   analysisSignalStatistics,
@@ -27,6 +31,94 @@ const point = (time, values = {}) => ({
 const recording = Array.from({ length: 121 }, (_, time) => point(time))
 const near = (actual, expected) =>
   assert.ok(Math.abs(actual - expected) < 1e-8, `${actual} ≠ ${expected}`)
+
+test("range IF and power TSS use the activity threshold even after current settings change", () => {
+  const summary={recorded_thresholds:recordedAnalysisThresholds({icu_ftp:200}),normalized_power:200,intensity_factor:0.6};
+  const currentSettings={ftp:400};
+  const ftp=historicalAnalysisThresholds(summary)?.ftp ?? null;
+  assert.notEqual(ftp,currentSettings.ftp);
+  const selected=analysisRangeMetrics(recording,0,120,ftp);
+  near(selected.intensity,1);
+  near(selected.tss,120/3600*100);
+  const unavailable=analysisRangeMetrics(recording,0,120,historicalAnalysisThresholds({normalized_power:200,intensity_factor:0.6})?.ftp ?? null);
+  assert.equal(unavailable.intensity,null);
+  assert.equal(unavailable.tss,null);
+});
+
+test("opening a recording without a sensor preserves the saved sport workspace", () => {
+  const saved = [
+    {
+      id: "personal-power",
+      kind: "multi",
+      name: "Power and heart rate",
+      channels: ["power", "heartRate", "unknown-channel"],
+      axis: "time",
+      zones: false,
+      height: 240,
+    },
+  ]
+  const sparse = validAnalysisTiles(saved, ["heartRate"], {
+    preserveUnavailable: true,
+  })
+  assert.deepEqual(sparse[0].channels, ["power", "heartRate"])
+  // The preference can be saved/reloaded without erasing the absent power sensor.
+  const reopened = validAnalysisTiles(
+    JSON.parse(JSON.stringify(sparse)),
+    ["power", "heartRate"],
+    { preserveUnavailable: true }
+  )
+  assert.deepEqual(reopened[0].channels, ["power", "heartRate"])
+  assert.equal(reopened[0].height, 240)
+  assert.equal(reopened[0].name, "Power and heart rate")
+})
+
+test("chart addition and undo keep the persisted layout valid at its card limit", () => {
+  const tile = (id, kind = "single") => ({
+    id,
+    kind,
+    name: id,
+    channels: ["power"],
+    axis: "time",
+    zones: false,
+    height: 160,
+  })
+  const full = Array.from({ length: MAX_ANALYSIS_TILES }, (_, index) =>
+    tile(`chart-${index}`)
+  )
+  assert.equal(canAddAnalysisTile(full, "single"), false)
+  assert.equal(canAddAnalysisTile(full.slice(1), "single"), true)
+  assert.equal(
+    restoreAnalysisTile(full, { tile: tile("removed"), index: 0 }),
+    full
+  )
+  assert.ok(validAnalysisTiles(full, ["power"]))
+  const map = tile("original-map", "map")
+  const replacement = [tile("replacement-map", "map")]
+  assert.equal(canAddAnalysisTile(replacement, "map"), false)
+  assert.equal(
+    restoreAnalysisTile(replacement, { tile: map, index: 0 }),
+    replacement
+  )
+  const restored = restoreAnalysisTile([tile("other")], { tile: map, index: 0 })
+  assert.deepEqual(
+    restored.map((item) => item.id),
+    ["original-map", "other"]
+  )
+  assert.equal(restoreAnalysisTile(restored, { tile: map, index: 0 }), restored)
+  assert.ok(validAnalysisTiles(restored, ["power"]))
+})
+
+test("missing elevation is unavailable while measured flat terrain remains zero gain", () => {
+  const absent = [point(0, { elevation: null }), point(5, { elevation: null })]
+  assert.equal(analysisRangeMetrics(absent, 0, 5).gain, null)
+  assert.equal(analysisRangeMetrics(absent, 0, 5).loss, null)
+  const flat = [point(0, { elevation: 10 }), point(5, { elevation: 10 })]
+  assert.equal(analysisRangeMetrics(flat, 0, 5).gain, 0)
+  assert.equal(analysisRangeMetrics(flat, 0, 5).loss, 0)
+  // An elevation pair on opposite sides of a recording gap is not measured coverage.
+  const gap = [point(0, { elevation: 10 }), point(20, { elevation: 15 })]
+  assert.equal(analysisRangeMetrics(gap, 0, 20).gain, null)
+})
 
 test("fractional ten-second timestamps do not create artificial gaps", () => {
   const points = Array.from({ length: 163 }, (_, index) =>

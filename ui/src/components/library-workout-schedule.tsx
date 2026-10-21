@@ -48,8 +48,11 @@ export function LibraryWorkoutSchedule({
   )
   const [error, setError] = useState("")
   const inFlight = useRef(false)
+  const unavailable = Boolean(
+    workout.structure_read_only || workout.template_metadata_error
+  )
   async function schedule() {
-    if (inFlight.current) return
+    if (inFlight.current || (unavailable && state !== "unknown")) return
     inFlight.current = true
     setError("")
     const recheck = state === "unknown"
@@ -102,7 +105,7 @@ export function LibraryWorkoutSchedule({
           aria-label="Schedule workout date"
           type="date"
           required
-          disabled={state === "saving" || state === "unknown"}
+          disabled={unavailable || state === "saving" || state === "unknown"}
           value={date}
           onChange={(event) => {
             setDate(event.target.value)
@@ -122,6 +125,7 @@ export function LibraryWorkoutSchedule({
           <Button
             type="button"
             variant="outline"
+            disabled={unavailable}
             onClick={() => {
               setCreationId(randomId())
               setState("ready")
@@ -133,7 +137,9 @@ export function LibraryWorkoutSchedule({
       ) : (
         <Button
           type="button"
-          disabled={state === "saving" || !date}
+          disabled={
+            (unavailable && state !== "unknown") || state === "saving" || !date
+          }
           onClick={() => void schedule()}
         >
           {state === "saving"
@@ -146,6 +152,18 @@ export function LibraryWorkoutSchedule({
       {error && (
         <p role="alert" className="w-full text-sm text-destructive">
           {error}
+        </p>
+      )}
+      {unavailable && (
+        <p role="alert" className="w-full text-sm text-destructive">
+          {workout.template_metadata_error ||
+            "The private template prescription is unavailable. Reload before scheduling."}
+        </p>
+      )}
+      {unavailable && state === "unknown" && (
+        <p className="w-full text-sm">
+          Your earlier save can still be rechecked without creating another
+          workout.
         </p>
       )}
     </section>

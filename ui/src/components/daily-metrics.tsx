@@ -1,5 +1,5 @@
 import { HeartPulse, Moon } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { apiFetch } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import {
@@ -26,13 +26,8 @@ import {
   ResponsiveContainer,
 } from "recharts"
 import { Card } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog"
+import { CalendarMetricsEditor } from "./calendar-metrics-editor"
+import type { CalendarMetricsResult } from "@/lib/calendar-metrics"
 
 type Row = {
   date?: string
@@ -195,23 +190,66 @@ export function DailyMetricsDialog({
   date,
   rows,
   onClose,
+  onSaved,
 }: {
   date: string | null
   rows: Row[]
   onClose: () => void
+  onSaved?: (result: CalendarMetricsResult) => void | Promise<void>
 }) {
   if (!date) return null
-  return <MetricsEditor key={date} date={date} rows={rows} onClose={onClose} />
+  return (
+    <MetricsWithEntry
+      key={date}
+      date={date}
+      rows={rows}
+      onClose={onClose}
+      onSaved={onSaved}
+    />
+  )
 }
 
-function MetricsEditor({
+function MetricsWithEntry({
   date,
   rows,
   onClose,
+  onSaved,
 }: {
   date: string
   rows: Row[]
   onClose: () => void
+  onSaved?: (result: CalendarMetricsResult) => void | Promise<void>
+}) {
+  const [historyDirty, setHistoryDirty] = useState(false)
+  const [historyBusy, setHistoryBusy] = useState(false)
+  return (
+    <CalendarMetricsEditor
+      date={date}
+      onClose={onClose}
+      onSaved={onSaved}
+      historyDirty={historyDirty}
+      historyBusy={historyBusy}
+    >
+      <MetricsHistoryPanel
+        date={date}
+        rows={rows}
+        onDirtyChange={setHistoryDirty}
+        onBusyChange={setHistoryBusy}
+      />
+    </CalendarMetricsEditor>
+  )
+}
+
+function MetricsHistoryPanel({
+  date,
+  rows,
+  onDirtyChange,
+  onBusyChange,
+}: {
+  date: string
+  rows: Row[]
+  onDirtyChange: (dirty: boolean) => void
+  onBusyChange: (busy: boolean) => void
 }) {
   const [layout, setLayout] = useState<{ graphs: string[]; cards: string[] }>({
     graphs: ["HRV", "Resting Heart Rate", "Sleep Hours"],
@@ -221,6 +259,9 @@ function MetricsEditor({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [loaded, setLoaded] = useState(false)
+  const saveInFlight = useRef(false)
+  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange])
+  useEffect(() => onBusyChange(saving), [saving, onBusyChange])
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, {
@@ -277,6 +318,8 @@ function MetricsEditor({
     setDirty(true)
   }
   async function save() {
+    if (saveInFlight.current) return
+    saveInFlight.current = true
     setSaving(true)
     setError("")
     try {
@@ -292,6 +335,7 @@ function MetricsEditor({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed")
     } finally {
+      saveInFlight.current = false
       setSaving(false)
     }
   }
@@ -302,134 +346,118 @@ function MetricsEditor({
     .filter((r) => r.date && r.date >= start && r.date <= date)
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))
   return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (
-          !open &&
-          !saving &&
-          (!dirty || window.confirm("Discard unsaved layout changes?"))
-        )
-          onClose()
-      }}
+    <section
+      className="daily-metrics-history"
+      aria-label="Recorded metric history and layout"
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <HeartPulse className="size-5" />
-            Daily metrics
-          </DialogTitle>
-          <DialogDescription>
-            {new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-              year: "numeric",
-            })}
-          </DialogDescription>
-        </DialogHeader>
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        {!values.length ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            No metrics recorded for this day. Missing values are not treated as
-            zero.
-          </p>
-        ) : (
-          <>
-            <div className="grid gap-3 md:grid-cols-3">
-              {layout.graphs.map((label, graphIndex) => {
-                const data = history.map((r, index) => {
-                  const numeric = metrics(r).find(
-                    (m) => m.label === label
-                  )?.numeric
-                  const preceding = history
-                    .slice(Math.max(0, index - 6), index + 1)
-                    .map(
-                      (x) => metrics(x).find((m) => m.label === label)?.numeric
-                    )
-                    .filter((v): v is number => v != null)
-                  return {
-                    date: r.date,
-                    value: numeric ?? null,
-                    average: preceding.length
-                      ? preceding.reduce((a, b) => a + b, 0) / preceding.length
-                      : null,
-                  }
-                })
-                return (
-                  <Card key={graphIndex} className="gap-3 p-3">
-                    <select
-                      aria-label={`Graph ${graphIndex + 1}`}
-                      disabled={!loaded || saving}
-                      value={label}
-                      className="w-full bg-transparent text-sm font-medium"
-                      onChange={(e) => {
-                        const graphs = [...layout.graphs]
-                        graphs[graphIndex] = e.target.value
-                        setLayout({ ...layout, graphs })
-                        setDirty(true)
-                      }}
-                    >
-                      {choices.map((choice) => (
-                        <option key={choice} value={choice}>
-                          {choice}
-                        </option>
-                      ))}
-                    </select>
-                    {data.some((d) => d.value != null) ? (
-                      <>
-                        <MetricsTrendChart data={data} label={label} />
-                      </>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        No trend data
-                      </p>
-                    )}
-                  </Card>
-                )
-              })}
-            </div>
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={({ active, over }) => {
-                if (over) move(String(active.id), String(over.id))
-              }}
-            >
-              <SortableContext
-                items={ordered.map((m) => m.label)}
-                strategy={rectSortingStrategy}
-              >
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {ordered.map((m, index) => (
-                    <MetricTile
-                      key={m.label}
-                      metric={m}
-                      disabled={!loaded || saving}
-                      onMove={(direction) => {
-                        const target = ordered[index + direction]
-                        if (target) move(m.label, target.label)
-                      }}
-                    />
+      <header>
+        <h2 className="flex items-center gap-2">
+          <HeartPulse className="size-5" />
+          Daily metrics
+        </h2>
+        <p>
+          {new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+          })}
+        </p>
+      </header>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      {!values.length && (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          No metrics recorded for this day. Missing values are not treated as
+          zero.
+        </p>
+      )}
+      <>
+        <div className="metrics-history-graphs grid gap-3 md:grid-cols-3">
+          {layout.graphs.map((label, graphIndex) => {
+            const data = history.map((r, index) => {
+              const numeric = metrics(r).find((m) => m.label === label)?.numeric
+              const preceding = history
+                .slice(Math.max(0, index - 6), index + 1)
+                .map((x) => metrics(x).find((m) => m.label === label)?.numeric)
+                .filter((v): v is number => v != null)
+              return {
+                date: r.date,
+                value: numeric ?? null,
+                average: preceding.length
+                  ? preceding.reduce((a, b) => a + b, 0) / preceding.length
+                  : null,
+              }
+            })
+            return (
+              <Card key={graphIndex} className="gap-3 p-3">
+                <select
+                  aria-label={`Graph ${graphIndex + 1}`}
+                  disabled={!loaded || saving}
+                  value={label}
+                  className="w-full bg-transparent text-sm font-medium"
+                  onChange={(e) => {
+                    const graphs = [...layout.graphs]
+                    graphs[graphIndex] = e.target.value
+                    setLayout({ ...layout, graphs })
+                    setDirty(true)
+                  }}
+                >
+                  {choices.map((choice) => (
+                    <option key={choice} value={choice}>
+                      {choice}
+                    </option>
                   ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-          </>
-        )}
-        {dirty && (
-          <div className="sticky bottom-0 flex justify-end border-t bg-background py-3">
-            <Button onClick={() => void save()} disabled={saving}>
-              {saving ? "Saving…" : "Save layout"}
-            </Button>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+                </select>
+                {data.some((d) => d.value != null) ? (
+                  <>
+                    <MetricsTrendChart data={data} label={label} />
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No trend data</p>
+                )}
+              </Card>
+            )
+          })}
+        </div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={({ active, over }) => {
+            if (over) move(String(active.id), String(over.id))
+          }}
+        >
+          <SortableContext
+            items={ordered.map((m) => m.label)}
+            strategy={rectSortingStrategy}
+          >
+            <div className="metrics-history-values grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {ordered.map((m, index) => (
+                <MetricTile
+                  key={m.label}
+                  metric={m}
+                  disabled={!loaded || saving}
+                  onMove={(direction) => {
+                    const target = ordered[index + direction]
+                    if (target) move(m.label, target.label)
+                  }}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      </>
+      {dirty && (
+        <div className="metrics-layout-save sticky bottom-0 flex justify-end border-t bg-background py-3">
+          <Button onClick={() => void save()} disabled={saving}>
+            {saving ? "Saving…" : "Save layout"}
+          </Button>
+        </div>
+      )}
+    </section>
   )
 }
 

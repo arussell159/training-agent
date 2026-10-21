@@ -1,4 +1,5 @@
 import { appendWorkoutComment } from "./workout-comments.mjs";
+import { providerWorkoutDescription } from "./workout-provider-description.mjs";
 import { readWorkoutCommentText, withWorkoutCommentText } from "./workout-comment-text.mjs";
 
 export function commentWorkoutPath(id) {
@@ -48,7 +49,7 @@ export async function saveProviderWorkoutComment(request, input, legacy = [], no
       { status: 400 }
     );
   const description = withWorkoutCommentText(workout.description, result.comments);
-  if (description.length > 30000)
+  if (providerWorkoutDescription(description).length > 30000)
     throw Object.assign(
       Error("Workout comments exceed the Intervals.icu text limit. Your draft is retained."),
       { status: 400 }

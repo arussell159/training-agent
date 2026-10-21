@@ -1,0 +1,527 @@
+[role="dialog"].calendar-metrics-editor {
+  display: flex;
+  flex-direction: column;
+  inset: 20px 15px;
+  top: 20px;
+  left: 15px;
+  width: calc(var(--app-window-width, 100vw) - 30px);
+  max-width: none;
+  height: calc(100dvh - 40px);
+  max-height: calc(100dvh - 40px);
+  padding: 0;
+  gap: 0;
+  border-radius: 8px;
+  translate: none;
+  transform: none;
+  --tw-translate-x: 0;
+  --tw-translate-y: 0;
+  background: white;
+  color: #262b35;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  overflow: hidden;
+  box-shadow: 0 16px 32px #1a202e4d;
+}
+.calendar-metrics-editor button,
+.calendar-metrics-editor input,
+.calendar-metrics-editor select,
+.calendar-metrics-editor textarea {
+  font: inherit;
+}
+.calendar-metrics-editor button {
+  cursor: pointer;
+}
+.calendar-metrics-editor button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.calendar-metrics-editor button:focus-visible,
+.calendar-metrics-editor input:focus-visible,
+.calendar-metrics-editor select:focus-visible,
+.calendar-metrics-editor textarea:focus-visible {
+  outline: 2px solid #2943d4;
+  outline-offset: 1px;
+}
+.cme-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 72px;
+  padding: 0 24px;
+  border-bottom: 1px solid #aeb4bd;
+  background: white;
+}
+.cme-header > svg {
+  color: #89919e;
+}
+.cme-header > h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+.cme-header > span {
+  font-size: 13px;
+  margin-left: 6px;
+}
+.cme-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-left: auto;
+}
+.cme-header-actions > button {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid #dadce1;
+  background: white;
+  color: #475268;
+}
+.cme-header-actions > button:first-child {
+  background: #e9ebef;
+  border-color: #e9ebef;
+}
+.cme-header-actions > button:first-child:enabled {
+  background: #186ce1;
+  border-color: #186ce1;
+  color: white;
+}
+.cme-header-actions > button:nth-child(2):enabled {
+  border-color: #186ce1;
+  color: #186ce1;
+}
+.cme-header-actions > button[data-metrics-close] {
+  padding: 4px;
+  border: 0;
+  background: transparent;
+}
+.cme-header details,
+.cme-metric-card details {
+  position: relative;
+}
+.cme-header summary,
+.cme-metric-card summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 5px;
+  list-style: none;
+}
+.cme-header details > div,
+.cme-metric-card details > div {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  min-width: 180px;
+  z-index: 5;
+  display: grid;
+  padding: 5px;
+  background: white;
+  border: 1px solid #d4d7dd;
+  border-radius: 4px;
+  box-shadow: 0 5px 15px #0002;
+}
+.cme-header details button,
+.cme-metric-card details button {
+  border: 0;
+  background: white;
+  text-align: left;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+.cme-notice {
+  padding: 8px 20px;
+  border-bottom: 1px solid #ddd;
+  background: #fffaf0;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.cme-notice p {
+  margin: 2px 0;
+}
+.cme-notice [role="alert"] {
+  color: #a52929;
+}
+.cme-notice > button {
+  margin-top: 5px;
+  border: 1px solid #bfc4cd;
+  border-radius: 4px;
+  padding: 5px 9px;
+  background: white;
+}
+.cme-body {
+  display: grid;
+  grid-template-columns: 48% 52%;
+  min-height: 0;
+  flex: 1;
+}
+.cme-entry-pane {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: white;
+  border-right: 1px solid #e2e4e9;
+}
+.cme-history-pane {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: #f0f3f7;
+  padding: 22px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.cme-loading,
+.cme-empty {
+  padding: 25px;
+  color: #76808b;
+  font-size: 13px;
+}
+.cme-add-panel {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cme-add-panel > h2 {
+  font-size: 13px;
+  font-weight: 400;
+  margin: 0;
+  padding: 25px 16px 18px;
+}
+.cme-add-fields {
+  padding: 10px 38px 12px 16px;
+  min-height: 0;
+  overflow: auto;
+  flex: 1;
+}
+.cme-add-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 136px;
+  gap: 0 8px;
+  margin: 0 0 27px;
+  align-items: start;
+}
+.cme-value-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 39px;
+  border: 1px solid #bfc1c7;
+  border-radius: 4px;
+  min-width: 0;
+  background: white;
+}
+.cme-value-field:focus-within {
+  border-color: #2440d8;
+  box-shadow: 0 0 0 1px #2440d8;
+}
+.cme-value-field label {
+  position: absolute;
+  top: -10px;
+  left: 9px;
+  background: white;
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 17px;
+  color: #555;
+  z-index: 1;
+}
+.cme-value-field input,
+.cme-value-field select {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  padding: 7px 12px;
+  outline: none;
+  border-radius: 4px;
+  color: #282d36;
+}
+.cme-value-field select {
+  padding-right: 25px;
+}
+.cme-value-field span {
+  padding-right: 12px;
+  color: #888;
+  font-size: 14px;
+}
+.cme-add-field > input[type="time"] {
+  height: 41px;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  background: white;
+  border: 1px solid #bfc1c7;
+  border-radius: 4px;
+}
+.cme-add-field > small {
+  font-size: 10px;
+  text-align: right;
+  padding: 3px 14px 0;
+  color: #333;
+  grid-column: 1;
+}
+.cme-add-field > p {
+  grid-column: 1/-1;
+  color: #b12a2a;
+  font-size: 11px;
+  margin: 4px 0 0;
+}
+.cme-add-panel > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 15px 16px 18px;
+  background: white;
+  flex-shrink: 0;
+}
+.cme-add-panel > footer button {
+  border: 0;
+  border-radius: 20px;
+  background: transparent;
+  color: #263fce;
+  padding: 6px 15px;
+}
+.cme-add-panel > footer button:last-child {
+  background: #e5e7ed;
+  color: #344466;
+}
+.cme-add-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 22px 16px;
+}
+.cme-add-actions > button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: #2742c7;
+  padding: 3px 0;
+}
+.cme-add-actions > button + button {
+  margin-left: auto;
+  font-size: 12px;
+  color: #444;
+}
+.cme-add-menu {
+  position: absolute;
+  top: 100%;
+  left: 16px;
+  z-index: 6;
+  background: white;
+  border: 1px solid #cdd1d9;
+  box-shadow: 0 4px 12px #0002;
+  max-height: 360px;
+  overflow: auto;
+  display: grid;
+  padding: 5px;
+  min-width: 220px;
+}
+.cme-add-menu button {
+  border: 0;
+  background: white;
+  text-align: left;
+  padding: 8px 12px;
+  color: #333;
+}
+.cme-add-menu button:hover {
+  background: #f0f3f8;
+}
+.cme-add-menu p {
+  font-size: 12px;
+  padding: 5px;
+}
+.cme-metric-cards {
+  padding: 0 16px 20px;
+  display: grid;
+  gap: 15px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.cme-metric-card {
+  border: 1px solid #dce0e6;
+  border-radius: 6px;
+  background: white;
+  padding: 13px;
+  min-width: 0;
+}
+.cme-metric-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.cme-metric-card h2 {
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0;
+}
+.cme-card-value {
+  display: block;
+  border: 0;
+  background: transparent;
+  font-size: 25px !important;
+  line-height: 1.35;
+  padding: 6px 0;
+  color: #333;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.cme-card-value small {
+  font-size: 12px;
+  color: #888;
+  margin-left: 7px;
+}
+.cme-metric-card > p {
+  font-size: 11px;
+  color: #8b9098;
+  text-align: right;
+  margin: 5px 0 0;
+}
+.cme-note {
+  background: white;
+  border: 1px solid #dde1e7;
+  border-radius: 6px;
+  padding: 18px 16px 23px;
+  flex-shrink: 0;
+}
+.cme-note label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 8px;
+  color: #444;
+}
+.cme-note textarea {
+  width: 100%;
+  min-height: 41px;
+  max-height: 250px;
+  border: 1px solid #262b35;
+  border-radius: 0;
+  background: white;
+  padding: 8px;
+  resize: vertical;
+}
+.cme-note > small {
+  display: block;
+  text-align: right;
+  font-size: 11px;
+  color: #444;
+  margin: 3px 8px 0;
+}
+.cme-pending-clears {
+  font-size: 12px;
+  padding: 10px 16px;
+  color: #8a511d;
+}
+.cme-pending-clears button {
+  border: 0;
+  background: transparent;
+  color: #2943c7;
+  text-decoration: underline;
+}
+.cme-history-pane .daily-metrics-history > header {
+  display: none;
+}
+.cme-history-pane .daily-metrics-history {
+  min-width: 0;
+}
+.cme-history-pane .daily-metrics-history > div {
+  min-width: 0;
+}
+.cme-history-pane .daily-metrics-history .metrics-history-graphs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.cme-history-pane .daily-metrics-history .metrics-history-graphs > div {
+  background: white;
+  border-radius: 7px;
+  border: 1px solid #dce1e7;
+  box-shadow: none;
+}
+.cme-history-pane .daily-metrics-history .metrics-history-values {
+  margin-top: 16px;
+}
+.cme-history-pane .daily-metrics-history .metrics-layout-save {
+  margin-top: 12px;
+}
+@media (max-width: 900px) {
+  .cme-header {
+    padding: 0 14px;
+    gap: 7px;
+  }
+  .cme-header-actions {
+    gap: 6px;
+  }
+  .cme-header-actions > button {
+    padding: 6px 10px;
+  }
+  .cme-add-fields {
+    padding-right: 15px;
+  }
+  .cme-add-field {
+    grid-template-columns: minmax(0, 1fr) 108px;
+  }
+  .cme-metric-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cme-history-pane {
+    padding: 16px 10px;
+  }
+  .cme-history-pane .daily-metrics-history .metrics-history-graphs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 650px) {
+  [role="dialog"].calendar-metrics-editor {
+    inset: 8px;
+    left: 8px;
+    top: 8px;
+    width: calc(100vw - 16px);
+    height: calc(100dvh - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+  .cme-header {
+    min-height: 95px;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 12px;
+  }
+  .cme-header > span {
+    font-size: 11px;
+  }
+  .cme-header-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .cme-body {
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+  .cme-entry-pane {
+    min-height: 380px;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid #ddd;
+  }
+  .cme-add-panel {
+    height: 430px;
+  }
+  .cme-history-pane {
+    overflow: visible;
+    flex-shrink: 0;
+  }
+  .cme-metric-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react"
-import { Ellipsis, Trophy, Trash2 } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { Copy, Ellipsis, Pencil, Scissors, Trophy, Trash2 } from "lucide-react"
 
 import {
   AlertDialog,
@@ -27,16 +27,29 @@ import type { PlannedWorkout, TrainingContext } from "@/lib/training-context"
 import { dashboardToday } from "@/lib/dashboard-metrics"
 
 export function isRaceWorkout(workout: PlannedWorkout) {
-  const race = workout as PlannedWorkout & { category?: string; raw?: { category?: string } }
-  return /^RACE(?:_[ABC])?$/.test(String(race.category || race.raw?.category || ""))
+  const race = workout as PlannedWorkout & {
+    category?: string
+    raw?: { category?: string }
+  }
+  return (
+    Boolean(workout.calendar_event_key) ||
+    /^RACE(?:_[ABC])?$/.test(String(race.category || race.raw?.category || ""))
+  )
 }
 
-export function RaceMarkerIcon({ priority = "A" }: { priority?: string | null }) {
+export function RaceMarkerIcon({
+  priority = "A",
+}: {
+  priority?: string | null
+}) {
   return (
-    <span className="relative inline-flex size-5 shrink-0 items-center justify-center" aria-hidden="true">
+    <span
+      className="relative inline-flex size-5 shrink-0 items-center justify-center"
+      aria-hidden="true"
+    >
       <Trophy className="size-5 fill-teal-700 text-teal-700 dark:fill-teal-400 dark:text-teal-400" />
-      <span className="absolute top-[3px] text-[7px] font-black leading-none text-white dark:text-slate-950">
-        {priority || "A"}
+      <span className="absolute top-[3px] text-[7px] leading-none font-black text-white dark:text-slate-950">
+        {priority || ""}
       </span>
     </span>
   )
@@ -45,9 +58,12 @@ export function RaceMarkerIcon({ priority = "A" }: { priority?: string | null })
 function DateFlag({ date }: { date: string }) {
   const parsed = new Date(`${date}T12:00:00Z`)
   return (
-    <div className="relative flex h-14 w-12 shrink-0 flex-col items-center bg-blue-700 pt-1 text-white after:absolute after:inset-x-0 after:bottom-[-10px] after:border-x-[24px] after:border-b-0 after:border-t-[10px] after:border-x-transparent after:border-t-blue-700">
-      <span className="text-[11px] uppercase leading-4">
-        {parsed.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" })}
+    <div className="relative flex h-14 w-12 shrink-0 flex-col items-center bg-blue-700 pt-1 text-white after:absolute after:inset-x-0 after:bottom-[-10px] after:border-x-[24px] after:border-t-[10px] after:border-b-0 after:border-x-transparent after:border-t-blue-700">
+      <span className="text-[11px] leading-4 uppercase">
+        {parsed.toLocaleDateString("en-US", {
+          month: "short",
+          timeZone: "UTC",
+        })}
       </span>
       <span className="text-xl leading-5">{parsed.getUTCDate()}</span>
     </div>
@@ -69,12 +85,31 @@ function countdownDetails(date: string, todayDate?: string) {
   const twoMonthsBefore = new Date(event)
   twoMonthsBefore.setMonth(twoMonthsBefore.getMonth() - 2)
   const showDays = today >= twoMonthsBefore
-  return { days, value:showDays ? Math.max(0,days) : Math.max(0,Math.floor(days / 7)), unit:showDays ? "DAY" : "WEEK" }
+  return {
+    days,
+    value: showDays ? Math.max(0, days) : Math.max(0, Math.floor(days / 7)),
+    unit: showDays ? "DAY" : "WEEK",
+  }
 }
 
 function racePriority(workout: PlannedWorkout) {
-  const race = workout as PlannedWorkout & { category?: string; raw?: { category?: string; priority?: string; race_priority?: string } }
-  return race.raw?.priority || race.raw?.race_priority || String(race.category || race.raw?.category || "").split("_")[1] || "A"
+  const race = workout as PlannedWorkout & {
+    category?: string
+    raw?: { category?: string; priority?: string; race_priority?: string }
+  }
+  if (
+    ["RACE", "NOTE"].includes(
+      String(race.category || race.raw?.category || "")
+    ) &&
+    (workout.calendar_event_key || race.category === "RACE")
+  )
+    return ""
+  return (
+    race.raw?.priority ||
+    race.raw?.race_priority ||
+    String(race.category || race.raw?.category || "").split("_")[1] ||
+    "A"
+  )
 }
 
 export function RaceCalendarCard({
@@ -82,13 +117,46 @@ export function RaceCalendarCard({
   disabled,
   onOpen,
   onDelete,
+  onTransfer,
+  transferDisabled = false,
+  onEdit,
 }: {
   workout: PlannedWorkout
   disabled?: boolean
   onOpen: () => void
-  onDelete: () => void
+  onDelete: () => void | Promise<void>
+  onTransfer?: (mode: "copy" | "cut") => void
+  transferDisabled?: boolean
+  onEdit?: () => void
 }) {
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState("")
+  const deleteInFlight = useRef(false)
+  const requestDelete = () => {
+    if (disabled || deleteInFlight.current) return
+    setDeleteError("")
+    setDeleteOpen(true)
+  }
+  const deleteRace = async () => {
+    if (deleteInFlight.current) return
+    deleteInFlight.current = true
+    setDeleting(true)
+    setDeleteError("")
+    try {
+      await onDelete()
+      setDeleteOpen(false)
+    } catch (reason) {
+      setDeleteError(
+        reason instanceof Error
+          ? reason.message
+          : "This Event could not be deleted. It remains open; retry when ready."
+      )
+    } finally {
+      deleteInFlight.current = false
+      setDeleting(false)
+    }
+  }
   const date = workout.workout_date || ""
   const countdown = countdownDetails(date)
   return (
@@ -106,43 +174,141 @@ export function RaceCalendarCard({
         className="group/race w-full cursor-pointer gap-0 overflow-hidden rounded-md border-blue-200 px-0 py-0 shadow-sm dark:border-blue-900"
       >
         <div className="flex min-h-16 items-start justify-between gap-2 pr-1.5">
-          <div className="ml-2 shrink-0"><DateFlag date={date} /></div>
-          <div className="pt-1.5" onClick={(event) => event.stopPropagation()}>
+          <div className="ml-2 shrink-0">
+            <DateFlag date={date} />
+          </div>
+          <div
+            className="pt-1.5"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
             <MobileActionMenu
               label={`Options for ${workout.title}`}
-              actions={[{ value: "delete", label: "Delete race", disabled, onSelect: () => setDeleteOpen(true) }]}
-            ><DropdownMenu>
-              <DropdownMenuTrigger
-                render={<Button variant="ghost" size="icon-sm" className="size-6" aria-label={`Options for ${workout.title}`} />}
-              >
-                <Ellipsis className="size-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem variant="destructive" disabled={disabled} onClick={() => setDeleteOpen(true)}>
-                  <Trash2 /> Delete race
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu></MobileActionMenu>
+              actions={[
+                {
+                  value: "delete",
+                  label: "Delete race",
+                  disabled: disabled || deleting,
+                  onSelect: requestDelete,
+                },
+              ]}
+            >
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-6"
+                      aria-label={
+                        onTransfer
+                          ? `Calendar entry actions: ${workout.title}`
+                          : `Options for ${workout.title}`
+                      }
+                    />
+                  }
+                >
+                  <Ellipsis className="size-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {onEdit && (
+                    <DropdownMenuItem disabled={disabled} onClick={onEdit}>
+                      <Pencil />
+                      Edit
+                    </DropdownMenuItem>
+                  )}
+                  {onTransfer && (
+                    <>
+                      <DropdownMenuItem
+                        disabled={disabled || transferDisabled}
+                        onClick={() => onTransfer("cut")}
+                      >
+                        <Scissors />
+                        Cut
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={disabled || transferDisabled}
+                        onClick={() => onTransfer("copy")}
+                      >
+                        <Copy />
+                        Copy
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={disabled || deleting}
+                    onClick={requestDelete}
+                  >
+                    <Trash2 /> {onTransfer ? "Delete" : "Delete race"}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </MobileActionMenu>
           </div>
         </div>
-        <div className="space-y-1 px-2.5 pb-2.5 pt-1">
-          <p className="line-clamp-2 text-sm font-semibold leading-snug">{workout.title}</p>
-          <p className="text-[10px] text-muted-foreground">{dateLabel(date, { weekday:"short", month:"short", day:"numeric", year:"numeric" })}</p>
+        <div className="space-y-1 px-2.5 pt-1 pb-2.5">
+          <p className="line-clamp-2 text-sm leading-snug font-semibold">
+            {workout.title}
+          </p>
+          <p className="text-[10px] text-muted-foreground">
+            {dateLabel(date, {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })}
+          </p>
           <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2 text-[10px]">
-            <span className="font-semibold text-blue-700 dark:text-blue-400">{countdown.value} {countdown.unit.toLowerCase()}{countdown.value===1?'':'s'} left</span>
-            <span className="text-muted-foreground">Race {racePriority(workout)}</span>
+            <span className="font-semibold text-blue-700 dark:text-blue-400">
+              {countdown.value} {countdown.unit.toLowerCase()}
+              {countdown.value === 1 ? "" : "s"} left
+            </span>
+            <span className="text-muted-foreground">
+              {racePriority(workout)
+                ? `Race ${racePriority(workout)}`
+                : "Event"}
+            </span>
           </div>
         </div>
       </Card>
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent onClick={(event) => event.stopPropagation()}>
+      <AlertDialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          if (!deleteInFlight.current) setDeleteOpen(open)
+        }}
+      >
+        <AlertDialogContent
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            event.stopPropagation()
+            if (
+              (event.ctrlKey || event.metaKey) &&
+              ["s", "z"].includes(event.key.toLowerCase())
+            )
+              event.preventDefault()
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Delete race?</AlertDialogTitle>
-            <AlertDialogDescription>Delete “{workout.title}” from your race calendar and annual training plan?</AlertDialogDescription>
+            <AlertDialogDescription>
+              Delete “{workout.title}” from your race calendar and annual
+              training plan?
+            </AlertDialogDescription>
           </AlertDialogHeader>
+          {deleteError && <p role="alert">{deleteError}</p>}
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={onDelete}>Delete race</AlertDialogAction>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={disabled || deleting}
+              onClick={(event) => {
+                event.preventDefault()
+                void deleteRace()
+              }}
+            >
+              {deleting ? "Deleting…" : "Delete race"}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -160,9 +326,15 @@ export function EventsCard({ context }: { context: TrainingContext }) {
       try {
         const response = await apiFetch("/api/annual-plans")
         if (!response.ok) return
-        const result = await response.json() as { plans?: AnnualPlan[]; activeId?: string | null }
-        if (!active || request !== revision || !Array.isArray(result?.plans)) return
-        const plan = result.plans.find((item) => item?.id === result.activeId) || result.plans[0]
+        const result = (await response.json()) as {
+          plans?: AnnualPlan[]
+          activeId?: string | null
+        }
+        if (!active || request !== revision || !Array.isArray(result?.plans))
+          return
+        const plan =
+          result.plans.find((item) => item?.id === result.activeId) ||
+          result.plans[0]
         setPlanEvents(Array.isArray(plan?.events) ? plan.events : [])
       } catch {
         // Calendar races remain visible when the optional annual plan is offline.
@@ -178,22 +350,42 @@ export function EventsCard({ context }: { context: TrainingContext }) {
 
   const today = dashboardToday(context)
   const events = useMemo(() => {
-    const merged = new Map<string, Partial<PlanEvent> & { name: string; date: string }>()
+    const merged = new Map<
+      string,
+      Partial<PlanEvent> & { name: string; date: string }
+    >()
     for (const event of [...calendarRaceEvents(context), ...planEvents]) {
-      if (!event || typeof event.name !== "string" || typeof event.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(event.date)) continue
+      if (
+        !event ||
+        typeof event.name !== "string" ||
+        typeof event.date !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(event.date)
+      )
+        continue
       const date = new Date(`${event.date}T12:00:00Z`)
-      if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== event.date) continue
+      if (
+        !Number.isFinite(date.getTime()) ||
+        date.toISOString().slice(0, 10) !== event.date
+      )
+        continue
       merged.set(event.date, event)
     }
     return [...merged.values()]
       .filter((event) => event.date >= today)
       .sort((a, b) => a.date.localeCompare(b.date))
   }, [context, planEvents, today])
-  const nextA = events.find((event) => String(event.priority || "").toUpperCase() === "A")
+  const nextA = events.find(
+    (event) => String(event.priority || "").toUpperCase() === "A"
+  )
   const countdown = nextA ? countdownDetails(nextA.date, today) : null
 
   return (
-    <Card role="region" aria-label="Upcoming race events" tabIndex={0} className="dashboard-events-card col-span-2 min-w-0 gap-0 bg-card py-0 [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-4 lg:col-start-9 lg:row-start-1">
+    <Card
+      role="region"
+      aria-label="Upcoming race events"
+      tabIndex={0}
+      className="dashboard-events-card col-span-2 min-w-0 gap-0 bg-card py-0 [--card-spacing:--spacing(3)] sm:[--card-spacing:--spacing(4)] lg:col-span-4 lg:col-start-9 lg:row-start-1"
+    >
       <CardContent className="space-y-3 px-0">
         {nextA ? (
           <>
@@ -202,48 +394,137 @@ export function EventsCard({ context }: { context: TrainingContext }) {
                 <DateFlag date={nextA.date} />
               </div>
               <div className="min-w-0 flex-1 pt-3">
-                <p title={nextA.name} className="line-clamp-2 min-w-0 text-base font-black uppercase leading-tight lg:text-sm">{nextA.name}</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">{dateLabel(nextA.date, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</p>
+                <p
+                  title={nextA.name}
+                  className="line-clamp-2 min-w-0 text-base leading-tight font-black uppercase lg:text-sm"
+                >
+                  {nextA.name}
+                </p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {dateLabel(nextA.date, {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                </p>
               </div>
-              {countdown&&<div className="shrink-0 pt-2 text-center sm:hidden" aria-label={`${countdown.value} ${countdown.unit.toLowerCase()}${countdown.value===1?'':'s'} left`}>
-                <div className="flex justify-center gap-0.5">
-                  {String(countdown.value).padStart(2,"0").split("").map((digit,index)=><span key={`${digit}-${index}`} className="relative flex h-10 w-7 items-center justify-center overflow-hidden rounded-[4px] border border-zinc-700 bg-zinc-900 text-3xl font-black leading-none text-white after:absolute after:inset-x-0 after:top-1/2 after:border-t after:border-black/70">{digit}</span>)}
+              {countdown && (
+                <div
+                  className="shrink-0 pt-2 text-center sm:hidden"
+                  aria-label={`${countdown.value} ${countdown.unit.toLowerCase()}${countdown.value === 1 ? "" : "s"} left`}
+                >
+                  <div className="flex justify-center gap-0.5">
+                    {String(countdown.value)
+                      .padStart(2, "0")
+                      .split("")
+                      .map((digit, index) => (
+                        <span
+                          key={`${digit}-${index}`}
+                          className="relative flex h-10 w-7 items-center justify-center overflow-hidden rounded-[4px] border border-zinc-700 bg-zinc-900 text-3xl leading-none font-black text-white after:absolute after:inset-x-0 after:top-1/2 after:border-t after:border-black/70"
+                        >
+                          {digit}
+                        </span>
+                      ))}
+                  </div>
+                  <p className="mt-1 text-[8px] leading-none font-black uppercase">
+                    {countdown.unit}
+                    {countdown.value === 1 ? "" : "S"} LEFT
+                  </p>
                 </div>
-                <p className="mt-1 text-[8px] font-black uppercase leading-none">{countdown.unit}{countdown.value===1?'':'S'} LEFT</p>
-              </div>}
-              {countdown&&<div className="hidden shrink-0 pt-2 text-center lg:block" aria-label={`${countdown.value} ${countdown.unit.toLowerCase()}${countdown.value===1?'':'s'} left`}>
-                <div className="flex justify-center gap-1">
-                  {String(countdown.value).padStart(2,"0").split("").map((digit,index)=><span key={`${digit}-${index}`} className="relative flex h-12 w-9 items-center justify-center overflow-hidden rounded-md border border-zinc-700 bg-zinc-900 text-4xl font-black leading-none text-white shadow-sm after:absolute after:inset-x-0 after:top-1/2 after:border-t after:border-black/70">{digit}</span>)}
+              )}
+              {countdown && (
+                <div
+                  className="hidden shrink-0 pt-2 text-center lg:block"
+                  aria-label={`${countdown.value} ${countdown.unit.toLowerCase()}${countdown.value === 1 ? "" : "s"} left`}
+                >
+                  <div className="flex justify-center gap-1">
+                    {String(countdown.value)
+                      .padStart(2, "0")
+                      .split("")
+                      .map((digit, index) => (
+                        <span
+                          key={`${digit}-${index}`}
+                          className="relative flex h-12 w-9 items-center justify-center overflow-hidden rounded-md border border-zinc-700 bg-zinc-900 text-4xl leading-none font-black text-white shadow-sm after:absolute after:inset-x-0 after:top-1/2 after:border-t after:border-black/70"
+                        >
+                          {digit}
+                        </span>
+                      ))}
+                  </div>
+                  <p className="mt-1 text-sm font-black tracking-tight uppercase">
+                    {countdown.unit}
+                    {countdown.value === 1 ? "" : "S"} LEFT
+                  </p>
                 </div>
-                <p className="mt-1 text-sm font-black uppercase tracking-tight">{countdown.unit}{countdown.value===1?'':'S'} LEFT</p>
-              </div>}
+              )}
             </div>
-            {countdown&&<div className="hidden px-3 text-center sm:block sm:px-4 lg:hidden" aria-label={`${countdown.value} ${countdown.unit.toLowerCase()}${countdown.value===1?'':'s'} left`}>
-              <div className="flex justify-center gap-1">
-                {String(countdown.value).padStart(2,"0").split("").map((digit,index)=><span key={`${digit}-${index}`} className="relative flex h-16 w-11 items-center justify-center overflow-hidden rounded-md border border-zinc-700 bg-zinc-900 text-5xl font-black leading-none text-white shadow-sm after:absolute after:inset-x-0 after:top-1/2 after:border-t after:border-black/70">{digit}</span>)}
+            {countdown && (
+              <div
+                className="hidden px-3 text-center sm:block sm:px-4 lg:hidden"
+                aria-label={`${countdown.value} ${countdown.unit.toLowerCase()}${countdown.value === 1 ? "" : "s"} left`}
+              >
+                <div className="flex justify-center gap-1">
+                  {String(countdown.value)
+                    .padStart(2, "0")
+                    .split("")
+                    .map((digit, index) => (
+                      <span
+                        key={`${digit}-${index}`}
+                        className="relative flex h-16 w-11 items-center justify-center overflow-hidden rounded-md border border-zinc-700 bg-zinc-900 text-5xl leading-none font-black text-white shadow-sm after:absolute after:inset-x-0 after:top-1/2 after:border-t after:border-black/70"
+                      >
+                        {digit}
+                      </span>
+                    ))}
+                </div>
+                <p className="mt-1 text-lg font-black tracking-tight uppercase">
+                  {countdown.unit}
+                  {countdown.value === 1 ? "" : "S"} LEFT
+                </p>
               </div>
-              <p className="mt-1 text-lg font-black uppercase tracking-tight">{countdown.unit}{countdown.value===1?'':'S'} LEFT</p>
-            </div>}
+            )}
             <div className="mx-3 mb-3 space-y-1.5 border-t border-border pt-2.5 text-xs sm:mx-4 sm:mb-4">
               {events.slice(0, 3).map((event) => (
-                <div key={`${event.id}-${event.date}`} className="grid grid-cols-[3.5rem_1.25rem_minmax(0,1fr)] items-center gap-2 font-normal normal-case">
-                  <span>{dateLabel(event.date, { month: "short", day: "2-digit" })}</span>
+                <div
+                  key={`${event.id}-${event.date}`}
+                  className="grid grid-cols-[3.5rem_1.25rem_minmax(0,1fr)] items-center gap-2 font-normal normal-case"
+                >
+                  <span>
+                    {dateLabel(event.date, { month: "short", day: "2-digit" })}
+                  </span>
                   <span className="text-center">{event.priority || "—"}</span>
-                  <span title={event.name} className="truncate">{event.name}</span>
+                  <span title={event.name} className="truncate">
+                    {event.name}
+                  </span>
                 </div>
               ))}
             </div>
           </>
         ) : (
           <>
-            <p className="px-3 pt-3 text-sm text-muted-foreground sm:px-4 sm:pt-4">No upcoming A race.</p>
-            {events.length > 0 && <div className="mx-3 mb-3 space-y-1.5 border-t border-border pt-2.5 text-xs sm:mx-4 sm:mb-4">{events.slice(0, 3).map((event) => (
-              <div key={`${event.id}-${event.date}`} className="grid grid-cols-[3.5rem_1.25rem_minmax(0,1fr)] items-center gap-2 font-normal normal-case">
-                <span>{dateLabel(event.date, { month: "short", day: "2-digit" })}</span>
-                <span className="text-center">{event.priority || "—"}</span>
-                <span title={event.name} className="truncate">{event.name}</span>
+            <p className="px-3 pt-3 text-sm text-muted-foreground sm:px-4 sm:pt-4">
+              No upcoming A race.
+            </p>
+            {events.length > 0 && (
+              <div className="mx-3 mb-3 space-y-1.5 border-t border-border pt-2.5 text-xs sm:mx-4 sm:mb-4">
+                {events.slice(0, 3).map((event) => (
+                  <div
+                    key={`${event.id}-${event.date}`}
+                    className="grid grid-cols-[3.5rem_1.25rem_minmax(0,1fr)] items-center gap-2 font-normal normal-case"
+                  >
+                    <span>
+                      {dateLabel(event.date, {
+                        month: "short",
+                        day: "2-digit",
+                      })}
+                    </span>
+                    <span className="text-center">{event.priority || "—"}</span>
+                    <span title={event.name} className="truncate">
+                      {event.name}
+                    </span>
+                  </div>
+                ))}
               </div>
-            ))}</div>}
+            )}
           </>
         )}
       </CardContent>

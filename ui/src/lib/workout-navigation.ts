@@ -1,6 +1,16 @@
 import type { PlannedWorkout } from "@/lib/training-context"
-import { validatedTrainingWorkout,validatedLibraryWorkout } from "./training-context-validation.ts"
-import { clearActivityEffortParams, ACTIVITY_EFFORT_SELECTION_EVENT } from "./activity-effort-navigation.ts"
+import {
+  validatedTrainingWorkout,
+  validatedLibraryWorkout,
+} from "./training-context-validation.ts"
+import {
+  clearActivityEffortParams,
+  ACTIVITY_EFFORT_SELECTION_EVENT,
+} from "./activity-effort-navigation.ts"
+import {
+  pushWorkoutNavigationState,
+  replaceWorkoutNavigationState,
+} from "./workout-navigation-guard.ts"
 
 const STORAGE_KEY = "training-agent-open-workout-v1"
 
@@ -24,7 +34,9 @@ export function restoreOpenWorkout(candidates: unknown[] = []) {
   )
   if (current) {
     try {
-      return id.startsWith("library:")?validatedLibraryWorkout(current):validatedTrainingWorkout(current)
+      return id.startsWith("library:")
+        ? validatedLibraryWorkout(current)
+        : validatedTrainingWorkout(current)
     } catch {
       /* Try the saved snapshot next. */
     }
@@ -33,7 +45,11 @@ export function restoreOpenWorkout(candidates: unknown[] = []) {
     const saved = JSON.parse(
       sessionStorage.getItem(STORAGE_KEY) || "null"
     ) as PlannedWorkout | null
-    return saved?.id === id ? id.startsWith("library:")?validatedLibraryWorkout(saved):validatedTrainingWorkout(saved) : null
+    return saved?.id === id
+      ? id.startsWith("library:")
+        ? validatedLibraryWorkout(saved)
+        : validatedTrainingWorkout(saved)
+      : null
   } catch {
     return null
   }
@@ -48,7 +64,7 @@ export function rememberOpenWorkout(workout: PlannedWorkout) {
   const url = new URL(window.location.href)
   clearActivityEffortParams(url)
   url.searchParams.set("workout", workout.id)
-  window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`)
+  pushWorkoutNavigationState({}, `${url.pathname}${url.search}${url.hash}`)
   window.dispatchEvent(new Event(ACTIVITY_EFFORT_SELECTION_EVENT))
 }
 
@@ -61,6 +77,9 @@ export function forgetOpenWorkout() {
   const url = new URL(window.location.href)
   url.searchParams.delete("workout")
   clearActivityEffortParams(url)
-  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
+  replaceWorkoutNavigationState(
+    window.history.state,
+    `${url.pathname}${url.search}${url.hash}`
+  )
   window.dispatchEvent(new Event(ACTIVITY_EFFORT_SELECTION_EVENT))
 }

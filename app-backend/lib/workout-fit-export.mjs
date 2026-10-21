@@ -29,6 +29,10 @@ function uint(value, label) {
   return rounded;
 }
 function targetFields(target, thresholds) {
+  if (target.kind === "rpe")
+    unsupported(
+      "This FIT encoder cannot preserve numeric RPE targets. Use Text export to retain the prescription."
+    );
   if (target.kind === "none") return { targetType: "open", targetValue: 0 };
   if (target.mode === "ramp")
     unsupported(
@@ -83,6 +87,7 @@ function targetFields(target, thresholds) {
 /** Encode standard FIT workout messages with Garmin's official SDK. The main
  * uint fields are intentional: the SDK ignores writes to dynamic subfields. */
 export function encodeWorkoutFit(model, { lthr } = {}) {
+  if (!model?.steps?.length) throw Error("Add device steps before exporting a FIT workout.");
   const errors = validateWorkout(model);
   if (errors.length) unsupported(errors.join(". "));
   const steps = expandSteps(model.steps).map(({ step }, index) => {
@@ -127,11 +132,18 @@ export function encodeWorkoutFit(model, { lthr } = {}) {
     TrailRun: ["running", "trail"],
     Ride: ["cycling", "generic"],
     VirtualRide: ["cycling", "virtualActivity"],
+    MountainBikeRide: ["cycling", "mountain"],
     Swim: ["swimming", "lapSwimming"],
     WeightTraining: ["training", "strengthTraining"],
+    Walk: ["walking", "generic"],
+    Rowing: ["rowing", "generic"],
+    NordicSki: ["crossCountrySkiing", "generic"],
+    Workout: ["training", "cardioTraining"],
     Other: ["generic", "generic"],
   };
-  const [sport, subSport] = sports[model.sport];
+  const mapping = sports[model.sport];
+  if (!mapping) unsupported("This sport cannot be represented in FIT. Use Text export.");
+  const [sport, subSport] = mapping;
   const encoder = new Encoder();
   // The name and definition identify the workout; repeated downloads receive
   // the same serial number while editing its prescription changes the identity.

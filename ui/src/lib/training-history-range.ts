@@ -15,7 +15,12 @@ import { historyMonths } from "./training-history-range-policy"
 import { performanceProbe } from "./performance-probe"
 
 type Options = { signal?: AbortSignal; force?: boolean }
-type Saved<T> = { value: T; version: string; savedAt: number; editRevision?: string }
+type Saved<T> = {
+  value: T
+  version: string
+  savedAt: number
+  editRevision?: string
+}
 type Entry = {
   promise: Promise<unknown>
   controller: AbortController
@@ -27,8 +32,15 @@ const maxAge = 15 * 60_000
 let generation = 0
 let editRevision = ""
 function currentEditRevision() {
-  try { return localStorage.getItem(`training-agent-history-edits:${trainingCacheScope()}`) || editRevision }
-  catch { return editRevision }
+  try {
+    return (
+      localStorage.getItem(
+        `training-agent-history-edits:${trainingCacheScope()}`
+      ) || editRevision
+    )
+  } catch {
+    return editRevision
+  }
 }
 const currentVersion = () =>
   String(
@@ -36,17 +48,39 @@ const currentVersion = () =>
       .version || ""
   )
 let seenVersion = ""
-let preparedReport: {key: string; version: string; promise: Promise<Saved<WorkoutHistoryPage> | null>} | undefined
+let preparedReport:
+  | {
+      key: string
+      version: string
+      promise: Promise<Saved<WorkoutHistoryPage> | null>
+    }
+  | undefined
 /** Warm only the local archive while route code/auth are loading. No API call. */
 export function prepareReportHistoryCache() {
-  const key = `history-report:${trainingCacheScope()}:`, version = currentVersion()
+  const key = `history-report:${trainingCacheScope()}:`,
+    version = currentVersion()
   if (preparedReport?.key === key && preparedReport.version === version) return
-  preparedReport = {key, version, promise: readDeviceCache<Saved<WorkoutHistoryPage>>(key, maxAge).catch(() => null)}
+  preparedReport = {
+    key,
+    version,
+    promise: readDeviceCache<Saved<WorkoutHistoryPage>>(key, maxAge).catch(
+      () => null
+    ),
+  }
 }
 const reportStartupKey = "training-agent-reports-startup-v1"
-function rememberReportCache(kind: string, query: string, version: string, expires: number) {
+function rememberReportCache(
+  kind: string,
+  query: string,
+  version: string,
+  expires: number
+) {
   if (kind !== "history-report" || query) return
-  try { localStorage.setItem(reportStartupKey, JSON.stringify({ version, expires })) } catch { /* Optional cache metadata. */ }
+  try {
+    localStorage.setItem(reportStartupKey, JSON.stringify({ version, expires }))
+  } catch {
+    /* Optional cache metadata. */
+  }
 }
 
 function clear() {
@@ -55,13 +89,25 @@ function clear() {
   controllers.clear()
   entries.clear()
   preparedReport = undefined
-  try { localStorage.removeItem(reportStartupKey) } catch { /* Optional cache metadata. */ }
+  try {
+    localStorage.removeItem(reportStartupKey)
+  } catch {
+    /* Optional cache metadata. */
+  }
 }
 if (typeof window !== "undefined") {
   const invalidateEdits = () => {
     editRevision = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    try { localStorage.setItem(`training-agent-history-edits:${trainingCacheScope()}`, editRevision) } catch { /* Optional cache. */ }
-    delete (window as Window & { __workspaceStartupRequests?: unknown }).__workspaceStartupRequests
+    try {
+      localStorage.setItem(
+        `training-agent-history-edits:${trainingCacheScope()}`,
+        editRevision
+      )
+    } catch {
+      /* Optional cache. */
+    }
+    delete (window as Window & { __workspaceStartupRequests?: unknown })
+      .__workspaceStartupRequests
     clear()
   }
   window.addEventListener("training-mutation-started", invalidateEdits)
@@ -129,10 +175,18 @@ async function cachedRead<T>(
   }
   const promise = (async () => {
     if (!options.force) {
-      const prepared = kind === "history-report" && !query && preparedReport?.key === key && preparedReport.version === version ? preparedReport : undefined
+      const prepared =
+        kind === "history-report" &&
+        !query &&
+        preparedReport?.key === key &&
+        preparedReport.version === version
+          ? preparedReport
+          : undefined
       if (prepared) preparedReport = undefined
       const saved = await Promise.race([
-        prepared ? prepared.promise as Promise<Saved<T> | null> : readDeviceCache<Saved<T>>(key, maxAge),
+        prepared
+          ? (prepared.promise as Promise<Saved<T> | null>)
+          : readDeviceCache<Saved<T>>(key, maxAge),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 40)),
       ])
       if (
@@ -147,7 +201,8 @@ async function cachedRead<T>(
             throw new DOMException("Session changed", "AbortError")
           entry.expires = saved.savedAt + maxAge
           rememberReportCache(kind, query, version, entry.expires)
-          if (kind === "history-report") performanceProbe("report-archive-cache-hit")
+          if (kind === "history-report")
+            performanceProbe("report-archive-cache-hit")
           return value
         } catch (error) {
           if (error instanceof DOMException && error.name === "AbortError")
@@ -165,7 +220,11 @@ async function cachedRead<T>(
               : `/api/workout-history?${query}&`
         const response = await apiFetch(
           `${endpoint}version=${encodeURIComponent(version)}`,
-          { signal, ...(options.force ? { cache: "reload" as const } : {}), ...(edit ? { headers: { "X-App-Read-Revision": edit } } : {}) }
+          {
+            signal,
+            ...(options.force ? { cache: "reload" as const } : {}),
+            ...(edit ? { headers: { "X-App-Read-Revision": edit } } : {}),
+          }
         )
         const body = await response.json()
         if (!response.ok)
@@ -181,14 +240,22 @@ async function cachedRead<T>(
       throw new DOMException("Session changed", "AbortError")
     entry.expires = Date.now() + maxAge
     const savedAt = Date.now()
-    void writeDeviceCache(key, { value, version, savedAt, editRevision: edit }).then(async () => {
-      if (kind !== "history-report" || query) return
-      // Storage can silently fail (quota/private mode). Only suppress the next
-      // startup read after the local archive has actually been stored.
-      const saved = await readDeviceCache<Saved<T>>(key, maxAge)
-      if (generation === epoch && trainingCacheScope() === scope && saved?.version === version && saved.savedAt === savedAt && (saved.editRevision || "") === edit)
-        rememberReportCache(kind, query, version, savedAt + maxAge)
-    }).catch(() => {})
+    void writeDeviceCache(key, { value, version, savedAt, editRevision: edit })
+      .then(async () => {
+        if (kind !== "history-report" || query) return
+        // Storage can silently fail (quota/private mode). Only suppress the next
+        // startup read after the local archive has actually been stored.
+        const saved = await readDeviceCache<Saved<T>>(key, maxAge)
+        if (
+          generation === epoch &&
+          trainingCacheScope() === scope &&
+          saved?.version === version &&
+          saved.savedAt === savedAt &&
+          (saved.editRevision || "") === edit
+        )
+          rememberReportCache(kind, query, version, savedAt + maxAge)
+      })
+      .catch(() => {})
     return value
   })().catch((error) => {
     if (entries.get(memoryKey) === entry) entries.delete(memoryKey)
@@ -221,8 +288,14 @@ export async function loadTrainingHistoryRange(
         new URLSearchParams(range).toString(),
         (value) => {
           const context = validatedTrainingContext(value)
-          if (context.context_scope !== "range")
-            throw Error("Requested historical dates are unavailable.")
+          if (
+            context.context_scope !== "range" ||
+            context.display_range?.start !== range.start ||
+            context.display_range?.end !== range.end
+          )
+            throw Error(
+              "Requested historical dates are unavailable or did not match the returned date range."
+            )
           return context
         },
         options
@@ -242,20 +315,51 @@ export async function loadTrainingHistoryRange(
         .map((row) => [(row as PlannedWorkout).id, row])
     ).values(),
   ]
+  // Keep the existing last authoritative daily snapshot for Metrics/recovery.
+  // Nutrition needs the distinct source observations to detect conflicting
+  // duplicate dates instead of turning a last-row winner into measured intake.
+  const wellnessRows = pages
+    .flatMap((page) => page.wellness_history || [])
+    .filter((row) => (row.date || "") >= start && (row.date || "") <= end)
+  if (wellnessRows.length > 100000)
+    throw Error(
+      "Too many wellness records were returned. Choose a shorter range and retry."
+    )
+  const wellness = new Map<
+    string,
+    NonNullable<TrainingContext["wellness_history"]>[number]
+  >()
+  const sources = new Map<string, Map<string, Record<string, unknown>>>()
+  for (const row of wellnessRows) {
+    const key = row.date!,
+      canonical = { ...row }
+    // This is derived locally from these raw rows, never trusted/expanded from
+    // provider-supplied nested evidence or a previous canonical snapshot.
+    delete canonical.nutrition_sources
+    // A malformed native ID cannot become the identity of this date's merged
+    // snapshot. Preserve its other authoritative daily fields; original IDs
+    // remain in the separate observations for strict nutrition validation.
+    if (canonical.id != null && canonical.id !== key) delete canonical.id
+    wellness.set(key, canonical)
+    const fields = ["carbohydrates", "protein", "fatTotal"]
+    if (!fields.some((field) => Object.hasOwn(row, field))) continue
+    const source: Record<string, unknown> = { date: key }
+    if (Object.hasOwn(row, "id")) source.id = row.id
+    for (const field of fields)
+      if (Object.hasOwn(row, field)) source[field] = row[field]
+    let daily = sources.get(key)
+    if (!daily) sources.set(key, (daily = new Map()))
+    daily.set(JSON.stringify(source), source)
+  }
+  for (const [key, daily] of sources)
+    wellness.get(key)!.nutrition_sources = [...daily.values()]
   return {
     ...pages[0],
     context_scope: "range",
     display_range: { start, end },
     history: merge("history"),
     planned: merge("planned") as PlannedWorkout[],
-    wellness_history: [
-      ...new Map(
-        pages
-          .flatMap((page) => page.wellness_history || [])
-          .filter((row) => (row.date || "") >= start && (row.date || "") <= end)
-          .map((row) => [row.date, row])
-      ).values(),
-    ],
+    wellness_history: [...wellness.values()],
   } as TrainingContext
 }
 

@@ -18,20 +18,41 @@
       })();
     </script>
     <script>
+      // Fetch resolves at headers. Drain the body within the same deadline and
+      // detach its bytes, even when a route never consumes its startup response.
+      const startupRead = (url, priority = 'low') => {
+        const controller = new AbortController();
+        let timer;
+        const deadline = new Promise(resolve => {
+          timer = setTimeout(() => {
+            controller.abort(new DOMException('Startup response timed out.', 'TimeoutError'));
+            resolve(null);
+          }, 20000);
+        });
+        const request = (async () => {
+          try {
+            const response = await fetch(url, {
+              credentials: 'same-origin', cache: 'no-store', priority, signal: controller.signal
+            });
+            if (!response) return null;
+            const bytes = await response.arrayBuffer();
+            return new Response([204, 205, 304].includes(response.status) ? null : bytes, {
+              status: response.status, statusText: response.statusText, headers: response.headers
+            });
+          } catch { return null; }
+        })();
+        return Promise.race([request, deadline]).finally(() => clearTimeout(timer));
+      };
       // Start session verification alongside assets, before React is downloaded.
       // Consumed once, never persisted, and validated by the normal auth client.
-      window.__trainingSessionRequest = fetch('/api/handler?__api_route=auth%2Fsession', {
-        credentials: 'same-origin', cache: 'no-store', priority: 'high', signal: AbortSignal.timeout(20000)
-      }).catch(() => null);
+      window.__trainingSessionRequest = startupRead('/api/handler?__api_route=auth%2Fsession', 'high');
       // Each request still passes the server's full session checks. Overlap the
       // protected snapshot with auth instead of adding another startup waterfall.
       if (/^\/(?:calendar|week|nutrition|settings|atp|annual-plan)?\/?$/.test(location.pathname)) {
         let version;
         try { const metadata = JSON.parse(localStorage.getItem('training-agent-startup-metadata-v1') || 'null'); if (typeof metadata?.version === 'string' && metadata.version.length <= 200) version = metadata.version; } catch {}
         window.__trainingContextVersion = version;
-        window.__trainingContextRequest = fetch(version ? '/api/handler?__api_route=training-updates&version=' + encodeURIComponent(version) : '/api/handler?__api_route=training-context&scope=full', {
-          credentials: 'same-origin', cache: 'no-store', priority: 'low', signal: AbortSignal.timeout(20000)
-        }).catch(() => null);
+        window.__trainingContextRequest = startupRead(version ? '/api/handler?__api_route=training-updates&version=' + encodeURIComponent(version) : '/api/handler?__api_route=training-context&scope=full');
       }
       // Only the open workspace starts these protected reads; no other pages
       // are crawled and no private response is persisted by this bootstrap.
@@ -41,9 +62,7 @@
         '/settings': ['/api/race-events'],
         '/workout-reports': ['/api/training-preferences'],
       }[location.pathname.replace(/\/+$/, '')];
-      if (workspaceReads) window.__workspaceStartupRequests = Object.fromEntries(workspaceReads.map(path => [path, fetch('/api/handler?__api_route=' + encodeURIComponent(path.slice(5)), {
-        credentials: 'same-origin', cache: 'no-store', priority: 'low', signal: AbortSignal.timeout(20000)
-      }).catch(() => null)]));
+      if (workspaceReads) window.__workspaceStartupRequests = Object.fromEntries(workspaceReads.map(path => [path, startupRead('/api/handler?__api_route=' + encodeURIComponent(path.slice(5)))]));
       if (location.pathname.replace(/\/+$/, '') === '/workout-reports') {
         let range = 'all', version = '', cachedUntil = 0;
         try { range = JSON.parse(sessionStorage.getItem('workout-reports-view-v1') || 'null')?.filters?.range || 'all'; } catch {}
@@ -57,16 +76,12 @@
         // needs no speculative server read; otherwise overlap its first page.
         if (range === 'all' && cachedUntil <= Date.now()) {
           const path = '/api/workout-history?&version=' + encodeURIComponent(version);
-          window.__workspaceStartupRequests[path] = fetch('/api/handler?__api_route=workout-history&version=' + encodeURIComponent(version), {
-            credentials: 'same-origin', cache: 'no-store', priority: 'low', signal: AbortSignal.timeout(20000)
-          }).catch(() => null);
+          window.__workspaceStartupRequests[path] = startupRead('/api/handler?__api_route=workout-history&version=' + encodeURIComponent(version));
         }
       }
       if (/^\/nutrition\/?$/.test(location.pathname)) {
         const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-        window.__nutritionStartupRequest = { date, response: fetch('/api/handler?__api_route=nutrition&date=' + date, {
-          credentials: 'same-origin', cache: 'no-store', priority: 'low', signal: AbortSignal.timeout(20000)
-        }).catch(() => null) };
+        window.__nutritionStartupRequest = { date, response: startupRead('/api/handler?__api_route=nutrition&date=' + date) };
       }
       if (location.pathname === '/' && window.matchMedia('(max-width: 767px)').matches) {
         const image = document.createElement('link');

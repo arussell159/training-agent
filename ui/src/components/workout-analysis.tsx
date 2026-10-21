@@ -19,9 +19,10 @@ import { formatDuration, formatPace } from "@/lib/duration"
 import { segmentStatistics, type RecordedPoint } from "@/lib/segment-statistics"
 import { intervalSignals } from "@/lib/interval-signals"
 import { createRouteCursorIndex, nearestRouteCursorPoint } from "@/lib/route-cursor"
-import { cachedTrainingContext, type PlannedWorkout, type WorkoutSummaryValues } from "@/lib/training-context"
+import { type PlannedWorkout, type WorkoutSummaryValues } from "@/lib/training-context"
 import { WorkoutSignalStatistics } from "@/components/workout-signal-statistics"
 import { analysisRangeMetrics } from "@/lib/analysis-360"
+import { historicalAnalysisThresholds } from "../../../app-backend/lib/recorded-analysis-thresholds.mjs"
 import { recordedChartDomain, recordedChartSegments, recordedDistanceAxis, recordedSplitEndpointLabel, smoothedChartValue } from "@/lib/workout-chart-axis"
 import { recordedSignalStatistics, recordedSignalValue, recordedSignalInfo, formatRecordedSignal, type RecordedSignal } from "@/lib/workout-signal-statistics"
 
@@ -306,9 +307,7 @@ function ActivityGraph({id,revision,workout,summary,onLapSelection,analysisOverr
   const statisticsStart=analysisSelection?.[0]??viewStart,statisticsEnd=analysisSelection?.[1]??viewEnd
   const wholeSignalStatistics=useMemo(()=>mobile?[]:recordedSignalStatistics(data?.points||[],0,duration,sport),[data,duration,sport,mobile])
   const signalStatistics=useMemo(()=>mobile?[]:statisticsStart===0&&statisticsEnd===duration?wholeSignalStatistics:recordedSignalStatistics(data?.points||[],statisticsStart,statisticsEnd,sport),[data,statisticsStart,statisticsEnd,duration,sport,mobile,wholeSignalStatistics])
-  const recordedContext=mobile?null:cachedTrainingContext()
-  const recordedFtp=bike&&recordedContext?.source!=="local-preview"?recordedContext?.athlete.zones?.bike_ftp:null
-  const effectiveFtp=finite(totals?.normalized_power)&&finite(totals?.intensity_factor)&&totals.intensity_factor>0?totals.normalized_power/totals.intensity_factor:finite(recordedFtp)&&recordedFtp>0?recordedFtp:null
+  const effectiveFtp=historicalAnalysisThresholds(totals)?.ftp ?? null
   const inspectorMetrics=useMemo(()=>mobile?null:analysisRangeMetrics(data?.points||[],statisticsStart,statisticsEnd,effectiveFtp),[data,mobile,statisticsStart,statisticsEnd,effectiveFtp])
   const allSignalTracks=useMemo<RecordedSignal[]>(()=>comparisonMode||mobile
     ? [...(available.speed?[run||swim?"pace" as const:"speed" as const]:[]),...(available.power?["power" as const]:[]),...(available.heartRate?["heartRate" as const]:[]),...(available.cadence?["cadence" as const]:[])]

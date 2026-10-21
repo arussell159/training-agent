@@ -10,6 +10,23 @@ import { defaultTarget } from "./workout-editor-model.mjs";
 import { fakeProvider, fixtureEvent } from "./fixtures/workout-editor-fixtures.mjs";
 import { loadWorkoutEditor, saveWorkoutEditor } from "./workout-editor.mjs";
 
+test("RPE target display preserves numeric prescription without converting or mutating it", () => {
+  for (const target of [
+    { kind: "rpe", unit: "rpe", mode: "single", value: 7 },
+    { kind: "rpe", unit: "rpe", mode: "range", start: 1, end: 8 },
+  ]) {
+    for (const sport of ["Run", "Ride", "Swim", "Other"]) {
+      const original = structuredClone(target),
+        display = editorTarget(target, sport, [], { ftp: 300, pace: 5 });
+      assert.deepEqual(display, original);
+      assert.notEqual(display, target);
+      if (display.mode === "single") display.value = 10;
+      else display.start = 3;
+      assert.deepEqual(target, original);
+    }
+  }
+});
+
 test("compact duration entry reads hours, minutes and seconds from the right", () => {
   for (const [input, seconds, clock] of [
     ["0600", 360, "00:06:00"],

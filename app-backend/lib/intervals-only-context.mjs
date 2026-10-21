@@ -10,6 +10,8 @@ export function intervalsOnlyContext(context) {
     const fileType = w.activity_file_type ?? (id.startsWith("activity:") ? w.raw?.file_type : null);
     if (!/^(activity|event):/.test(id) || w.read_only || w.source === "trainingpeaks-archive")
       return false;
+    if (id.startsWith("event:") && /^[a-zA-Z0-9_-]{16,80}$/.test(w.calendar_annotation_key || ""))
+      return true;
     if (
       /^\d{4}-\d{2}-\d{2}$/.test(String(w.workout_date || "")) &&
       w.workout_date >= FIT_CLEANUP_BEFORE

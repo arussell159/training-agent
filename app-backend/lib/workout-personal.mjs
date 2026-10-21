@@ -25,7 +25,7 @@ const fail = (message, status = 400, code = "INVALID_PERSONAL_FIELDS") => {
 export function personalWorkoutId(value) {
   if (
     typeof value !== "string" ||
-    !/^(?:event:[1-9]\d*|activity:[a-zA-Z0-9_-]{1,80}|draft:[a-zA-Z0-9-]{16,80})$/.test(value)
+    !/^(?:event:[1-9]\d*|activity:[a-zA-Z0-9_-]{1,80}|draft:[a-zA-Z0-9-]{16,80}|app:[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12})$/.test(value)
   )
     fail("Invalid workout identifier.");
   return value;
@@ -43,7 +43,15 @@ export function validateWorkoutPersonal(value) {
     fail("Enter personal workout fields.");
   if (
     Object.keys(value).some(
-      (key) => !["privateNotes", "tags", "equipment", "autoCalculate"].includes(key)
+      (key) =>
+        ![
+          "privateNotes",
+          "tags",
+          "equipment",
+          "bikeEquipment",
+          "shoeEquipment",
+          "autoCalculate",
+        ].includes(key)
     )
   )
     fail("Unsupported personal workout field.");
@@ -57,11 +65,16 @@ export function validateWorkoutPersonal(value) {
     fail("Use up to 30 tags of 60 characters or fewer.");
   if (typeof value.equipment !== "string" || value.equipment.length > 100)
     fail("Equipment names must be 100 characters or fewer.");
+  for (const key of ["bikeEquipment", "shoeEquipment"])
+    if (Object.hasOwn(value, key) && (typeof value[key] !== "string" || value[key].length > 100))
+      fail("Equipment names must be 100 characters or fewer.");
   if (typeof value.autoCalculate !== "boolean") fail("Choose whether to calculate planned values.");
   return {
     privateNotes: value.privateNotes,
     tags: [...new Set(value.tags.map((tag) => tag.trim()))],
     equipment: value.equipment.trim(),
+    ...(Object.hasOwn(value, "bikeEquipment") ? { bikeEquipment: value.bikeEquipment.trim() } : {}),
+    ...(Object.hasOwn(value, "shoeEquipment") ? { shoeEquipment: value.shoeEquipment.trim() } : {}),
     autoCalculate: value.autoCalculate,
   };
 }
@@ -206,10 +219,11 @@ export function createWorkoutPersonalService({
       await workout(input.migrateFrom).update((state) => {
         state.migratedTo = id;
       });
-    if (value.equipment)
+    const names = [value.equipment, value.bikeEquipment, value.shoeEquipment].filter(Boolean);
+    if (names.length)
       await equipment()
         .update((state) => {
-          state.names = [...new Set([value.equipment, ...(state.names || [])])].slice(0, 100);
+          state.names = [...new Set([...names, ...(state.names || [])])].slice(0, 100);
         })
         .catch(() => {});
     return result;

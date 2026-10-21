@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { cachedWorkoutValues, loadWorkoutValues, clearWorkoutReads } from "@/lib/workout-read-cache"
+import { apiSessionRevision } from "@/lib/api-client"
+import { deviceCacheScope } from "@/lib/device-cache"
+import { useWorkoutAccountBoundary } from "@/hooks/use-workout-account-boundary"
+import {
+  cachedWorkoutValues,
+  loadWorkoutValues,
+  clearWorkoutReads,
+  loadWorkoutEditor,
+} from "@/lib/workout-read-cache"
 import { Skeleton } from "./ui/skeleton"
 import {
   useWorkoutTextDraft,
@@ -13,6 +21,7 @@ import {
 import {
   savePlannedWorkoutValues,
   beginWorkoutSaveFeedback,
+  writeWorkoutEditor,
   trainingCacheScope,
   type PlannedWorkout,
   type WorkoutSummaryValues,
@@ -22,12 +31,29 @@ import {
   formatPlannedValue,
   plannedValueDraft,
   plannedValueRows,
+  recordedValueRows,
+  plannedDraftValue,
+  hasPlannedValueChanges,
+  withCalculatedPlannedValues,
   mergeLoadedPlannedDraft,
   updatePlannedValueDraft,
 } from "@/lib/planned-workout-values"
 import "./desktop-workout-details.css"
 import type { DesktopWorkoutMetadata } from "./desktop-workout-header"
-import { readWorkoutSaveDraft, retainWorkoutSaveDraft, clearWorkoutSaveDraft, validPlannedSaveDraft, type PlannedSaveDraft } from "@/lib/workout-save-drafts"
+import { workoutPresentationSport } from "@/lib/workout-presentation"
+import { localCommittedWorkout } from "@/lib/workout-commits"
+import { WorkoutSyncAction } from "./workout-sync-action"
+import { yieldForWorkoutFeedback } from "@/lib/workout-feedback-frame"
+import { simpleWorkoutModel } from "../../../app-backend/lib/simple-workout.mjs"
+import type { WorkoutModel } from "../../../app-backend/lib/workout-editor-model.mjs"
+import type { SportZoneSettings } from "../../../app-backend/lib/workout-editor-zones.mjs"
+import {
+  readWorkoutSaveDraft,
+  retainWorkoutSaveDraft,
+  clearWorkoutSaveDraft,
+  validPlannedSaveDraft,
+  type PlannedSaveDraft,
+} from "@/lib/workout-save-drafts"
 import {
   useWorkoutPersonalFields,
   WorkoutDescriptionInput,
@@ -43,6 +69,8 @@ type DetailOptions = {
   footerTarget?: HTMLElement | null
   commentsTarget?: HTMLElement | null
   onBusyChange?: (busy: boolean) => void
+  onDirtyChange?: (dirty: boolean) => void
+  onDiscardReady?: (discard: (() => void) | null) => void
 }
 
 function PlannedComments({
@@ -122,6 +150,7 @@ function PlannedTotals({
   onDelete,
   footerTarget,
   onBusyChange,
+  onDirtyChange,
   text,
   personal,
 }: {
@@ -130,19 +159,66 @@ function PlannedTotals({
   workout: PlannedWorkout
   readOnly: boolean
 } & DetailOptions) {
-  const editable = /^event:[1-9]\d*$/.test(workout.id) && !readOnly
+  const { ownsAccount } = useWorkoutAccountBoundary(true)
+  const requireCurrentAccount = () => {
+    if (!ownsAccount())
+      throw Error(
+        "The connected account changed. Reopen the workout before saving."
+      )
+  }
+  const sport = workoutPresentationSport(workout)
+  const editable = /^(event:[1-9]\d*|app:[a-f0-9-]+)$/.test(workout.id) && !readOnly
+  const durableSave = editable && /^(Swim|Ride|Run)$/.test(workout.sport)
+  const editorModel = useRef<WorkoutModel | undefined>(localCommittedWorkout(workout.id)?.input.model || workout.editor_model)
+  const editorZones = useRef<SportZoneSettings[] | undefined>(localCommittedWorkout(workout.id)?.input.zoneSettings)
+  const workoutRef = useRef(workout)
+  workoutRef.current = workout
+  const loadGeneration = useRef(0)
   const [scope] = useState(trainingCacheScope)
-  const [recovered] = useState(() => readWorkoutSaveDraft<PlannedSaveDraft>(scope, workout.id, "totals",validPlannedSaveDraft)?.value)
-  const [saved, setSaved] = useState(() =>
-    plannedValueDraft(cachedWorkoutValues(workout.id)?.workout.workout_summary?.planned || workout.workout_summary?.planned, workout.sport)
+  const [recovered] = useState(
+    () =>
+      readWorkoutSaveDraft<PlannedSaveDraft>(
+        scope,
+        workout.id,
+        "totals",
+        validPlannedSaveDraft
+      )?.value
   )
-  const [draft, setDraft] = useState(() => ({...saved, ...Object.fromEntries(Object.entries(recovered?.values || {}).map(([key,value]) => [key,formatPlannedValue(key as Parameters<typeof formatPlannedValue>[0],value,workout.sport)]))})),
-    [revision, setRevision] = useState(() => cachedWorkoutValues(workout.id)?.revision || "")
+  const [saved, setSaved] = useState(() =>
+    plannedValueDraft(
+      localCommittedWorkout(workout.id)?.workout.workout_summary?.planned || cachedWorkoutValues(workout.id)?.workout.workout_summary?.planned ||
+        workout.workout_summary?.planned,
+      sport
+    )
+  )
+  const [draft, setDraft] = useState(() =>
+      withCalculatedPlannedValues(saved, recovered?.values || {}, sport)
+    ),
+    [revision, setRevision] = useState(
+      () => localCommittedWorkout(workout.id)?.revision || cachedWorkoutValues(workout.id)?.revision || ""
+    )
   const [localBusy, setBusy] = useState(false),
-    [loading, setLoading] = useState(editable && !cachedWorkoutValues(workout.id)),
+    [loading, setLoading] = useState(
+      editable && !cachedWorkoutValues(workout.id) && !localCommittedWorkout(workout.id)
+    ),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("")
-  const busy = localBusy || personal.busy || Boolean(workout.app_pending_operation)
+  const [syncFailed, setSyncFailed] = useState(false)
+  useEffect(() => {
+    if (!durableSave) return
+    const update = () => {
+      if (!ownsAccount()) return
+      const local = localCommittedWorkout(workout.id)
+      if (!local) return
+      setSyncFailed(local.state === "failed")
+      setNotice(local.state === "synced" ? "Synced to Intervals.icu" : local.state === "failed" ? `Saved in the app. ${local.error || "Synchronization needs attention."}` : local.state === "local" ? "Saved on this device; sync pending." : "Saved in the app; sync pending.")
+    }
+    update()
+    window.addEventListener("workout-commits-updated", update)
+    return () => window.removeEventListener("workout-commits-updated", update)
+  }, [durableSave, workout.id, ownsAccount])
+  const busy =
+    localBusy || personal.busy || Boolean(workout.app_pending_operation)
   const saving = useRef(false)
   const savedRef = useRef(saved)
   savedRef.current = saved
@@ -156,52 +232,149 @@ function PlannedTotals({
   const activityRevision =
     (workout as PlannedWorkout & { activity_revision?: string })
       .activity_revision || ""
-  const [downloaded, setDownloaded] = useState<WorkoutSummaryValues | null>(
-    () =>
-      activityId
-        ? cachedActivitySummary(activityId, activityRevision) || null
-        : null
-  )
+  const [recordedEpoch, setRecordedEpoch] = useState(0),
+    [recordedRetry, setRecordedRetry] = useState(0),
+    recordedGeneration = useRef(0),
+    recordedRequest = useRef<AbortController | null>(null),
+    recordedSession = apiSessionRevision(),
+    recordedScope = deviceCacheScope(),
+    recordedTrusted = ownsAccount(),
+    recordedBinding = JSON.stringify([
+      workout.id,
+      activityId,
+      activityRevision,
+      recordedSession,
+      recordedScope,
+      recordedEpoch,
+    ]),
+    [downloaded, setDownloaded] = useState<{
+      binding: string
+      values: WorkoutSummaryValues
+    } | null>(() => {
+      const values =
+        activityId && recordedTrusted
+          ? cachedActivitySummary(activityId, activityRevision)
+          : null
+      return values ? { binding: recordedBinding, values } : null
+    }),
+    [recordedStatus, setRecordedStatus] = useState({
+      binding: recordedBinding,
+      loading: false,
+      error: "",
+    })
   useEffect(() => {
-    if (!activityId) return
+    const reset = (event: Event) => {
+        if (
+          event.type === "storage" &&
+          (event as StorageEvent).key &&
+          (event as StorageEvent).key !== "training-agent-startup-v2"
+        )
+          return
+        recordedGeneration.current++
+        recordedRequest.current?.abort()
+        setDownloaded(null)
+        setRecordedEpoch(recordedGeneration.current)
+      },
+      events = [
+        "training-cache-reset",
+        "device-cache-cleared",
+        "app-auth-required",
+        "storage",
+      ]
+    for (const event of events) window.addEventListener(event, reset)
+    return () => {
+      for (const event of events) window.removeEventListener(event, reset)
+    }
+  }, [])
+  useEffect(() => {
+    if (!activityId || !recordedTrusted) return
     const controller = new AbortController()
+    recordedRequest.current = controller
+    const current = () =>
+      !controller.signal.aborted &&
+      recordedGeneration.current === recordedEpoch &&
+      apiSessionRevision() === recordedSession &&
+      deviceCacheScope() === recordedScope
+    setRecordedStatus({ binding: recordedBinding, loading: true, error: "" })
     void loadActivitySummary(activityId, activityRevision, controller.signal)
       .then((values) => {
-        if (!controller.signal.aborted) setDownloaded(values)
+        if (!current()) return
+        setDownloaded({ binding: recordedBinding, values })
+        setRecordedStatus({
+          binding: recordedBinding,
+          loading: false,
+          error: "",
+        })
       })
-      .catch(() => {})
-    return () => controller.abort()
-  }, [activityId, activityRevision])
-  const completed = { ...workout.workout_summary?.completed, ...downloaded }
+      .catch((reason) => {
+        if (current())
+          setRecordedStatus({
+            binding: recordedBinding,
+            loading: false,
+            error:
+              reason instanceof Error
+                ? reason.message
+                : "Completed values could not be refreshed.",
+          })
+      })
+    return () => {
+      controller.abort()
+      if (recordedRequest.current === controller) recordedRequest.current = null
+    }
+  }, [
+    activityId,
+    activityRevision,
+    recordedBinding,
+    recordedTrusted,
+    recordedSession,
+    recordedScope,
+    recordedEpoch,
+    recordedRetry,
+  ])
+  // A recording snapshot is one authoritative document, not a partial patch.
+  // Missing/null fields must not fall through to older context measurements.
+  const completed = !recordedTrusted
+    ? {}
+    : downloaded?.binding === recordedBinding
+      ? downloaded.values
+      : workout.workout_summary?.completed || {}
   const load = useCallback(
     async (signal?: AbortSignal) => {
       if (!editable) return
+      const generation = ++loadGeneration.current
+      const localRevision = localCommittedWorkout(workout.id)?.revision
       const beforeRead = savedRef.current
-      setLoading(!cachedWorkoutValues(workout.id))
+      setLoading(!cachedWorkoutValues(workout.id) && !localCommittedWorkout(workout.id))
       setError("")
       setNotice("")
       try {
-        const data = await loadWorkoutValues(workout.id, signal)
-        if (signal?.aborted) return
+        const sourceWorkout = workoutRef.current
+        const data = durableSave
+          ? await loadWorkoutEditor(`/api/workouts/${encodeURIComponent(workout.id)}/editor`, signal).then(editor => ({revision:editor.revision, workout:{...sourceWorkout,workout_summary:{...sourceWorkout.workout_summary,planned:editor.plannedValues || sourceWorkout.workout_summary?.planned}}, model:editor.model,zoneSettings:editor.zoneSettings}))
+          : await loadWorkoutValues(workout.id, signal)
+        if (signal?.aborted || generation !== loadGeneration.current || localRevision !== localCommittedWorkout(workout.id)?.revision) return
+        if ("model" in data) { editorModel.current = data.model as WorkoutModel; editorZones.current = data.zoneSettings }
         const next = plannedValueDraft(
           data.workout.workout_summary?.planned,
-          workout.sport
+          sport
         )
         setSaved(next)
-        setDraft(current => mergeLoadedPlannedDraft(current, beforeRead, next))
+        setDraft((current) =>
+          mergeLoadedPlannedDraft(current, beforeRead, next)
+        )
         setRevision(data.revision)
       } catch (e) {
-        if (!signal?.aborted)
+        if (!signal?.aborted && generation === loadGeneration.current)
           setError(
             e instanceof Error
               ? e.message
               : "Planned values could not be loaded."
           )
       } finally {
-        if (!signal?.aborted) setLoading(false)
+        if (!signal?.aborted && generation === loadGeneration.current) setLoading(false)
       }
     },
-    [editable, workout.id, workout.sport]
+    [editable, workout.id, sport, durableSave]
   )
   useEffect(() => {
     const controller = new AbortController()
@@ -217,6 +390,10 @@ function PlannedTotals({
       controller?.abort()
       const request = new AbortController()
       controller = request
+      if (durableSave) {
+        void load(request.signal)
+        return
+      }
       setLoading(true)
       void (async () => {
         try {
@@ -225,11 +402,10 @@ function PlannedTotals({
           if (request.signal.aborted) return
           const next = plannedValueDraft(
             data.workout.workout_summary?.planned,
-            workout.sport
+            sport
           )
-          const rows = plannedValueRows(workout.sport)
-          const hasDraft = rows.some(({ key }) => draft[key] !== saved[key])
-          if (hasDraft && rows.some(({ key }) => next[key] !== saved[key])) {
+          const hasDraft = hasPlannedValueChanges(draft, saved, sport)
+          if (hasDraft && hasPlannedValueChanges(next, saved, sport)) {
             setRevision("")
             setError(
               "The interval edit changed planned totals. Your draft is retained. Reload values to use the saved workout."
@@ -266,7 +442,7 @@ function PlannedTotals({
         refreshAfterLocalEdit
       )
     }
-  }, [editable, workout.id, workout.sport, busy, draft, saved])
+  }, [editable, workout.id, sport, busy, draft, saved, durableSave, load])
   const metadataPatch = metadata
     ? Object.fromEntries(
         Object.entries(metadata).filter(
@@ -282,46 +458,125 @@ function PlannedTotals({
     : {}
   const valuesDirty =
     Object.keys(metadataPatch).length > 0 ||
-    plannedValueRows(workout.sport).some(({ key }) => draft[key] !== saved[key])
+    hasPlannedValueChanges(draft, saved, sport)
   const dirty = valuesDirty || text.dirty || personal.dirty
+  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
   const canSave = editable || text.editable || !readOnly
   const save = async (close = false) => {
-    if (saving.current || (valuesDirty && editable && (loading || !revision))) return
-    // Validate before dismissing. The async request and global feedback survive
-    // unmounting this form; a failed attempt is restored when it is reopened.
+    if (
+      busy ||
+      saving.current ||
+      (valuesDirty && editable && (loading || !revision))
+    )
+      return
+    // Keep the form and its draft visible until every changed field is saved.
     let values: ReturnType<typeof changedPlannedValues>
-    try { values = valuesDirty && editable ? changedPlannedValues(draft, saved, workout.sport) : {} }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Check the planned values."); return }
+    try {
+      values =
+        valuesDirty && editable ? changedPlannedValues(draft, saved, sport) : {}
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : "Check the planned values."
+      )
+      return
+    }
     saving.current = true
     setBusy(true)
     setError("")
     setNotice("")
-    const feedback=beginWorkoutSaveFeedback(true,workout.id)
+    const feedback = beginWorkoutSaveFeedback(true, workout.id)
     let warning: string | undefined
     try {
+      await yieldForWorkoutFeedback()
+      requireCurrentAccount()
+      if (durableSave) {
+        // Save all visible fields with the complete editor prescription in the
+        // same durable transaction. No separate personal/text write precedes it.
+        text.retain()
+        const token = retainWorkoutSaveDraft(scope, workout.id, "totals", {values, metadata:metadataPatch})
+        const local = localCommittedWorkout(workout.id)
+        let model = structuredClone(local?.input.model || editorModel.current || workout.editor_model)
+        let currentRevision = local?.revision || revision
+        if (!model || !currentRevision) {
+          const editor = await loadWorkoutEditor(`/api/workouts/${encodeURIComponent(workout.id)}/editor`)
+          requireCurrentAccount()
+          model = editor.model
+          editorZones.current = editor.zoneSettings
+          currentRevision = editor.revision
+        }
+        const name = metadata?.name ?? workout.title
+        const date = metadata?.date ?? workout.workout_date ?? model.date
+        if (model.unstructured)
+          model = {...model,...simpleWorkoutModel({name,sport:model.sport,date,description:text.description,values,unstructured:true})}
+        else model = {...model,name,date}
+        loadGeneration.current++
+        const result = await writeWorkoutEditor(workout.id, {
+          model, revision:currentRevision, values, description:text.description,
+          descriptionMode:"manual", comment:text.comment, commentId:text.creationId,
+          time:metadata?.time ?? workout.scheduled_start_at?.slice(11,16) ?? "",
+          personal:personal.value,
+          personalId:personal.id, comments:text.comments.map(item=>({id:item.id,body:item.body})),
+          zoneSettings:local?.input.zoneSettings || editorZones.current,
+        })
+        requireCurrentAccount()
+        editorModel.current = model
+        const next = plannedValueDraft(result.workout.workout_summary?.planned,sport)
+        setSaved(next)
+        setDraft(next)
+        setRevision(result.revision)
+        setLoading(false)
+        clearWorkoutSaveDraft(scope,workout.id,"totals",token)
+        clearWorkoutSaveDraft(scope,workout.id,"personal")
+        personal.acceptCommitted(personal.value)
+        text.acceptCommitted()
+        setNotice(result.refreshWarning || "Saved in the app; sync pending.")
+        // The commit client owns synchronization status. A local transaction
+        // must never produce the legacy 'Synced to Intervals.icu' notification.
+        if (close) onClose?.()
+        return
+      }
       if (personal.dirty) await personal.save()
+      requireCurrentAccount()
       text.retain()
-      const token = valuesDirty && editable ? retainWorkoutSaveDraft(scope,workout.id,"totals",{values,metadata:metadataPatch}) : undefined
-      const pending = valuesDirty && editable ? savePlannedWorkoutValues(workout.id,values,revision,metadataPatch,{feedback:false}) : undefined
-      if (close) onClose?.()
+      const token =
+        valuesDirty && editable
+          ? retainWorkoutSaveDraft(scope, workout.id, "totals", {
+              values,
+              metadata: metadataPatch,
+            })
+          : undefined
+      const pending =
+        valuesDirty && editable
+          ? savePlannedWorkoutValues(
+              workout.id,
+              values,
+              revision,
+              metadataPatch,
+              { feedback: false }
+            )
+          : undefined
       if (valuesDirty && editable) {
         const result = (await pending)!
-        clearWorkoutSaveDraft(scope,workout.id,"totals",token)
+        requireCurrentAccount()
+        clearWorkoutSaveDraft(scope, workout.id, "totals", token)
         const next = plannedValueDraft(
           result.workout.workout_summary?.planned,
-          workout.sport
+          sport
         )
         setSaved(next)
         setDraft(next)
         setRevision(result.revision)
-        warning=result.refreshWarning
+        warning = result.refreshWarning
       }
-      await text.save({feedback:false})
+      await text.save({ feedback: false })
+      requireCurrentAccount()
       if (editable && text.dirty && !close) await load()
+      requireCurrentAccount()
       setNotice(warning || "Saved")
       feedback.confirm(warning)
+      if (close) onClose?.()
     } catch (e) {
-      feedback.fail(close ? new Error(`${e instanceof Error ? e.message : "The save could not be confirmed."} Reopen the workout to review your retained draft.`) : e)
+      feedback.fail(e)
       setError(
         e instanceof Error ? e.message : "Planned values could not be saved."
       )
@@ -332,10 +587,22 @@ function PlannedTotals({
   }
   const footer = onClose ? (
     <footer className="desktop-workout-dialog-footer">
-      {editable && <label className="desktop-workout-auto-calculate">
-        <input type="checkbox" checked={personal.value.autoCalculate} disabled={busy} onChange={event => personal.setValue({ ...personal.value, autoCalculate: event.target.checked })} />
-        Automatically calculate planned values
-      </label>}
+      {editable && (
+        <label className="desktop-workout-auto-calculate">
+          <input
+            type="checkbox"
+            checked={personal.value.autoCalculate}
+            disabled={busy}
+            onChange={(event) =>
+              personal.setValue({
+                ...personal.value,
+                autoCalculate: event.target.checked,
+              })
+            }
+          />
+          Automatically calculate planned values
+        </label>
+      )}
       {error && footerTarget && (
         <p role="alert" className="desktop-workout-save-error">
           {error}
@@ -347,7 +614,16 @@ function PlannedTotals({
         </button>
       )}
       {canSave && (
-        <button type="button" disabled={busy} onClick={() => {clearWorkoutSaveDraft(scope,workout.id,"totals");text.discardDraft();personal.discard();onClose()}}>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            clearWorkoutSaveDraft(scope, workout.id, "totals")
+            text.discardDraft()
+            personal.discard()
+            onClose()
+          }}
+        >
           Cancel
         </button>
       )}
@@ -356,14 +632,20 @@ function PlannedTotals({
           <button
             type="submit"
             form={`desktop-totals-${workout.id}`}
-            disabled={busy || !dirty || (valuesDirty && editable && (loading || !revision))}
+            disabled={
+              busy ||
+              !dirty ||
+              (valuesDirty && editable && (loading || !revision))
+            }
           >
             {busy ? "Saving…" : "Save"}
           </button>
           <button
             type="button"
             className="desktop-workout-save-close"
-            disabled={busy || (valuesDirty && editable && (loading || !revision))}
+            disabled={
+              busy || (valuesDirty && editable && (loading || !revision))
+            }
             onClick={() => (dirty ? void save(true) : onClose())}
           >
             Save &amp; Close
@@ -415,77 +697,112 @@ function PlannedTotals({
             </tr>
           </thead>
           <tbody>
-            {plannedValueRows(workout.sport).map(({ key, label, unit }) => (
-              <tr key={key}>
-                <th scope="row">
-                  <label
-                    className={
-                      editable && key !== "normalized_power"
-                        ? "desktop-editable-metric"
-                        : undefined
-                    }
-                    htmlFor={`${workout.id}-${key}`}
-                  >
-                    {label}
-                  </label>
-                </th>
-                <td>
-                  {editable ? (
-                    <input
-                      id={`${workout.id}-${key}`}
-                      aria-label={`Planned ${label.toLowerCase()}`}
-                      value={draft[key] || ""}
-                      readOnly={!editable || key === "normalized_power"}
-                      disabled={editable && busy}
-                      inputMode={
-                        key === "duration_seconds" || key === "average_speed"
-                          ? "text"
-                          : "decimal"
+            {plannedValueRows(sport).map(
+              ({
+                key,
+                rowKey = key,
+                presentation,
+                label,
+                unit,
+                planned: allowPlanned = true,
+              }) => (
+                <tr key={rowKey}>
+                  <th scope="row">
+                    <label
+                      className={
+                        allowPlanned && editable && key !== "normalized_power"
+                          ? "desktop-editable-metric"
+                          : undefined
                       }
-                      title={
-                        key === "normalized_power"
-                          ? "Calculated from planned intervals"
-                          : `Edit planned ${label.toLowerCase()}`
+                      htmlFor={
+                        allowPlanned ? `${workout.id}-${rowKey}` : undefined
                       }
-                      onFocus={(event) => event.currentTarget.select()}
-                      onChange={(e) => {
-                        const value = e.target.value
-                        setDraft(current => updatePlannedValueDraft(current,key,value,workout.sport,personal.value.autoCalculate))
-                        setNotice("")
-                      }}
-                    />
-                  ) : (
+                    >
+                      {label}
+                    </label>
+                  </th>
+                  <td>
+                    {!allowPlanned ? (
+                      <span aria-label={`Planned ${label.toLowerCase()}`}>
+                        —
+                      </span>
+                    ) : editable ? (
+                      <input
+                        id={`${workout.id}-${rowKey}`}
+                        aria-label={`Planned ${label.toLowerCase()}`}
+                        value={plannedDraftValue(
+                          draft,
+                          key,
+                          sport,
+                          presentation
+                        )}
+                        readOnly={!editable || key === "normalized_power"}
+                        disabled={editable && busy}
+                        inputMode={
+                          key === "duration_seconds" || key === "average_speed"
+                            ? "text"
+                            : "decimal"
+                        }
+                        title={
+                          key === "normalized_power"
+                            ? "Calculated from planned intervals"
+                            : `Edit planned ${label.toLowerCase()}`
+                        }
+                        onFocus={(event) => event.currentTarget.select()}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          setDraft((current) =>
+                            updatePlannedValueDraft(
+                              current,
+                              key,
+                              value,
+                              sport,
+                              personal.value.autoCalculate,
+                              presentation
+                            )
+                          )
+                          setNotice("")
+                        }}
+                      />
+                    ) : (
+                      <output
+                        className="desktop-recorded-value"
+                        aria-label={`Planned ${label.toLowerCase()}`}
+                      >
+                        {plannedDraftValue(draft, key, sport, presentation) ||
+                          "—"}
+                      </output>
+                    )}
+                  </td>
+                  <td>
                     <output
                       className="desktop-recorded-value"
-                      aria-label={`Planned ${label.toLowerCase()}`}
+                      aria-label={`Completed ${label.toLowerCase()}`}
                     >
-                      {draft[key] || "—"}
+                      {formatPlannedValue(
+                        key,
+                        completed[key],
+                        sport,
+                        true,
+                        presentation
+                      ) || "—"}
                     </output>
-                  )}
-                </td>
-                <td>
-                  <output
-                    className="desktop-recorded-value"
-                    aria-label={`Completed ${label.toLowerCase()}`}
-                  >
-                    {formatPlannedValue(
-                      key,
-                      completed[key],
-                      workout.sport,
-                      true
-                    ) || "—"}
-                  </output>
-                </td>
-                <td>{unit}</td>
-              </tr>
-            ))}
+                  </td>
+                  <td>{unit}</td>
+                </tr>
+              )
+            )}
           </tbody>
         </table>
         {canSave && !onClose && (
           <div className="desktop-workout-detail-actions">
             <button
               type="submit"
-              disabled={busy || !dirty || (valuesDirty && editable && (loading || !revision))}
+              disabled={
+                busy ||
+                !dirty ||
+                (valuesDirty && editable && (loading || !revision))
+              }
             >
               {busy ? "Saving…" : "Save workout"}
             </button>
@@ -504,7 +821,9 @@ function PlannedTotals({
           <p className="desktop-workout-detail-hint">
             {workout.status === "completed"
               ? "Planned totals are separate from the recorded workout."
-              : "Planned totals. Select the profile to edit intervals."}
+              : workout.unstructured || workout.editor_model?.unstructured
+                ? "Planned totals. Build Workout to add intervals."
+                : "Planned totals. Select the profile to edit intervals."}
           </p>
         )}
         {error && <p role="alert">{error}</p>}
@@ -517,9 +836,24 @@ function PlannedTotals({
             Reload values
           </button>
         )}
-        {notice && <p role="status">{notice}</p>}
+        {notice && <p role={syncFailed ? "alert" : "status"}>{notice}{syncFailed && <> <WorkoutSyncAction workoutId={workout.id} onError={setNotice}/></>}</p>}
       </form>
       <div className="desktop-workout-recorded">
+        {recordedStatus.binding === recordedBinding &&
+          recordedStatus.loading && (
+            <p role="status">Refreshing completed values…</p>
+          )}
+        {recordedStatus.binding === recordedBinding && recordedStatus.error && (
+          <p role="alert">
+            {recordedStatus.error}{" "}
+            <button
+              type="button"
+              onClick={() => setRecordedRetry((value) => value + 1)}
+            >
+              Retry completed values
+            </button>
+          </p>
+        )}
         <table aria-label="Recorded minimum average maximum">
           <colgroup>
             <col className="metric-label" />
@@ -538,64 +872,70 @@ function PlannedTotals({
             </tr>
           </thead>
           <tbody>
-            {[
-              /bike|ride/i.test(workout.sport)
-                ? {
-                    label: "Power",
-                    unit: "W",
-                    key: "average_power" as const,
-                    values: [
-                      completed.min_power,
-                      completed.average_power,
-                      completed.max_power,
-                    ],
-                  }
-                : {
-                    label: "Pace",
-                    unit: /swim/i.test(workout.sport) ? "min/100yd" : "min/mi",
-                    key: "average_speed" as const,
-                    values: [
-                      completed.max_speed,
-                      completed.average_speed,
-                      completed.min_speed,
-                    ],
-                  },
-              {
-                label: "Heart Rate",
-                unit: "bpm",
-                key: "average_power" as const,
-                values: [
-                  completed.min_hr,
-                  completed.average_hr,
-                  completed.max_hr,
-                ],
-              },
-            ].map((row) => (
-              <tr key={row.label}>
-                <th>{row.label}</th>
-                {row.values.map((value, index) => (
-                  <td key={index}>
-                    <output
-                      className="desktop-recorded-value"
-                      aria-live="off"
-                      aria-label={`Recorded ${["minimum", "average", "maximum"][index]} ${row.label.toLowerCase()}`}
-                    >
-                      {formatPlannedValue(
-                        row.key,
-                        value,
-                        workout.sport,
-                        true
-                      ) || "—"}
-                    </output>
-                  </td>
-                ))}
-                <td>{row.unit}</td>
-              </tr>
-            ))}
+            {recordedValueRows(sport)
+              .map((row) => ({
+                ...row,
+                key:
+                  row.kind === "pace"
+                    ? ("average_speed" as const)
+                    : ("average_power" as const),
+                values:
+                  row.kind === "power"
+                    ? [
+                        completed.min_power,
+                        completed.average_power,
+                        completed.max_power,
+                      ]
+                    : row.kind === "pace"
+                      ? [
+                          completed.max_speed,
+                          completed.average_speed,
+                          completed.min_speed,
+                        ]
+                      : [
+                          completed.min_hr,
+                          completed.average_hr,
+                          completed.max_hr,
+                        ],
+              }))
+              .map((row) => (
+                <tr key={row.label}>
+                  <th>{row.label}</th>
+                  {row.values.map((value, index) => (
+                    <td key={index}>
+                      <output
+                        className="desktop-recorded-value"
+                        aria-live="off"
+                        aria-label={`Recorded ${["minimum", "average", "maximum"][index]} ${row.label.toLowerCase()}`}
+                      >
+                        {formatPlannedValue(
+                          row.key,
+                          value,
+                          sport,
+                          true,
+                          row.kind === "pace" && sport === "Brick"
+                            ? "pace"
+                            : undefined
+                        ) || "—"}
+                      </output>
+                    </td>
+                  ))}
+                  <td>{row.unit}</td>
+                </tr>
+              ))}
           </tbody>
         </table>
       </div>
-      {!readOnly && <WorkoutEquipment value={personal.value} onChange={personal.setValue} scope={scope} sport={workout.sport} disabled={busy} options={personal.equipmentOptions} />}
+      {!readOnly && (
+        <WorkoutEquipment
+          value={personal.value}
+          onChange={personal.setValue}
+          scope={scope}
+          sport={sport}
+          disabled={busy}
+          options={personal.equipmentOptions}
+        />
+      )}
       {footer && (footerTarget ? createPortal(footer, footerTarget) : footer)}
     </section>
   )
@@ -610,6 +950,8 @@ function DesktopWorkoutDetailsForm({
   footerTarget,
   commentsTarget,
   onBusyChange,
+  onDirtyChange,
+  onDiscardReady,
 }: {
   workout: PlannedWorkout
   readOnly?: boolean
@@ -617,6 +959,22 @@ function DesktopWorkoutDetailsForm({
   const text = useWorkoutTextDraft(workout, readOnly)
   const [scope] = useState(trainingCacheScope)
   const personal = useWorkoutPersonalFields(scope, workout.id)
+  const discardTextDraft = text.discardDraft,
+    discardPersonalDraft = personal.discard
+  useEffect(() => {
+    onDiscardReady?.(() => {
+      clearWorkoutSaveDraft(scope, workout.id, "totals")
+      discardTextDraft()
+      discardPersonalDraft()
+    })
+    return () => onDiscardReady?.(null)
+  }, [
+    scope,
+    workout.id,
+    discardTextDraft,
+    discardPersonalDraft,
+    onDiscardReady,
+  ])
   const [textBusy, setTextBusy] = useState(false)
   const handleBusy = useCallback(
     (busy: boolean) => {
@@ -629,46 +987,60 @@ function DesktopWorkoutDetailsForm({
     <div className="desktop-workout-details-shell" key={workout.id}>
       <WorkoutDetailNavigation />
       <div className="desktop-workout-details-grid">
-      <PlannedTotals
-        workout={workout}
-        readOnly={readOnly}
-        metadata={metadata}
-        onClose={onClose}
-        onDelete={onDelete}
-        footerTarget={footerTarget}
-        onBusyChange={handleBusy}
-        text={text}
-        personal={personal}
-      />
-      <div className="desktop-workout-detail-text">
-        <section
-          aria-label="Workout description"
-          className="desktop-workout-description"
-        >
-          {!readOnly ? <WorkoutAttachments personal={personal} /> : <h3>
-            <label htmlFor={workout.id + "-description"}>Description</label>
-          </h3>}
-          <WorkoutDescriptionInput
-            id={workout.id + "-description"}
+        <PlannedTotals
+          workout={workout}
+          readOnly={readOnly}
+          metadata={metadata}
+          onClose={onClose}
+          onDelete={onDelete}
+          footerTarget={footerTarget}
+          onBusyChange={handleBusy}
+          onDirtyChange={onDirtyChange}
+          text={text}
+          personal={personal}
+        />
+        <div className="desktop-workout-detail-text">
+          <section
             aria-label="Workout description"
-            value={text.description}
-            maxLength={30000}
-            readOnly={!text.editable}
-            disabled={textBusy}
-            onChange={(event) => text.setDescription(event.target.value)}
-          />
-        </section>
-        {text.editable &&
-          (commentsTarget ? (
-            createPortal(
-              <PlannedComments text={text} busy={textBusy} showEmpty />,
-              commentsTarget
-            )
-          ) : (
-            <PlannedComments text={text} busy={textBusy} />
-          ))}
-        {!readOnly && <WorkoutPersonalNotes value={personal.value} onChange={personal.setValue} disabled={textBusy} />}
-      </div>
+            className="desktop-workout-description"
+          >
+            {!readOnly ? (
+              <WorkoutAttachments
+                personal={personal}
+                disabled={textBusy || Boolean(workout.app_pending_operation)}
+              />
+            ) : (
+              <h3>
+                <label htmlFor={workout.id + "-description"}>Description</label>
+              </h3>
+            )}
+            <WorkoutDescriptionInput
+              id={workout.id + "-description"}
+              aria-label="Workout description"
+              value={text.description}
+              maxLength={30000}
+              readOnly={!text.editable}
+              disabled={textBusy}
+              onChange={(event) => text.setDescription(event.target.value)}
+            />
+          </section>
+          {text.editable &&
+            (commentsTarget ? (
+              createPortal(
+                <PlannedComments text={text} busy={textBusy} showEmpty />,
+                commentsTarget
+              )
+            ) : (
+              <PlannedComments text={text} busy={textBusy} />
+            ))}
+          {!readOnly && (
+            <WorkoutPersonalNotes
+              value={personal.value}
+              onChange={personal.setValue}
+              disabled={textBusy}
+            />
+          )}
+        </div>
       </div>
     </div>
   )

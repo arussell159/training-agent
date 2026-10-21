@@ -1,0 +1,7 @@
+# Synthetic provider mutation ledger
+
+The disposable calendar preview's `preview/provider-records` response retains its existing `writes` array for compatibility. Entries represent **native mutation attempts**, not proof of a successful commit. Native POST/PUT/PATCH/DELETE attempts are now logged even without a request body; bodyless DELETE records `body:null`. Ordinary GET/HEAD reads are excluded. Malformed instrumentation bodies are marked `invalidBody:true` without replacing the actual dispatch error or leaking raw body text.
+
+A native precommit rejection remains an attempted write, so it appears in this ledger while independent provider state must remain unchanged. An application permission rejection before any native call creates no entry. A confirmed delete requires both exactly one matching native DELETE attempt and independently verified native absence; a ledger count alone is insufficient.
+
+Two new regressions cover every mutation method/read exclusion/safe body parsing and actual localhost HTTP Event creation, denied native POST, read-only preflight denial, bodyless deletion and missing-record readback. The existing Race browser assertion is retained. Strength cleanup expectations remain valid: canceled/rejected/held UI deletes do not reach the provider and preserve the previous ledger, while the confirmed delete is now correctly visible. Full backend verification passes785 tests. No production provider adapter, training data, application permission or UI behavior changed in this instrumentation fix.

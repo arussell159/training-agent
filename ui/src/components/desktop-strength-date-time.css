@@ -1,0 +1,44 @@
+.dsb-picker-field {
+  flex: 0 0 auto;
+}
+.dsb-picker-date {
+  width: 160px;
+}
+.dsb-picker-time {
+  width: 140px;
+}
+.dsb-picker-field > .MuiFormControl-root {
+  width: 100%;
+}
+.dsb-picker-field .MuiPickersSectionList-root {
+  font: 15px/1.4375 var(--font-sans);
+}
+.dsb-picker-field .MuiInputLabel-root {
+  font: 15px/1.4375 var(--font-sans);
+  color: #6a758f;
+}
+.dsb-picker-field .MuiIconButton-root {
+  font-size: 27.428571px;
+  line-height: 1.25;
+  padding: 8px;
+  color: #414e6c;
+}
+.dsb-picker-field .MuiIconButton-root > svg {
+  width: 1em;
+  height: 1em;
+  font-size: inherit;
+}
+.dsb-picker-popover {
+  z-index: 1500;
+}
+.dsb-picker-popover .MuiDayCalendar-weekDayLabel,
+.dsb-picker-popover .MuiPickerDay-root {
+  font: 11px/1.25 var(--font-sans);
+}
+.dsb-picker-popover .MuiPickersCalendarHeader-label {
+  font: 500 15px/1.25 var(--font-sans);
+}
+.dsb-picker-popover .MuiButton-root {
+  font: 15px/1.25 var(--font-sans);
+  text-transform: none;
+}

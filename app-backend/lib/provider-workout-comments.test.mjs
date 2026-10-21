@@ -125,7 +125,7 @@ test("legacy comments migrate on save, remain readable after moving/copying and 
   assert.equal(stripWorkoutCommentText(current.description), "Original");
 });
 
-test("malformed provider comments and oversized writes retain the draft without overwriting data", async () => {
+test("malformed comments and oversized provider prose retain the draft without overwriting data", async () => {
   let writes = 0;
   const broken = {
     description: "Original\n\n```training-agent-workout-comments-v1\nnot JSON\n```",
@@ -140,7 +140,7 @@ test("malformed provider comments and oversized writes retain the draft without 
   await assert.rejects(
     saveProviderWorkoutComment(async (_, options) => {
       if (options) writes++;
-      return { description: "x".repeat(29950) };
+      return { description: "x".repeat(30001) };
     }, input),
     /text limit/
   );

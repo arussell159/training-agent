@@ -41,14 +41,74 @@ const nutrition = await import("../src/lib/nutrition.ts")
 const workoutReads = await import("../src/lib/workout-read-cache.ts")
 const foodReads = await import("../src/lib/nutrition-read-cache.ts")
 const workspaceReads = await import("../src/lib/workspace-reads.ts")
+const pageSnapshots = await import("../src/lib/page-snapshots.ts")
 const { projectNutritionChange } = await import("../src/lib/nutrition-optimistic.ts")
 const { askCoach } = await import("../src/lib/coach-client.ts")
 const { waitForSection11Export, syncSection11Export, section11ExportPending } =
   await import("../src/lib/section11-export.ts")
-const { validatedTrainingContext, validatedTrainingWorkout } =
+const { validatedTrainingContext, validatedTrainingWorkout, validatedLibraryWorkout } =
   await import("../src/lib/training-context-validation.ts")
 const {plannedDistanceLabel}=await import("../src/lib/workout-distance.ts")
+const {createDesktopPreviewFixtures}=await import('../../tools/desktop-preview-fixtures.mjs')
+test('isolated pace source drillthrough passes the actual strict workout response validator with recorded duration and exact source identity',()=>{
+  const fixture=createDesktopPreviewFixtures(new Date('2026-10-20T12:00:00Z'))
+  for(const [id,sport,distance] of [['i700000001','Run',1600],['i700000002','Swim',400]]){
+    const workout=validatedTrainingWorkout(fixture.lookup(id))
+    assert.equal(workout.id,`activity:${id}`)
+    assert.equal(workout.activity_id,id)
+    assert.equal(workout.sport,sport)
+    assert.equal(workout.duration,'6m 40s')
+    assert.equal(workout.completed,true)
+    assert.equal(workout.duration_seconds,400)
+    assert.equal(workout.workout_summary.completed.duration_seconds,400)
+    assert.equal(workout.workout_summary.completed.distance_meters,distance)
+    assert.equal(fixture.analysis(id).duration,400)
+    const malformed={...workout};delete malformed.duration
+    assert.throws(()=>validatedTrainingWorkout(malformed),/incomplete/)
+  }
+})
+test('isolated HR source drillthrough meets the same actual strict workout response contract without inventing planned totals',()=>{
+  const fixture=createDesktopPreviewFixtures(new Date('2026-10-20T12:00:00Z'))
+  for(const [id,sport,seconds] of [['i710000004','Other',300],['i710000001','Run',600]]){
+    const workout=validatedTrainingWorkout(fixture.lookup(id))
+    assert.equal(workout.id,`activity:${id}`)
+    assert.equal(workout.activity_id,id)
+    assert.equal(workout.sport,sport)
+    assert.equal(typeof workout.duration,'string')
+    assert.equal(workout.workout_summary.planned,null)
+    assert.equal(workout.workout_summary.completed.duration_seconds,seconds)
+    assert.equal(fixture.analysis(id).duration,seconds)
+  }
+})
 const flush = () => new Promise((resolve) => setImmediate(resolve))
+test('cadence raw-source Summary records satisfy the actual strict workout validator and preserve native identity without planned totals',()=>{
+  const fixture=createDesktopPreviewFixtures(new Date('2026-10-20T12:00:00Z'))
+  for(const [id,sport,seconds] of [['i720000001','Bike',5400],['i720000002','Run',600],['i720000004','Walk',60]]){
+    const workout=validatedTrainingWorkout(fixture.lookup(id))
+    assert.equal(workout.id,`activity:${id}`)
+    assert.equal(workout.activity_id,id)
+    assert.equal(workout.sport,sport)
+    assert.equal(typeof workout.duration,'string')
+    assert.equal(workout.workout_summary.planned,null)
+    assert.equal(workout.workout_summary.completed.duration_seconds,seconds)
+    assert.equal(fixture.analysis(id).duration,seconds)
+  }
+})
+test('duration velocity source Summary records pass the actual workout contract with recorded speed and physical distance, separate from distance pace',()=>{
+  const fixture=createDesktopPreviewFixtures(new Date('2026-10-20T12:00:00Z'))
+  for(const [id,sport,seconds,speed] of [['i740000001','Bike',5400,12],['i740000002','Run',600,4],['i740000003','Swim',1800,1],['i740000004','Walk',60,0]]){
+    const workout=validatedTrainingWorkout(fixture.lookup(id))
+    assert.equal(workout.id,`activity:${id}`)
+    assert.equal(workout.activity_id,id)
+    assert.equal(workout.sport,sport)
+    assert.equal(workout.workout_summary.planned,null)
+    assert.equal(workout.workout_summary.completed.duration_seconds,seconds)
+    assert.equal(workout.workout_summary.completed.distance_meters,seconds*speed)
+    const analysis=fixture.analysis(id)
+    assert.equal(analysis.duration,seconds)
+    assert.ok(analysis.points.every(point=>point.speed===speed))
+  }
+})
 const json = (value) =>
   new Response(JSON.stringify(value), {
     headers: { "Content-Type": "application/json" },
@@ -75,7 +135,9 @@ const context = (version = "one", patch = {}) => ({
 })
 
 const calendarRows = () => [...new Map([...training.cachedTrainingContext().history, ...training.cachedTrainingContext().planned].map(row => [row.id || row, row])).values()]
-const saveInput = (id, date = "2001-10-06") => ({model:{version:1,name:`Run ${id}`,sport:"Run",date,notes:"Easy",poolLength:"",steps:[]},values:{duration_seconds:2700},time:"06:30",comment:"",creationId:id})
+// These direct-transport regressions exercise recovery of pre-outbox requests.
+// New local transaction/reload/offline behavior is verified in the browser's IDB harness.
+const saveInput = (id, date = "2001-10-06") => ({model:{version:1,name:`Run ${id}`,sport:"Run",date,notes:"Easy",poolLength:"",steps:[]},values:{duration_seconds:2700},time:"06:30",comment:"",creationId:id,reconcileOnly:true})
 
 const coachProposal=()=>({id:"9fc8da63-e749-437d-8bb1-c9171c730abc",state:"ready",phase:"preview",createdAt:1,expiresAt:9999999999999,timeZone:"America/Chicago",error:null,runUrl:null,workouts:[{name:"Coach run",type:"Run",date:"2099-10-20",description:"- 30m Z2 HR",duration_minutes:30,tss:20},{name:"Coach bike",type:"Ride",date:"2099-10-21",description:"- 45m 180w",duration_minutes:45,tss:40}]})
 const coachReceipt=(proposal,indexes=[0,1],applied=true)=>({...proposal,state:applied?"applied":"unknown",phase:"push",transport:"direct",verified:applied,error:applied?null:"Recheck remaining workout",scheduledWorkouts:indexes.map(index=>({index,workout:{...workout(`event:${700+index}`,proposal.workouts[index].date),title:proposal.workouts[index].name}}))})
@@ -116,6 +178,36 @@ test("rejected library scheduling removes only its unconfirmed card and preserve
   globalThis.fetch=async()=>json({verified:false,error:"Provider rejected scheduling"})
   await assert.rejects(training.scheduleLibraryWorkout(workout("library:15"),"2099-10-22","same"),/Provider rejected/)
   assert.deepEqual(calendarRows().map(row=>row.id),["event:99"])
+})
+
+test("unavailable private template prescriptions cannot dispatch scheduling or insert a provisional calendar card",async()=>{
+  window.dispatchEvent(new Event("training-cache-reset"));setApiAuthenticated(true)
+  training.rememberLiveTrainingContext(context("metadata-guard",{planned:[workout("event:99","2099-10-20")]}))
+  const before=JSON.stringify(training.cachedTrainingContext());let calls=0
+  globalThis.fetch=async()=>{calls++;throw Error("Unavailable templates must not dispatch")}
+  for(const flags of [{structure_read_only:true},{structure_read_only:true,template_metadata_error:"The private template prescription is unavailable. Reload before scheduling."}]){
+    await assert.rejects(training.scheduleLibraryWorkout({...workout("library:15"),...flags},"2099-10-22","blocked"),/private template prescription is unavailable/)
+  }
+  assert.equal(calls,0);assert.equal(JSON.stringify(training.cachedTrainingContext()),before)
+})
+
+test("library validation retains a safe unavailable row but rejects malformed or contradictory metadata status",()=>{
+  const source={...workout("library:15"),workout_date:undefined,structure_read_only:true,template_metadata_error:"The private template prescription is unavailable. Reload before scheduling."}
+  const safe=validatedLibraryWorkout(source)
+  assert.equal(safe.id,source.id);assert.equal(safe.template_metadata_error,source.template_metadata_error);assert.equal(safe.structure_read_only,true)
+  for(const extra of [{structure_read_only:"true"},{structure_read_only:false},{template_metadata_error:""},{template_metadata_error:{}},{template_metadata_error:"x".repeat(1001)}])assert.throws(()=>validatedLibraryWorkout({...source,...extra}),/invalid prescription status/)
+  const ordinary=validatedLibraryWorkout({...workout("library:16"),workout_date:undefined})
+  assert.equal(ordinary.structure_read_only,undefined);assert.equal(ordinary.template_metadata_error,undefined)
+})
+
+test("unavailable source metadata does not prevent a read-only recheck of an earlier scheduling identity",async()=>{
+  window.dispatchEvent(new Event("training-cache-reset"));setApiAuthenticated(true)
+  training.rememberLiveTrainingContext(context("metadata-recheck",{planned:[],history:[]}))
+  let calls=0,body
+  globalThis.fetch=async(_,options)=>{calls++;body=JSON.parse(options.body);return json({verified:true,workout:workout("event:600","2099-10-22")})}
+  const id="e5c5efae-55ad-4a76-af84-112f8c7f1479"
+  await training.scheduleLibraryWorkout({...workout("library:15"),structure_read_only:true,template_metadata_error:"The private template prescription is unavailable. Reload before scheduling."},"2099-10-22",id,true)
+  assert.equal(calls,1);assert.deepEqual(body,{date:"2099-10-22",creationId:id,reconcileOnly:true});assert.deepEqual(calendarRows().map(row=>row.id),["event:600"])
 })
 test("undated library deep links share library reads and explicit retry bypasses malformed cached data",async()=>{
   window.dispatchEvent(new Event("training-cache-reset"));setApiAuthenticated(true)
@@ -309,7 +401,7 @@ test("editor and comment responses must identify the workout and confirm provide
   const model=saveInput("model").model
   for(const reply of [{verified:false,revision:"r",workout:workout("event:1")},{verified:true,workout:workout("event:1")},{verified:true,revision:"r",workout:workout("event:2")}]){
     globalThis.fetch=async()=>json(reply)
-    await assert.rejects(training.writeWorkoutEditor("event:1",{model}),/verify|match/)
+    await assert.rejects(training.writeWorkoutEditor("event:1",{model,reconcileOnly:true}),/verify|match/)
   }
   const input={workoutId:"event:1",body:"Draft",type:"pre",creationId:"comment",syncOnly:false}
   for(const reply of [{verified:true,id:"c",workout_id:"event:2",body:"Draft",type:"pre"},{verified:true,id:"c",workout_id:"event:1",body:"Different",type:"pre"},{verified:true,id:"c",workout_id:"event:1",body:"Draft",type:"post"}]){
@@ -320,7 +412,7 @@ test("editor and comment responses must identify the workout and confirm provide
 
 test("editor and comment writes bound stalled bodies, abort transport, and never replay writes",async(t)=>{
   t.mock.timers.enable({apis:["setTimeout"]})
-  for(const [write,timeout] of [[()=>training.writeWorkoutEditor("event:1",{model:saveInput("edit").model}),65000],[()=>training.writeWorkoutEditor(null,{...saveInput("create")}),90000],[()=>training.saveWorkoutComment({workoutId:"event:1",body:"Draft",type:"pre",creationId:"same",syncOnly:false}),65000]]){
+  for(const [write,timeout] of [[()=>training.writeWorkoutEditor("event:1",{model:saveInput("edit").model,reconcileOnly:true}),65000],[()=>training.writeWorkoutEditor(null,{...saveInput("create")}),90000],[()=>training.saveWorkoutComment({workoutId:"event:1",body:"Draft",type:"pre",creationId:"same",syncOnly:false}),65000]]){
     window.dispatchEvent(new Event("training-cache-reset"));setApiAuthenticated(true)
     let calls=0,signal;globalThis.fetch=async(_,options)=>{calls++;signal=options.signal;return new Response(new ReadableStream({start(){}}))}
     const promise=write();const rejected=assert.rejects(promise,{name:"TimeoutError"});await flush()
@@ -335,7 +427,7 @@ test("session changes cancel pending editor writes and suppress late save notifi
   try {
     const feedback=training.beginWorkoutSaveFeedback();const stage=training.beginOptimisticWorkoutWrite({id:"event:1",patch:{title:"Old session"}})
     let reply;globalThis.fetch=()=>new Promise(resolve=>{reply=resolve})
-    const pending=training.writeWorkoutEditor("event:1",{model:saveInput("old-session").model});const rejected=assert.rejects(pending,{name:"AbortError"});await flush()
+    const pending=training.writeWorkoutEditor("event:1",{model:saveInput("old-session").model,reconcileOnly:true});const rejected=assert.rejects(pending,{name:"AbortError"});await flush()
     window.dispatchEvent(new Event("app-auth-required"));await rejected
     feedback.confirm();stage.fail(Error("Old request"));stage.finish()
     reply(json({verified:true,workout:workout("event:1"),revision:"old"}));await flush()
@@ -354,6 +446,42 @@ test("workspace navigation shares overlapping reads and reuses the bounded sessi
   window.dispatchEvent(new Event("training-mutation-started"))
   await workspaceReads.loadWorkspaceRead("/api/coach/reports/catalog")
   assert.equal(calls, 2)
+})
+
+test("template refresh invalidates stale library reads and snapshots without publishing a calendar context", async () => {
+  window.dispatchEvent(new Event("training-cache-reset")); setApiAuthenticated(true)
+  const source=workout("event:18")
+  training.rememberTrainingContext(context("source-unchanged",{planned:[source]}),"full")
+  const before=structuredClone(training.cachedTrainingContext())
+  pageSnapshots.writePageSnapshot("library",["old-template"],pageSnapshots.pageSnapshotRevision())
+  pageSnapshots.writePageSnapshot("coach",["unrelated"],pageSnapshots.pageSnapshotRevision())
+  const staleRevision=pageSnapshots.pageSnapshotRevision()
+  let finishOld,calls=0,contextEvents=0,libraryEvents=0,freshRead
+  globalThis.fetch=async()=>++calls===1?new Promise(resolve=>{finishOld=resolve}):json({workouts:[{id:"library:2"}]})
+  const old=workspaceReads.loadWorkspaceRead("/api/workout-library");await flush()
+  window.__workspaceStartupRequests={"/api/workout-library":Promise.resolve(json({workouts:[{id:"library:999"}]})),"/api/annual-plans":Promise.resolve(json({plans:[]}))}
+  const onContext=()=>contextEvents++
+  const onLibrary=()=>{libraryEvents++;freshRead=workspaceReads.loadWorkspaceRead("/api/workout-library")}
+  window.addEventListener("training-context-updated",onContext);window.addEventListener("workout-library-updated",onLibrary)
+  try {
+    workspaceReads.notifyWorkoutLibraryChanged()
+    assert.equal((await freshRead).workouts[0].id,"library:2")
+    assert.equal(calls,2);assert.equal(contextEvents,0);assert.equal(libraryEvents,1)
+    assert.deepEqual(training.cachedTrainingContext(),before)
+    assert.equal(window.__workspaceStartupRequests["/api/workout-library"],undefined)
+    assert.ok(window.__workspaceStartupRequests["/api/annual-plans"])
+    assert.equal(pageSnapshots.pageSnapshotFresh("library"),false)
+    assert.deepEqual(pageSnapshots.readPageSnapshot("library"),["old-template"])
+    assert.equal(pageSnapshots.pageSnapshotFresh("coach"),true)
+    pageSnapshots.writePageSnapshot("library",["late-old-template"],staleRevision)
+    assert.deepEqual(pageSnapshots.readPageSnapshot("library"),["old-template"])
+    finishOld(json({workouts:[{id:"library:1"}]}));await old
+    assert.equal((await workspaceReads.loadWorkspaceRead("/api/workout-library")).workouts[0].id,"library:2")
+    assert.equal(calls,2)
+  } finally {
+    window.removeEventListener("training-context-updated",onContext);window.removeEventListener("workout-library-updated",onLibrary)
+    delete window.__workspaceStartupRequests
+  }
 })
 
 test("workspace reads consume protected startup responses once without another database request", async () => {
@@ -459,10 +587,10 @@ test("incomplete workout reads never poison the preview cache", async () => {
   assert.equal((await workoutReads.loadWorkoutValues("event:21")).revision, "valid")
 })
 
-test("new summary workouts appear as provisional and become real only after provider verification",async()=>{
+test("legacy creation reconciliation remains provisional until provider verification",async()=>{
  window.dispatchEvent(new Event("training-cache-reset"));setApiAuthenticated(true);
  const before=context("new-summary",{history:[],planned:[]});training.rememberLiveTrainingContext(before);
- const input={model:{version:1,name:"Easy run",sport:"Run",date:"2026-10-17",notes:"Easy",poolLength:"",steps:[]},values:{duration_seconds:2700},time:"06:30",comment:"Relaxed effort",creationId:"ac264d2c-cbef-494a-846d-22fc082544cb"};
+ const input={model:{version:1,name:"Easy run",sport:"Run",date:"2026-10-17",notes:"Easy",poolLength:"",steps:[]},values:{duration_seconds:2700},time:"06:30",comment:"Relaxed effort",creationId:"ac264d2c-cbef-494a-846d-22fc082544cb",reconcileOnly:true};
  let reply,body;
  globalThis.fetch=async(_,options)=>{body=JSON.parse(options.body);return await new Promise(resolve=>{reply=resolve})};
  const pending=training.createPlannedWorkout(input);await flush();
@@ -484,6 +612,10 @@ test("new summary workouts appear as provisional and become real only after prov
 test("mobile and desktop moves update locally immediately but await provider confirmation", async () => {
   window.dispatchEvent(new Event("training-cache-reset"))
   setApiAuthenticated(true)
+  const chicagoToday = new Intl.DateTimeFormat("en-CA", {timeZone:"America/Chicago",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date())
+  const tomorrow = new Date(chicagoToday + "T12:00:00Z")
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+  const target = tomorrow.toISOString().slice(0,10)
   const original = context("move-test", { planned: [workout("event:12")] })
   training.rememberLiveTrainingContext(original)
   let reply,
@@ -498,33 +630,45 @@ test("mobile and desktop moves update locally immediately but await provider con
     })
   }
   const save = training
-    .moveWorkoutDate("event:12", "2026-10-20")
+    .moveWorkoutDate("event:12", target)
     .then((result) => {
       finished = true
       return result
     })
   await flush()
   assert.match(decodeURIComponent(new URL(path,"http://localhost").searchParams.get("__api_route")), /workouts\/event:12\/move/)
-  assert.deepEqual(body, { date: "2026-10-20" })
+  assert.deepEqual(body, { date: target })
   assert.equal(finished, false)
   assert.equal(
     training.cachedTrainingContext().planned[0].workout_date,
-    "2026-10-20"
+    target
   )
   assert.ok(training.cachedTrainingContext().planned[0].app_pending_operation)
   reply(
     json({
       verified: true,
       context: context("moved", {
-        planned: [workout("event:12", "2026-10-20")],
+        planned: [workout("event:12", target)],
       }),
     })
   )
   await save
   assert.equal(
     training.cachedTrainingContext().planned[0].workout_date,
-    "2026-10-20"
+    target
   )
+})
+
+test("the actual optimistic projector moves yesterday into history and today into both calendar buckets across Chicago midnight",async t=>{
+  const {projectOptimisticWorkout}=await import("../src/lib/optimistic-workout.ts")
+  t.mock.timers.enable({apis:["Date"],now:new Date("2026-10-21T05:01:00Z").getTime()})
+  const before=context("midnight",{planned:[workout("event:12","2026-10-22")]})
+  const historical=projectOptimisticWorkout(before,{id:"event:12",operation:"past",patch:{workout_date:"2026-10-20"}})
+  assert.equal(historical.planned.length,0)
+  assert.equal(historical.history.find(row=>row.id==="event:12").workout_date,"2026-10-20")
+  const current=projectOptimisticWorkout(before,{id:"event:12",operation:"today",patch:{workout_date:"2026-10-21"}})
+  assert.equal(current.planned.find(row=>row.id==="event:12").workout_date,"2026-10-21")
+  assert.equal(current.history.find(row=>row.id==="event:12").workout_date,"2026-10-21")
 })
 
 test("unconfirmed moves and deletes roll back the provisional calendar projection", async () => {
@@ -545,6 +689,41 @@ test("unconfirmed moves and deletes roll back the provisional calendar projectio
       restored.workout_date,
       "2026-10-06"
     )
+  }
+})
+
+test("a confirmed-dialog delete keeps its record mounted while pending and rejected, then removes only the verified identity", async () => {
+  window.dispatchEvent(new Event("training-cache-reset"))
+  setApiAuthenticated(true)
+  const race = { ...workout("event:12"), category: "RACE_B" },
+    other = workout("event:13")
+  training.rememberLiveTrainingContext(context("race-delete", { planned: [race, other] }))
+  let reply
+  const settled = []
+  const listen = () => settled.push(true)
+  window.addEventListener("training-mutation-settled", listen)
+  try {
+    globalThis.fetch = () => new Promise(resolve => { reply = resolve })
+    const rejected = training.changeWorkout(race.id, "delete", undefined, undefined, { feedback: false, optimistic: false })
+    await flush()
+    assert.deepEqual(training.cachedTrainingContext().planned.map(row => row.id), [race.id, other.id])
+    assert.ok(training.cachedTrainingContext().planned.every(row => !row.app_pending_operation))
+    reply(json({ error: "Race deletion rejected" }, { status: 400 }))
+    await assert.rejects(rejected, /Race deletion rejected/)
+    assert.deepEqual(training.cachedTrainingContext().planned.map(row => row.id), [race.id, other.id])
+    assert.equal(settled.length, 1)
+
+    const confirmed = training.changeWorkout(race.id, "delete", undefined, undefined, { feedback: false, optimistic: false })
+    await flush()
+    assert.deepEqual(training.cachedTrainingContext().planned.map(row => row.id), [race.id, other.id])
+    // A stale bounded response must not restore the independently confirmed deletion.
+    reply(json({ verified: true, context: context("provider-old-snapshot", { planned: [race, other] }) }))
+    const result = await confirmed
+    assert.deepEqual(training.cachedTrainingContext().planned.map(row => row.id), [other.id])
+    assert.deepEqual(result.context.planned.map(row => row.id), [other.id])
+    assert.equal(settled.length, 2)
+  } finally {
+    window.removeEventListener("training-mutation-settled", listen)
   }
 })
 

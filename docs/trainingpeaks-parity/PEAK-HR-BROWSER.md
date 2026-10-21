@@ -1,0 +1,13 @@
+# Peak HR browser checkpoint
+
+`node tools/trainingpeaks-peak-hr-check.mjs` runs twelve bounded groups against an isolated synthetic localhost preview. Set `APP_TEST_ORIGIN=http://127.0.0.1:5213`; start the preview with `node tools/desktop-preview.mjs --calendar-edits --port=5213`. Never point this runner at a live provider account.
+
+Frozen build 91820, index SHA256 `C0566544D4AE29A25B989B6E1A49E66F7C3A8D1BC7D1C25A4F5F39411FEFA3DD`, passed all twelve groups with backend checkpoint 785. Evidence is under `artifacts/frozen91820-macro-race-hr-verification/hr`; the parent directory records the exact tool, preview, fixture and index hashes.
+
+The independent raw fixture oracle supplies native recording IDs, dates, time samples and heart-rate samples. The runner computes time-weighted BPM directly from those samples, without importing the application projection or formatting helpers. The combined curve must yield 240, 210, unknown, unknown, 210 and 180 BPM at the six native durations. The ignored 250-BPM candidate and the ten-second Strength recording cannot create known efforts at the deliberately invalid longer durations. Individual Run, Strength, Other and Walk selections use exact native eligibility; Walk's recorded zero stays an actionable zero.
+
+The rendered chart must preserve every native point and break at unknown values. The grid uses the fifteen observed reference anchors, plain recording dates and numeric BPM buttons. It never invents a three-minute grid row for the native 180-second sample. The browser also checks the fourteen sport options plus All, twenty-five primary and comparison date presets, independent comparison windows, invalid-date blocking, actual preference readback and a new browser context.
+
+HTTP 503, malformed successful windows, selections, units, source dates and coverage counts must retain the confirmed primary/comparison pair until explicit Retry. A deliberately held obsolete response cannot replace the newer selection. Separate Brick selection must show an unavailable state without querying native Other. Source opening independently verifies the raw recording and opens the normal Summary with Analyze available; it sends no selected-effort query or HR highlight request.
+
+The successful network evidence contains two intentional 503 responses and their console messages, plus exactly one superseded request canceled with `ERR_ABORTED`. There are no unexpected runtime or network errors and no provider writes. These are synthetic functional checks. They do not certify the populated TrainingPeaks palette, a whole-image pixel tolerance, complete sensor history coverage, or a commercial readiness percentage.

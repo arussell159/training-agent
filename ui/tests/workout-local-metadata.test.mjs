@@ -6,6 +6,8 @@ import {
   removeWorkoutLocalMetadata,
   saveWorkoutLocalMetadata,
   savedWorkoutEquipment,
+  hasWorkoutPersonalFields,
+  mergeWorkoutPersonalRead,
 } from "../src/lib/workout-local-metadata.ts"
 
 let records
@@ -25,6 +27,39 @@ const fields = {
   equipment: "Daily trainers",
   autoCalculate: false,
 }
+test("bike-only and shoes-only drafts require durable personal-field migration", () => {
+  const empty = {privateNotes:"",tags:[],equipment:"",autoCalculate:true}
+  assert.equal(hasWorkoutPersonalFields(empty),false)
+  assert.equal(hasWorkoutPersonalFields({...empty,bikeEquipment:"Race bike"}),true)
+  assert.equal(hasWorkoutPersonalFields({...empty,shoeEquipment:"Running shoes"}),true)
+  assert.equal(hasWorkoutPersonalFields({...empty,bikeEquipment:"",shoeEquipment:""}),false)
+  assert.equal(hasWorkoutPersonalFields({...empty,autoCalculate:false}),true)
+})
+test("a delayed default response retains new equipment typed during the read and accepts unrelated remote updates", async () => {
+  const before={privateNotes:"",tags:[],equipment:"",autoCalculate:true}
+  let finishRead
+  const pending=new Promise(resolve=>{finishRead=resolve})
+  const edited={...before,bikeEquipment:"Time trial bike",shoeEquipment:"Race shoes"}
+  finishRead({...before,privateNotes:"Remote note"})
+  const merged=mergeWorkoutPersonalRead(edited,before,await pending)
+  assert.equal(merged.bikeEquipment,"Time trial bike")
+  assert.equal(merged.shoeEquipment,"Race shoes")
+  assert.equal(merged.privateNotes,"Remote note")
+  const cleared=mergeWorkoutPersonalRead({...merged,bikeEquipment:""},merged,{...merged,bikeEquipment:"Other device bike"})
+  assert.equal(cleared.bikeEquipment,"")
+  assert.equal(cleared.shoeEquipment,"Race shoes")
+})
+test("Brick bike and shoes remain independent through draft migration and account-specific suggestions",()=>{
+  const brick={...fields,bikeEquipment:"Time trial bike",shoeEquipment:"Race shoes"}
+  saveWorkoutLocalMetadata("athlete-a","draft:brick",brick)
+  moveWorkoutLocalMetadata("athlete-a","draft:brick","event:88",brick)
+  assert.deepEqual(readWorkoutLocalMetadata("athlete-a","event:88"),brick)
+  saveWorkoutLocalMetadata("athlete-a","event:88",{...brick,bikeEquipment:""})
+  assert.equal(readWorkoutLocalMetadata("athlete-a","event:88").shoeEquipment,"Race shoes")
+  assert.equal(readWorkoutLocalMetadata("athlete-a","event:88").equipment,fields.equipment)
+  assert.deepEqual(savedWorkoutEquipment("athlete-a"),["Daily trainers","Race shoes"])
+  assert.deepEqual(savedWorkoutEquipment("athlete-b"),[])
+})
 
 test("personal fields reopen only for their athlete and workout", () => {
   saveWorkoutLocalMetadata("athlete-a", "event:12", fields)

@@ -6,6 +6,8 @@ import { elapsedSummary } from "./elapsed-summary.mjs";
 import { appWorkoutDescription } from "./workout-readable-description.mjs";
 import { retainRecentTrainingContext } from "./training-retention.mjs";
 import { syncRevision } from "./sync-record-revision.mjs";
+import { isCalendarMetricsEntries } from "./calendar-metrics-model.mjs";
+import { annotationOverlapsRange } from "./calendar-annotations-model.mjs";
 
 export const fastViewId = (config, scope = "full") =>
   `view:v1:${providerConnection(config)}:${scope === "week" ? "startup" : "training"}`;
@@ -64,10 +66,17 @@ export function projectTrainingContext(context, scope = "week", now = new Date()
         : {}),
     }));
   const history = sessions.filter(
-    (w) => w.workout_date <= today && (scope === "full" || w.workout_date >= shift(-14))
+    (w) =>
+      w.workout_date <= today &&
+      (scope === "full" ||
+        (w.calendar_annotation_key
+          ? annotationOverlapsRange(w, shift(-14), today)
+          : w.workout_date >= shift(-14)))
   );
-  const planned = sessions.filter(
-    (w) => w.workout_date >= today && (scope === "full" || w.workout_date <= shift(13))
+  const planned = sessions.filter((w) =>
+    w.calendar_annotation_key
+      ? annotationOverlapsRange(w, today, scope === "full" ? "9999-12-31" : shift(13))
+      : w.workout_date >= today && (scope === "full" || w.workout_date <= shift(13))
   );
   const athlete = Object.fromEntries(
     Object.entries(context.athlete || {}).filter(
@@ -85,7 +94,11 @@ export function projectTrainingContext(context, scope = "week", now = new Date()
       .map((row) =>
         Object.fromEntries(
           Object.entries(row).filter(
-            ([key, value]) => value != null && (typeof value !== "object" || key === "details")
+            ([key, value]) =>
+              value != null &&
+              (typeof value !== "object" ||
+                key === "details" ||
+                (key === "calendar_metrics" && isCalendarMetricsEntries(value)))
           )
         )
       ),

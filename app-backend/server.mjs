@@ -1,4 +1,5 @@
-import { readWorkoutLibrary, saveLibraryWorkout } from "./lib/workout-library.mjs";
+import { workoutTemplateService } from "./lib/workout-template.mjs";
+import { createWorkoutTemplateEndpoint } from "./lib/workout-template-endpoint.mjs";
 import { uploadWorkoutRecording, exportWorkoutFile } from "./lib/workout-files.mjs";
 import { previewConfig } from './lib/local-preview.mjs';
 import { createFatSecretDiary } from './lib/fatsecret-diary.mjs';
@@ -19,9 +20,13 @@ import { createNutritionStore } from './lib/nutrition-model.mjs';
 import { localNutritionRecords } from './lib/nutrition-local-store.mjs';
 import { createCoachCalendar } from './lib/coach-calendar.mjs';
 import { createEncryptedRecordStore } from './lib/app-auth-store.mjs';
+import { createDurableWorkoutCommits } from './lib/durable-workout-commits.mjs';
+import { raceEventDetailsService } from './lib/race-event-details.mjs';
+import { raceEventKey } from './lib/race-event-details-model.mjs';
 import { createWorkoutPersonalService } from './lib/workout-personal.mjs';
 import { createAppAuth } from './lib/app-auth.mjs';
 import { coachConfig, createCoach } from './lib/github-coach.mjs';
+import {generateWorkoutDraft} from './lib/workout-generator.mjs';
 import { createGithubCoachSource } from './lib/github-coach-source.mjs';
 import { createWorkoutSync, freshWorkoutSync } from './lib/coach-workout-sync.mjs';
 import { waitUntil } from '@vercel/functions';
@@ -44,6 +49,17 @@ import {saveFastView,fastViewId,projectTrainingContext} from './lib/fast-context
 import {retainRecentTrainingContext,twelveWeekStart} from './lib/training-retention.mjs';
 import {buildTwelveWeekTrainingHistory} from './lib/training-history.mjs';
 import {createPerformanceHistory,performanceType,performanceWindow,performanceActivityId,performanceEffortSelection} from './lib/performance-curves.mjs';
+import {createHeartRateCurveService} from './lib/heart-rate-curve.mjs';
+import {createHeartRateCurveEndpoint} from './lib/heart-rate-curve-http.mjs';
+import {createCadenceCurveService} from './lib/cadence-curve.mjs';
+import {createCadenceCurveEndpoint} from './lib/cadence-curve-http.mjs';
+import {createVelocityCurveService} from './lib/velocity-curve.mjs';
+import {createVelocityCurveEndpoint} from './lib/velocity-curve-http.mjs';
+import {createChartTagsService} from './lib/chart-tags.mjs';
+import {createTaggedActivityCurvesService} from './lib/tagged-activity-curves.mjs';
+import {createNativePowerCurveService} from './lib/native-power-curve.mjs';
+import {createNativePowerCurveEndpoint} from './lib/native-power-curve-http.mjs';
+import {createChartTagsEndpoint,createTaggedCurvesEndpoint} from './lib/chart-tags-http.mjs';
 import {fetchHistoricalCalendar,fetchWorkoutHistoryPage,fetchHistoricalWorkout} from './lib/intervals-history.mjs';
 import {createMutationQueue,validateMutation} from './lib/mutation-queue.mjs';
 import {createMutationProjection} from './lib/mutation-projection.mjs';
@@ -62,6 +78,11 @@ import {updateWorkoutDescription,DEFINITION_MARKER} from './lib/workout-descript
 import {readManualWorkoutDescription} from './lib/workout-manual-description.mjs';
 import {loadWorkoutEditor,saveWorkoutEditor,loadNewWorkoutEditor,createWorkoutEditor,workoutRevision} from './lib/workout-editor.mjs';
 import {loadCalendarNote,saveCalendarNote,createCalendarNote} from './lib/calendar-notes.mjs';
+import {calendarAnnotationsService} from './lib/calendar-annotations.mjs';
+import {calendarEntryTransferService} from './lib/calendar-entry-transfer.mjs';
+import {synchronizeCalendarEventAnnualPlans} from './lib/calendar-event-annual-plan.mjs';
+import {strengthExerciseLibrary} from './lib/strength-exercise-library.mjs';
+import {annotationOverlapsRange} from './lib/calendar-annotations-model.mjs';
 import {loadPlannedWorkoutMetrics,savePlannedWorkoutMetrics} from './lib/planned-workout-metrics.mjs';
 import {stripPlannedValues} from './lib/planned-workout-values.mjs';
 import {expandSteps,stepMetrics,workoutTotals,serializeWorkout,validateWorkout,distanceFactors} from './lib/workout-editor-model.mjs';
@@ -76,6 +97,7 @@ import {
   updateTrainingPreferences,
 } from './lib/local-context.mjs';
 import { createIntervalsClient, fetchIntervalsContext, moveIntervalsEvent, changeIntervalsEvent, createIntervalsRaceEvent, updateIntervalsRaceEvent, updateIntervalsTrainingZones, mapIntervalsWorkout, validDate, eventId as intervalsEventId } from './lib/intervals.mjs';
+import {calendarWellnessService,projectCalendarWellness} from './lib/calendar-wellness.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -202,9 +224,33 @@ const providerReads=createRequestCache({ttl:60000,maxEntries:32});
 const historicalReads=createRequestCache({ttl:15*60_000,maxEntries:96});
 let recentActivityStatsCache = null;
 const performanceHistory=createPerformanceHistory({request:config=>intervalsClient(config)});
+const heartRateCurves=createHeartRateCurveService({request:config=>createIntervalsClient(config)});
+const handleHeartRateCurves=createHeartRateCurveEndpoint({service:heartRateCurves,readConfig,readTimeZone:async()=> (await readIntervalsCache())?.athlete?.time_zone || 'America/Chicago'});
+const cadenceCurves=createCadenceCurveService({request:config=>createIntervalsClient(config)});
+const handleCadenceCurves=createCadenceCurveEndpoint({service:cadenceCurves,readConfig,readTimeZone:async()=> (await readIntervalsCache())?.athlete?.time_zone || 'America/Chicago'});
+const velocityCurves=createVelocityCurveService({request:config=>createIntervalsClient(config)});
+const handleVelocityCurves=createVelocityCurveEndpoint({service:velocityCurves,readConfig,readTimeZone:async()=> (await readIntervalsCache())?.athlete?.time_zone || 'America/Chicago'});
+const chartTags=createChartTagsService({request:config=>createIntervalsClient(config)});
+const taggedCurves=createTaggedActivityCurvesService({request:config=>createIntervalsClient(config),catalog:chartTags});
+const handleChartTags=createChartTagsEndpoint({service:chartTags,readConfig});
+const nativePowerCurves=createNativePowerCurveService({request:config=>createIntervalsClient(config)});
+const handleNativePowerCurves=createNativePowerCurveEndpoint({service:nativePowerCurves,readConfig,readTimeZone:async()=> (await readIntervalsCache())?.athlete?.time_zone || 'America/Chicago'});
+const handleWorkoutTemplates=createWorkoutTemplateEndpoint({readConfig,readBody,service:(config,actor)=>workoutTemplateService(config,actor,createIntervalsClient(config))});
+const handleTaggedCurves=createTaggedCurvesEndpoint({service:taggedCurves,readConfig,readTimeZone:async()=> (await readIntervalsCache())?.athlete?.time_zone || 'America/Chicago',unfiltered:(req,res)=>{const kind=new URL(req.url,'http://localhost').searchParams.get('kind');return (kind==='power'?handleNativePowerCurves:kind==='velocity'?handleVelocityCurves:kind==='cadence'?handleCadenceCurves:handleHeartRateCurves)(req,res);}});
 function sendJson(req,res,value,cacheControl='no-store'){
  const payload=compressAsset(Buffer.from(JSON.stringify(value)),'.js',req.headers['accept-encoding']);
  res.writeHead(200,{'Content-Type':'application/json','Cache-Control':cacheControl,...payload.headers});res.end(payload.body);
+}
+const workoutCommitWorkers=new Map();
+function workoutCommits(config,personalHost){return createDurableWorkoutCommits(config,{personalHost,loadZoneSettings:async()=> (await loadSupabaseTrainingSnapshot(config))?.athlete?.sport_settings});}
+function scheduleWorkoutCommits(config){
+ const key=providerConnection(config);
+ if(workoutCommitWorkers.has(key))return;
+ const work=workoutCommits(config).drain().catch(error=>updateLogs('Workout background synchronization pending: '+error.message)).finally(()=>workoutCommitWorkers.delete(key));
+ workoutCommitWorkers.set(key,work);
+ // The durable ledger survives function termination. waitUntil only speeds the
+ // first attempt; cron/local server timers own subsequent independent wakeups.
+ waitUntil(work);
 }
 function sendWebhookJson(res,status,value) {
  res.writeHead(status,{
@@ -300,7 +346,7 @@ const checkTrainingUpdates = createTrainingUpdates({
   readSnapshot: (config,options)=>loadSupabaseTrainingSnapshot(config,null,options),
   // These few small reads must see a workout uploaded just before app open.
   request: config => createIntervalsClient(config),
-  persist: (config, context) => {providerReads.clear();historicalReads.clear();performanceHistory.clear();return persistTrainingContext(config, context, {archiveActivities:false});},
+  persist: (config, context) => {providerReads.clear();historicalReads.clear();performanceHistory.clear();heartRateCurves.clear();cadenceCurves.clear();velocityCurves.clear();chartTags.clear();taggedCurves.clear();nativePowerCurves.clear();return persistTrainingContext(config, context, {archiveActivities:false});},
   warm: warmRecentActivities,
   waitUntil,
   log: updateLogs,
@@ -392,12 +438,31 @@ function withZoneHistory(previous,incoming) {
   return {...incoming,athlete:{...incoming.athlete,zone_history:history.slice(-50)}};
 }
 
+async function hydrateCalendarMetricsContext(config,context,bounds,{commits=true}={}) {
+  if(!config.INTERVALS_API_KEY || !config.SUPABASE_URL || !config.SUPABASE_SECRET_KEY)return context;
+  const service=commits?workoutCommits(config):null;
+  const accepted=service?.preload().then(state=>({state}),error=>({error}));
+  try{context=await calendarWellnessService(config,intervalsClient(config)).hydrateContext(context,bounds);}
+  catch{context={...context,calendar_metrics_error:'Saved metric entries are temporarily unavailable. Open Metrics to retry before editing.'};}
+  try{context=await calendarAnnotationsService(config,intervalsClient(config)).hydrateContext(context);}
+  catch{context={...context,calendar_annotations_error:'Saved Goals or Availability details are temporarily unavailable. Open the entry to retry before editing.'};}
+  try{context=await raceEventDetailsService(config,intervalsClient(config)).hydrateContext(context);}
+  catch{context={...context,calendar_events_error:'Saved Event details are temporarily unavailable. Open the event to retry before editing.'};}
+  if(service){
+    const loaded=await accepted;
+    if(loaded.error)throw Object.assign(Error('Saved workout changes are temporarily unavailable. Your accepted edits are retained; reconnect to reopen the calendar.'),{status:503,code:'COMMIT_READ_FAILED'});
+    context=await service.project(context,loaded.state);
+  }
+  return context;
+}
+
 export async function persistTrainingContext(config, context, {archiveActivities=true} = {}) {
   const store = createContextStore(config, updateLogs);
   if (!store.ready) return {contextChanged:false};
   const previous=await loadSupabaseTrainingSnapshot(config,context.athlete?.id);
   context=withZoneHistory(previous,context);
   context=retainRecentTrainingContext(mergeTrainingSnapshot(previous,context));
+  context=await hydrateCalendarMetricsContext(config,context,undefined,{commits:false});
   const contextChanged = !previous || trainingContextFingerprint(previous) !== trainingContextFingerprint(context);
   const sourceChanged = !previous || trainingSourceFingerprint(previous) !== trainingSourceFingerprint(context);
   const archive=createCompletedWorkoutStore(config,store);
@@ -532,10 +597,11 @@ async function saveVerifiedSnapshot(config,context,{verifiedIds=[]}={}) {
   if(!context)throw Error('The workout was verified in Intervals.icu but the saved calendar is unavailable. Refresh before retrying.');
   const store=createContextStore(config,updateLogs);
   context=retainRecentTrainingContext({...context,provider_connection:providerConnection(config)});
+  context=await hydrateCalendarMetricsContext(config,context,undefined,{commits:false});
   const saved=await store.updateSyncRecord(String(context.athlete.id),(current,revision)=>({
     status:'ready',cursor:{context:{...preserveQueuedSnapshot(current?.cursor?.context?.provider_connection===providerConnection(config)?current.cursor.context:null,context,{verifiedIds}),queue_snapshot_revision:revision}},
   }));
-  return saveFastView(config,store,saved.cursor.context);
+  return workoutCommits(config).project(await saveFastView(config,store,saved.cursor.context));
 }
 
 function applyVerifiedEvent(context,id,result,action) {
@@ -547,7 +613,7 @@ function applyVerifiedEvent(context,id,result,action) {
     all.set(result.workoutId,{...mapIntervalsWorkout(result.event,today,prior?.raw_activity || null,false,context.athlete?.sport_settings || []),app_updated_at:new Date().toISOString()});
   }
   const sessions=[...all.values()].sort((a,b)=>a.workout_date.localeCompare(b.workout_date));
-  return {...context,history:sessions.filter(w=>w.workout_date<=today),planned:sessions.filter(w=>w.workout_date>=today)};
+  return {...context,history:sessions.filter(w=>w.workout_date<=today),planned:sessions.filter(w=>w.calendar_annotation_key?annotationOverlapsRange(w,today,'9999-12-31'):w.workout_date>=today)};
 }
 
 const syncRequests=new Map();
@@ -623,7 +689,7 @@ async function syncRecentTraining(config,{force=false,onProgress}={}) {
       // Reuse the same content version as the fetch path. Projecting the raw
       // snapshot alone falls back to its timestamp and requests a duplicate export.
       const full=await createContextStore(config).getSyncRecord(fastViewId(config));
-      return {context:projectTrainingContext(full || {...saved,provider_connection:key}),sourceChanged:false};
+      return {context:await workoutCommits(config).project(projectTrainingContext(full || {...saved,provider_connection:key})),sourceChanged:false};
     }
     const range=saved?{start:hasTwelveWeeks?shift(-14):historyRange.start,end:shift(13)}:undefined;
     const incoming=await fetchIntervalsTrainingContext(config,{force:true,timeZone:zone,range,includeFutureRaces:true,repairWorkoutLinks:true,onProgress});
@@ -631,7 +697,7 @@ async function syncRecentTraining(config,{force=false,onProgress}={}) {
     const persisted=await persistTrainingContext(config,mergeTrainingSnapshot(saved,incoming,range),{archiveActivities:false});
     onProgress?.({phase:'saving',label:'Training data saved',completed:1,total:1});
     const full=await createContextStore(config).getSyncRecord(fastViewId(config));
-    return {context:projectTrainingContext(full),sourceChanged:Boolean(persisted?.sourceChanged)};
+    return {context:await workoutCommits(config).project(projectTrainingContext(full)),sourceChanged:Boolean(persisted?.sourceChanged)};
   })();
   syncRequests.set(key,operation);
   try{return await operation;}finally{syncRequests.delete(key);}
@@ -709,15 +775,16 @@ async function scopedTrainingContext(context, scope, today = new Date()) {
   await loadCompletionConfirmation();
   context = intervalsOnlyContext(context);
   context = applyCompletionConfirmation(context,completionConfirmation);
+  context = await hydrateCalendarMetricsContext(await readConfig(),context,scope && typeof scope==='object'?scope:undefined);
   if(context.source === 'supabase-cache') {
     const localToday=athleteLocalDate(today,context.athlete?.time_zone || 'America/Chicago');
     const sessions=[...new Map([...(context.history || []),...(context.planned || [])].map(w=>[String(w.id),w])).values()];
-    context={...context,history:sessions.filter(w=>w.workout_date<=localToday),planned:sessions.filter(w=>w.workout_date>=localToday)};
+    context={...context,history:sessions.filter(w=>w.workout_date<=localToday),planned:sessions.filter(w=>w.calendar_annotation_key?annotationOverlapsRange(w,localToday,'9999-12-31'):w.workout_date>=localToday)};
   }
   const compact=w=>{const {raw,raw_activity,...mapped}=w;return mapped};
   context={...context,history:(context.history || []).map(compact),planned:(context.planned || []).map(compact),...(context.workouts?{workouts:context.workouts.map(compact)}:{})};
   if (scope && typeof scope === 'object') {
-    const within = w => w.workout_date >= scope.start && w.workout_date <= scope.end;
+    const within = w => w.calendar_annotation_key?annotationOverlapsRange(w,scope.start,scope.end):w.workout_date >= scope.start && w.workout_date <= scope.end;
     const trendStart = isoDate(shiftDate(new Date(`${scope.start}T12:00:00Z`),-29));
     return {...context,display_range:scope,history:(context.history || []).filter(within),workouts:(context.workouts || context.history || []).filter(within),planned:(context.planned || []).filter(within),wellness_history:(context.wellness_history || []).filter(w => w.date >= trendStart && w.date <= scope.end),context_scope:'range',full_history_available:true};
   }
@@ -728,9 +795,9 @@ async function scopedTrainingContext(context, scope, today = new Date()) {
   const plannedEnd = isoDate(shiftDate(monday, 13));
   return {
     ...context,
-    history:(context.history || []).filter(item => item.workout_date >= historyStart && item.workout_date <= todayDate),
-    workouts:(context.workouts || context.history || []).filter(item => item.workout_date >= historyStart && item.workout_date <= todayDate),
-    planned:(context.planned || []).filter(item => item.workout_date >= historyStart && item.workout_date <= plannedEnd),
+    history:(context.history || []).filter(item => item.calendar_annotation_key?annotationOverlapsRange(item,historyStart,todayDate):item.workout_date >= historyStart && item.workout_date <= todayDate),
+    workouts:(context.workouts || context.history || []).filter(item => item.calendar_annotation_key?annotationOverlapsRange(item,historyStart,todayDate):item.workout_date >= historyStart && item.workout_date <= todayDate),
+    planned:(context.planned || []).filter(item => item.calendar_annotation_key?annotationOverlapsRange(item,historyStart,plannedEnd):item.workout_date >= historyStart && item.workout_date <= plannedEnd),
     performance:(context.performance || []).slice(-14),
     context_scope:'week',
     full_history_available:true,
@@ -937,6 +1004,12 @@ export async function handleRequest(req, res) {
     req.url = resolveApiRoute(req.url || '/');
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     const pathname = requestUrl.pathname;
+    if(pathname==='/api/internal/workout-commits/drain'){
+      if(req.method!=='GET' || !process.env.CRON_SECRET || !secretMatches(req.headers.authorization,`Bearer ${process.env.CRON_SECRET}`)){
+        sendWebhookJson(res,401,{error:'Invalid worker authorization'});return;
+      }
+      sendJson(req,res,await workoutCommits(await readConfig()).drain());return;
+    }
     if(pathname==='/api/intervals/webhook') {
       await handleIntervalsWebhook(req,res);
       return;
@@ -956,6 +1029,24 @@ export async function handleRequest(req, res) {
       return;
     }
     if (await handleAuth(req, res, pathname)) return;
+    if(pathname==='/api/workout-commits' && ['GET','POST'].includes(req.method)){
+      try{
+        const config=await readConfig(),service=workoutCommits(config,req.headers.host);
+        const value=req.method==='POST'?await service.accept(await readBody(req)):await service.status();
+        sendJson(req,res,value);
+        scheduleWorkoutCommits(config);
+      }catch(error){sendWebhookJson(res,error.status || 503,{error:error.message,code:error.code || 'COMMIT_FAILED'});}
+      return;
+    }
+    const commitRoute=pathname.match(/^\/api\/workout-commits\/([^/]+)\/(editor|retry|conflict)$/);
+    if(commitRoute && ((commitRoute[2]==='editor' && req.method==='GET') || (commitRoute[2]==='retry' && req.method==='POST') || (commitRoute[2]==='conflict' && ['GET','POST'].includes(req.method)))){
+      try{
+        const config=await readConfig(),service=workoutCommits(config),id=decodeURIComponent(commitRoute[1]);
+        sendJson(req,res,commitRoute[2]==='editor'?await service.editor(id):commitRoute[2]==='retry'?await service.retry(id):req.method==='GET'?await service.reviewConflict(id):await service.resolveConflict(id,await readBody(req)));
+        scheduleWorkoutCommits(config);
+      }catch(error){sendWebhookJson(res,error.status || 503,{error:error.message,code:error.code || 'COMMIT_FAILED'});}
+      return;
+    }
     if(pathname==='/api/intervals/oauth/start' && req.method==='POST') {
       const result=await intervalsOAuth(await readConfig(),req).start();
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store','Set-Cookie':result.cookie});
@@ -984,17 +1075,35 @@ export async function handleRequest(req, res) {
       const oldest=new Date(`${today}T12:00:00Z`),newest=new Date(`${today}T12:00:00Z`);
       oldest.setUTCFullYear(oldest.getUTCFullYear()-10);newest.setUTCFullYear(newest.getUTCFullYear()+10);
       const events=await request(`/athlete/0/events?oldest=${oldest.toISOString().slice(0,10)}&newest=${newest.toISOString().slice(0,10)}`);
-      const races=(Array.isArray(events)?events:[]).filter(event=>/^RACE(?:_[ABC])?$/.test(String(event.category || ''))).map(event=>({
+      const indexed=await raceEventDetailsService(config,request).hydrateContext({history:(Array.isArray(events)?events:[]).map(event=>({id:`event:${event.id}`,category:event.category})),planned:[]});
+      const appEventIds=new Set(indexed.history.filter(event=>event.calendar_event_key).map(event=>event.id));
+      const races=(Array.isArray(events)?events:[]).filter(event=>/^RACE(?:_[ABC])?$/.test(String(event.category || '')) || raceEventKey(event.external_id) || appEventIds.has(`event:${event.id}`)).map(event=>({
         id:String(event.id),name:String(event.name || 'Race'),date:String(event.start_date_local || '').slice(0,10),
         priority:String(event.category || 'RACE').match(/^RACE_([ABC])$/)?.[1] || '',
       })).filter(event=>/^\d{4}-\d{2}-\d{2}$/.test(event.date)).sort((a,b)=>a.date.localeCompare(b.date));
       sendJson(req,res,{events:races});return;
     }
+    const raceEventDetailsMatch=pathname.match(/^\/api\/race-events\/(event%3A[1-9]\d*|event:[1-9]\d*)$/i);
+    if(raceEventDetailsMatch && req.method==='GET') {
+      const config=await readConfig(),request=intervalsClient(config),id=decodeURIComponent(raceEventDetailsMatch[1]);
+      sendJson(req,res,{event:await raceEventDetailsService(config,request).load(id)});return;
+    }
     if(pathname==='/api/race-events' && req.method==='POST') {
       const payload=await readBody(req),name=String(payload.name || '').trim(),eventDate=validDate(payload.date),priority=String(payload.priority || '').toUpperCase();
       const config=await readConfig(),request=intervalsClient(config);
       const externalId=`training-agent-settings-race:${createHash('sha256').update(`${priority}|${eventDate}|${name}`).digest('hex').slice(0,24)}`;
-      const providerEvent=await createIntervalsRaceEvent(request,{name,date:eventDate,priority,externalId});
+      let detailed=null;
+      if(Object.hasOwn(payload,'eventType')) {
+        try {detailed=await raceEventDetailsService(config,request).create(payload);}
+        catch(error){
+          if(error.code==='EVENT_REPLAY_CHANGED' && /^event:[1-9]\d*$/.test(error.eventId || '')) {
+            res.writeHead(409,{'Content-Type':'application/json','Cache-Control':'no-store'});
+            res.end(JSON.stringify({error:error.message,code:'EVENT_REPLAY_CHANGED',eventId:error.eventId}));return;
+          }
+          throw error;
+        }
+      }
+      const providerEvent=detailed?.providerEvent || await createIntervalsRaceEvent(request,{name,date:eventDate,priority,externalId});
       const snapshot=await loadSupabaseTrainingSnapshot(config);
       let context=null,plan=null;
       if(snapshot) {
@@ -1004,8 +1113,8 @@ export async function handleRequest(req, res) {
       }
       const plans=await listAnnualPlans(),local=await readLocalContext();
       const active=plans.find(item=>item.id===(local.active_annual_plan_id || plans[0]?.id));
-      if(active && !active.events.some(event=>event.date===eventDate&&event.name.toLowerCase()===name.toLowerCase())) {
-        const event={id:`event:${providerEvent.id}`,name,date:eventDate,sport:'Other',distance:'',priority,goal:'',targetCtl:null,source:'intervals-calendar'};
+      if(active && ['A','B','C'].includes(priority) && !active.events.some(event=>event.date===eventDate&&event.name.toLowerCase()===name.toLowerCase())) {
+        const event={id:`event:${providerEvent.id}`,name,date:eventDate,sport:providerEvent.type || 'Other',distance:'',priority,goal:'',targetCtl:null,source:'intervals-calendar'};
         const today=athleteLocalDate(new Date(),snapshot?.athlete?.time_zone || local.athlete?.time_zone || 'America/Chicago');
         const current=rollAnnualPlan(active,today,snapshot?.metrics || {});
         const events=[...current.events,event];
@@ -1013,7 +1122,16 @@ export async function handleRequest(req, res) {
         plan=await saveAnnualPlanRecord({...mergeRegeneratedPlan(current,generated),events,updatedAt:new Date().toISOString()});
       }
       intervalsMemoryCache=null;providerReads.clear();
-      res.writeHead(201,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({event:{id:String(providerEvent.id),name:providerEvent.name,date:eventDate,priority},context,plan}));return;
+      res.writeHead(201,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({event:detailed?.event || {id:String(providerEvent.id),name:providerEvent.name,date:eventDate,priority},verified:true,context,plan}));return;
+    }
+    if(raceEventDetailsMatch && req.method==='PUT') {
+      const config=await readConfig(),id=decodeURIComponent(raceEventDetailsMatch[1]),payload=await readBody(req);
+      const result=await withDirectWorkoutWrite(config,id,claimed=>raceEventDetailsService(config,claimed).update(id,payload));
+      const providerEvent=result.providerEvent,event=result.event,snapshot=await loadSupabaseTrainingSnapshot(config);
+      const context=snapshot?await saveVerifiedSnapshot(config,await raceEventDetailsService(config,intervalsClient(config)).hydrateContext(applyVerifiedEvent(snapshot,id,{event:providerEvent},'update')),{verifiedIds:[id]}):null;
+      const plan=await synchronizeCalendarEventAnnualPlans({event,providerEvent,plans:await listAnnualPlans(),local:await readLocalContext(),snapshot,savePlan:saveAnnualPlanRecord});
+      intervalsMemoryCache=null;providerReads.clear();
+      sendJson(req,res,{event,verified:true,context,plan});return;
     }
     if(pathname==='/api/annual-plans' && req.method==='GET') {
       const local=await readLocalContext(),plans=Array.isArray(local.annual_plans)?local.annual_plans:[];
@@ -1129,7 +1247,7 @@ export async function handleRequest(req, res) {
       const store=createContextStore(config);
       const job=await createMutationQueue(config,store).enqueue(mutation);
       if(job.state==='superseded')throw Object.assign(Error('This edit was replaced by a newer saved edit.'),{status:409});
-      const context=job.state==='synced'?projectTrainingContext(snapshot,'full'):await createMutationProjection(config,store).pending(job);
+      const context=await workoutCommits(config).project(job.state==='synced'?projectTrainingContext(snapshot,'full'):await createMutationProjection(config,store).pending(job));
       sendJson(req,res,{queued:job.state!=='synced',verified:job.state==='synced',state:job.state,context,operationId:mutation.operationId});return;
     }
     if(pathname==='/api/training-live' && req.method==='POST') {
@@ -1143,12 +1261,14 @@ export async function handleRequest(req, res) {
       }
       const config=await readConfig();
       const store=createContextStore(config);
-      sendJson(req,res,await cachedTrainingUpdates({
+      const updates=await cachedTrainingUpdates({
         readVersion:()=>store.getSyncVersion(fastViewId(config)),
         readView:()=>store.getSyncRecord(fastViewId(config),{fresh:true}),
         refresh:()=>scheduleTrainingReconciliation(config),schedule:task=>task(),
         version:requestUrl.searchParams.get('version'),
-      }));return;
+      });
+      if(updates.context)updates.context=await workoutCommits(config).project(updates.context);
+      sendJson(req,res,updates);return;
     }
     if(pathname==='/api/sync/progress' && req.method==='GET') {
       const id=requestUrl.searchParams.get('id') || '';
@@ -1170,6 +1290,11 @@ export async function handleRequest(req, res) {
     if(pathname==='/api/sync' && req.method==='POST') {
       recentActivityStatsCache = null;
       performanceHistory.clear();
+      heartRateCurves.clear();
+      cadenceCurves.clear();
+      velocityCurves.clear();
+      chartTags.clear();taggedCurves.clear();
+      nativePowerCurves.clear();
       if (await localEditCacheEnabled(req)) {
         const local = await readLocalContext();
         const cached = await readIntervalsCache();
@@ -1224,7 +1349,7 @@ export async function handleRequest(req, res) {
         await progressWrites;
         const view=await createContextStore(config).getSyncRecord(fastViewId(config));
         if(!view)throw error;
-        sendJson(req,res,{context:projectTrainingContext(view),queue,sync_error:error.message});
+        sendJson(req,res,{context:await workoutCommits(config).project(projectTrainingContext(view)),queue,sync_error:error.message});
       }
       return;
     }
@@ -1261,7 +1386,7 @@ export async function handleRequest(req, res) {
         // These dates cannot be in the retained view. Go straight to the
         // provider cache instead of downloading a full database snapshot.
         const historyRequest=historicalReads.wrap(createIntervalsClient(config),`${providerConnection(config)}:${requestUrl.searchParams.get('version') || ''}`);
-        sendJson(req,res,await fetchHistoricalCalendar(historyRequest,range));
+        sendJson(req,res,await hydrateCalendarMetricsContext(config,await fetchHistoricalCalendar(historyRequest,range),range));
         return;
       }
       let view=store.ready?await store.getSyncRecord(fastViewId(config,requestedScope)):null;
@@ -1270,18 +1395,18 @@ export async function handleRequest(req, res) {
         if(view && snapshotCoversRange(view,range)) {
           const projected=projectTrainingContext(view,'full');
           const {version,queue_snapshot_revision,...historical}=projected;
-          sendJson(req,res,{...historical,context_scope:'range',display_range:range,cached_ranges:[range],history:projected.history.filter(w=>w.workout_date>=range.start && w.workout_date<=range.end),planned:projected.planned.filter(w=>w.workout_date>=range.start && w.workout_date<=range.end),wellness_history:(projected.wellness_history || []).filter(w=>w.date>=range.start && w.date<=range.end)});
+          sendJson(req,res,await hydrateCalendarMetricsContext(config,{...historical,context_scope:'range',display_range:range,cached_ranges:[range],history:projected.history.filter(w=>w.calendar_annotation_key?annotationOverlapsRange(w,range.start,range.end):w.workout_date>=range.start && w.workout_date<=range.end),planned:projected.planned.filter(w=>w.calendar_annotation_key?annotationOverlapsRange(w,range.start,range.end):w.workout_date>=range.start && w.workout_date<=range.end),wellness_history:(projected.wellness_history || []).filter(w=>w.date>=range.start && w.date<=range.end)},range));
         } else {
           const historyRequest=historicalReads.wrap(createIntervalsClient(config),`${providerConnection(config)}:${requestUrl.searchParams.get('version') || view?.version || ''}`);
-          sendJson(req,res,await fetchHistoricalCalendar(historyRequest,range,{context:view}));
+          sendJson(req,res,await hydrateCalendarMetricsContext(config,await fetchHistoricalCalendar(historyRequest,range,{context:view}),range));
         }
         return;
       }
       if(view && snapshotCoversRange(view,range)) {
         let projected=projectTrainingContext(view,scope==='week'?'week':'full');
-        if(range)projected={...projected,display_range:range,history:projected.history.filter(w=>w.workout_date>=range.start && w.workout_date<=range.end),planned:projected.planned.filter(w=>w.workout_date>=range.start && w.workout_date<=range.end)};
+        if(range)projected={...projected,display_range:range,history:projected.history.filter(w=>w.calendar_annotation_key?annotationOverlapsRange(w,range.start,range.end):w.workout_date>=range.start && w.workout_date<=range.end),planned:projected.planned.filter(w=>w.calendar_annotation_key?annotationOverlapsRange(w,range.start,range.end):w.workout_date>=range.start && w.workout_date<=range.end)};
         scheduleTrainingReconciliation(config);
-        sendJson(req,res,projected);return;
+        sendJson(req,res,await hydrateCalendarMetricsContext(config,projected));return;
       }
     }
     const historicalWorkoutRoute=pathname.match(/^\/api\/workout-history\/([^/]+)$/);
@@ -1318,8 +1443,16 @@ export async function handleRequest(req, res) {
         res.end(JSON.stringify({error:'Training history is unavailable.'}));
         return;
       }
-      sendJson(req,res,{weeks:buildTwelveWeekTrainingHistory(source),synced_at:source.synced_at});
+      sendJson(req,res,{weeks:buildTwelveWeekTrainingHistory(await workoutCommits(config).project(source)),synced_at:source.synced_at});
       return;
+    }
+    if(pathname==='/api/chart-tags') {
+      if(await localEditCacheEnabled(req))throw Object.assign(Error('Native recording tags are unavailable in the local edit cache.'),{status:503});
+      await handleChartTags(req,res);return;
+    }
+    if(pathname==='/api/performance-curves') {
+      if(await localEditCacheEnabled(req))throw Object.assign(Error('Recorded HR curves are unavailable in the local edit cache.'),{status:503});
+      await handleTaggedCurves(req,res);return;
     }
     if(pathname==='/api/performance-history' && req.method==='GET') {
       const type=performanceType(requestUrl.searchParams.get('type') || 'Ride');
@@ -1550,15 +1683,98 @@ export async function handleRequest(req, res) {
       return;
     }
 
+    const strengthExerciseRoute=pathname.match(/^\/api\/strength-exercises\/(exercise(?:%3A|:)[A-Za-z0-9_-]{16,80})(\/history)?$/);
+    if((pathname==='/api/strength-exercises'&&['GET','POST'].includes(req.method))||(strengthExerciseRoute&&['GET','PUT','DELETE'].includes(req.method))) {
+      try {
+        const service=strengthExerciseLibrary(await readBootstrapConfig(),req.appActor),id=strengthExerciseRoute?decodeURIComponent(strengthExerciseRoute[1]):null;
+        if(strengthExerciseRoute?.[2]) {
+          if(req.method!=='GET')throw Object.assign(Error('Exercise history is read-only.'),{status:405,code:'STRENGTH_LIBRARY_READ_ONLY'});
+          sendJson(req,res,await service.history(id,await loadSupabaseTrainingSnapshot(await readConfig())));return;
+        }
+        if(req.method==='GET') {
+          if([...requestUrl.searchParams.keys()].some(key=>!['query','muscleGroup','owner'].includes(key)))throw Object.assign(Error('Choose a supported library filter.'),{status:400,code:'STRENGTH_LIBRARY_INVALID'});
+          sendJson(req,res,id?await service.load(id):await service.list(Object.fromEntries(requestUrl.searchParams)));return;
+        }
+        const input=await readBody(req);
+        sendJson(req,res,req.method==='DELETE'?await service.delete(id,input):id?await service.update(id,input):await service.create(input));
+      } catch(error){res.writeHead(error.status||502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code||'STRENGTH_LIBRARY_UNCONFIRMED',...(error.code==='STRENGTH_LIBRARY_REPLAY_CHANGED' && /^exercise:[A-Za-z0-9_-]{16,80}$/.test(error.exerciseId || '') && /^[a-f0-9]{64}$/.test(error.accountScope || '') && /^[A-Za-z0-9_-]{16,80}$/.test(error.operationId || '')?{exerciseId:error.exerciseId,accountScope:error.accountScope,operationId:error.operationId}:{})}));}
+      return;
+    }
+
+    const calendarEntryTransferRoute=pathname.match(/^\/api\/calendar\/entry-transfer\/(event%3A[1-9]\d*|event:[1-9]\d*)$/i);
+    if(calendarEntryTransferRoute && req.method==='POST') {
+      try {
+        const config=await readConfig(),request=createIntervalsClient(config),id=decodeURIComponent(calendarEntryTransferRoute[1]),input=await readBody(req);
+        const apply=claimed=>calendarEntryTransferService(config,claimed).transfer(id,input);
+        const saved=input?.action==='move'?await withDirectWorkoutWrite(config,id,apply,{recoverPending:true}):await apply(request);
+        const {event,providerEvent,...result}=saved;
+        if(input.kind==='event'){
+          result.event=event;
+          const decorated=await raceEventDetailsService(config,request).hydrateContext({history:[mapIntervalsWorkout(providerEvent,athleteLocalDate(new Date(),config.TIME_ZONE || 'America/Chicago'))],planned:[]});
+          result.workout=decorated.history[0];
+        }
+        intervalsMemoryCache=null;providerReads.clear();historicalReads.clear();
+        try {
+          const snapshot=await loadSupabaseTrainingSnapshot(config)||await fetchIntervalsTrainingContext(config,{force:true});
+          if(snapshot)result.context=await saveVerifiedSnapshot(config,applyVerifiedEvent(snapshot,id,{...saved,event:providerEvent || event},input.action==='move'?'move':'copy'),{verifiedIds:input.action==='move'?[id]:[]});
+        } catch {result.refreshWarning='Saved and verified; the calendar refresh is pending.';}
+        if(input.kind==='event') {
+          try {result.plan=await synchronizeCalendarEventAnnualPlans({event,providerEvent,plans:await listAnnualPlans(),local:await readLocalContext(),snapshot:result.context,savePlan:saveAnnualPlanRecord});}
+          catch {result.planWarning='The Event is saved and verified; the Annual Training Plan refresh is pending.';}
+        }
+        sendJson(req,res,result);
+      } catch(error){res.writeHead(error.status||502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code||'ENTRY_TRANSFER_UNCONFIRMED'}));}
+      return;
+    }
+
+    const calendarAnnotationRoute=pathname.match(/^\/api\/calendar\/annotations\/(event%3A[1-9]\d*|event:[1-9]\d*)$/i);
+    if((pathname==='/api/calendar/annotations'&&['GET','POST'].includes(req.method))||(calendarAnnotationRoute&&['GET','PUT','DELETE'].includes(req.method))){
+      try {
+        const config=await readConfig(),request=createIntervalsClient(config),id=calendarAnnotationRoute?decodeURIComponent(calendarAnnotationRoute[1]):null;
+        if(req.method==='GET'){
+          const service=calendarAnnotationsService(config,request);
+          sendJson(req,res,id?await service.load(id):await service.list(requestUrl.searchParams.get('start'),requestUrl.searchParams.get('end')));return;
+        }
+        const input=await readBody(req),apply=async claimed=>{
+          const service=calendarAnnotationsService(config,claimed);
+          return req.method==='DELETE'?service.delete(id,input):id?service.update(id,input):service.create(input);
+        };
+        const saved=id?await withDirectWorkoutWrite(config,id,apply,{recoverPending:true}):await apply(request);
+        const {event,...result}=saved;
+        intervalsMemoryCache=null;providerReads.clear();historicalReads.clear();
+        try {
+          const snapshot=await loadSupabaseTrainingSnapshot(config)||await fetchIntervalsTrainingContext(config,{force:true});
+          if(snapshot)result.context=await saveVerifiedSnapshot(config,applyVerifiedEvent(snapshot,saved.workoutId,saved,req.method==='DELETE'?'delete':id?'edit':'create'),{verifiedIds:id?[id]:[]});
+        } catch {result.refreshWarning='Saved and verified; the calendar refresh is pending.';}
+        sendJson(req,res,result);
+      } catch(error){res.writeHead(error.status||502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code||'ANNOTATION_UNCONFIRMED'}));}
+      return;
+    }
+
+    if(pathname==='/api/calendar/metrics' && ['GET','POST'].includes(req.method)) {
+      const config=await readConfig(),service=calendarWellnessService(config,createIntervalsClient(config));
+      try {
+        if(req.method==='GET'){sendJson(req,res,await service.load(requestUrl.searchParams.get('date')));return;}
+        const saved=await service.save(await readBody(req));
+        const {providerRecord,...row}=saved;
+        const snapshot=await loadSupabaseTrainingSnapshot(config);
+        const context=snapshot?await saveVerifiedSnapshot(config,projectCalendarWellness(snapshot,row.date,providerRecord,row)):null;
+        intervalsMemoryCache=null;providerReads.clear();historicalReads.clear();
+        sendJson(req,res,{...row,context});
+      }catch(error){res.writeHead(error.status || 400,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code}));}
+      return;
+    }
+
     const calendarNoteRoute=pathname.match(/^\/api\/calendar\/notes\/(event%3A\d+|event:\d+)$/i);
     if ((pathname==='/api/calendar/notes' && req.method==='POST') || (calendarNoteRoute && ['GET','PUT'].includes(req.method))) {
       const config=await readConfig(),id=calendarNoteRoute?decodeURIComponent(calendarNoteRoute[1]):null;
       try {
         const request=createIntervalsClient(config);
-        if(req.method==='GET'){sendJson(req,res,await loadCalendarNote(request,id));return;}
+        const noteOptions={assertNotAppEvent:async(noteId)=>raceEventDetailsService(config,request).assertNotAppEvent(noteId)};
+        if(req.method==='GET'){sendJson(req,res,await loadCalendarNote(request,id,noteOptions));return;}
         const input=await readBody(req);
         const apply=async(claimed)=>{
-          const result=id?await saveCalendarNote(claimed,id,input):await createCalendarNote(claimed,input,providerConnection(config));
+          const result=id?await saveCalendarNote(claimed,id,input,noteOptions):await createCalendarNote(claimed,input,providerConnection(config));
           intervalsMemoryCache=null;providerReads.clear();
           result.workout=mapIntervalsWorkout(result.event,athleteLocalDate(new Date(),config.TIME_ZONE || 'America/Chicago'));
           try {
@@ -1581,6 +1797,7 @@ export async function handleRequest(req, res) {
         const service=createWorkoutPersonalService({
           record:(key,fresh)=>createEncryptedRecordStore(bootstrap,`${req.headers.host}/${providerConnection(config)}/${key}`,{namespace:'workout-personal',name:'WORKOUT_PERSONAL',fresh,timestampCas:true}),
           authorizeWorkout:async(workoutId)=>{
+            if(workoutId.startsWith('app:')){await workoutCommits(config).editor(workoutId);return;}
             const path=workoutId.startsWith('event:')?`/athlete/0/events/${workoutId.slice(6)}`:`/activity/${encodeURIComponent(workoutId.slice(9))}`;
             await request(path);
           },
@@ -1627,15 +1844,13 @@ export async function handleRequest(req, res) {
       return;
     }
 
-    if(pathname==='/api/workout-library' && req.method==='GET') {
-      const config=await readConfig();
-      sendJson(req,res,{workouts:await readWorkoutLibrary(createIntervalsClient(config))});return;
-    }
+    if(await handleWorkoutTemplates(req,res,pathname))return;
     const libraryScheduleRoute=pathname.match(/^\/api\/workout-library\/(library(?::|%3A)[1-9]\d*)\/schedule$/i);
     if(libraryScheduleRoute && req.method==='POST') {
       const config=await readConfig();
       try {
-        const result=await scheduleLibraryWorkout(config,createIntervalsClient(config),decodeURIComponent(libraryScheduleRoute[1]),await readBody(req));
+        const native=createIntervalsClient(config),templates=workoutTemplateService(config,req.appActor,native);
+        const result=await scheduleLibraryWorkout(config,templates.wrapLibraryReads(native),decodeURIComponent(libraryScheduleRoute[1]),await readBody(req));
         result.refreshWarning=await persistScheduledWorkouts(config,[result]);
         sendJson(req,res,result);
       } catch(error) {res.writeHead(error.status || 502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code || 'SCHEDULE_UNCONFIRMED'}));}
@@ -1687,6 +1902,14 @@ export async function handleRequest(req, res) {
       } catch(error){res.writeHead(error.status || 500,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message,code:error.code || 'RECURRENCE_UNCONFIRMED'}));}
       return;
     }
+    if(pathname==='/api/workouts/generate' && req.method==='POST') {
+      const controller=new AbortController(),stop=()=>{if(!res.writableEnded)controller.abort();};
+      res.on('close',stop);
+      try {sendJson(req,res,await generateWorkoutDraft(coachConfig(),await readBody(req),{signal:controller.signal}));}
+      catch(error){if(!res.destroyed){res.writeHead(error.status || 502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.code?.startsWith('GENERATOR_')?error.message:'Workout generation could not be completed.',code:error.code?.startsWith('GENERATOR_')?error.code:'GENERATOR_FAILED'}));}}
+      finally{res.off('close',stop);}
+      return;
+    }
     if(pathname==='/api/workouts/new/editor' && req.method==='GET') {
       const config=await readConfig();
       try { sendJson(req,res,await loadNewWorkoutEditor(createIntervalsClient(config),requestUrl.searchParams.get('date'),{sport:requestUrl.searchParams.get('sport') || 'Ride',name:requestUrl.searchParams.get('name') || 'New workout'})); }
@@ -1697,8 +1920,6 @@ export async function handleRequest(req, res) {
       const config=await readConfig();
       try {
         const result=await createWorkoutEditor(createIntervalsClient(config),await readBody(req),providerConnection(config));
-        try { result.libraryWorkout=await saveLibraryWorkout(createIntervalsClient(config),result.event); }
-        catch(error) { result.refreshWarning='The calendar workout was saved, but the library save could not be verified. Retry saving this same workout to reconcile the library copy.'; }
         intervalsMemoryCache=null;providerReads.clear();
         result.workout=mapIntervalsWorkout(result.event,athleteLocalDate(new Date(),config.TIME_ZONE || 'America/Chicago'));
         try {
@@ -1789,10 +2010,6 @@ export async function handleRequest(req, res) {
         const input=await readBody(req);
         const result=await withDirectWorkoutWrite(config,id,async(request)=>{
         const result=await saveWorkoutEditor(request,id,input,providerConnection(config));
-        if (String(result.event.external_id || '').startsWith('training-agent:editor:')) {
-          try { result.libraryWorkout=await saveLibraryWorkout(request,result.event); }
-          catch(error) { result.refreshWarning='The calendar workout is saved. Its library copy could not be verified; save again to retry.'; }
-        }
         intervalsMemoryCache=null;
         providerReads.clear();
         const today=athleteLocalDate(new Date(),config.TIME_ZONE || 'America/Chicago');
@@ -1869,7 +2086,10 @@ export async function handleRequest(req, res) {
       validDate(date);
       if (!['copy','delete'].includes(action)) throw new Error('Invalid calendar day action');
       const request = intervalsClient(config);
-      const events = (await request(`/athlete/0/events?oldest=${date}&newest=${date}`) || []).filter(e => String(e.start_date_local).slice(0,10) === date && ['WORKOUT','NOTE'].includes(e.category) && !e.paired_activity_id && !e.read_only && !e.readonly && e.editable !== false && !e.athlete_cannot_edit);
+      const candidates=await request(`/athlete/0/events?oldest=${date}&newest=${date}`) || [];
+      const indexedEvents=await raceEventDetailsService(config,request).hydrateContext({history:candidates.map(event=>({id:`event:${event.id}`,category:event.category})),planned:[]});
+      const protectedEvents=new Set(indexedEvents.history.filter(event=>event.calendar_event_key).map(event=>event.id));
+      const events = candidates.filter(e => String(e.start_date_local).slice(0,10) === date && ['WORKOUT','NOTE'].includes(e.category) && !raceEventKey(e.external_id) && !protectedEvents.has(`event:${e.id}`) && !e.paired_activity_id && !e.read_only && !e.readonly && e.editable !== false && !e.athlete_cannot_edit);
       const results = [], failures = [];
       let refreshWarning;
       for (const event of events) {
@@ -2095,4 +2315,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   server.listen(port, () => {
     console.log(`Application service listening on http://localhost:${port}`);
   });
+  // This process owns retries while all browser tabs are closed. Hosted
+  // serverless deployments use the authenticated cron endpoint instead.
+  const workoutCommitTimer=setInterval(()=>{void readConfig().then(config=>{
+    if(config.SUPABASE_URL && config.SUPABASE_SECRET_KEY && config.INTERVALS_API_KEY)scheduleWorkoutCommits(config);
+  }).catch(()=>{});},30_000);
+  workoutCommitTimer.unref();
+  server.on('close',()=>clearInterval(workoutCommitTimer));
 }

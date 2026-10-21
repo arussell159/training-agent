@@ -1,0 +1,495 @@
+[data-slot="dialog-overlay"]:has(~ .calendar-annotation-editor) {
+  inset: 56px 0 0 64px;
+  background: white;
+  backdrop-filter: none;
+}
+[role="dialog"].calendar-annotation-editor {
+  inset: 56px 0 0 64px;
+  width: calc(var(--app-window-width, 100vw) - 64px);
+  height: calc(100dvh - 56px);
+  max-height: none;
+  max-width: none;
+  display: block;
+  padding: 56px 70px 40px;
+  overflow: auto;
+  transform: none;
+  translate: none;
+  border-radius: 0;
+  background: #fff;
+  color: #282d32;
+  box-shadow: none;
+  font: 16px/1.5 var(--font-sans);
+  --tw-translate-x: 0;
+  --tw-translate-y: 0;
+}
+.calendar-annotation-editor button,
+.calendar-annotation-editor input,
+.calendar-annotation-editor select,
+.calendar-annotation-editor textarea {
+  font: inherit;
+}
+.calendar-annotation-editor button {
+  cursor: pointer;
+}
+.calendar-annotation-editor button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.calendar-annotation-editor :is(button, input, select, textarea):focus-visible {
+  outline: 2px solid #2943d4;
+  outline-offset: 2px;
+}
+.cae-heading {
+  position: relative;
+  max-width: 1000px;
+  margin-bottom: 32px;
+}
+.cae-heading h2 {
+  margin: 0;
+  font-size: 36px;
+  line-height: 1.25;
+  font-weight: 400;
+}
+.cae-heading > button {
+  position: absolute;
+  left: -72px;
+  top: 2px;
+  border: 0;
+  background: transparent;
+  padding: 6px;
+}
+.cae-heading > button svg {
+  width: 32px;
+  height: 32px;
+}
+.cae-form {
+  max-width: 1000px;
+}
+.cae-field {
+  display: flex;
+  flex-direction: column;
+  background: #f0f0f0;
+  border-bottom: 2px solid #e0e0e0;
+  padding: 6px 15px 7px;
+  min-height: 56px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.cae-field input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #282d32;
+  font-size: 16px;
+  min-width: 0;
+  width: 100%;
+}
+.cae-goals-title {
+  max-width: 934px;
+  color: #2943d4;
+  margin-bottom: 28px;
+}
+.cae-date {
+  position: relative;
+  width: 300px;
+  max-width: 100%;
+}
+.cae-date > span {
+  font-size: 16px;
+  white-space: nowrap;
+}
+.cae-date > input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: transparent;
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+}
+.cae-date:focus-within {
+  outline: 2px solid #2943d4;
+  outline-offset: 2px;
+}
+.cae-required {
+  display: block;
+  margin: 4px 15px;
+  font-size: 12px;
+}
+.cae-goals {
+  margin-top: 26px;
+  max-width: 980px;
+}
+.cae-goal-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  margin-bottom: 14px;
+  min-width: 0;
+}
+.cae-goal-row button {
+  border: 0;
+  background: transparent;
+  color: #aaa;
+  padding: 6px 0;
+}
+.cae-goal-row button svg {
+  width: 24px;
+  height: 24px;
+}
+.cae-goal-row .cae-goal-handle {
+  cursor: grab;
+  touch-action: none;
+}
+.cae-goal-row > input {
+  width: 30px;
+  height: 30px;
+  accent-color: #2943d4;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+.cae-goal-row textarea {
+  width: 100%;
+  border: 0;
+  border-bottom: 2px solid #ddd;
+  padding: 5px 7px;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 40px;
+  background: transparent;
+}
+.cae-add-goal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 32px 48px;
+  border: 0;
+  background: transparent;
+  color: #2943d4;
+  font-size: 14px !important;
+}
+.cae-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 24px;
+  margin-top: 38px;
+  max-width: 934px;
+}
+.cae-footer button {
+  border: 0;
+  background: transparent;
+  color: #2943d4;
+  padding: 5px 8px;
+  border-radius: 20px;
+  font-size: 14px;
+}
+.cae-footer .cae-save {
+  padding: 5px 18px;
+  color: #fff;
+  background: #2943d4;
+}
+.cae-footer .cae-save-close {
+  border: 1px solid #2943d4;
+}
+.cae-footer .cae-delete {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #a32929;
+}
+.cae-availability-heading {
+  color: #aaa;
+  margin: 0 0 28px;
+}
+.cae-availability-heading strong {
+  display: block;
+  font-size: 20px;
+  font-weight: 400;
+}
+.cae-dates {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.cae-availability {
+  border: 0;
+  margin: 26px 0 0;
+  padding: 0 0 24px;
+  border-bottom: 1px solid #ddd;
+}
+.cae-availability legend {
+  margin-bottom: 10px;
+}
+.cae-availability label {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.cae-availability label:last-child {
+  margin: 0;
+}
+.cae-availability input {
+  width: 20px;
+  height: 20px;
+  accent-color: #2943d4;
+  margin-left: 10px;
+}
+.cae-reason {
+  display: block;
+  position: relative;
+  max-width: 300px;
+  font-size: 12px;
+  margin: 28px 0 32px;
+  color: #505761;
+}
+.cae-reason select {
+  display: block;
+  width: 100%;
+  height: 56px;
+  padding: 10px 12px;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  background: #fff;
+  color: #282d32;
+}
+.cae-description {
+  display: block;
+  background: #f0f0f0;
+  padding: 12px 15px;
+  color: #555;
+  margin-top: 20px;
+}
+.cae-description [role="textbox"] {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  resize: none;
+  height: 9.6rem;
+  line-height: 1.5;
+  color: #282d32;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cae-sports {
+  position: relative;
+  margin-top: 24px;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  padding: 8px 14px;
+}
+.cae-sports > button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  min-height: 38px;
+}
+.cae-sports small {
+  display: block;
+  font-size: 12px;
+}
+.cae-sport-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 4px 0;
+}
+.cae-sport-chips span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #e8edff;
+  border-radius: 16px;
+  padding: 4px 10px;
+}
+.cae-sport-chips button {
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.cae-sport-options {
+  position: absolute;
+  z-index: 5;
+  left: -1px;
+  right: -1px;
+  top: 100%;
+  max-height: 300px;
+  overflow: auto;
+  background: white;
+  border: 1px solid #bbb;
+  box-shadow: 0 4px 10px #0002;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  border-top: 1px solid #ddd;
+  padding: 4px 0;
+}
+.cae-sport-options label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+  padding: 8px 12px;
+}
+.cae-sport-options label:has(input:checked) {
+  background: #e8edff;
+}
+.cae-sport-options input {
+  width: 18px;
+  height: 18px;
+  accent-color: #2943d4;
+}
+.cae-status {
+  background: #fff9ed;
+  padding: 12px;
+  margin-bottom: 18px;
+  font-size: 14px;
+}
+.cae-status p {
+  margin: 0 0 6px;
+}
+.cae-status button {
+  color: #2943d4;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 4px 10px;
+}
+.cae-validation {
+  font-size: 13px;
+  color: #9d3830;
+  margin-top: 18px;
+}
+.calendar-annotation-card {
+  display: block;
+  width: 100%;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  padding: 8px;
+  margin: 4px 0;
+  text-align: left;
+  font: 12px/1.4 var(--font-sans);
+  box-shadow: 0 1px 2px #0002;
+  cursor: pointer;
+}
+.calendar-annotation-card > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.calendar-annotation-card small {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.cae-card-availability {
+  background: #f5f0f7;
+  border-color: #dad0df;
+}
+.cae-native-warning {
+  padding: 10px;
+  background: #fff6de;
+  color: #735219;
+  font-size: 13px;
+}
+.calendar-availability-ribbon {
+  position: relative;
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  padding: 2px 4px;
+  min-height: 20px;
+  background: #c5d4ed;
+  color: #2d3e59;
+  text-align: center;
+  cursor: pointer;
+  font: 10px/16px var(--font-sans);
+  letter-spacing: 0.4px;
+}
+.calendar-availability-ribbon.limited:before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 20px;
+  height: 20px;
+  background: #ffab00;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+.calendar-availability-ribbon.unavailable {
+  background: #dedfe2;
+  color: #444;
+}
+.calendar-availability-popover {
+  width: 176px;
+  padding: 0 0 16px;
+  border-radius: 5px;
+  gap: 8px;
+  font: 12px/1.4 var(--font-sans);
+}
+.calendar-availability-popover > header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 10px;
+  background: #ffab00;
+  border-radius: 5px 5px 0 0;
+}
+.calendar-availability-popover > header > button {
+  background: transparent;
+  border: 0;
+  color: #352a19;
+  cursor: pointer;
+}
+.calendar-availability-popover > header > button:last-child {
+  margin-left: auto;
+}
+.calendar-availability-popover > :not(header) {
+  margin: 0 8px;
+}
+.calendar-availability-popover h2 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.calendar-availability-popover h3 {
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 8px;
+}
+.calendar-availability-popover p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 900px) {
+  [role="dialog"].calendar-annotation-editor {
+    padding: 40px 32px;
+  }
+  .cae-heading > button {
+    left: -32px;
+  }
+  .cae-heading h2 {
+    font-size: 30px;
+    margin-left: 10px;
+  }
+  .cae-sport-options {
+    grid-template-columns: 1fr;
+  }
+  .cae-goal-row {
+    gap: 8px;
+  }
+}
+.calendar-annotation-with-actions{position:relative;min-width:0}
+.calendar-entry-actions{position:absolute;top:0;right:0;z-index:2}
+.calendar-entry-menu-trigger{display:flex;align-items:center;justify-content:center;width:24px;height:24px;border:0;border-radius:2px;background:var(--background);color:var(--foreground);cursor:pointer}
+.calendar-entry-menu-trigger:disabled{opacity:.45;cursor:default}
+.calendar-annotation-with-actions:has(.calendar-entry-actions)>.calendar-annotation-card{padding-right:26px}

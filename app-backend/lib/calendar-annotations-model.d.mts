@@ -1,0 +1,18 @@
+export type CalendarAnnotationKind = "goals" | "availability";
+export type CalendarAvailabilityReason = "None" | "Appointment" | "Injury" | "Sick" | "Vacation" | "Work" | "Other";
+export type CalendarAvailabilitySport = "Run" | "Bike" | "Swim" | "Brick" | "Crosstrain" | "Mtn Bike" | "Strength" | "Custom" | "XC-Ski" | "Rowing" | "Walk" | "Other";
+export type CalendarAnnotationGoal = { id: string; text: string; completed: boolean };
+export type CalendarAnnotationEntry = { kind: "goals"; date: string; endDate: string; title: string; goals: CalendarAnnotationGoal[] } | { kind: "availability"; date: string; endDate: string; mode: "unavailable" | "limited"; sports: CalendarAvailabilitySport[]; reason: CalendarAvailabilityReason; description: string };
+export type CalendarAnnotation = CalendarAnnotationEntry & { id: string; creationId?: string; revision: string; editable: boolean; metadataCurrent: boolean; nativeSportsComplete: boolean; nativeWarning?: string; providerDescription?: string; title: string };
+export const calendarAvailabilityReasons: readonly CalendarAvailabilityReason[];
+export const calendarAvailabilitySports: readonly CalendarAvailabilitySport[];
+export function annotationDate(value: unknown): string;
+export function shiftAnnotationDate(date: string, days: number): string;
+export function validateCalendarAnnotationEntry(value: unknown): CalendarAnnotationEntry;
+export function isCalendarAnnotation(value: unknown): value is CalendarAnnotation;
+export function calendarAnnotationKey(value: unknown): string | null;
+export function calendarAnnotationKind(value: unknown): CalendarAnnotationKind | null;
+export function annotationOverlapsRange(row: { workout_date?: string; workout_end_date?: string }, start: string, end: string): boolean;
+export function annotationNativeProjection(value: Record<string, unknown>): Record<string, unknown>;
+export function annotationInclusiveEnd(value: {start_date_local?: unknown; end_date_local?: unknown}): string;
+export function annotationIsAllDay(value: {start_date_local?: unknown; end_date_local?: unknown}): boolean;

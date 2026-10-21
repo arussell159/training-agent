@@ -3,6 +3,8 @@ import { ChevronDown } from "lucide-react"
 import { Popover, PopoverContent, PopoverDescription, PopoverTitle, PopoverTrigger } from "./ui/popover"
 import { Button } from "./ui/button"
 import { randomId } from "@/lib/random-id"
+import { localCommittedWorkout } from "@/lib/workout-commits"
+import { recurrenceProviderSource } from "@/lib/workout-recurrence-source"
 import {
   applyWorkoutRecurrence, loadWorkoutRecurrence, recurrenceDraft,
   type WorkoutRecurrenceDraft, type WorkoutRecurrenceRule, type WorkoutRecurrenceSeries,
@@ -41,35 +43,46 @@ export function WorkoutRecurrenceControl({
   const [notice, setNotice] = useState("")
   const [repeatEnabled, setRepeatEnabled] = useState(Boolean(draft))
   const loadGeneration = useRef(0)
-  const saved = Boolean(workoutId && /^event:[1-9]\d*$/.test(workoutId) && !onDraftChange)
+  const [linkedSource,setLinkedSource] = useState(() => ({id:workoutId,source:recurrenceProviderSource(workoutId,workoutId ? localCommittedWorkout(workoutId)?.providerWorkoutId : undefined)}))
+  const sourceId = linkedSource.id === workoutId ? linkedSource.source : recurrenceProviderSource(workoutId,workoutId ? localCommittedWorkout(workoutId)?.providerWorkoutId : undefined)
+  const pendingProvider = Boolean(workoutId?.startsWith("app:") && !sourceId && !onDraftChange)
+  const saved = Boolean(sourceId && !onDraftChange)
+  useEffect(() => {
+    const update = () => {
+      const source=recurrenceProviderSource(workoutId,workoutId ? localCommittedWorkout(workoutId)?.providerWorkoutId : undefined)
+      setLinkedSource(current=>current.id===workoutId && current.source===source ? current : {id:workoutId,source})
+    }
+    window.addEventListener("workout-commits-updated",update)
+    return ()=>window.removeEventListener("workout-commits-updated",update)
+  },[workoutId])
   const activeRule = draft?.rule || (series?.status !== "cancelled" ? series?.rule : null)
   useEffect(() => {
-    if (!saved || !workoutId) return
+    if (!saved || !sourceId) return
     const controller = new AbortController()
     const generation = ++loadGeneration.current
-    void loadWorkoutRecurrence(workoutId, controller.signal).then(value => {
+    void loadWorkoutRecurrence(sourceId, controller.signal).then(value => {
       if (loadGeneration.current === generation) setSeries(value)
     }).catch(reason => {
       if (!controller.signal.aborted && loadGeneration.current === generation) setError(reason instanceof Error ? reason.message : "The repeat schedule could not be loaded.")
     })
     const update = (event: Event) => {
       const detail = (event as CustomEvent<{ id: string; series: WorkoutRecurrenceSeries }>).detail
-      setSeries(current => detail.id === workoutId || detail.series.id === current?.id ? detail.series : current)
+      setSeries(current => detail.id === sourceId || detail.series.id === current?.id ? detail.series : current)
     }
     window.addEventListener("workout-recurrence-updated", update)
     return () => { controller.abort(); window.removeEventListener("workout-recurrence-updated", update) }
-  }, [saved, workoutId])
+  }, [saved, sourceId])
   let dates: string[] = [], validation = ""
   try { dates = recurrenceDates(rule) } catch (reason) { validation = reason instanceof Error ? reason.message : "Check the repeat schedule." }
   const show = async () => {
     setOpen(true); setNotice("")
     setRule(draft?.rule || activeRule || initialRule(date))
     setRepeatEnabled(Boolean(activeRule))
-    if (!saved || !workoutId) { setError(""); return }
+    if (!saved || !sourceId) { setError(""); return }
     const generation = ++loadGeneration.current
     setLoading(true)
     try {
-      const latest = await loadWorkoutRecurrence(workoutId)
+      const latest = await loadWorkoutRecurrence(sourceId)
       if (generation !== loadGeneration.current) return
       setSeries(latest); setError("")
       setRepeatEnabled(Boolean(latest && latest.status !== "cancelled"))
@@ -83,7 +96,7 @@ export function WorkoutRecurrenceControl({
   }
   const save = async (cancel = false) => {
     if (cancel && !activeRule && !series && !requestDraft) { setOpen(false); return }
-    if (!saved || !workoutId) {
+    if (!saved || !sourceId) {
       onDraftChange?.(cancel ? null : { operationId: draft?.operationId || randomId(), rule })
       setOpen(false)
       return
@@ -95,7 +108,7 @@ export function WorkoutRecurrenceControl({
     loadGeneration.current++
     setRequestDraft(pending); setRequestAction(action); setBusy(true); setError("")
     try {
-      const result = await applyWorkoutRecurrence(workoutId, pending, {
+      const result = await applyWorkoutRecurrence(sourceId, pending, {
         cancel: action === "cancel",
         onProgress: setSeries,
       })
@@ -109,8 +122,8 @@ export function WorkoutRecurrenceControl({
   }
   const pending = Boolean(series?.pendingOperationId || requestDraft)
   return <Popover open={open} onOpenChange={value => { if (!busy) { if (value) void show(); else setOpen(false) } }}>
-    <PopoverTrigger render={<button className="workout-recurrence-trigger" type="button" disabled={disabled} aria-label="Workout recurrence" />}>
-      {pending ? "Repeats pending" : label(activeRule)}<ChevronDown size={12} aria-hidden="true" />
+    <PopoverTrigger render={<button className="workout-recurrence-trigger" type="button" disabled={disabled || pendingProvider} aria-label="Workout recurrence" title={pendingProvider ? "Repeat scheduling is available after this workout synchronizes." : undefined} />}>
+      {pendingProvider ? "Repeats available after sync" : pending ? "Repeats pending" : label(activeRule)}<ChevronDown size={12} aria-hidden="true" />
     </PopoverTrigger>
       <PopoverContent className="workout-recurrence-dialog" align="start" sideOffset={12}>
         <PopoverTitle>Recurrence settings</PopoverTitle>

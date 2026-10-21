@@ -175,9 +175,12 @@ function PlanDialog({ open, onOpenChange, initial, busy, submitError, onSubmit }
   )
 }
 
-function RaceDialog({ week, event, open, busy, onOpenChange, onSubmit, onDelete }: {
+export function RaceDialog({ week, event, initialDate, submitError, onDraftChange, open, busy, onOpenChange, onSubmit, onDelete }: {
   week: AnnualPlanWeek | null
   event?: PlanEvent
+  initialDate?: string
+  submitError?: string | null
+  onDraftChange?: () => void
   open: boolean
   busy: boolean
   onOpenChange: (open: boolean) => void
@@ -190,23 +193,24 @@ function RaceDialog({ week, event, open, busy, onOpenChange, onSubmit, onDelete 
   useEffect(() => {
     if (open) {
       setName(event?.name || "")
-      setDate(event?.date || week?.startDate || iso(new Date()))
+      setDate(event?.date || initialDate || week?.startDate || iso(new Date()))
       setPriority(event?.priority || "A")
     }
-  }, [event, open, week])
+  }, [event, initialDate, open, week])
   const selectedDate = date ? new Date(`${date}T12:00:00`) : undefined
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:max-w-md">
+    <Dialog open={open} onOpenChange={(value) => { if (!busy) onOpenChange(value) }}>
+      <DialogContent showCloseButton={!busy} className="max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl sm:max-w-md">
         <DialogHeader><DialogTitle>{event ? "Edit race event" : "Add race event"}</DialogTitle><DialogDescription>{event ? "Changes are saved to Intervals.icu, the annual plan and your calendar." : "This creates a race in Intervals.icu and adds it to your app calendar."}</DialogDescription></DialogHeader>
-        <div className="space-y-4">
-          <div className={mobileFieldClass}><Label htmlFor="race-name" className="block text-[11px] leading-4 text-muted-foreground">Race name</Label><Input id="race-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Race name" className="h-7 rounded-none border-0 bg-transparent px-0 py-0 text-sm focus-visible:ring-0 dark:bg-transparent" /></div>
+        <fieldset disabled={busy} className="min-w-0 space-y-4 border-0 p-0">
+          {submitError && <p role="alert" className="text-sm text-destructive">{submitError}</p>}
+          <div className={mobileFieldClass}><Label htmlFor="race-name" className="block text-[11px] leading-4 text-muted-foreground">Race name</Label><Input id="race-name" autoFocus disabled={busy} value={name} onChange={(event) => { setName(event.target.value); onDraftChange?.() }} placeholder="Race name" className="h-7 rounded-none border-0 bg-transparent px-0 py-0 text-sm focus-visible:ring-0 dark:bg-transparent" /></div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className={mobileFieldClass}><Label htmlFor="race-priority" className="block text-[11px] leading-4 text-muted-foreground">Category</Label><MobileSelect id="race-priority" className="h-7 w-full rounded-none border-0 bg-transparent px-0 text-sm focus-visible:ring-0" value={priority} onValueChange={(value) => setPriority(value as "A" | "B" | "C")} options={["A", "B", "C"].map((value) => ({ value, label: `Race ${value}` }))}><Select value={priority} onValueChange={(value) => setPriority(value as "A" | "B" | "C")}><SelectTrigger id="race-priority" className="h-7 w-full rounded-none border-0 bg-transparent px-0 text-sm shadow-none"><SelectValue /></SelectTrigger><SelectContent>{["A", "B", "C"].map((value) => <SelectItem key={value} value={value}>Race {value}</SelectItem>)}</SelectContent></Select></MobileSelect></div>
             <div className={mobileFieldClass}><Label htmlFor="race-date" className="block text-[11px] leading-4 text-muted-foreground">Date</Label><MobileDatePicker id="race-date" aria-label="Race date" className="h-7 w-full rounded-none border-0 bg-transparent px-0 text-sm focus-visible:ring-0" value={date} onValueChange={setDate}><Popover><PopoverTrigger render={<Button id="race-date" type="button" variant="ghost" className="h-7 w-full justify-start rounded-none px-0 text-sm font-normal" />}><CalendarIcon />{date ? dateLabel(date, { month: "short", day: "numeric", year: "numeric" }) : "Choose date"}</PopoverTrigger><PopoverContent className="w-auto p-0" align="end"><Calendar mode="single" selected={selectedDate} defaultMonth={selectedDate} onSelect={(value) => { if (value) setDate(iso(value)) }} /></PopoverContent></Popover></MobileDatePicker></div>
           </div>
-        </div>
-        <DialogFooter className="gap-2 sm:justify-between">{event ? <Button variant="destructive" disabled={busy} onClick={onDelete} className="h-11 rounded-full"><Trash2 />Delete race</Button> : <span />}<div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row"><Button variant="outline" onClick={() => onOpenChange(false)} className="h-11 w-full rounded-full sm:w-auto">Cancel</Button><Button disabled={busy || !name.trim() || !date} onClick={() => onSubmit({ name: name.trim(), date, priority })} className={mobileSubmitClass}>{busy && <LoaderCircle className="animate-spin" />}{event ? "Save changes" : "Add race"}</Button></div></DialogFooter>
+        </fieldset>
+        <DialogFooter className="gap-2 sm:justify-between">{event ? <Button variant="destructive" disabled={busy} onClick={onDelete} className="h-11 rounded-full"><Trash2 />Delete race</Button> : <span />}<div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row"><Button disabled={busy} variant="outline" onClick={() => onOpenChange(false)} className="h-11 w-full rounded-full sm:w-auto">Cancel</Button><Button disabled={busy || !name.trim() || !date} onClick={() => onSubmit({ name: name.trim(), date, priority })} className={mobileSubmitClass}>{busy && <LoaderCircle className="animate-spin" />}{event ? "Save changes" : "Add race"}</Button></div></DialogFooter>
       </DialogContent>
     </Dialog>
   )

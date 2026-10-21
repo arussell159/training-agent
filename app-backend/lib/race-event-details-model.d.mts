@@ -1,0 +1,17 @@
+export type RaceEventGoals = { time: string; distance: string; distanceUnit: string; place: string; finish: boolean; setPr: boolean; custom: string[] };
+export type RaceEventDetails = { name: string; date: string; priority: "" | "A" | "B" | "C"; eventType: string; description: string; raceDistance?: string; atpEventType?: string; goals?: RaceEventGoals };
+export const raceEventTypeGroups: { label: string; options: [string, string, string][] }[];
+export const raceEventTypes: Record<string, { label: string; sport: string }>;
+export function raceEventKey(externalId: unknown): string | null;
+export const runningRaceDistances: [string, string][];
+export const runningAtpEventTypes: [string, string][];
+export const cyclingAtpEventTypes: [string, string][];
+export const triathlonAtpEventTypes: [string, string][];
+export const duathlonAtpEventTypes: [string, string][];
+export const allAtpEventTypes: [string, string][];
+export function raceAtpEventTypes(eventType: string): [string, string][];
+export const raceGoalDistanceUnits: string[];
+export function emptyRaceGoals(): RaceEventGoals;
+export function validateRaceGoals(value?: unknown): RaceEventGoals;
+export function raceDetailsDate(value: unknown): string;
+export function validateRaceEventDetails(value: unknown): RaceEventDetails;

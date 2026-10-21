@@ -1,8 +1,30 @@
 // Shared by the browser and the authenticated backend. No provider writes here.
 import { stripPlannedValues } from "./planned-workout-values.mjs";
 import { stripWorkoutCommentText } from "./workout-comment-text.mjs";
+import { providerWorkoutDescription } from "./workout-provider-description.mjs";
+import {
+  validateStrengthPrescription,
+  strengthPrescriptionText,
+  STRENGTH_MARKER,
+} from "./workout-strength-model.mjs";
 export const DEFINITION_MARKER = "\n\nIntervals.icu device definition:\n";
 const DATA_MARKER = "\n\n```\nWorkout editor v1\n";
+// Canonical Intervals.icu ActivityType values; presentation labels live in the UI.
+export const workoutSports = [
+  "Ride",
+  "VirtualRide",
+  "MountainBikeRide",
+  "Run",
+  "VirtualRun",
+  "TrailRun",
+  "Swim",
+  "Other",
+  "WeightTraining",
+  "Walk",
+  "Rowing",
+  "NordicSki",
+  "Workout",
+];
 export const roles = ["warmup", "active", "recovery", "rest", "cooldown", "other"];
 export const roleNames = {
   warmup: "Warm Up",
@@ -23,6 +45,7 @@ export const paceFactors = {
   "secs/250m": 250,
 };
 export const targetUnits = {
+  rpe: ["rpe"],
   power: ["w", "%ftp", "power_zone"],
   pace: [
     "secs/mi",
@@ -45,12 +68,13 @@ export const clock = (value) => {
   return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
 };
 export function defaultTarget(sport) {
-  if (["Other", "WeightTraining"].includes(sport)) return { kind: "none" };
   return /swim/i.test(sport)
     ? { kind: "pace", unit: "secs/100y", mode: "single", value: 120 }
     : /run/i.test(sport)
       ? { kind: "pace", unit: "secs/mi", mode: "single", value: 540 }
-      : { kind: "power", unit: "w", mode: "single", value: 150 };
+      : /ride|bike/i.test(sport)
+        ? { kind: "power", unit: "w", mode: "single", value: 150 }
+        : { kind: "none" };
 }
 export function newStep(sport, role = "active") {
   return {
@@ -201,19 +225,12 @@ export function validateWorkout(model) {
     return ["Invalid workout editor document"];
   if (typeof model.name !== "string" || !model.name.trim() || model.name.length > 200)
     errors.push("Enter a workout name under 200 characters");
+  if (!workoutSports.includes(model.sport)) errors.push("Unsupported sport");
   if (
-    ![
-      "Ride",
-      "VirtualRide",
-      "Run",
-      "VirtualRun",
-      "TrailRun",
-      "Swim",
-      "Other",
-      "WeightTraining",
-    ].includes(model.sport)
+    model.swimUnitMode !== undefined &&
+    (model.sport !== "Swim" || model.swimUnitMode !== "explicit")
   )
-    errors.push("Unsupported sport");
+    errors.push("Unsupported swim unit mode");
   const parsedDate = new Date(`${model.date}T00:00:00Z`);
   if (
     !/^\d{4}-\d{2}-\d{2}$/.test(model.date) ||
@@ -221,11 +238,46 @@ export function validateWorkout(model) {
     parsedDate.toISOString().slice(0, 10) !== model.date
   )
     errors.push("Choose a valid date");
-  if (!model.steps.length) errors.push("Add at least one step");
+  if (model.unstructured !== undefined && typeof model.unstructured !== "boolean")
+    errors.push("Choose a valid workout structure mode");
+  if (
+    model.variant !== undefined &&
+    (!["brick", "day-off", "custom"].includes(model.variant) || model.sport !== "Other")
+  )
+    errors.push("Choose a valid workout presentation category for Other sport");
+  if (model.unstructured === true && model.steps.length)
+    errors.push("An unstructured workout cannot contain device steps");
+  if (model.strength !== undefined) {
+    errors.push(...validateStrengthPrescription(model.strength));
+    if (
+      model.sport !== "WeightTraining" ||
+      model.steps.length ||
+      model.unstructured === true ||
+      model.variant !== undefined
+    )
+      errors.push(
+        "Strength prescriptions require WeightTraining sport and cannot contain device intervals or freeform mode"
+      );
+    if (
+      typeof model.name !== "string" ||
+      model.name.length > 128 ||
+      typeof model.notes !== "string" ||
+      model.notes.length > 1000
+    )
+      errors.push(
+        "Strength title allows 128 characters and workout instructions allow 1000 characters"
+      );
+  }
+  if (!model.steps.length && model.unstructured !== true && model.strength === undefined)
+    errors.push("Add at least one step");
   if (typeof model.notes !== "string" || model.notes.length > 12000)
     errors.push("Workout instructions must be text under 12,000 characters");
-  if (model.poolLength && !/^\d+(?:\.\d+)?(?:m|y)$/.test(model.poolLength))
-    errors.push("Pool length must be a number followed by m or y");
+  if (model.poolLength != null && model.poolLength !== "") {
+    const pool =
+      typeof model.poolLength === "string" && model.poolLength.match(/^(\d+(?:\.\d+)?)(?:m|y)$/);
+    if (!pool || !(Number(pool[1]) > 0) || !Number.isFinite(Number(pool[1])))
+      errors.push("Pool length must be a positive number followed by m or y");
+  }
   let count = 0;
   const positive = (n) => Number.isFinite(n) && n > 0;
   const visit = (nodes, depth = 0) => {
@@ -282,7 +334,16 @@ export function validateWorkout(model) {
           errors.push("Unsupported intensity target");
         else if (t.kind !== "none") {
           const values = t.mode === "single" ? [t.value] : [t.start, t.end];
-          if (!values.every((v) => positive(v) || (t.kind === "power" && v === 0)))
+          if (t.kind === "rpe") {
+            if (
+              !values.every((v) => Number.isInteger(v) && v >= 1 && v <= 10) ||
+              !["single", "range"].includes(t.mode) ||
+              (t.mode === "range" && t.end < t.start)
+            )
+              errors.push(
+                "RPE targets must be ordered whole numbers from 1 to 10, using Target or Range"
+              );
+          } else if (!values.every((v) => positive(v) || (t.kind === "power" && v === 0)))
             errors.push("Target values must be valid positive numbers");
           if (
             t.unit.includes("zone") &&
@@ -290,8 +351,15 @@ export function validateWorkout(model) {
           )
             errors.push("Zones must be whole numbers 1–10; use numeric targets for ramps");
         }
-        if (n.cadence && (!positive(n.cadence.start) || !positive(n.cadence.end)))
-          errors.push("Cadence must be positive");
+        if (
+          n.cadence &&
+          (!positive(n.cadence.start) ||
+            !positive(n.cadence.end) ||
+            n.cadence.start < 1 ||
+            n.cadence.start > n.cadence.end ||
+            n.cadence.end > 300)
+        )
+          errors.push("Cadence must be an ordered range from 1 to 300 rpm");
       } else errors.push("Unsupported step type");
     }
   };
@@ -333,7 +401,9 @@ export function targetLabel(t) {
       ? t.kind === "hr"
         ? "HR"
         : t.kind
-      : t.unit;
+      : t.kind === "rpe"
+        ? "RPE"
+        : t.unit;
   return `${t.mode === "single" ? fmt(t.value) : `${fmt(t.start)}${t.mode === "ramp" ? " → " : "–"}${fmt(t.end)}`} ${unit}`;
 }
 export function stepLabel(n) {
@@ -343,12 +413,17 @@ export function stepLabel(n) {
 }
 function targetSpeed(target, thresholds) {
   if (target.kind !== "pace") return null;
-  const v = target.mode === "single" ? target.value : (target.start + target.end) / 2;
-  return paceFactors[target.unit]
-    ? paceFactors[target.unit] / v
-    : target.unit === "%pace" && thresholds?.pace > 0
-      ? (thresholds.pace * v) / 100
-      : null;
+  const speed = (value) =>
+    paceFactors[target.unit]
+      ? paceFactors[target.unit] / value
+      : target.unit === "%pace" && thresholds?.pace > 0
+        ? (thresholds.pace * value) / 100
+        : null;
+  if (target.mode === "single") return speed(target.value);
+  const start = speed(target.start), end = speed(target.end);
+  // Average in physical speed so a range's estimates do not change when
+  // toggling between percentage speed and reciprocal seconds-per-distance.
+  return start == null || end == null ? null : (start + end) / 2;
 }
 export function stepMetrics(step, thresholds = {}) {
   const speed = targetSpeed(step.target, thresholds);
@@ -363,7 +438,136 @@ export function stepMetrics(step, thresholds = {}) {
   const seconds = step.end.kind === "distance" ? (speed ? distance / speed : null) : step.end.value;
   return { seconds, distance, estimated: step.end.kind !== "time", open: step.end.kind === "lap" };
 }
-export function workoutTotals(model) {
+
+// Exact mean of the fourth powers of equally spaced values, without allocating
+// a second-by-second array for a long steady interval or continuous ramp.
+function linearFourthMean(first, last, count) {
+  if (count === 1) return first ** 4;
+  const m = count - 1, delta = last - first;
+  const second = 1 / 3 + 1 / (6 * m);
+  const third = 1 / 4 + 1 / (4 * m);
+  const fourth = 1 / 5 + 3 / (10 * m) + 1 / (30 * m * m) - 1 / (30 * m * m * m);
+  return Math.max(0, first ** 4 + 2 * first ** 3 * delta + 6 * first * first * delta * delta * second + 4 * first * delta ** 3 * third + delta ** 4 * fourth);
+}
+
+function plannedStepMetrics(step, thresholds, options) {
+  const metrics = stepMetrics(step, thresholds);
+  if (options?.plannedDistanceTime === "whole-metres" && step.end.kind === "distance" && metrics.seconds != null) {
+    const speed = targetSpeed(step.target, thresholds);
+    // The observed native yard conversion uses this rounded reciprocal before
+    // truncating metres. Keep it confined to the planned time estimate.
+    const metres = step.end.unit === "yd" ? step.end.value / 1.0936133 : metrics.distance;
+    return {...metrics, seconds: Math.round(Math.trunc(metres) / speed)};
+  }
+  return metrics;
+}
+
+function plannedPowerFromSteps(flat, thresholds = {}, options) {
+  const segments = [];
+  let seconds = 0, energy = 0;
+  for (const { step } of flat) {
+    const metrics = plannedStepMetrics(step, thresholds, options), target = step.target;
+    if (metrics.seconds == null || metrics.open || !(metrics.seconds > 0)) return null;
+    let first = 0, last = 0;
+    if (!(step.role === "rest" && target.kind === "none")) {
+      if (target.kind !== "power" || !["w", "%ftp"].includes(target.unit) || (target.unit === "w" && !(thresholds.ftp > 0))) return null;
+      const factor = target.unit === "w" ? thresholds.ftp : 100;
+      first = (target.mode === "single" ? target.value : target.mode === "range" ? (target.start + target.end) / 2 : target.start) / factor;
+      last = (target.mode === "ramp" ? target.end / factor : first);
+    }
+    if (![first, last].every(value => Number.isFinite(value) && value >= 0)) return null;
+    const end = seconds + metrics.seconds;
+    segments.push({start: seconds, end, first, last});
+    energy += metrics.seconds * (first + last) / 2;
+    seconds = end;
+  }
+  if (!segments.length || !Number.isSafeInteger(Math.floor(seconds))) return null;
+  const averageIntensity = energy / seconds;
+  const result = {
+    seconds,
+    averagePower: thresholds.ftp > 0 ? averageIntensity * thresholds.ftp : null,
+    workKilojoules: thresholds.ftp > 0 ? energy * thresholds.ftp / 1000 : null,
+    normalizedIntensity: null,
+    normalizedPower: null,
+    samples: 0,
+  };
+  // The published NP procedure starts with a complete 30-second window. There
+  // is no invented zero padding or extrapolated pre-workout power.
+  if (seconds < 30) return result;
+  const indexAt = time => {
+    let low = 0, high = segments.length - 1;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (segments[middle].end <= time) low = middle + 1;
+      else high = middle;
+    }
+    return low;
+  };
+  const rolling = time => {
+    const start = time - 30;
+    let amount = 0;
+    for (let index = indexAt(start); index < segments.length; index++) {
+      const segment = segments[index];
+      if (segment.start >= time) break;
+      const from = Math.max(start, segment.start), to = Math.min(time, segment.end);
+      if (to > from) amount += (to - from) * (segment.first + (segment.last - segment.first) * ((from + to) / 2 - segment.start) / (segment.end - segment.start));
+    }
+    return amount / 30;
+  };
+  // Only the 30 seconds after a boundary can mix distinct interval slopes.
+  // Longer regions lie entirely inside one step and have a linear rolling
+  // average, whose discrete fourth-power sum is evaluated analytically.
+  const boundaries = [...new Set([30, seconds + 1, ...segments.flatMap(segment => [segment.end, segment.end + 30]).filter(time => time > 30 && time <= seconds)])].sort((a,b) => a-b);
+  let fourthSum = 0, samples = 0;
+  for (let index = 0; index < boundaries.length - 1; index++) {
+    const first = Math.ceil(boundaries[index]), last = Math.min(Math.floor(seconds), Math.ceil(boundaries[index + 1]) - 1), count = last - first + 1;
+    if (count <= 0) continue;
+    if (count > 32) fourthSum += count * linearFourthMean(rolling(first), rolling(last), count);
+    else for (let time = first; time <= last; time++) fourthSum += rolling(time) ** 4;
+    samples += count;
+  }
+  const normalizedIntensity = (fourthSum / samples) ** 0.25;
+  if (!Number.isFinite(normalizedIntensity)) return result;
+  return {...result, normalizedIntensity, normalizedPower: thresholds.ftp > 0 ? normalizedIntensity * thresholds.ftp : null, samples};
+}
+
+/** Planned power from midpoint ranges and the documented one-second, 30s NP window. */
+export function plannedPowerMetrics(model) {
+  try { return plannedPowerFromSteps(expandSteps(model.steps), model.thresholds); }
+  catch { return null; }
+}
+
+// Planned Run stress applies the observed duration correction to the mean
+// speed factor. Swim stress weights each interval cubically; the builder's
+// displayed swim IF is the square root of its stress per hour.
+function plannedPaceFromSteps(flat, model, options) {
+  if (!/^(run|walk|swim)$/i.test(model.sport)) return null;
+  let seconds = 0, weighted = 0, cubed = 0;
+  for (const {step} of flat) {
+    const duration = plannedStepMetrics(step, model.thresholds, options).seconds;
+    if (!(duration > 0) || step.end.kind === "lap") return null;
+    seconds += duration;
+    const target = step.target;
+    if (step.role === "rest" && target.kind === "none") continue;
+    if (target.kind !== "pace") return null;
+    const fraction = value => target.unit === "%pace" ? value / 100
+      : paceFactors[target.unit] && model.thresholds?.pace > 0 ? paceFactors[target.unit] / value / model.thresholds.pace : NaN;
+    const first = fraction(target.mode === "single" ? target.value : target.start);
+    const last = fraction(target.mode === "single" ? target.value : target.end);
+    if (![first, last].every(value => Number.isFinite(value) && value > 0)) return null;
+    weighted += duration * (first + last) / 2;
+    cubed += duration * (target.mode === "ramp"
+      ? (first ** 3 + first * first * last + first * last * last + last ** 3) / 4
+      : ((first + last) / 2) ** 3);
+  }
+  if (!(seconds > 0)) return null;
+  const swim = /^swim$/i.test(model.sport), mean = weighted / seconds;
+  const rawLoad = swim ? cubed / 36 : mean * mean * (seconds / 60) ** 1.025 / 60 * 100;
+  const load = Math.round(rawLoad * 10) / 10;
+  return {load, intensityFactor: swim ? Math.round(Math.sqrt(load * 36 / seconds) * 100) / 100 : Math.round(mean * 100) / 100};
+}
+
+export function workoutTotals(model, options) {
   let seconds = 0,
     distance = 0,
     work = 0,
@@ -394,8 +598,13 @@ export function workoutTotals(model) {
       repetitions: 0,
     };
   }
+  if (!flat.length) {
+    unknownTime = true;
+    unknownDistance = true;
+    loadKnown = false;
+  }
   for (const { step } of flat) {
-    const m = stepMetrics(step, model.thresholds);
+    const m = plannedStepMetrics(step, model.thresholds, options);
     seconds += m.seconds || 0;
     distance += m.distance || 0;
     unknownTime ||= m.seconds == null;
@@ -433,6 +642,9 @@ export function workoutTotals(model) {
       }
     });
   countRepeats(model.steps);
+  const power = loadKnown && !open ? plannedPowerFromSteps(flat, model.thresholds, options) : null;
+  if (power?.normalizedIntensity != null) load = (seconds / 3600) * power.normalizedIntensity ** 2 * 100;
+  const pace = !open && !unknownTime ? plannedPaceFromSteps(flat, model, options) : null;
   return {
     seconds,
     distance,
@@ -443,9 +655,14 @@ export function workoutTotals(model) {
     unknownDistance,
     estimated,
     open,
-    load: loadKnown && !open ? load : null,
+    load: pace?.load ?? (loadKnown && !open ? load : null),
+    intensityFactor: pace?.intensityFactor ?? power?.normalizedIntensity ?? null,
     executedSteps: flat.length,
     repetitions,
+    normalizedPower: power?.normalizedPower ?? null,
+    normalizedIntensity: power?.normalizedIntensity ?? null,
+    averagePower: power?.averagePower ?? null,
+    workKilojoules: power?.workKilojoules ?? null,
   };
 }
 export function chartSegments(model) {
@@ -461,6 +678,7 @@ export function chartSegments(model) {
     const score = (value) => {
       const t = step.target;
       if (t.kind === "none") return step.role === "rest" ? 0.04 : 0.25;
+      if (t.kind === "rpe") return value / 10;
       if (paceFactors[t.unit])
         return (
           paceFactors[t.unit] /
@@ -506,6 +724,7 @@ function safeLine(text) {
 }
 function targetText(t) {
   if (t.kind === "none") return "";
+  if (t.kind === "rpe") return "";
   const value = (n) =>
     t.unit.includes("zone") ? `Z${n}` : paceFactors[t.unit] ? clock(n) : round(n);
   const numbers = t.mode === "single" ? value(t.value) : `${value(t.start)}-${value(t.end)}`;
@@ -534,17 +753,32 @@ function nativeStep(step, swim = false) {
       : `${round(step.end.value)}s`;
   // Text prompts precede the prescription; detailed instructions are kept in
   // the readable outline and lossless editor data, away from parser tokens.
-  return `- ${step.end.kind === "lap" || step.end.pressLap ? "Press lap " : ""}${amount} ${target}${step.cadence ? ` ${step.cadence.start === step.cadence.end ? step.cadence.start : `${step.cadence.start}-${step.cadence.end}`}rpm` : ""} intensity=${step.role === "other" ? "active" : step.role}`
+  return `- ${step.target.kind === "rpe" ? rpeCue(step.target) + " " : ""}${step.end.kind === "lap" || step.end.pressLap ? "Press lap " : ""}${amount} ${target}${step.cadence ? ` ${step.cadence.start === step.cadence.end ? step.cadence.start : `${step.cadence.start}-${step.cadence.end}`}rpm` : ""} intensity=${step.role === "other" ? "active" : step.role}`
     .replace(/ +/g, " ")
     .trim();
 }
+function rpeCue(target) {
+  return `RPE ${target.mode === "single" ? target.value : `${target.start}-${target.end}`}`;
+}
+export function workoutProviderWarnings(model) {
+  if (model.strength)
+    return [
+      "Intervals.icu receives this Strength prescription as readable workout text. Exact exercise blocks, set values and parameters stay in this editor; native device exercise targets and an external exercise library are not provided.",
+    ];
+  return expandSteps(model.steps).some(({ step }) => step.target.kind === "rpe")
+    ? [
+        "Intervals.icu does not support numeric RPE device targets. Exact RPE targets stay in this editor and are included as native step instructions; the provider receives duration/distance without a power, heart-rate or pace target.",
+      ]
+    : [];
+}
 export function nativeWorkoutText(model, legacy = false) {
+  if (model.unstructured === true || model.strength) return "";
   const blocks = [];
   const swim = /swim/i.test(model.sport) && !legacy;
   if (swim) {
     // Flatten the device steps so Garmin cannot skip the final rest in a repeat.
     return `Pool length: ${model.poolLength || "25y"}\n\n${expandSteps(model.steps)
-      .map(({ step }) => nativeStep(step, true))
+      .map(({ step }) => nativeStep(step, model.swimUnitMode !== "explicit"))
       .join("\n\n")}`;
   }
   for (const node of model.steps) {
@@ -573,6 +807,7 @@ export function nativeWorkoutText(model, legacy = false) {
   return `${model.poolLength && model.sport === "Swim" ? `Pool length: ${model.poolLength}\n\n` : ""}${blocks.join("\n\n")}`;
 }
 export function workoutOutline(model) {
+  if (model.strength) return strengthPrescriptionText(model.strength);
   const lines = [];
   let section = "";
   const describe = (n, indent = "") => {
@@ -613,7 +848,7 @@ export function workoutOutline(model) {
   }
   return lines.join("\n");
 }
-export function serializeWorkout(model) {
+export function serializeWorkout(model, { checkProviderLength = true } = {}) {
   const errors = validateWorkout(model);
   if (errors.length) throw Error(errors.join(". "));
   // Fenced blocks are ignored by the ICU workout parser. Human instructions
@@ -622,20 +857,35 @@ export function serializeWorkout(model) {
   const data = { ...model };
   delete data.thresholds;
   const native = nativeWorkoutText(model);
-  const text = `\`\`\`\n${description.replaceAll("```", "'''")}\n\`\`\`${DEFINITION_MARKER}${native}${DATA_MARKER}${JSON.stringify(data)}\n\`\`\``;
-  if (text.length > 30000) throw Error("Workout text exceeds the 30,000 character export limit");
+  const text = model.strength
+    ? `${STRENGTH_MARKER}\`\`\`\n${description.replaceAll("```", "'''")}\n\`\`\`${DATA_MARKER}${JSON.stringify(data)}\n\`\`\``
+    : model.unstructured === true
+      ? `${model.notes ? `\`\`\`\n${model.notes.replaceAll("```", "'''")}\n\`\`\`` : ""}${DATA_MARKER}${JSON.stringify(data)}\n\`\`\``
+      : `\`\`\`\n${description.replaceAll("```", "'''")}\n\`\`\`${DEFINITION_MARKER}${native}${DATA_MARKER}${JSON.stringify(data)}\n\`\`\``;
+  if (checkProviderLength && providerWorkoutDescription(text).length > 30000)
+    throw Error("Workout text exceeds the 30,000 character export limit");
   return text;
 }
 export function readableDescription(description) {
-  const head = stripPlannedValues(stripWorkoutCommentText(description)).split(DEFINITION_MARKER)[0];
+  const head = stripPlannedValues(stripWorkoutCommentText(description))
+    .split(DEFINITION_MARKER)[0]
+    .split(DATA_MARKER)[0];
   return head.startsWith("```\n") && head.endsWith("\n```") ? head.slice(4, -4) : head;
+}
+export function workoutDefinitionSuffix(description) {
+  const native = description.indexOf(DEFINITION_MARKER),
+    data = description.indexOf(DATA_MARKER);
+  return native >= 0 ? description.slice(native) : data >= 0 ? description.slice(data) : "";
 }
 // This app's pool convention is numeric yards under Intervals metre tokens.
 // Normalize older editor documents only after verifying their original text.
 function swimYardModel(model) {
+  if (model.swimUnitMode === "explicit") return clone(model);
   if (!/swim/i.test(model.sport)) return model;
   const normalized = clone(model);
-  normalized.poolLength = (normalized.poolLength || "25y").replace(/m$/, "y");
+  // Pool equipment length has its own physical unit. Retain it independently
+  // from this athlete's legacy yard amounts under native metre step tokens.
+  normalized.poolLength = normalized.poolLength || "25y";
   walkNodes(normalized.steps, (step) => {
     if (step.kind !== "step") return;
     if (step.end.kind === "distance" && step.end.unit === "m") step.end.unit = "yd";
@@ -651,15 +901,22 @@ export function readEditorModel(description) {
     const model = JSON.parse(text.slice(index + DATA_MARKER.length).split("\n```")[0]);
     if (
       validateWorkout(model).length ||
-      ![nativeWorkoutText(model), nativeWorkoutText(model, true)].includes(
-        text.split(DEFINITION_MARKER)[1]?.split(DATA_MARKER)[0]
-      )
+      (model.unstructured === true || model.strength
+        ? text.includes(DEFINITION_MARKER)
+        : ![nativeWorkoutText(model), nativeWorkoutText(model, true)].includes(
+            text.split(DEFINITION_MARKER)[1]?.split(DATA_MARKER)[0]
+          ))
     )
       return null;
     return swimYardModel(model);
   } catch {
     return null;
   }
+}
+export function hasReadableStrengthPrescription(description) {
+  return /(?:^|\r?\n)Strength exercise prescription:\r?\n```(?:\r?\n|$)/.test(
+    String(description || "")
+  );
 }
 function fromTarget(t, kind, ramp, paceUnit) {
   if (!t) return { kind: "none" };
@@ -711,9 +968,22 @@ export function importWorkout(event) {
       const native = originalDescription.split(DEFINITION_MARKER)[1]?.split(DATA_MARKER)[0];
       const legacy =
         native === nativeWorkoutText(model, true) && native !== nativeWorkoutText(model);
-      if (native !== nativeWorkoutText(model) && !legacy)
+      if (
+        model.unstructured === true || model.strength
+          ? originalDescription.includes(DEFINITION_MARKER)
+          : native !== nativeWorkoutText(model) && !legacy
+      )
         issues.push(
           "The remote workout text changed outside this editor. Its stored editor structure no longer matches; resolve it in Intervals.icu before editing."
+        );
+      if (
+        model.strength &&
+        !providerWorkoutDescription(originalDescription).endsWith(
+          providerWorkoutDescription(serializeWorkout(model))
+        )
+      )
+        issues.push(
+          "The readable Strength prescription changed outside this editor. Review it before replacing the stored exercise structure."
         );
       const parsedIssues = verifyParsedWorkout(model, event, legacy);
       issues.push(...parsedIssues);
@@ -728,6 +998,33 @@ export function importWorkout(event) {
     } catch {
       issues.push("The stored editor structure is damaged. It cannot safely be overwritten.");
     }
+  }
+  if (index < 0 && hasReadableStrengthPrescription(originalDescription)) {
+    return {
+      model: base,
+      issues: [
+        ...issues,
+        "This Strength prescription's private exercise model is unavailable for the connected account. Reconnect its original account or restore its verified metadata before editing; the readable prescription has been retained.",
+      ],
+      warnings,
+      originalDescription: readableDescription(originalDescription),
+      reviewRequired: true,
+      ambiguousSwim: false,
+    };
+  }
+  if (
+    !originalDescription.includes(DEFINITION_MARKER) &&
+    (!doc || doc.steps == null || (Array.isArray(doc.steps) && !doc.steps.length))
+  ) {
+    const model = { ...base, unstructured: true, notes: readableDescription(originalDescription) };
+    return {
+      model,
+      issues: [...issues, ...validateWorkout(model), ...verifyParsedWorkout(model, event)],
+      warnings,
+      originalDescription: readableDescription(originalDescription),
+      reviewRequired: false,
+      ambiguousSwim: false,
+    };
   }
   if (!Array.isArray(doc?.steps) || !doc.steps.length)
     issues.push(
@@ -783,7 +1080,22 @@ export function importWorkout(event) {
         for (const field of Object.keys(s[key]))
           if (!["value", "start", "end", "units"].includes(field))
             issues.push(`Unsupported ${key} target field “${field}”`);
-      const target = fromTarget(s[kinds[0]], kinds[0], s.ramp, paceUnit);
+      let target = fromTarget(s[kinds[0]], kinds[0], s.ramp, paceUnit);
+      const rpe = String(s.text || "").match(/^RPE\s+(\d+(?:\.\d+)?)(?:-(\d+(?:\.\d+)?))?(?:\s|$)/);
+      if (/^RPE\b/.test(String(s.text || ""))) {
+        if (!rpe || kinds.length || s.ramp)
+          issues.push("RPE step instructions contain unsupported or conflicting targets");
+        else
+          target = rpe[2]
+            ? {
+                kind: "rpe",
+                unit: "rpe",
+                mode: "range",
+                start: Number(rpe[1]),
+                end: Number(rpe[2]),
+              }
+            : { kind: "rpe", unit: "rpe", mode: "single", value: Number(rpe[1]) };
+      }
       const lapEnd = s.until_lap_press ?? s.press_lap;
       const end =
         s.distance > 0
@@ -915,7 +1227,23 @@ function providerLeaves(steps, out = [], depth = 0) {
 // Compare semantic execution, including every repeat and recovery, using the
 // parsed response. Text equality alone is never a successful verification.
 export function verifyParsedWorkout(model, event, legacy = false) {
-  const swim = /swim/i.test(model.sport) && !legacy;
+  if (model.unstructured === true || model.strength) {
+    const errors = validateWorkout(model),
+      doc = event.workout_doc;
+    if (doc != null && (typeof doc !== "object" || Array.isArray(doc)))
+      errors.push("The provider returned an invalid workout definition");
+    if (doc?.steps != null && (!Array.isArray(doc.steps) || doc.steps.length))
+      errors.push("The provider added device steps to an unstructured workout");
+    for (const key of ["duration", "distance", "num_steps", "step_count"]) {
+      if (
+        doc?.[key] != null &&
+        (typeof doc[key] !== "number" || !Number.isFinite(doc[key]) || doc[key] !== 0)
+      )
+        errors.push(`The provider added parsed ${key} to an unstructured workout`);
+    }
+    return errors;
+  }
+  const swim = /swim/i.test(model.sport) && !legacy && model.swimUnitMode !== "explicit";
   const errors = [],
     intended = expandSteps(model.steps);
   let actual;
@@ -949,6 +1277,14 @@ export function verifyParsedWorkout(model, event, legacy = false) {
     const parsedKinds = ["power", "pace", "hr"].filter((k) => a[k]);
     if (t.kind === "none") {
       if (parsedKinds.length) errors.push(`${label}: an unprescribed target was added`);
+    } else if (t.kind === "rpe") {
+      if (parsedKinds.length)
+        errors.push(`${label}: an unprescribed physiological target was added to RPE`);
+      const cue = String(a.text || "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (cue !== rpeCue(t) && !cue.startsWith(rpeCue(t) + " "))
+        errors.push(`${label}: RPE step instructions were not retained`);
     } else {
       if (parsedKinds.length !== 1 || !a[key]) errors.push(`${label}: target type differs`);
       else {

@@ -1,23 +1,33 @@
 import { newStep, validateWorkout } from "./workout-editor-model.mjs";
 import { validatePlannedValues } from "./planned-workout-values.mjs";
 
-// A simple session has no intensity prescription. Its duration/distance still
-// has a native device step, so it can follow the same verified export path.
-export function simpleWorkoutModel({ name, sport, date, description = "", values = {} }) {
+// Positive simple-session targets retain their untargeted native step. A blank
+// or explicitly freeform plan has no executable device intervals at all.
+export function simpleWorkoutModel({
+  name,
+  sport,
+  date,
+  description = "",
+  values = {},
+  unstructured = false,
+  variant,
+}) {
   validatePlannedValues(values);
   const duration = values.duration_seconds;
   const distance = values.distance_meters;
-  if (!(duration > 0) && !(distance > 0))
-    throw Error("Enter a duration or distance, or build a workout.");
-  const step = {
-    ...newStep(sport),
-    label: "Session",
-    target: { kind: "none" },
-    end:
-      duration > 0
-        ? { kind: "time", value: duration, unit: "s" }
-        : { kind: "distance", value: distance, unit: /swim/i.test(sport) ? "yd" : "m" },
-  };
+  if (typeof unstructured !== "boolean") throw Error("Choose a valid workout structure mode.");
+  const freeform = unstructured || (!(duration > 0) && !(distance > 0));
+  const step = freeform
+    ? null
+    : {
+        ...newStep(sport),
+        label: "Session",
+        target: { kind: "none" },
+        end:
+          duration > 0
+            ? { kind: "time", value: duration, unit: "s" }
+            : { kind: "distance", value: distance, unit: /swim/i.test(sport) ? "yd" : "m" },
+      };
   const model = {
     version: 1,
     name,
@@ -25,7 +35,9 @@ export function simpleWorkoutModel({ name, sport, date, description = "", values
     date,
     notes: description,
     poolLength: sport === "Swim" ? "25y" : "",
-    steps: [step],
+    steps: freeform ? [] : [step],
+    ...(freeform ? { unstructured: true } : {}),
+    ...(variant !== undefined ? { variant } : {}),
   };
   const errors = validateWorkout(model);
   if (errors.length) throw Error(errors.join(". "));

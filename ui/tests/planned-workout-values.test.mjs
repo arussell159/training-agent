@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatPlannedValue, parsePlannedValue, plannedValueDraft, changedPlannedValues, mergeLoadedPlannedDraft, updatePlannedValueDraft } from "../src/lib/planned-workout-values.ts";
-import { builderBlock, desktopBuilderBlocks, displayTarget, desktopTargetPresentation, desktopBuilderTotals, desktopProfileRange, desktopProfileDropSlot, resizeDesktopRamp, changeDesktopTargetShape, changeDesktopTargetUnit, changeDesktopStepLength, duplicateDesktopBlock, desktopPaletteDropIndex, readDesktopBuilderPreferences, rememberDesktopBuilderPreferences } from "../src/lib/desktop-workout-builder.ts";
+import { formatPlannedValue, parsePlannedValue, plannedValueDraft, plannedValueRows, recordedValueRows, plannedDraftValue, hasPlannedValueChanges, withCalculatedPlannedValues, changedPlannedValues, mergeLoadedPlannedDraft, updatePlannedValueDraft } from "../src/lib/planned-workout-values.ts";
+import { plannedDistanceLabel, estimatedPlannedDistance } from "../src/lib/workout-distance.ts";
+import { builderBlock, desktopWorkoutZoneOptions, desktopBuilderBlocks, displayTarget, desktopTargetPresentation, desktopBuilderTotals, desktopProfileRange, desktopProfileDropSlot, resizeDesktopRamp, changeDesktopTargetShape, changeDesktopTargetUnit, changeDesktopStepLength, duplicateDesktopBlock, desktopPaletteDropIndex, readDesktopBuilderPreferences, rememberDesktopBuilderPreferences } from "../src/lib/desktop-workout-builder.ts";
 import { desktopWorkoutDescription } from "../src/lib/desktop-workout-description.ts";
 import { validateWorkout, workoutTotals, moveNode, insertNodes, newStep, newRepeat, walkNodes, expandSteps, chartSegments, serializeWorkout, readEditorModel, verifyParsedWorkout } from "../../app-backend/lib/workout-editor-model.mjs";
 import { parseTestWorkout } from "../../app-backend/lib/fixtures/workout-editor-fixtures.mjs";
@@ -10,6 +11,39 @@ import { loadWorkoutEditor, saveWorkoutEditor } from "../../app-backend/lib/work
 import { readPendingWorkoutCreation, rememberPendingWorkoutCreation, clearPendingWorkoutCreation } from "../src/lib/pending-workout-creation.ts";
 import { readWorkoutSaveDraft, retainWorkoutSaveDraft, clearWorkoutSaveDraft, validPlannedSaveDraft, validTextSaveDraft } from "../src/lib/workout-save-drafts.ts";
 import { simpleWorkoutModel } from "../../app-backend/lib/simple-workout.mjs";
+
+test("Brick uses the observed editable and completed-only rows with exact reciprocal physical speed",()=>{
+  const rows=plannedValueRows("Brick");
+  assert.deepEqual(rows.filter(row=>row.planned!==false).map(row=>row.label),["Duration","Distance","Average Speed","Average Pace","Calories","Elevation Gain","TSS","IF","Work"]);
+  assert.equal(rows.find(row=>row.key==="elevation_loss").planned,false);
+  assert.equal(rows.some(row=>row.key==="normalized_power"),false);
+  assert.deepEqual(recordedValueRows("Brick").map(row=>row.label),["Power","Pace","Heart Rate"]);
+  let draft=plannedValueDraft(null,"Brick");
+  draft=updatePlannedValueDraft(draft,"distance_meters","1","Brick");
+  draft=updatePlannedValueDraft(draft,"average_speed","7:00","Brick",true,"pace");
+  assert.equal(draft.average_speed,"8.6");
+  assert.equal(draft.duration_seconds,"0:07:00");
+  const values=changedPlannedValues(draft,plannedValueDraft(null,"Brick"),"Brick");
+  assert.equal(values.distance_meters,1609.344);
+  assert.equal(values.average_speed,1609.344/420);
+  assert.equal(values.duration_seconds,420);
+  assert.equal(formatPlannedValue("average_speed",1609.344/420,"Brick",true,"pace"),"7:00");
+});
+test("Day off and Custom field subsets retain hidden values without recalculating a hidden pace",()=>{
+  assert.deepEqual(plannedValueRows("Day off").map(row=>row.key),["duration_seconds"]);
+  assert.deepEqual(recordedValueRows("Day off").map(row=>row.label),["Heart Rate"]);
+  assert.deepEqual(plannedValueRows("Custom").map(row=>row.key),["duration_seconds","distance_meters","calories","tss","intensity_factor"]);
+  const existing={duration_seconds:1800,distance_meters:5000,average_speed:5,normalized_power:220,work_kj:350,elevation_loss:40};
+  for(const sport of ["Brick","Day off","Custom"]){
+    const saved=plannedValueDraft(existing,sport);
+    const next=updatePlannedValueDraft(saved,"duration_seconds","0:40:00",sport,false);
+    assert.deepEqual(changedPlannedValues(next,saved,sport),{duration_seconds:2400});
+    assert.equal(next.normalized_power,saved.normalized_power);
+    assert.equal(next.elevation_loss,saved.elevation_loss);
+  }
+  const day=plannedValueDraft(existing,"Day off");
+  assert.equal(updatePlannedValueDraft(day,"duration_seconds","0:40:00","Day off").average_speed,day.average_speed);
+});
 
 test("three miles at 10:30 per mile immediately derives 31:30 in either entry order", () => {
   for (const entries of [[["distance_meters","3"],["average_speed","10:30"]],[["average_speed","10:30"],["distance_meters","3"]]]) {
@@ -56,6 +90,182 @@ test("planned swim yards and cycling mph calculate in their own displayed units"
   assert.equal(swim.duration_seconds,"0:16:40");
   const bike=updatePlannedValueDraft({...plannedValueDraft(null,"Ride"),distance_meters:"20"},"average_speed","20","Ride");
   assert.equal(bike.duration_seconds,"1:00:00");
+});
+
+test("rowing uses metres and a two-minute 500m split derives two minutes in either entry order", () => {
+  for (const entries of [[["distance_meters", "500"], ["average_speed", "2:00"]], [["average_speed", "2:00"], ["distance_meters", "500"]]]) {
+    let draft = plannedValueDraft(null, "Rowing");
+    for (const [key, value] of entries) draft = updatePlannedValueDraft(draft, key, value, "Rowing");
+    assert.equal(draft.duration_seconds, "0:02:00");
+    const values = changedPlannedValues(draft, plannedValueDraft(null, "Rowing"), "Rowing");
+    assert.equal(values.distance_meters, 500);
+    assert.equal(values.duration_seconds, 120);
+    assert.equal(values.average_speed, 500 / 120);
+    assert.equal(formatPlannedValue("average_speed", values.average_speed, "Rowing"), "2:00");
+    assert.equal(formatPlannedValue("average_speed", values.average_speed, "Rowing", true), "2:00");
+  }
+});
+
+test("three kilometres rowing in twelve minutes gives a two-minute split and native physical duration", () => {
+  const draft = updatePlannedValueDraft({ ...plannedValueDraft(null, "Rowing"), distance_meters: "3000" }, "duration_seconds", "0:12:00", "Rowing");
+  assert.equal(draft.average_speed, "2:00");
+  const values = changedPlannedValues(draft, plannedValueDraft(null, "Rowing"), "Rowing");
+  const model = simpleWorkoutModel({ name: "Three kilometre row", sport: "Rowing", date: "2026-10-20", values });
+  assert.deepEqual(validateWorkout(model), []);
+  assert.equal(model.steps[0].end.value, 720);
+  assert.equal(values.distance_meters, 3000);
+  assert.equal(values.average_speed, 3000 / 720);
+  const derived = updatePlannedValueDraft({ ...plannedValueDraft(null, "Rowing"), duration_seconds: "0:12:00" }, "average_speed", "2:00", "Rowing");
+  assert.equal(derived.distance_meters, "3000");
+  assert.equal(parsePlannedValue("elevation_gain", "75", "Rowing"), 75);
+  assert.equal(formatPlannedValue("elevation_gain", 75, "Rowing"), "75");
+  assert.equal(parsePlannedValue("distance_meters", "500.5", "Rowing"), 500.5);
+  assert.equal(formatPlannedValue("distance_meters", 500.5, "Rowing"), "500.5");
+  for (const bad of ["0:00", "2:60", "-2:00", "NaN", `${"9".repeat(400)}:00`]) assert.throws(() => parsePlannedValue("average_speed", bad, "Rowing"));
+});
+
+test("observed sport summaries expose only their actual editable metrics and units", () => {
+  const labels = (sport) => plannedValueRows(sport).map(row => row.label);
+  const shortPace = ["Duration", "Distance", "Average Pace", "Calories", "TSS", "IF"];
+  assert.deepEqual(labels("Swim"), shortPace);
+  assert.deepEqual(labels("NordicSki"), shortPace);
+  assert.deepEqual(labels("XC-Ski"), shortPace);
+  for (const sport of ["Walk", "Rowing"]) assert.deepEqual(labels(sport), ["Duration", "Distance", "Average Pace", "Calories", "Elevation Gain", "TSS", "IF"]);
+  for (const sport of ["Other", "Sauna", "Workout", "Crosstrain", "Custom"]) assert.deepEqual(labels(sport), ["Duration", "Distance", "Calories", "TSS", "IF"]);
+  for (const sport of ["WeightTraining", "Strength"]) assert.deepEqual(labels(sport), ["Duration", "Calories", "TSS", "IF"]);
+  assert.deepEqual(labels("Ride"), ["Duration", "Distance", "Average Speed", "Calories", "Elevation Gain", "TSS", "IF", "Normalized Power", "Work"]);
+  for (const sport of ["MountainBikeRide", "Mtn Bike"]) {
+    assert.deepEqual(labels(sport), ["Duration", "Distance", "Average Speed", "Calories", "Elevation Gain", "TSS", "IF", "Work", "Average Pace"]);
+    assert.equal(new Set(plannedValueRows(sport).map(row => row.rowKey || row.key)).size, plannedValueRows(sport).length);
+  }
+  assert.equal(plannedValueRows("Swim").find(row => row.key === "distance_meters").unit, "yds");
+  assert.equal(plannedValueRows("Swim").find(row => row.key === "average_speed").unit, "sec/100y");
+  assert.equal(plannedValueRows("Rowing").find(row => row.key === "distance_meters").unit, "m");
+  assert.equal(plannedValueRows("Rowing").find(row => row.key === "average_speed").unit, "sec/500m");
+  assert.equal(plannedValueRows("Rowing").find(row => row.key === "elevation_gain").unit, "m");
+});
+
+test("recorded extrema match observed sport-specific rows without invented pace or power fields", () => {
+  for (const sport of ["Swim", "Rowing", "NordicSki", "XC-Ski", "Walk", "Workout", "Crosstrain", "Other", "Custom", "WeightTraining", "Strength"]) assert.deepEqual(recordedValueRows(sport).map(row => [row.label, row.unit]), [["Heart Rate", "bpm"]]);
+  for (const sport of ["Ride", "Bike", "MountainBikeRide", "Mtn Bike"]) assert.deepEqual(recordedValueRows(sport).map(row => [row.label, row.unit]), [["Heart Rate", "bpm"], ["Power", "W"]]);
+  for (const sport of ["Run", "TrailRun", "VirtualRun"]) assert.deepEqual(recordedValueRows(sport).map(row => [row.label, row.unit]), [["Pace", "min/mi"], ["Heart Rate", "bpm"]]);
+});
+
+test("Mountain Bike speed and pace share one physical value without persisting a rounded reciprocal", () => {
+  const sport = "MountainBikeRide", blank = plannedValueDraft(null, sport);
+  const speed = updatePlannedValueDraft(blank, "average_speed", "15", sport, false);
+  assert.equal(speed.average_speed, "15");
+  assert.equal(plannedDraftValue(speed, "average_speed", sport, "pace"), "4:00");
+  const pace = updatePlannedValueDraft(blank, "average_speed", "7:00", sport, false, "pace");
+  assert.equal(pace.average_speed, "8.6");
+  assert.equal(plannedDraftValue(pace, "average_speed", sport, "pace"), "7:00");
+  assert.deepEqual(changedPlannedValues(pace, blank, sport), { average_speed: 1609.344 / 420 });
+  assert.equal("average_pace" in changedPlannedValues(pace, blank, sport), false);
+  const mph = updatePlannedValueDraft(pace, "average_speed", "17", sport, false);
+  assert.equal(mph.average_pace, "3:32");
+  assert.equal(changedPlannedValues(mph, blank, sport).average_speed, 17 / 2.2369362921);
+  assert.notEqual(changedPlannedValues(mph, blank, sport).average_speed, 1609.344 / 212);
+  const completed = formatPlannedValue("average_speed", 1609.344 / 420, sport, true, "pace");
+  assert.equal(completed, "7:00");
+  assert.equal(hasPlannedValueChanges(pace, blank, sport), true);
+  assert.equal(hasPlannedValueChanges(blank, plannedValueDraft(null, sport), sport), false);
+  const loaded = plannedValueDraft({ average_speed: 1609.344 / 420, calories: 200 }, sport);
+  assert.deepEqual(changedPlannedValues({ ...loaded, calories: "225" }, loaded, sport), { calories: 225 });
+});
+
+test("Mountain Bike incomplete reciprocal editing preserves active text and prevents a stale-value save", () => {
+  const sport = "Mtn Bike", baseline = plannedValueDraft({ average_speed: 1609.344 / 240, duration_seconds: 600 }, sport);
+  const partial = updatePlannedValueDraft(baseline, "average_speed", "7:", sport, true, "pace");
+  assert.equal(partial.average_pace, "7:");
+  assert.equal(partial.average_speed, baseline.average_speed);
+  assert.equal(partial.duration_seconds, baseline.duration_seconds);
+  assert.equal(hasPlannedValueChanges(partial, baseline, sport), true);
+  assert.throws(() => changedPlannedValues(partial, baseline, sport), /average pace/);
+  const numeric = updatePlannedValueDraft(baseline, "average_speed", "8.", sport);
+  assert.equal(numeric.average_speed, "8.");
+  assert.equal(numeric.average_pace, baseline.average_pace);
+  assert.throws(() => changedPlannedValues(numeric, baseline, sport), /average speed/);
+  const cleared = updatePlannedValueDraft(baseline, "average_speed", "", sport, false, "pace");
+  assert.equal(cleared.average_speed, "");
+  assert.equal(cleared.average_pace, "");
+  assert.deepEqual(changedPlannedValues(cleared, baseline, sport), { average_speed: null });
+});
+
+test("Mountain Bike reciprocal calculations use exact physical speed for duration, distance and late reads", () => {
+  const sport = "MountainBikeRide", blank = plannedValueDraft(null, sport);
+  const initial = { ...blank, distance_meters: "1" };
+  const entered = updatePlannedValueDraft(initial, "average_speed", "7:00", sport, true, "pace");
+  assert.equal(entered.duration_seconds, "0:07:00");
+  assert.equal(changedPlannedValues(entered, blank, sport).average_speed, 1609.344 / 420);
+  const calculated = updatePlannedValueDraft(initial, "duration_seconds", "0:07:00", sport);
+  assert.equal(calculated.average_speed, "8.6");
+  assert.equal(calculated.average_pace, "7:00");
+  assert.equal(changedPlannedValues(calculated, blank, sport).average_speed, 1609.344 / 420);
+  const typed = updatePlannedValueDraft(blank, "average_speed", "7:", sport, true, "pace");
+  const remote = plannedValueDraft({ average_speed: 1609.344 / 240, calories: 300 }, sport);
+  const merged = mergeLoadedPlannedDraft(typed, blank, remote);
+  assert.equal(merged.average_pace, "7:");
+  assert.equal(merged.average_speed, "");
+  assert.equal(merged.calories, "300");
+  assert.throws(() => changedPlannedValues(merged, remote, sport), /average pace/);
+  const rebuilt = withCalculatedPlannedValues(entered, { average_speed: 1609.344 / 180, duration_seconds: 180 }, sport);
+  assert.equal(rebuilt.average_pace, "3:00");
+  assert.equal(rebuilt.average_speed, "20.0");
+  assert.equal(changedPlannedValues(rebuilt, blank, sport).average_speed, 1609.344 / 180);
+  assert.throws(() => changedPlannedValues({ ...rebuilt, average_speed: "abc" }, blank, sport), /disagree/);
+});
+
+test("hidden existing metrics survive draft reloads and sport changes without spurious clears or hidden calculations", () => {
+  const values = { duration_seconds: 1200, distance_meters: 1609.344, average_speed: 1609.344 / 600, average_power: 180, normalized_power: 190, elevation_gain: 30.48, elevation_loss: 60.96, work_kj: 300, calories: 200 };
+  for (const sport of ["Swim", "NordicSki", "Rowing", "Walk", "Other", "Workout", "WeightTraining"]) {
+    const saved = plannedValueDraft(values, sport);
+    assert.ok(saved.work_kj);
+    assert.ok(saved.elevation_loss);
+    assert.ok(saved.average_power);
+    assert.deepEqual(changedPlannedValues(saved, plannedValueDraft(values, sport), sport), {});
+    assert.deepEqual(changedPlannedValues({ ...saved, calories: "225" }, saved, sport), { calories: 225 });
+  }
+  const legacy = { ...plannedValueDraft(null, "Other"), work_kj: "300", average_power: "180", elevation_loss: "200" };
+  assert.deepEqual(changedPlannedValues(legacy, plannedValueDraft(null, "Other"), "Other"), { average_power: 180, elevation_loss: 60.96, work_kj: 300 });
+  const other = { ...plannedValueDraft(null, "Other"), duration_seconds: "0:20:00" };
+  const edited = updatePlannedValueDraft(other, "distance_meters", "1", "Other");
+  assert.equal(edited.average_speed, "");
+  assert.equal(edited.duration_seconds, "0:20:00");
+});
+
+test("explicit sport changes transfer legacy swim yards to physical metres without migrating ordinary loads", () => {
+  const swim = Object.freeze({ distance_meters: 1000, average_speed: 1, duration_seconds: 1000, calories: 300, elevation_gain: 20 });
+  const rowing = plannedValueDraft(swim, "Rowing", "Swim");
+  assert.equal(rowing.distance_meters, "914.4", "1000 yards is exactly 914.4 metres");
+  assert.equal(rowing.average_speed, "9:07", "1 yard/s is 0.9144m/s, giving about 547s per500m");
+  assert.equal(rowing.duration_seconds, "0:16:40");
+  assert.equal(rowing.calories, "300");
+  assert.equal(rowing.elevation_gain, "20");
+  const restored = plannedValueDraft({ distance_meters: 914.4, average_speed: 0.9144, duration_seconds: 1000 }, "Swim", "Rowing");
+  assert.equal(restored.distance_meters, "1000");
+  assert.equal(restored.average_speed, "1:40");
+  const ordinaryLoad = plannedValueDraft(swim, "Swim");
+  assert.equal(ordinaryLoad.distance_meters, "1000");
+  assert.equal(ordinaryLoad.average_speed, "1:40");
+  const exactly500m = plannedValueDraft({ distance_meters: 500 / 0.9144, average_speed: (500 / 120) / 0.9144, duration_seconds: 120 }, "Rowing", "Swim");
+  assert.equal(exactly500m.distance_meters, "500");
+  assert.equal(exactly500m.average_speed, "2:00");
+  assert.equal(exactly500m.duration_seconds, "0:02:00");
+  assert.deepEqual(swim, { distance_meters: 1000, average_speed: 1, duration_seconds: 1000, calories: 300, elevation_gain: 20 });
+});
+
+test("rowing distance labels use native metres for explicit, estimated, recorded and structured distances", () => {
+  const base = { id: "event:1", sport: "Rowing", status: "upcoming", planned_values_edited: true, workout_summary: { planned: { distance_meters: 500 }, completed: null } };
+  assert.equal(plannedDistanceLabel(base), "~500 m");
+  assert.equal(plannedDistanceLabel({ ...base, sport: "Other", provider_type: "Rowing" }), "~500 m");
+  assert.equal(plannedDistanceLabel({ ...base, workout_summary: { planned: { duration_seconds: 720, average_speed: 3000 / 720 }, completed: null } }), "~3,000 m");
+  assert.equal(estimatedPlannedDistance({ ...base, workout_summary: { planned: { duration_seconds: 720, average_speed: 3000 / 720 }, completed: null } }), 3000);
+  assert.equal(plannedDistanceLabel({ ...base, status: "completed", workout_summary: { planned: null, completed: { distance_meters: 3000 } } }), "3,000 m");
+  const step = newStep("Rowing");
+  step.end = { kind: "distance", value: 500, unit: "m" };
+  const editor_model = { version: 1, name: "Row", sport: "Rowing", date: "2026-10-20", notes: "", poolLength: "", steps: [step] };
+  assert.equal(plannedDistanceLabel({ ...base, sport: "Other", planned_values_edited: false, editor_model }), "500 m");
+  assert.equal(plannedDistanceLabel({ ...base, workout_summary: { planned: null, completed: null } }), "—");
 });
 
 test("incomplete typing, clearing, zero pace, and an excessive duration never overwrite other inputs",()=>{
@@ -503,7 +713,7 @@ test("desktop target presentation uses sport thresholds and keeps missing physic
   );
   assert.deepEqual(
     desktopTargetPresentation({kind:"pace",unit:"%pace",mode:"single",value:80},{sport:"Swim"},[{types:["Swim"],threshold_pace:.9144,pace_zones:[70,85,95,105,999]}]),
-    {zoneId:"2",physical:"02:05 min/100yd"}
+    {zoneId:"2",physical:"02:05 sec/100y"}
   );
   assert.deepEqual(
     desktopTargetPresentation({kind:"pace",unit:"%pace",mode:"single",value:96.4},{sport:"Run"}),
@@ -515,15 +725,35 @@ test("desktop target presentation uses sport thresholds and keeps missing physic
   );
 });
 
+test("native automatic presentation retains two-digit pace and IF without altering manual draft formatting",()=>{
+  const draft=plannedValueDraft(null,"Run"),values={average_speed:1609.344/482,intensity_factor:1.1};
+  const calculated=withCalculatedPlannedValues(draft,values,"Run",true);
+  assert.equal(calculated.average_speed,"08:02");
+  assert.equal(calculated.intensity_factor,"1.10");
+  assert.equal(withCalculatedPlannedValues(draft,values,"Run").average_speed,"8:02");
+  assert.equal(draft.average_speed,"");
+});
+
+test("native finite zone captions retain999 pace bound and inclusive watt labels",()=>{
+  const run={sport:"Run",thresholds:{pace:1609.344/530}},runZones=[{types:["Run"],threshold_pace:1609.344/530,pace_zones:[80,90,95,100,999]}];
+  assert.equal(desktopWorkoutZoneOptions(run,runZones,"%pace").at(-1).label,"Zone 5 | 00:53 - 08:50 min/mi");
+  const bike={sport:"Ride",thresholds:{ftp:197}},bikeZones=[{types:["Ride"],ftp:197,power_zones:[55,75,90,105,1015.2284]}];
+  assert.deepEqual(desktopWorkoutZoneOptions(bike,bikeZones,"%ftp").map(option=>option.label),["Zone 1 | 0 - 108 W","Zone 2 | 109 - 148 W","Zone 3 | 149 - 177 W","Zone 4 | 178 - 207 W","Zone 5 | 208 - 2000 W"]);
+  assert.equal(desktopTargetPresentation({kind:"power",unit:"%ftp",mode:"range",start:85,end:95},bike,bikeZones).zoneId,"4");
+  assert.equal(desktopTargetPresentation({kind:"power",unit:"%ftp",mode:"range",start:50,end:60},bike,bikeZones).zoneId,"2");
+});
+
 test("desktop automatic pace estimates weight repeat durations without inventing missing targets", () => {
   const model={version:1,name:"Pace",sport:"Run",date:"2026-10-16",notes:"",poolLength:"",thresholds:{pace:1609.344/500},steps:[]};
   const step=builderBlock("Active",model,"%pace","single")[0];
   step.end.value=3600;
   step.target.value=80;
   model.steps=[step];
-  assert.ok(Math.abs(desktopBuilderTotals(model).load-64)<1e-8);
+  // Native Run duration weighting gives70.9 for one hour at80%; this is
+  // distinct from the generic squared-intensity estimate64.
+  assert.equal(desktopBuilderTotals(model).load,70.9);
   step.target={kind:"pace",unit:"secs/mi",mode:"single",value:625};
-  assert.ok(Math.abs(desktopBuilderTotals(model).load-64)<1e-8);
+  assert.equal(desktopBuilderTotals(model).load,70.9);
   step.target={kind:"none"};
   assert.equal(desktopBuilderTotals(model).load,null);
 });
@@ -558,7 +788,7 @@ test("a second unconfirmed creation cannot replace the first and only its matchi
   assert.equal(clearPendingWorkoutCreation(storage,"athlete-a",input.creationId),true);
   assert.equal(readPendingWorkoutCreation(storage,"athlete-a"),null);
 });
-test("damaged pending creations are never restored and unavailable storage retains the in-memory save path",()=>{
+test("damaged or unreadable pending creations block replacement instead of permitting an untracked new save",()=>{
   const storage=creationStorage(), input=pendingCreation();
   rememberPendingWorkoutCreation(storage,"athlete-a",input);
   const key=[...storage.items.keys()][0];
@@ -566,8 +796,10 @@ test("damaged pending creations are never restored and unavailable storage retai
   assert.equal(readPendingWorkoutCreation(storage,"athlete-a"),null);
   storage.setItem(key,"not-json");
   assert.equal(readPendingWorkoutCreation(storage,"athlete-a"),null);
+  assert.throws(()=>rememberPendingWorkoutCreation(storage,"athlete-a",input),error=>error.status===409&&error.code==="CREATION_STORAGE");
+  assert.equal(storage.getItem(key),"not-json");
   const unavailable={getItem(){throw Error("Unavailable")},setItem(){throw Error("Unavailable")},removeItem(){throw Error("Unavailable")}};
-  assert.equal(rememberPendingWorkoutCreation(unavailable,"athlete-a",input),false);
+  assert.throws(()=>rememberPendingWorkoutCreation(unavailable,"athlete-a",input),error=>error.status===409&&error.code==="CREATION_STORAGE");
 });
 
 test("desktop workout-wide shape edits all nested prescriptions and exports the observed midpoint",()=>{

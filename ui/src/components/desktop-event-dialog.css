@@ -1,0 +1,29 @@
+@layer components {
+  .desktop-event-dialog { width: min(600px, calc(100vw - 32px)); max-width: 600px; max-height: calc(100dvh - 40px); overflow-y: auto; gap: 16px; padding: 24px 30px; border: 0; border-radius: 0; background: #fff; color: #12345b; box-shadow: 0 8px 30px #0003; }
+  .desktop-event-dialog h2 { font-size: 20px; font-weight: 400; }
+  .desktop-event-dialog fieldset { display: grid; gap: 12px; min-width: 0; border: 0; padding: 0; }
+  .desktop-event-dialog label { display: grid; gap: 5px; font-size: 12px; font-weight: 400; }
+  .desktop-event-dialog input, .desktop-event-dialog select, .desktop-event-dialog [contenteditable] { width: 100%; min-width: 0; border: 1px solid transparent; border-radius: 4px; padding: 7px 10px; background: #f4f6f9; color: inherit; font: inherit; font-size: 14px; }
+  .desktop-event-dialog [contenteditable] { min-height: 100px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .desktop-event-dialog input:enabled:hover, .desktop-event-dialog select:enabled:hover, .desktop-event-dialog [contenteditable=true]:hover { border-color: #2844f3; }
+  .desktop-event-dialog input:focus-visible, .desktop-event-dialog select:focus-visible, .desktop-event-dialog [contenteditable=true]:focus-visible { outline: none; border-color: #2844f3; }
+  .desktop-event-dialog [role=alert] { margin-top: 12px; color: #b42318; font-size: 12px; }
+  .desktop-event-dialog footer { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+  .desktop-event-dialog footer button { min-width: 80px; height: 32px; border-radius: 4px; padding: 0 12px; font-size: 13px; }
+  .desktop-event-dialog footer button[type=submit] { background: #2342e8; color: #fff; }
+  .desktop-event-dialog footer button:disabled { opacity: .45; }
+  .desktop-event-dialog .desktop-event-add-goals { justify-self: start; padding: 4px 0; font-size: 13px; color: #2342e8; }
+  .desktop-event-goals { display: grid; gap: 12px; }
+  .desktop-event-goal-distance { display: grid; grid-template-columns: minmax(0, 1fr) 70px; gap: 8px; }
+  .desktop-event-dialog .desktop-event-check { display: flex; align-items: center; gap: 8px; }
+  .desktop-event-dialog .desktop-event-check input { width: 14px; height: 14px; }
+  .desktop-event-dialog textarea { min-height: 60px; width: 100%; padding: 7px 10px; border: 1px solid transparent; border-radius: 4px; background: #f4f6f9; color: inherit; font: inherit; }
+  .desktop-event-custom-goal { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; overflow-wrap: anywhere; }
+  .desktop-event-summary p { margin: 8px 0; font-size: 14px; }
+  .desktop-event-summary h3 { margin-top: 20px; font-size: 13px; }
+  .desktop-event-summary .desktop-event-countdown { margin: 20px 0; font-size: 26px; }
+  .desktop-event-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .desktop-event-summary ul { display: grid; gap: 8px; padding: 0; list-style: none; font-size: 14px; }
+  .dark .desktop-event-dialog { background: var(--background); color: var(--foreground); }
+  .dark .desktop-event-dialog input, .dark .desktop-event-dialog select, .dark .desktop-event-dialog [contenteditable] { background: var(--muted); }
+}

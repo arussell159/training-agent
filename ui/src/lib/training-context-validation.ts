@@ -1,4 +1,8 @@
 import type { PlannedWorkout, TrainingContext } from "./training-context"
+import { isCalendarAnnotation } from "../../../app-backend/lib/calendar-annotations-model.mjs"
+import { isCalendarMetricsEntries } from "../../../app-backend/lib/calendar-metrics-model.mjs"
+import { validRecordedAnalysisThresholds } from "../../../app-backend/lib/recorded-analysis-thresholds.mjs"
+import { validRecordedZoneTimes } from "../../../app-backend/lib/recorded-zone-times.mjs"
 
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
@@ -23,6 +27,9 @@ const calendarDay = (value: unknown): value is string => {
   )
 }
 const summaryNumbers = [
+  "power_load",
+  "hr_load",
+  "pace_load",
   "elapsed_time_seconds",
   "elapsed_speed",
   "min_hr",
@@ -54,11 +61,39 @@ const summaryNumbers = [
 ] as const
 const optionalMeasurement = (value: unknown, fields: readonly string[]) =>
   value == null || (record(value) && optionalNumbers(value, fields))
+const validHeartRateZones = (value: unknown) =>
+  value == null ||
+  (record(value) &&
+    Array.isArray(value.seconds) &&
+    Array.isArray(value.boundaries_bpm) &&
+    value.seconds.length > 0 &&
+    value.seconds.length <= 100 &&
+    value.seconds.length === value.boundaries_bpm.length &&
+    value.seconds.every(
+      (n) => typeof n === "number" && Number.isFinite(n) && n >= 0
+    ) &&
+    value.boundaries_bpm.every(
+      (n, index, values) =>
+        typeof n === "number" && Number.isFinite(n) && n > 0 &&
+        (index === 0 || n > values[index - 1])
+    ) &&
+    (value.threshold_bpm == null ||
+      (typeof value.threshold_bpm === "number" &&
+        Number.isFinite(value.threshold_bpm) && value.threshold_bpm > 0)))
+const validMeasurementSummary = (value: unknown) =>
+  optionalMeasurement(value, summaryNumbers) &&
+  (value == null ||
+    (record(value) &&
+      optionalStrings(value, ["hr_load_type", "pace_load_type"]) &&
+      (value.recorded_thresholds == null || validRecordedAnalysisThresholds(value.recorded_thresholds)) &&
+      (value.power_zone_times == null || (validRecordedZoneTimes(value.power_zone_times) && value.power_zone_times.basis === "power")) &&
+      (value.pace_zone_times == null || (validRecordedZoneTimes(value.pace_zone_times) && value.pace_zone_times.basis !== "power")) &&
+      validHeartRateZones(value.heart_rate_zones)))
 const validSummary = (value: unknown) =>
   value == null ||
   (record(value) &&
-    optionalMeasurement(value.planned, summaryNumbers) &&
-    optionalMeasurement(value.completed, summaryNumbers))
+    validMeasurementSummary(value.planned) &&
+    validMeasurementSummary(value.completed))
 const validAthlete = (value: unknown) =>
   record(value) &&
   optionalStrings(value, ["name", "race", "race_date", "phase"]) &&
@@ -82,6 +117,8 @@ const validAthlete = (value: unknown) =>
 
 const validWorkout = (value: unknown, planned = false) => {
   if (!record(value) || !calendarDay(value.workout_date)) return false
+  if ((value.calendar_annotation !== undefined && (!isCalendarAnnotation(value.calendar_annotation) || value.calendar_annotation.id !== value.id)) || (value.workout_end_date !== undefined && (!calendarDay(value.workout_end_date) || value.workout_end_date < String(value.workout_date))) || (value.calendar_annotation_key !== undefined && typeof value.calendar_annotation_key !== "string")) return false
+  if ((value.calendar_annotation_kind !== undefined && !["goals", "availability"].includes(String(value.calendar_annotation_kind))) || (value.calendar_annotation_error !== undefined && typeof value.calendar_annotation_error !== "string")) return false
   if (planned || value.id !== undefined) {
     if (typeof value.id !== "string" || !value.id) return false
     for (const key of ["sport", "title", "duration"])
@@ -93,6 +130,8 @@ const validWorkout = (value: unknown, planned = false) => {
     "date",
     "details",
     "activity_id",
+    "activity_type",
+    "provider_type",
     "recorded_start_local",
     "scheduled_start_at",
     "device_name",
@@ -135,6 +174,7 @@ export function validatedTrainingWorkout(value: unknown): PlannedWorkout {
 /** Library templates have no calendar date until the athlete schedules them. */
 export function validatedLibraryWorkout(value: unknown): PlannedWorkout {
   if(!record(value) || typeof value.id!=="string" || !/^library:[1-9]\d*$/.test(value.id))throw Error("The saved library workout could not be loaded.")
+  if ((value.structure_read_only !== undefined && typeof value.structure_read_only !== "boolean") || (value.template_metadata_error !== undefined && (typeof value.template_metadata_error !== "string" || !value.template_metadata_error.trim() || value.template_metadata_error.length > 1000 || value.structure_read_only !== true))) throw Error("The saved library workout returned an invalid prescription status. Reload before scheduling.")
   const workout=validatedTrainingWorkout({...value,workout_date:"2000-01-01",status:"upcoming"})
   return {...workout,workout_date:undefined,date:typeof value.date==="string"?value.date:"Saved workout",day:""}
 }
@@ -165,7 +205,11 @@ export function validatedTrainingContext(value: unknown): TrainingContext {
     !value.planned.every((row) => validWorkout(row, true)) ||
     (value.wellness_history !== undefined &&
       (!Array.isArray(value.wellness_history) ||
-        !value.wellness_history.every(record))) ||
+        !value.wellness_history.every(
+          (row) => record(row) &&
+            (row.calendar_metrics === undefined || isCalendarMetricsEntries(row.calendar_metrics)) &&
+            optionalStrings(row, ["calendar_metrics_note"])
+        ))) ||
     (value.library !== undefined &&
       (!Array.isArray(value.library) ||
         !value.library.every(

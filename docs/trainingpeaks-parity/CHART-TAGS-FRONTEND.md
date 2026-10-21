@@ -1,0 +1,13 @@
+# Native chart tag filtering
+
+Source implementation: `dashboard-chart-tags.ts`, `dashboard-chart-tag-settings.tsx`, dashboard instance preferences and the Heart Rate, Power, Cadence, Speed and duration Pace components.
+
+The settings panel loads the authenticated provider's native recording tag catalog. `All` clears the filter; individual selections are exact, case-sensitive names and match ANY selected tag. A real tag named `All` remains a separate checkbox. Empty, loading, failed and missing-selected-tag states are distinct. Explicit Reload makes a new catalog read, including after the settings panel is reopened. Missing tags remain selected until the user explicitly clears them or reloads a catalog that verifies them.
+
+Nonempty selections use the version 2 tagged curve transport documented in `CHART-TAGS-CONTRACT.md`. The client independently checks the requested sensor, native sport selection, dates, catalog scope/revision, exact tags, source membership, source identity, sorted full axis and coverage partitions. Curve caches bind these inputs and retained snapshots display the filter that actually produced them. Failures do not request an unfiltered substitute. Existing unfiltered version 1/Home sources remain unchanged; future-only recorded windows make no tag or curve request.
+
+Power grid dates are now plain text. Its numeric source action waits for a verified recording and opens the ordinary workout Summary, matching the root's live observation in `reference-power-source-action-grid.json` and `reference-power-source-action-open.txt`. The separate Home/native effort navigation remains unchanged.
+
+Verification at this source checkpoint: 18 new focused tests cover catalog validation, exact JSON/OR transport, all four actual backend fixture projections, zero/null/absent anchors, wrong successful responses, coverage, catalog reload and cache binding, canceled readers, a four-request admission queue with independent post-admission deadlines and canceled/reset waiting reads, scoped preferences, actual rendered controls, actual settings Apply failures and the actual Power source callback. Browser acceptance against the next frozen integrated build remains pending.
+
+Limitations: these are native provider tags, not the separate TrainingPeaks or private application tag catalogs. Distance-based Pace and generic non-curve charts do not expose this filter. Unsupported individual private sport groups remain explicit. Native velocity precision, source coverage and provider algorithm differences remain visible; no numerical or whole-page pixel parity percentage is certified here.

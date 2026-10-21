@@ -144,6 +144,11 @@ export function createAppAuth({
         }
         if (!isAuth) {
           req.appSession = { localBypass: true };
+          req.appActor = {
+            id: `local-bypass:${config.origin}`,
+            origin: config.origin,
+            readOnly: false,
+          };
           return false;
         }
       }
@@ -172,7 +177,10 @@ export function createAppAuth({
       const session = sessionFor(state, req, config, now());
       if (!isAuth) {
         if (!session) throw new AuthError("Sign in to your app to continue.", 401);
+        if (typeof state.userID !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(state.userID))
+          throw new AuthError("Sign-in account identity is unavailable.", 503);
         req.appSession = session;
+        req.appActor = { id: state.userID, origin: config.origin, readOnly: false };
         return false;
       }
       const status = (current, active) => ({

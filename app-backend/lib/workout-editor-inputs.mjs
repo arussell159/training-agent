@@ -34,7 +34,7 @@ export function editorUnits(sport) {
 // displayed numbers writes an absolute target in the sport's fixed units.
 // Open zones and missing thresholds remain native until the user replaces them.
 export function editorTarget(target, sport, settings = [], thresholds = {}) {
-  if (target.kind === "none") return clone(target);
+  if (target.kind === "none" || target.kind === "rpe") return clone(target);
   const units = editorUnits(sport);
   if (target.kind !== units.kind) return null;
   const setting = sportZoneSettings(settings, sport);

@@ -9,6 +9,178 @@ const preview = () =>
     createDesktopPreviewFixtures(new Date("2026-10-15T12:00:00Z"), { gps: true })
   );
 
+test("synthetic scoped dashboard preferences persist independent reads, preserve other connections, and never write provider records", async () => {
+  const source = preview(),
+    first = {
+      version: 2,
+      instances: [{ id: "duration-1", kind: "duration", settings: { title: "Duration" } }],
+    },
+    second = {
+      version: 2,
+      instances: [{ id: "distance-1", kind: "distance", settings: { title: "Distance" } }],
+    };
+  assert.equal(source.canWrite("training-preferences", "POST"), true);
+  assert.equal(source.canWrite("training-preferences", "PUT"), false);
+  const before = await source.handle("preview/provider-records", "GET");
+  await source.handle("training-preferences", "POST", {
+    training_preferences: { "desktopDashboard:connection-a": first },
+  });
+  await source.handle("training-preferences", "POST", {
+    training_preferences: { "desktopDashboard:connection-b": second },
+  });
+  const loaded = await source.handle("training-preferences", "GET");
+  assert.deepEqual(loaded.training_preferences["desktopDashboard:connection-a"], first);
+  assert.deepEqual(loaded.training_preferences["desktopDashboard:connection-b"], second);
+  loaded.training_preferences["desktopDashboard:connection-a"].instances.length = 0;
+  assert.deepEqual(
+    (await source.handle("training-preferences", "GET")).training_preferences[
+      "desktopDashboard:connection-a"
+    ],
+    first
+  );
+  for (const input of [
+    {},
+    { training_preferences: [] },
+    { training_preferences: { INTERVALS_API_KEY: "no" } },
+    { training_preferences: { "desktopDashboard:connection-a": "bad" } },
+  ])
+    await assert.rejects(source.handle("training-preferences", "POST", input));
+  assert.deepEqual(
+    (await source.handle("training-preferences", "GET")).training_preferences[
+      "desktopDashboard:connection-b"
+    ],
+    second
+  );
+  await source.handle("training-preferences", "POST", {
+    training_preferences: { "desktopDashboard:connection-a": null },
+  });
+  const final = await source.handle("training-preferences", "GET");
+  assert.equal(final.training_preferences["desktopDashboard:connection-a"], undefined);
+  assert.deepEqual(final.training_preferences["desktopDashboard:connection-b"], second);
+  const context = await source.handle(
+    "training-context",
+    "GET",
+    {},
+    new URL("http://fixture.invalid/api/training-context")
+  );
+  assert.deepEqual(context.training_preferences, final.training_preferences);
+  assert.deepEqual(await source.handle("preview/provider-records", "GET"), before);
+});
+
+test("disposable race creation uses verified provider records, is idempotent, and updates calendar context", async () => {
+  const source = preview(),
+    input = { name: "Disposable race fixture", date: "2026-10-18", priority: "B" };
+  assert.equal(source.canWrite("race-events", "POST"), true);
+  assert.equal(source.canWrite("race-events", "DELETE"), false);
+  const first = await source.handle("race-events", "POST", input);
+  const repeated = await source.handle("race-events", "POST", input);
+  assert.equal(first.event.id, repeated.event.id);
+  assert.equal(first.event.priority, "B");
+  assert.equal(first.plan, null);
+  const rows = [...first.context.history, ...first.context.planned];
+  assert.equal(rows.find((row) => row.id === `event:${first.event.id}`).category, "RACE_B");
+  const listed = await source.handle("race-events", "GET");
+  assert.equal(listed.events.filter((row) => row.id === first.event.id).length, 1);
+  const raw = await source.handle("preview/provider-records", "GET");
+  assert.equal(
+    raw.writes.filter((row) => row.method === "POST" && row.body.name === input.name).length,
+    1
+  );
+  const before = raw.events.length;
+  await assert.rejects(
+    source.handle("race-events", "POST", { ...input, priority: "D" }),
+    /priority A, B or C/
+  );
+  assert.equal((await source.handle("preview/provider-records", "GET")).events.length, before);
+});
+
+test("disposable metrics preferences round-trip validated layouts and reject secrets without mutation", async () => {
+  const source = preview();
+  const layout = { graphs: ["hrv", "sleep", "restingHR"], cards: ["weight", "steps"] };
+  const saved = await source.handle("config", "POST", {
+    METRICS_LAYOUT: JSON.stringify(layout),
+    CALENDAR_SUMMARY_OPEN: "false",
+  });
+  assert.deepEqual(saved.metricsLayout, layout);
+  assert.equal(saved.calendarSummaryOpen, false);
+  assert.equal(saved.INTERVALS_API_KEY, undefined);
+  assert.deepEqual((await source.handle("config", "GET")).metricsLayout, layout);
+  for (const input of [
+    { METRICS_LAYOUT: "invalid" },
+    { METRICS_LAYOUT: JSON.stringify({ graphs: ["onlyone"], cards: [] }) },
+    { INTERVALS_API_KEY: "never-allowed" },
+    { CALENDAR_SUMMARY_OPEN: "maybe" },
+  ])
+    await assert.rejects(source.handle("config", "POST", input));
+  assert.deepEqual((await source.handle("config", "GET")).metricsLayout, layout);
+});
+
+test("disposable metric entries use the production wellness service and survive context reload with independent native patch evidence", async () => {
+  const source = preview(),
+    date = "2026-10-15",
+    url = new URL(`http://fixture.invalid/api/calendar/metrics?date=${date}`);
+  const loaded = await source.handle("calendar/metrics", "GET", {}, url);
+  const saved = await source.handle("calendar/metrics", "POST", {
+    date,
+    revision: loaded.revision,
+    operationId: "metrics-preview-operation-1",
+    changes: {
+      weight: { value: 180, time: "07:00" },
+      overallFeeling: { value: "Best", time: "09:00" },
+    },
+  });
+  assert.equal(saved.verified, true);
+  assert.equal(saved.entries.weight.value, 180);
+  const reloaded = await source.handle("calendar/metrics", "GET", {}, url);
+  assert.equal(reloaded.entries.overallFeeling.value, "Best");
+  const context = await source.handle(
+    "training-context",
+    "GET",
+    {},
+    new URL(`http://fixture.invalid/api/training-context?scope=range&start=${date}&end=${date}`)
+  );
+  assert.equal(
+    context.wellness_history.find((row) => row.date === date).calendar_metrics.overallFeeling.time,
+    "09:00"
+  );
+  const provider = await source.handle("preview/provider-records", "GET");
+  const write = provider.writes.find((write) => write.path === `/athlete/0/wellness/${date}`);
+  assert.deepEqual(write.body, { weight: 180 * 0.45359237 });
+  assert.equal(provider.wellnessRecords.find((row) => row.id === date).weight, 180 * 0.45359237);
+});
+
+test("a lost disposable metrics HTTP reply recovers without another provider write", async () => {
+  const source = createDesktopCalendarPreview(
+    createDesktopPreviewFixtures(new Date("2026-10-15T12:00:00Z")),
+    { loseMetricsResponseOnce: true }
+  );
+  const date = "2026-10-15",
+    loaded = await source.handle(
+      "calendar/metrics",
+      "GET",
+      {},
+      new URL(`http://fixture.invalid/api/calendar/metrics?date=${date}`)
+    );
+  const input = {
+    date,
+    revision: loaded.revision,
+    operationId: "metrics-preview-operation-2",
+    changes: { restingHR: { value: 55, time: "06:30" } },
+  };
+  await assert.rejects(
+    source.handle("calendar/metrics", "POST", input),
+    (error) => error.code === "METRICS_WRITE_UNCONFIRMED"
+  );
+  const retried = await source.handle("calendar/metrics", "POST", input);
+  assert.equal(retried.replayed, true);
+  assert.equal(retried.entries.restingHR.value, 55);
+  const provider = await source.handle("preview/provider-records", "GET");
+  assert.equal(
+    provider.writes.filter((write) => write.path === `/athlete/0/wellness/${date}`).length,
+    1
+  );
+});
+
 test("missed workouts with abandoned direct and queued claims can be moved and deleted through production write guards", async () => {
   const source = createDesktopCalendarPreview(
     createDesktopPreviewFixtures(new Date("2026-10-15T12:00:00Z")),

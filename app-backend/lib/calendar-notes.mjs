@@ -1,10 +1,15 @@
 import { eventId, validDate } from "./intervals.mjs";
 import { workoutRevision } from "./workout-editor.mjs";
+import { raceEventKey } from "./race-event-details-model.mjs";
 
 const fail = (message, status = 400, code = "INVALID_NOTE") => {
   throw Object.assign(new Error(message), { status, code });
 };
 function editable(event) {
+  if (raceEventKey(event?.external_id))
+    fail("Open this Event in its own editor.", 403, "EVENT_NOTE_ROUTE");
+  if (/^training-agent:annotation:/.test(event?.external_id || ""))
+    fail("Open this Goals or Availability entry in its own editor.", 403, "READ_ONLY");
   if (event?.category !== "NOTE") fail("Only calendar notes can be edited here.", 403, "READ_ONLY");
   if (event.read_only || event.readonly || event.editable === false || event.athlete_cannot_edit)
     fail("This calendar note is read-only in Intervals.icu.", 403, "READ_ONLY");
@@ -41,9 +46,10 @@ function verify(event, expected) {
     );
   return result(event);
 }
-export async function loadCalendarNote(request, id) {
+export async function loadCalendarNote(request, id, { assertNotAppEvent } = {}) {
   const event = await request(`/athlete/0/events/${eventId(id)}`);
   editable(event);
+  await assertNotAppEvent?.(id, event);
   return {
     name: event.name || "Note",
     description: event.description || "",
@@ -51,11 +57,12 @@ export async function loadCalendarNote(request, id) {
     revision: workoutRevision(event),
   };
 }
-export async function saveCalendarNote(request, id, input) {
+export async function saveCalendarNote(request, id, input, { assertNotAppEvent } = {}) {
   const expected = fields(input);
   const path = `/athlete/0/events/${eventId(id)}`;
   const current = await request(path);
   editable(current);
+  await assertNotAppEvent?.(id, current);
   const oldDate = String(current.start_date_local).slice(0, 10);
   validDate(oldDate);
   expected.start_date_local =

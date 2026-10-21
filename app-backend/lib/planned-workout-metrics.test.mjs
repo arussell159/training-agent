@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createProviderWorkoutMetadata } from "./provider-workout-metadata.mjs";
 import assert from "node:assert/strict";
 import { fixtureEvent, parseTestWorkout } from "./fixtures/workout-editor-fixtures.mjs";
 import {
@@ -52,6 +53,7 @@ for (const sport of ["Run", "Ride", "Swim"])
       distance_meters: 8000,
       average_speed: 3,
       average_power: 195,
+      normalized_power: 217.25,
       calories: 450,
       elevation_gain: 62,
       elevation_loss: 50,
@@ -66,8 +68,11 @@ for (const sport of ["Run", "Ride", "Swim"])
     assert.equal(result.event.paired_activity_id, "i9");
     assert.equal(result.event.time_target, 3720);
     assert.equal(result.event.load_target, 86);
-    assert.equal(result.event.icu_intensity, 87);
+    assert.equal(result.event.icu_intensity, original.icu_intensity);
+    assert.equal(readPlannedValues(result.event.description).intensity_factor, 0.87);
     assert.equal(result.event.joules, 700000);
+    assert.equal(result.event.normalized_power,undefined,"Planned NP stays in private planned metadata, not an invented native event field");
+    assert.equal(result.event.icu_pm_np,original.icu_pm_np);
     const actual = {
       id: "i9",
       moving_time: 3600,
@@ -105,6 +110,8 @@ test("conflicts, permissions and invalid values stop before writes", async () =>
     { tss: 2.5 },
     { duration_seconds: -1 },
     { calories: Infinity },
+    { normalized_power: -1 },
+    { normalized_power: Infinity },
     { intensity_factor: 5.1 },
     { unknown: 5 },
   ])
@@ -220,4 +227,105 @@ test("title, date and time save together with totals and retain a multiday span"
   for (const fields of [{ name: " " }, { date: "invalid" }, { time: "25:00" }])
     await assert.rejects(savePlannedWorkoutMetrics(p.request, id, { revision: fresh, ...fields }));
   assert.equal(p.writes, 1);
+});
+
+function derivedPlannedProvider({ lostAck = false, corrupt } = {}) {
+  const p = provider("Ride"),
+    records = new Map(),
+    outbound = [];
+  p.event = { ...p.event, time_target: 600, load_target: 9, icu_intensity: 73.484695 };
+  let lost = false;
+  const raw = async (path, options = {}) => {
+    if (options.method === "PUT") outbound.push(JSON.parse(options.body));
+    const result = await p.request(path, options);
+    result.icu_intensity =
+      result.time_target === 600 && result.load_target === 9
+        ? 73.484695
+        : Number((Math.sqrt((result.load_target * 3600) / result.time_target) * 10).toFixed(6));
+    p.event = { ...p.event, icu_intensity: result.icu_intensity };
+    corrupt?.(result, options);
+    if (lostAck && options.method === "PUT" && !lost) {
+      lost = true;
+      throw Error("Acknowledgement lost after native update");
+    }
+    return result;
+  };
+  const wrap = () =>
+    createProviderWorkoutMetadata({
+      record: (key, fresh) => ({
+        read: async () => structuredClone(records.get(key) ?? fresh()),
+        update: async (change) => {
+          const state = structuredClone(records.get(key) ?? fresh());
+          change(state);
+          records.set(key, state);
+          return structuredClone(state);
+        },
+      }),
+    }).wrap(raw);
+  return { p, wrap, outbound };
+}
+test("planned metric edits persist exact private IF and clear/zero independently of provider-derived native intensity", async () => {
+  const f = derivedPlannedProvider();
+  for (const value of [0.75, 0, null, 0.81]) {
+    const request = f.wrap(),
+      loaded = await loadPlannedWorkoutMetrics(request, "event:100"),
+      values = { duration_seconds: 600, tss: 9, intensity_factor: value };
+    const saved = await savePlannedWorkoutMetrics(request, "event:100", {
+      values,
+      revision: loaded.revision,
+    });
+    assert.equal(saved.verified, true);
+    assert.equal(saved.event.icu_intensity, 73.484695);
+    assert.equal(readPlannedValues(saved.event.description).intensity_factor, value);
+    assert.equal(f.outbound.at(-1).time_target, 600);
+    assert.equal(f.outbound.at(-1).load_target, 9);
+    assert.equal(Object.hasOwn(f.outbound.at(-1), "icu_intensity"), false);
+    assert.doesNotMatch(
+      f.outbound.at(-1).description,
+      /training-agent-planned-values|Workout editor v1/
+    );
+    const reopened = await loadPlannedWorkoutMetrics(f.wrap(), "event:100");
+    assert.equal(readPlannedValues(reopened.event.description).intensity_factor, value);
+    const writes = f.p.writes;
+    await savePlannedWorkoutMetrics(f.wrap(), "event:100", { values, revision: loaded.revision });
+    assert.equal(f.p.writes, writes);
+  }
+});
+test("an acknowledged-loss planned edit recovers actual changed native fields and private IF without another PUT", async () => {
+  const f = derivedPlannedProvider({ lostAck: true }),
+    loaded = await loadPlannedWorkoutMetrics(f.wrap(), "event:100"),
+    input = {
+      values: { duration_seconds: 601, tss: 9, intensity_factor: 0.75 },
+      revision: loaded.revision,
+    };
+  const saved = await savePlannedWorkoutMetrics(f.wrap(), "event:100", input);
+  assert.equal(saved.verified, true);
+  assert.equal(saved.event.time_target, 601);
+  assert.equal(readPlannedValues(saved.event.description).intensity_factor, 0.75);
+  assert.equal(f.p.writes, 1);
+  await savePlannedWorkoutMetrics(f.wrap(), "event:100", input);
+  assert.equal(f.p.writes, 1);
+});
+test("native duration/load/prescription mismatches still reject planned metric verification despite exact private IF", async () => {
+  for (const corrupt of [
+    (event) => event.time_target++,
+    (event) => event.load_target++,
+    (event) => event.workout_doc.steps[0].duration++,
+  ]) {
+    let afterWrite = false;
+    const f = derivedPlannedProvider({
+        corrupt: (event, options) => {
+          if (options.method === "PUT") afterWrite = true;
+          if (afterWrite) corrupt(event);
+        },
+      }),
+      loaded = await loadPlannedWorkoutMetrics(f.wrap(), "event:100");
+    await assert.rejects(
+      savePlannedWorkoutMetrics(f.wrap(), "event:100", {
+        values: { duration_seconds: 600, tss: 9, intensity_factor: 0.75 },
+        revision: loaded.revision,
+      }),
+      (error) => error.code === "SAVE_UNCONFIRMED"
+    );
+  }
 });

@@ -1,0 +1,266 @@
+.ddc-workspace {
+  position: relative;
+  min-width: 0;
+}
+.ddc-save-status {
+  font-size: 11px;
+  color: #6b7280;
+  margin: 4px 0 8px;
+}
+.ddc-instance {
+  position: relative;
+  min-width: 0;
+}
+.ddc-card-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+  min-height: 24px;
+}
+.ddc-card-header h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0 !important;
+}
+.ddc-card-actions {
+  display: flex;
+  gap: 1px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.ddc-card-header button {
+  border: 0;
+  background: transparent;
+  padding: 3px;
+  color: #67727b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+}
+.ddc-card-header button:hover {
+  background: #eaf1f5;
+}
+.ddc-card-header button:disabled {
+  opacity: 0.3;
+}
+.ddc-grip {
+  cursor: grab;
+}
+.ddc-library {
+  width: 330px !important;
+  max-width: calc(100vw - 40px);
+  z-index: 20;
+}
+.ddc-library-list {
+  max-height: 65vh;
+  overflow: auto;
+}
+.ddc-search {
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch !important;
+  gap: 4px;
+  padding: 8px !important;
+}
+.ddc-search input {
+  width: 100%;
+  border: 1px solid #c6cbd0;
+  border-radius: 3px;
+  padding: 6px;
+}
+.ddc-library-tile {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-top: 1px solid #e6e8ea;
+  padding: 9px 6px;
+  font-size: 12px;
+  cursor: grab;
+}
+.ddc-library-tile span {
+  flex: 1;
+}
+.ddc-library-tile button {
+  font-size: 11px;
+  padding: 3px 7px;
+  border: 1px solid #b8c5cd;
+  border-radius: 3px;
+  background: white;
+}
+.ddc-settings {
+  position: absolute;
+  right: 8px;
+  top: 40px;
+  width: 325px;
+  max-width: calc(100vw - 48px);
+  max-height: min(680px, 85vh);
+  overflow: auto;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #d3d8dc;
+  box-shadow: 0 8px 26px #1a202e33;
+  border-radius: 5px;
+  z-index: 30;
+  font-size: 12px;
+  color: #42484c;
+}
+.ddc-settings header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.ddc-settings h3 {
+  font-size: 14px;
+  margin: 0;
+}
+.ddc-settings header button {
+  background: transparent;
+  border: 0;
+}
+.ddc-settings > label,
+.ddc-date-inputs label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 12px 0;
+}
+.ddc-settings input:not([type="checkbox"]):not([type="radio"]),
+.ddc-settings select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #b9c3ca;
+  border-radius: 3px;
+  padding: 7px;
+  background: #fff;
+  color: #30383d;
+  font-size: 12px;
+}
+.ddc-settings fieldset {
+  border: 0;
+  padding: 0;
+  margin: 12px 0;
+}
+.ddc-settings fieldset label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 12px;
+  min-height: 24px;
+}
+.ddc-settings input[type="checkbox"],
+.ddc-settings input[type="radio"] {
+  accent-color: #1674a8;
+}
+.ddc-sports {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.ddc-date-inputs {
+  display: flex;
+  gap: 12px;
+}
+.ddc-date-inputs label {
+  min-width: 0;
+  flex: 1;
+}
+.ddc-settings > label:has([type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+}
+.ddc-settings footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.ddc-settings footer button {
+  border: 1px solid #2189c6;
+  border-radius: 3px;
+  background: #fff;
+  color: #1377b0;
+  padding: 7px 10px;
+}
+.ddc-settings footer button:last-child {
+  background: #1683c0;
+  color: white;
+}
+.ddc-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.ddc-summary dd {
+  margin: 0;
+}
+.ddc-workspace button:focus-visible,
+.ddc-workspace input:focus-visible,
+.ddc-workspace select:focus-visible {
+  outline: 2px solid #1889c8;
+  outline-offset: 2px;
+}
+.ddc-instance > p[role="status"] {
+  font-size: 11px;
+  color: #5e707a;
+}
+.ddc-instance .dta-data-note {
+  line-height: 1.4;
+}
+.ddc-settings [role="alert"] {
+  color: #a52c2c;
+}
+.ddc-instance .dta-chart {
+  min-width: 0;
+}
+.ddc-power-grid {
+  overflow: auto;
+  max-width: 100%;
+  margin-top: 12px;
+}
+.ddc-power-grid table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 0;
+  font-size: 10px;
+}
+.ddc-power-grid caption {
+  text-align: left;
+  padding-bottom: 8px;
+  color: #596b76;
+}
+.ddc-power-grid th,
+.ddc-power-grid td {
+  padding: 6px 4px;
+  border-bottom: 1px solid #dde3e7;
+  text-align: left;
+  vertical-align: top;
+}
+.ddc-power-grid tbody th {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ddc-power-grid button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #126c9b;
+  text-align: left;
+  text-decoration: underline;
+}
+.ddc-power-ranges {
+  font-size: 10px;
+  color: #667783;
+  line-height: 1.4;
+}
+.ddc-settings .ddc-power-comparison > label,
+.ddc-settings .ddc-date-inputs label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+}
+.ddc-power-comparison select {
+  margin-top: 5px;
+}

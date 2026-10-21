@@ -1,4 +1,5 @@
 import { athleteLocalDate } from "./athlete-date.mjs";
+import { annotationOverlapsRange } from "./calendar-annotations-model.mjs";
 
 function shift(date, days) {
   const value = new Date(`${date}T12:00:00Z`);
@@ -17,7 +18,10 @@ export function twelveWeekStart(now = new Date(), timeZone = "America/Chicago") 
 export function retainRecentTrainingContext(context, now = new Date()) {
   const start = twelveWeekStart(now, context.athlete?.time_zone);
   const wellnessStart = shift(start, -29);
-  const keepWorkout = (workout) => String(workout?.workout_date || "") >= start;
+  const keepWorkout = (workout) =>
+    workout?.calendar_annotation_key
+      ? annotationOverlapsRange(workout, start, "9999-12-31")
+      : String(workout?.workout_date || "") >= start;
   const activeIds = new Set(
     [...(context.history || []), ...(context.planned || [])]
       .filter(keepWorkout)

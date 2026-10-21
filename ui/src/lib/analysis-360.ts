@@ -121,6 +121,37 @@ export type AnalysisTile = {
   zones: boolean
   height: number
 }
+export const MAX_ANALYSIS_TILES = 24
+
+export function canAddAnalysisTile(
+  tiles: AnalysisTile[],
+  kind: AnalysisTile["kind"]
+) {
+  return (
+    tiles.length < MAX_ANALYSIS_TILES &&
+    (!["map", "laps"].includes(kind) ||
+      !tiles.some((tile) => tile.kind === kind))
+  )
+}
+
+/** Undo must preserve the same constraints as adding and restoring a workspace. */
+export function restoreAnalysisTile(
+  tiles: AnalysisTile[],
+  removed: { tile: AnalysisTile; index: number }
+) {
+  if (
+    tiles.some((tile) => tile.id === removed.tile.id) ||
+    !canAddAnalysisTile(tiles, removed.tile.kind)
+  )
+    return tiles
+  const next = [...tiles]
+  next.splice(
+    Math.max(0, Math.min(next.length, removed.index)),
+    0,
+    removed.tile
+  )
+  return next
+}
 export type AnalysisLap = {
   id: string
   label: string
@@ -202,9 +233,10 @@ export function defaultAnalysisTiles(
 
 export function validAnalysisTiles(
   value: unknown,
-  available: RecordedSignal[]
+  available: RecordedSignal[],
+  { preserveUnavailable = false } = {}
 ): AnalysisTile[] | null {
-  if (!Array.isArray(value) || value.length > 24) return null
+  if (!Array.isArray(value) || value.length > MAX_ANALYSIS_TILES) return null
   const ids = new Set<string>(),
     unique = new Set<string>()
   const tiles: AnalysisTile[] = []
@@ -229,7 +261,8 @@ export function validAnalysisTiles(
           ...new Set<RecordedSignal>(
             item.channels.filter(
               (key: RecordedSignal) =>
-                recordedSignals.includes(key) && available.includes(key)
+                recordedSignals.includes(key) &&
+                (preserveUnavailable || available.includes(key))
             )
           ),
         ]
@@ -302,7 +335,8 @@ export function analysisRangeMetrics(
   let gain = 0,
     loss = 0,
     moving = 0,
-    speedCoverage = 0
+    speedCoverage = 0,
+    elevationCoverage = 0
   for (let index = 0; index < points.length - 1; index++) {
     const point = points[index],
       next = points[index + 1],
@@ -324,6 +358,7 @@ export function analysisRangeMetrics(
       if (point.speed > 0.15) moving += weight
     }
     if (finite(point.elevation) && finite(next.elevation)) {
+      elevationCoverage += weight
       const delta = ((next.elevation - point.elevation) * weight) / elapsed
       if (delta > 0) gain += delta
       else loss -= delta
@@ -386,8 +421,8 @@ export function analysisRangeMetrics(
       normalizedPower != null && average("heartRate")
         ? normalizedPower / average("heartRate")!
         : null,
-    gain,
-    loss,
+    gain: elevationCoverage ? gain : null,
+    loss: elevationCoverage ? loss : null,
     grade:
       distance && first && last
         ? ((last.elevation! - first.elevation!) / distance) * 100

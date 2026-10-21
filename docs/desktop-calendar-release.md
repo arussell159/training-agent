@@ -295,3 +295,53 @@ Escape, releasing outside the plot, lost pointer capture and stale model changes
 Validation passes TypeScript/production build, UI lint, formatting and all 422 UI tests. The focused browser suite uses real held mouse gestures and native HTML5 palette drags: 14 groups pass with zero page errors. It covers empty/start/middle/end insertion, insertion in the latter half of a block, individual and whole-repeat moves, zoom/pan, rejection of an offscreen append target, edge auto-scroll for both drag types, Escape/outside cancellation, and exact prescription preservation after saving and reopening. Held-drag screenshots and results are retained in ignored `artifacts/workout-parity/`.
 
 The complete browser regression also passes all 23 groups with zero page errors, including plus-only calendar entry at 1280/768/390px, creation and save/reopen, swim editing, private fields, attachments, recurrence and file import/export. Calendar checks now use an actual scroll gesture before positioning, respecting the application's Today alignment, and verify the blank click target after pointer movement.
+
+## Desktop audit and clean provider descriptions — October 20, 2026
+
+The reported `Workout editor v1` JSON, duplicated manual-description JSON and planned-value JSON were application bookkeeping embedded in the provider's description. The Intervals HTTP client now removes those internal envelopes before writing events, library workouts or activities. Human instructions and executable native interval text are preserved. Native workout text remains necessary for the supported [Intervals.icu upload contract](https://forum.intervals.icu/t/uploading-planned-workouts-to-intervals-icu/63624).
+
+Editor grouping, lossless manual prose, comments and planned-value bookkeeping now use a separate encrypted, provider-connection-scoped namespace in the existing backend settings store. No schema, grants, authentication settings or browser database access changed. Immutable content records and a small hash index preserve creation identity and allow reconciliation after a lost response or server restart. Definite provider rejection restores the previous metadata pointer. Storage failure blocks a write rather than falling back to sending JSON to Intervals.icu.
+
+Fresh provider reads supply the visible description. Changing prose directly in Intervals.icu retains comments and exact grouping when the native prescription is unchanged; changing or clearing native steps prevents restoration of the old editor model. The native parser/readback checks still verify the actual provider prescription. Comments remain application comments rather than native Intervals.icu chat messages; their bookkeeping is now in encrypted application storage. Existing provider records are read without mutation and cleaned on their next explicit description/structured save. This is not a bulk rewrite of historical workouts, and the reported live workout was not edited during this audit.
+
+Additional fixes:
+
+- Creating a workout transfers focus from the sport chooser to its title. Closing the chooser normally still restores focus to the calendar. The browser test checks actual focus, including the chooser's asynchronous closing lifecycle.
+- Walk, already offered by the sport selector, is accepted by new-workout and editor validation, receives a walking/running shoe icon, and defaults to an untargeted session rather than cycling power. Save/reopen verifies its native type and interval duration.
+- Editing a rejected creation clears the outdated validation message while retaining the draft. Invalid duration input is rejected before a provider event is created.
+- The 30,000-character export ceiling applies to the prose and native intervals actually sent to the provider, rather than the private editor JSON. The full 12,000-character desktop description now survives creation, reopen, planned-value edits, comments and text edits. Oversized actual provider text is rejected before storage or HTTP writes.
+- Adding a chart or preset from Power or Lap Comparison selects Analyze so the new chart can be inspected immediately.
+- Zooming the builder all the way out explicitly resets its horizontal scroll and cancels pending smooth panning. A rapid following zoom-in can no longer restore the old scroll position before the browser clamps it. The real held-drag regression covers this sequence.
+- Compact dialogs use the measured 690px width, 8px outer radius, 14px base line height, `#1a202e` foreground and `0 16px 32px rgba(26,32,46,.3)` shadow. Primary footer actions use `#1840ec`; empty comment fields and calendar metric/note shadows follow the measured reference. Desktop CSS leaves mobile presentation separate.
+- Compact and regular Analyze dialogs transition opacity/transform without interpolating their position or size when the viewport changes. The final chart audit waits for the expected frame width, height and centering before checking geometry and taking screenshots, so intermediate resize frames cannot pass as final layout evidence.
+- Calendar refresh/clipboard notices are layered below modal dialogs. The browser audit hit-tests both edges and the center of Save & Close while the calendar status is visible, preventing a background notice from blocking the save action.
+
+The authenticated TrainingPeaks comparison used an unsaved bike draft and a read-only completed recording. The comparison draft was discarded. No saved TrainingPeaks workout, live Intervals.icu workout or live database record was changed for QA.
+
+### Verification and reproducibility
+
+The backend suite passes 596 tests, and the UI suite passes 422 tests (1,018 total). Production build, UI lint, backend formatting and Git whitespace checks pass. New transport tests cover encrypted HTTP storage, independent native parsing, bike/run/swim edits, creation recovery across restarts, comments, explicit blank prose, remote changes, rejected writes, corrupted/unavailable storage, bulk requests, library templates, account/resource isolation and maximum-length descriptions without weakening the actual provider text ceiling.
+
+The browser runners use disposable in-memory providers, production write helpers and the production metadata wrapper. The preview exposes only synthetic provider records at `/api/preview/provider-records`, allowing the suite to assert that outgoing descriptions contain no internal JSON. The preview rejects external requests and never loads credentials or contacts a live database/provider. Restart a preview before repeating mutation tests so previously saved swim rests do not turn a later save test into a no-op.
+
+```powershell
+npm run build
+node tools/desktop-preview.mjs --calendar-edits --port=5208
+# In another terminal, against that fresh preview:
+$env:APP_TEST_ORIGIN='http://127.0.0.1:5208'
+node tools/desktop-calendar-audit.mjs
+
+# Use a separately restarted/fresh preview for each mutation suite:
+node tools/workout-parity-check.mjs
+node tools/workout-drag-check.mjs
+```
+
+The calendar/chart audit covers Today and week navigation, summary visibility, refresh, keyboard creation, invalid creation, Walk save/reopen, measured dialog styles and viewport bounds; all available run/bike/swim signal toggles, time/distance mode, smoothing without changing statistics, keyboard cursor, laps, peak efforts, available route segments, Zoom and Unzoom; and Analyze 360 power, lap comparison, all supported chart/preset additions, removal/Undo and summary visibility. Dialogs and footers are checked at 1280×820, 1024×720 and 768×820. Indoor recordings without segments do not invent a Segments tab. Creation/editor coverage also includes 390px mobile calendar entry, attachments, private fields, recurrence, uploads, exports and provider-description leak assertions. Drag coverage uses held pointers and native HTML5 palette gestures.
+
+All three browser runners pass: 24 calendar/chart groups, 24 creation/editor groups and 14 drag groups (62 total), with zero page errors. The calendar/chart runner also records zero attempted external requests. Its final rerun includes the stricter resize/centering checks and save-button hit tests. The creation/editor runner uses the full 12,000-character description. The final screenshots show corrected validation messages clearing after valid input, and the fresh previews exercise the latest metadata wrapper. All final browser processes exited successfully.
+
+Screenshots, results and synthetic clean-description examples are in ignored `artifacts/desktop-calendar-audit/` and `artifacts/workout-parity/`. Dependency auditing identified [GHSA-698v-4r3x-3vcv](https://github.com/advisories/GHSA-698v-4r3x-3vcv); the UI lockfile now uses Vite 8.3.4 and its compatible build dependencies. Both npm audits report zero vulnerabilities. The build retains its existing large Mapbox chunk advisory.
+
+### Remaining release gates
+
+These are tested local changes, not a deployment or a certification of universal bug freedom. The requested 95% functional/99% visual equivalence has not been established by an exhaustive feature inventory and matched-data screenshot baseline. The measured dialog tokens match; those measurements are not a whole-application pixel score. Product navigation, athlete data and available analytical models still differ. Subjective feeling/RPE controls and some proprietary TrainingPeaks functions are not reproduced by these changes; unavailable modeled charts remain unavailable rather than fabricated. Live device delivery, cross-browser coverage beyond the tested Chromium/Edge environment and production load/failure testing remain separate release checks. The repository also documents a personal-use-only mobile font in `ui/src/assets/fonts/README.md`, which needs a commercial license or replacement before an application-wide commercial release.

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { useWorkoutAccountBoundary } from "./use-workout-account-boundary"
 import {
   loadWorkoutComments,
   clearWorkoutReads,
@@ -13,31 +14,58 @@ import {
   type PlannedWorkout,
 } from "@/lib/training-context"
 import { desktopWorkoutDescription } from "@/lib/desktop-workout-description"
-import { readWorkoutSaveDraft, retainWorkoutSaveDraft, clearWorkoutSaveDraft, validTextSaveDraft, type TextSaveDraft } from "@/lib/workout-save-drafts"
+import {
+  readWorkoutSaveDraft,
+  retainWorkoutSaveDraft,
+  clearWorkoutSaveDraft,
+  validTextSaveDraft,
+  type TextSaveDraft,
+} from "@/lib/workout-save-drafts"
 
 export function useWorkoutTextDraft(
   workout: PlannedWorkout,
   readOnly: boolean
 ) {
+  const { ownsAccount } = useWorkoutAccountBoundary(true)
+  const requireCurrentAccount = () => {
+    if (!ownsAccount())
+      throw Error(
+        "The connected account changed. Reopen the workout before saving."
+      )
+  }
   const [scope] = useState(trainingCacheScope)
-  const [recovered] = useState(() => readWorkoutSaveDraft<TextSaveDraft>(scope, workout.id, "text",validTextSaveDraft)?.value)
+  const [recovered] = useState(
+    () =>
+      readWorkoutSaveDraft<TextSaveDraft>(
+        scope,
+        workout.id,
+        "text",
+        validTextSaveDraft
+      )?.value
+  )
   const editable =
-    !readOnly && /^(event:[1-9]\d*|activity:i?\d+)$/.test(workout.id)
+    !readOnly && /^(event:[1-9]\d*|app:[a-f0-9-]+|activity:i?\d+)$/.test(workout.id)
   const type = workout.status === "completed" ? "post" : "pre"
   const original = desktopWorkoutDescription(workout)
   const [savedDescription, setSavedDescription] = useState(original)
-  const [description, setDescription] = useState(recovered?.description ?? original)
+  const [description, setDescription] = useState(
+    recovered?.description ?? original
+  )
   const baseline = useRef(original)
   useEffect(() => {
-    if (baseline.current === original) return
+    // A provisional calendar projection is not a saved text baseline. Adopting
+    // it would make a rejected write's rollback replace the user's dirty draft.
+    if (workout.app_pending_operation || baseline.current === original) return
     const previous = baseline.current
     baseline.current = original
     setDescription((draft) => (draft === previous ? original : draft))
     setSavedDescription(original)
-  }, [original])
+  }, [original, workout.app_pending_operation])
   const [comment, setComment] = useState(recovered?.comment || "")
   const [comments, setComments] = useState<WorkoutComment[]>([])
-  const [creationId, setCreationId] = useState(() => recovered?.creationId || randomId())
+  const [creationId, setCreationId] = useState(
+    () => recovered?.creationId || randomId()
+  )
   const [commentsError, setCommentsError] = useState("")
   const [commentsLoading, setCommentsLoading] = useState(editable)
   const [commentsNeedSync, setCommentsNeedSync] = useState(false)
@@ -80,23 +108,45 @@ export function useWorkoutTextDraft(
       Boolean(comment.trim()) ||
       commentsNeedSync)
   const retain = () => {
-    if (dirty) retainWorkoutSaveDraft(scope, workout.id, "text", { description, comment, creationId })
+    if (dirty)
+      retainWorkoutSaveDraft(scope, workout.id, "text", {
+        description,
+        comment,
+        creationId,
+      })
   }
   const discardDraft = () => clearWorkoutSaveDraft(scope, workout.id, "text")
   const save = async (options: { feedback?: boolean } = {}) => {
     if (!editable || !dirty) return
-    let token = retainWorkoutSaveDraft(scope, workout.id, "text", { description, comment, creationId })
-    const feedback = beginWorkoutSaveFeedback(options.feedback !== false,workout.id)
+    requireCurrentAccount()
+    let token = retainWorkoutSaveDraft(scope, workout.id, "text", {
+      description,
+      comment,
+      creationId,
+    })
+    const feedback = beginWorkoutSaveFeedback(
+      options.feedback !== false,
+      workout.id
+    )
     try {
       if (description !== savedDescription) {
         await queueWorkoutMutation(
-          { type: "description", id: workout.id, description, descriptionMode: "manual" },
+          {
+            type: "description",
+            id: workout.id,
+            description,
+            descriptionMode: "manual",
+          },
           true,
           { feedback: false }
         )
+        requireCurrentAccount()
         setSavedDescription(description)
         // A later comment failure must not replay the confirmed description.
-        token = retainWorkoutSaveDraft(scope, workout.id, "text", { comment, creationId })
+        token = retainWorkoutSaveDraft(scope, workout.id, "text", {
+          comment,
+          creationId,
+        })
         window.dispatchEvent(
           new CustomEvent("workout-description-updated", {
             detail: { id: workout.id, description },
@@ -104,6 +154,7 @@ export function useWorkoutTextDraft(
         )
       }
       if (comment.trim() || commentsNeedSync) {
+        requireCurrentAccount()
         const result = await saveWorkoutComment({
           workoutId: workout.id,
           body: comment,
@@ -111,6 +162,7 @@ export function useWorkoutTextDraft(
           creationId,
           syncOnly: !comment.trim(),
         })
+        requireCurrentAccount()
         setComments(
           result.comments ||
             (result.id
@@ -130,6 +182,16 @@ export function useWorkoutTextDraft(
     }
   }
   return {
+    creationId,
+    acceptCommitted() {
+      clearWorkoutSaveDraft(scope, workout.id, "text")
+      setSavedDescription(description)
+      baseline.current = description
+      if (comment.trim()) setComments(previous => [...previous.filter(item => item.id !== creationId), {id:creationId,body:comment.trim(),workout_id:workout.id,type,created_at:new Date().toISOString()}])
+      setCommentsNeedSync(false)
+      setComment("")
+      setCreationId(randomId())
+    },
     editable,
     type,
     description,

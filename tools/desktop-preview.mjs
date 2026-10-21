@@ -9,8 +9,14 @@ import { createDesktopPreviewFixtures, validDate } from "./desktop-preview-fixtu
 import { createDesktopCalendarPreview } from "./desktop-calendar-preview-fixtures.mjs";
 import { createDesktopNutritionPreview } from "./desktop-nutrition-preview-fixtures.mjs";
 import { createWorkoutPersonalService } from "../app-backend/lib/workout-personal.mjs";
+import { resolveApiRoute } from "../app-backend/lib/api-routing.mjs";
+import {parseChartTagFilter} from '../app-backend/lib/chart-tags-model.mjs';
+import {createDesktopWorkoutCommits} from './desktop-workout-commits-fixture.mjs';
+import {enduranceReferenceResponse} from './endurance-reference-fixture.mjs';
 
 const workspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const enduranceReference=process.argv.includes("--endurance-reference");
+if(enduranceReference && !process.argv.includes("--calendar-edits"))throw Error("Endurance reference calibration requires the disposable calendar preview.");
 const previewDist = process.argv.find(arg => arg.startsWith("--dist="))?.slice(7);
 const dist = path.resolve(workspace, previewDist || "ui/dist"),
   port = Number(process.argv.find(arg => arg.startsWith("--port="))?.slice(7)) || (process.argv.includes("--calendar-edits") ? 5195 : 5194),
@@ -26,10 +32,11 @@ let rejectWorkoutEditOnce = process.argv.includes("--reject-workout-edit-once");
 if (!Number.isInteger(delayMs) || delayMs < 0 || delayMs > 15000) throw new Error("Invalid preview delay");
 const fixture = createDesktopPreviewFixtures(new Date(), { gps: !process.argv.includes("--no-gps") });
 const calendarPreview = process.argv.includes("--calendar-edits")
-  ? createDesktopCalendarPreview(fixture, {loseCreateResponseOnce: process.argv.includes("--lose-create-response-once"),loseCopyResponseOnce:process.argv.includes("--lose-copy-response-once"),rejectMoveOnce:process.argv.includes("--reject-move-once"),staleWorkoutClaims:process.argv.includes("--stale-workout-claims"),loseLibraryScheduleResponseOnce:process.argv.includes("--lose-library-schedule-response-once"),loseCoachScheduleResponseOnce:process.argv.includes("--lose-coach-schedule-response-once")})
+  ? createDesktopCalendarPreview(fixture, {loseCreateResponseOnce: process.argv.includes("--lose-create-response-once"),loseCopyResponseOnce:process.argv.includes("--lose-copy-response-once"),rejectMoveOnce:process.argv.includes("--reject-move-once"),staleWorkoutClaims:process.argv.includes("--stale-workout-claims"),loseLibraryScheduleResponseOnce:process.argv.includes("--lose-library-schedule-response-once"),loseCoachScheduleResponseOnce:process.argv.includes("--lose-coach-schedule-response-once"),loseMetricsResponseOnce:process.argv.includes("--lose-metrics-response-once"),loseAnnotationResponseOnce:process.argv.includes("--lose-annotation-response-once")})
   : null;
 const nutritionPreview = calendarPreview ? createDesktopNutritionPreview(fixture) : null;
 const personalRecords = new Map();
+let commitPreview;
 const personalPreview = createWorkoutPersonalService({
   record: (key, fresh) => ({
     async read() { return structuredClone(personalRecords.get(key) || fresh()); },
@@ -40,9 +47,12 @@ const personalPreview = createWorkoutPersonalService({
     },
   }),
   authorizeWorkout: async id => {
-    if (!(calendarPreview || fixture).lookup(id)) throw Object.assign(Error("Workout not found."), { status: 404 });
+    if (!(calendarPreview || fixture).lookup(id) && !(await commitPreview?.status())?.workouts.some(row=>row.workoutId===id)) throw Object.assign(Error("Workout not found."), { status: 404 });
   },
 });
+const commitProviderDelayMs=Number(process.argv.find(arg=>arg.startsWith('--commit-provider-delay-ms='))?.split('=')[1])||0;
+if(!Number.isInteger(commitProviderDelayMs)||commitProviderDelayMs<0||commitProviderDelayMs>15000)throw Error('Invalid synthetic commit provider delay');
+if(calendarPreview)commitPreview=createDesktopWorkoutCommits({calendar:calendarPreview,personal:personalPreview,providerDelayMs:commitProviderDelayMs});
 const csp =
   "default-src 'self'; connect-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'";
 const browserGuard = `<script id="local-preview-guard">(()=>{
@@ -145,6 +155,21 @@ const apiReply = (api, url) => {
       url.searchParams.get("oldest"),
       url.searchParams.get("newest") || fixture.today
     );
+  if(api==='preview/pace-sources')return fixture.paceSourceSnapshot();
+  if(api==='performance-curves'){
+    const keys=[...url.searchParams.keys()];
+    if(new Set(keys).size!==keys.length)throw Object.assign(Error('Choose supported curve options.'),{status:400,code:url.searchParams.get('kind')==='velocity'?'VELOCITY_CURVE_INVALID':url.searchParams.get('kind')==='cadence'?'CADENCE_CURVE_INVALID':'HR_CURVE_INVALID'});
+    const input=Object.fromEntries(url.searchParams),filter=parseChartTagFilter(input);
+    if(filter.tags.length)return fixture.taggedCurve(input);
+    delete input.tags;
+    return input.kind==='power'?fixture.nativePowerCurve(input):input.kind==='velocity'?fixture.velocityCurve(input):input.kind==='cadence'?fixture.cadenceCurve(input):fixture.heartRateCurve(input);
+  }
+  if(api==='chart-tags'){if([...url.searchParams].length)throw Object.assign(Error('Native tag catalog options are not supported.'),{status:400,code:'CHART_TAG_INVALID'});return fixture.chartTagsCatalog();}
+  if(api==='preview/chart-tag-sources')return fixture.chartTagSourceSnapshot();
+  if(api==='preview/native-power-sources')return fixture.nativePowerSourceSnapshot();
+  if(api==='preview/heart-rate-sources')return fixture.heartRateSourceSnapshot();
+  if(api==='preview/cadence-sources')return fixture.cadenceSourceSnapshot();
+  if(api==='preview/velocity-sources')return fixture.velocitySourceSnapshot();
   if (api === "performance-history")
     return fixture.performanceHistory(url.searchParams.get("type") || "Ride");
   const historyWorkout = api.match(/^workout-history\/([^/]+)$/);
@@ -181,7 +206,7 @@ const server = http.createServer(async (request, response) => {
   response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   const json = (value, status = 200) => {
     response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
-    response.end(JSON.stringify(value));
+    response.end(JSON.stringify(enduranceReference ? enduranceReferenceResponse(value) : value));
   };
   try {
     if (![`127.0.0.1:${port}`, `localhost:${port}`].includes(request.headers.host))
@@ -191,9 +216,41 @@ const server = http.createServer(async (request, response) => {
       !["http://127.0.0.1:" + port, "http://localhost:" + port].includes(request.headers.origin)
     )
       return json({ error: "Cross-origin requests are disabled." }, 403);
-    const url = new URL(request.url, `http://${host}:${port}`);
+    const url = new URL(resolveApiRoute(request.url), `http://${host}:${port}`);
     if (url.pathname.startsWith("/api/")) {
       const api = url.searchParams.get("__api_route") || url.pathname.slice(5);
+      if(commitPreview && (api==='workout-commits'||api==='preview/workout-commits'||/^workout-commits\/.+\/(editor|retry|conflict)$/.test(api))){
+        const parts=api.match(/^workout-commits\/(.+)\/(editor|retry|conflict)$/);
+        let value;
+        if(api==='preview/workout-commits' && request.method==='GET')value=await commitPreview.inspect();
+        else if(parts && parts[2]==='editor' && request.method==='GET')value=await commitPreview.editor(decodeURIComponent(parts[1]));
+        else if(parts && parts[2]==='retry' && request.method==='POST')value=await commitPreview.retry(decodeURIComponent(parts[1]));
+        else if(parts && parts[2]==='conflict' && request.method==='GET')value=await commitPreview.reviewConflict(decodeURIComponent(parts[1]));
+        else if(parts && parts[2]==='conflict' && request.method==='POST'){
+          const chunks=[];let size=0;for await(const chunk of request){size+=chunk.length;if(size>1_000_000)return json({error:'Request too large'},413);chunks.push(chunk);}
+          value=await commitPreview.resolveConflict(decodeURIComponent(parts[1]),JSON.parse(Buffer.concat(chunks).toString()||'{}'));
+        }
+        else if(api==='workout-commits'&&request.method==='GET')value=await commitPreview.status();
+        else if(api==='workout-commits'&&request.method==='POST'){
+          const chunks=[];let size=0;for await(const chunk of request){size+=chunk.length;if(size>256000)return json({error:'Synthetic commit exceeds request size'},413);chunks.push(chunk)}
+          value=await commitPreview.accept(JSON.parse(Buffer.concat(chunks).toString()||'{}'));
+        }else return json({error:'Unsupported synthetic commit action'},405);
+        json(value);if(api!=='preview/workout-commits')commitPreview.schedule();return;
+      }
+      if(api==='preview/chart-tags-state'){
+        if(request.method!=='POST')return json({error:'Use the synthetic chart-tag scenario POST.'},405);
+        const chunks=[];let size=0;for await(const chunk of request){size+=chunk.length;if(size>128)return json({error:'Synthetic chart-tag state is too large.'},413);chunks.push(chunk);}
+        const input=JSON.parse(Buffer.concat(chunks).toString() || '{}');
+        if(!input || Array.isArray(input) || Object.keys(input).length!==1 || !['default','cap','empty','removed'].includes(input.scenario))return json({error:'Choose a synthetic chart-tag scenario.'},400);
+        return json(fixture.setChartTagScenario(input.scenario));
+      }
+      if(api==='preview/cadence-state' || api==='preview/velocity-state' || api==='preview/native-power-state'){
+        if(request.method!=='POST')return json({error:'Use the synthetic curve scenario POST.'},405);
+        const chunks=[];let size=0;for await(const chunk of request){size+=chunk.length;if(size>128)return json({error:'Synthetic curve state is too large.'},413);chunks.push(chunk);}
+        const input=JSON.parse(Buffer.concat(chunks).toString() || '{}');
+        if(!input || Array.isArray(input) || Object.keys(input).length!==1 || !['default','cap'].includes(input.scenario))return json({error:'Choose a synthetic curve scenario.'},400);
+        return json(api==='preview/native-power-state'?fixture.setNativePowerScenario(input.scenario):api==='preview/velocity-state'?fixture.setVelocityScenario(input.scenario):fixture.setCadenceScenario(input.scenario));
+      }
       const personalRoute = api.match(/^workouts\/([^/]+)\/personal(?:\/attachments(?:\/([a-f0-9]{64}))?)?$/i);
       if (personalRoute) {
         if (!calendarPreview && request.method !== "GET") return json({ error: "This synthetic preview is read-only." }, 405);
@@ -254,14 +311,17 @@ const server = http.createServer(async (request, response) => {
         return json({error:"Synthetic rejected workout edit. Your draft is retained; the saved workout has not changed."},409);
       }
       if (preferenceWrite) {
+        if (calendarPreview) return json(await calendarPreview.handle(api,request.method,input,url));
         if (!['true','false'].includes(input.CALENDAR_SUMMARY_OPEN) || Object.keys(input).length !== 1)
           return json({ error: 'Only the disposable calendar summary preference is supported.' }, 400);
         calendarSummaryOpen = input.CALENDAR_SUMMARY_OPEN === 'true';
         return json(apiReply('config',url));
       }
-      const value =
+      let value =
         nutritionPreview?.handle(api, request.method, input, url) ??
-        (await calendarPreview?.handle(api, request.method, input, url)) ?? apiReply(api, url);
+        (await calendarPreview?.handle(api, request.method, input, url)) ?? (await apiReply(api, url));
+      if(commitPreview && value?.history && value?.planned)value=await commitPreview.project(value);
+      if(commitPreview && value?.context)value={...value,context:await commitPreview.project(value.context)};
       return json(
         value || { error: "This endpoint is unavailable in the synthetic preview." },
         value === null ? 404 : value.error ? 400 : 200
@@ -320,7 +380,7 @@ const server = http.createServer(async (request, response) => {
     response.end(request.method === "HEAD" ? undefined : data);
   } catch (error) {
     if (calendarPreview && request.url.startsWith("/api/"))
-      return json({ error: error.message, code: error.code }, error.status || 500);
+      return json({ error: error.message, code: error.code, ...(error.code === "EVENT_REPLAY_CHANGED" && /^event:[1-9]\d*$/.test(error.eventId || "") ? {eventId:error.eventId} : {}), ...(error.code === 'STRENGTH_LIBRARY_REPLAY_CHANGED' && /^exercise:[A-Za-z0-9_-]{16,80}$/.test(error.exerciseId || '') && /^[a-f0-9]{64}$/.test(error.accountScope || '') && /^[A-Za-z0-9_-]{16,80}$/.test(error.operationId || '') ? {exerciseId:error.exerciseId,accountScope:error.accountScope,operationId:error.operationId} : {}), ...(error.code==='TEMPLATE_REPLAY_CHANGED' && /^library:[1-9]\d*$/.test(error.workoutId || '') && /^[a-f0-9]{64}$/.test(error.accountScope || '') && /^[0-9a-f-]{36}$/i.test(error.operationId || '') ? {workoutId:error.workoutId,accountScope:error.accountScope,operationId:error.operationId} : {}) }, error.status || 500);
     return json(
       {
         error:

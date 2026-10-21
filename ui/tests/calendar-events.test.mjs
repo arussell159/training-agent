@@ -1,8 +1,9 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { calendarAddTypes, notesFirst } from "../src/lib/calendar-events.ts"
+import { calendarAddTypes, calendarSportType, calendarSportLabel, notesFirst, isCalendarNote } from "../src/lib/calendar-events.ts"
 import { canEditWorkout } from "../src/lib/workout-permissions.ts"
-import { calendarDiscipline, prepareCalendarPaste, projectCalendarMove, rollbackCalendarMove, rollbackCalendarDeletion, applyVerifiedCalendarPair, readCalendarClipboard, writeCalendarClipboard, removeVerifiedCalendarPlans } from "../src/lib/calendar-interactions.ts"
+import { calendarDiscipline, prepareCalendarPaste, projectCalendarMove, rollbackCalendarMove, rollbackCalendarDeletion, applyVerifiedCalendarPair, readCalendarClipboard, readCalendarClipboardState, writeCalendarClipboard, removeVerifiedCalendarPlans } from "../src/lib/calendar-interactions.ts"
+import {createCalendarEntryTransferAttempt} from "../src/lib/calendar-entry-transfer.ts"
 import { calendarProfilePath } from "../src/lib/calendar-profile.ts"
 import { builderBlock } from "../src/lib/desktop-workout-builder.ts"
 import { projectOptimisticWorkout, rollbackOptimisticWorkout, clearOptimisticWorkout } from "../src/lib/optimistic-workout.ts"
@@ -33,8 +34,9 @@ test("desktop pairing accepts provider sport aliases without combining different
   for(const [first,second] of [["Run","Bike"],["Walk","Rowing"],["Yoga","Other"]]) assert.equal(sameDesktopCalendarSport(first,second),false)
 })
 
-test("edit controls require a provider event and preserve recorded activity protections", () => {
+test("edit controls accept stable app or provider identities and preserve recorded activity protections", () => {
   assert.equal(canEditWorkout({ id: "event:123", status: "upcoming" }), true)
+  assert.equal(canEditWorkout({ id: "app:995fb014-baa8-4b92-8c4b-9f430e540323", status: "upcoming" }), true)
   for (const id of ["event:0", "event:-1", "event:preview-2026", "event:", "activity:123"]) {
     assert.equal(canEditWorkout({ id, status: "upcoming" }), false)
   }
@@ -45,7 +47,7 @@ test("edit controls require a provider event and preserve recorded activity prot
 test("desktop add choices map exactly to supported provider types", () => {
   assert.deepEqual(
     calendarAddTypes.map((type) => type.label),
-    ["Swim", "Bike", "Run", "Sauna", "Strength", "Note"]
+    ["Run", "Bike", "Swim", "Brick", "Crosstrain", "Day off", "Mtn Bike", "Strength", "Custom", "XC-Ski", "Rowing", "Walk", "Other", "Sauna", "Note"]
   )
   assert.equal(
     calendarAddTypes.find((type) => type.label === "Sauna").sport,
@@ -54,6 +56,17 @@ test("desktop add choices map exactly to supported provider types", () => {
   assert.equal(
     calendarAddTypes.find((type) => type.label === "Strength").sport,
     "WeightTraining"
+  )
+  assert.equal(calendarAddTypes.find((type) => type.label === "Walk").sport, "Walk")
+  assert.equal(calendarAddTypes.find((type) => type.label === "Other").sport, "Other")
+  for (const [label,variant] of [["Brick","brick"],["Day off","day-off"],["Custom","custom"]]) assert.deepEqual(calendarAddTypes.find(type => type.label === label),{label,sport:"Other",variant})
+  assert.equal(calendarSportLabel("Other"),"Other","Native Other cannot inherit a private presentation variant")
+  for (const [label, sport] of [["Crosstrain", "Workout"], ["Mtn Bike", "MountainBikeRide"], ["XC-Ski", "NordicSki"], ["Rowing", "Rowing"]]) {
+    assert.equal(calendarAddTypes.find((type) => type.label === label).sport, sport)
+  }
+  assert.notEqual(
+    calendarAddTypes.find((type) => type.label === "Other").label,
+    calendarAddTypes.find((type) => type.label === "Sauna").label
   )
 })
 test("notes always precede the day's events while retaining workout and note order", () => {
@@ -68,6 +81,25 @@ test("notes always precede the day's events while retaining workout and note ord
     [2, 4, 1, 3]
   )
   assert.equal(events[0].id, 1)
+})
+test("unspecified-priority Events backed by native notes retain Event routing and note ordering", () => {
+  const event={id:"event:81",category:"NOTE",calendar_event_key:"event-private-key-0001"}
+  const note={id:"event:82",category:"NOTE"}
+  assert.equal(isCalendarNote(event),false)
+  assert.equal(isCalendarNote(note),true)
+  assert.deepEqual(notesFirst([event,note,{id:"event:83",category:"WORKOUT"}]).map(row=>row.id),["event:82","event:81","event:83"])
+})
+
+test("display sport labels preserve exact canonical provider types without merging unfamiliar sports", () => {
+  for (const [display, canonical] of [["Bike", "Ride"], ["Mtn Bike", "MountainBikeRide"], ["Crosstrain", "Workout"], ["XC-Ski", "NordicSki"], ["Strength", "WeightTraining"], ["Walk", "Walk"], ["Other", "Other"]]) {
+    assert.equal(calendarSportType(display), canonical)
+    assert.equal(calendarSportType(canonical), canonical)
+    assert.equal(calendarSportLabel(canonical), display)
+  }
+  assert.equal(calendarSportType("Sauna"), "Other")
+  assert.equal(calendarSportLabel("Other"), "Other")
+  assert.equal(calendarSportType("FutureSport"), "FutureSport")
+  assert.equal(calendarSportLabel("FutureSport"), "FutureSport")
 })
 
 test("a failed move rolls back only its scheduling fields and retains intervening changes", () => {
@@ -116,7 +148,48 @@ test("damaged clipboard data cannot replay invalid dates, duplicate sources or m
     assert.equal(readCalendarClipboard("a",{getItem:()=>JSON.stringify(value)}),null);
   }
   assert.equal(readCalendarClipboard("a",{getItem:()=>"bad json"}),null);
-  assert.throws(()=>writeCalendarClipboard("a",base,{setItem:()=>{throw Error("Storage full")}}),/Storage full/);
+  assert.throws(()=>writeCalendarClipboard("a",base,{getItem:()=>null,setItem:()=>{throw Error("Storage full")}}),/Storage full/);
+});
+
+test("an unreadable or corrupt clipboard cannot be silently replaced or cleared",()=>{
+  const base={kind:"workout",mode:"copy",workoutIds:["event:1"],label:"Run"};
+  for(const raw of ["bad json","null",JSON.stringify({...base,workoutIds:["activity:1"]})]){
+    let writes=0;const storage={getItem:()=>raw,setItem:()=>writes++,removeItem:()=>writes++};
+    assert.equal(readCalendarClipboardState("a",storage).status,"blocked");
+    assert.throws(()=>writeCalendarClipboard("a",base,storage),/could not be verified/);
+    assert.throws(()=>writeCalendarClipboard("a",null,storage),/could not be verified/);
+    assert.equal(writes,0);
+  }
+  assert.equal(readCalendarClipboardState("a",{getItem:()=>{throw Error("Storage inaccessible")}}).status,"blocked");
+  assert.equal(readCalendarClipboardState("initial",{getItem:()=>null}).status,"blocked");
+});
+
+test("one account clipboard retains exact entry intent through refresh and blocks replacement until explicit resolution",()=>{
+  const values=new Map(),storage={getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)};
+  const row={kind:"availability",id:"event:42",revision:"a".repeat(64),editable:true,metadataCurrent:true,nativeSportsComplete:true,date:"2026-10-31",endDate:"2026-11-02",title:"Limited Availability",mode:"limited",sports:["Run","Swim"],reason:"Work",description:"Three days"};
+  const selected={kind:"entry",mode:"copy",workoutIds:[row.id],label:"Availability",entryKind:"availability",row};
+  writeCalendarClipboard("a",selected,storage);
+  const pending={...selected,entryAttempt:createCalendarEntryTransferAttempt("availability",row,"copy","2026-11-07","immutable-transfer-identity")};
+  writeCalendarClipboard("a",pending,storage,selected);
+  assert.deepEqual(readCalendarClipboardState("a",storage),{status:"ready",clipboard:pending});
+  assert.equal(readCalendarClipboardState("b",storage).status,"empty");
+  assert.throws(()=>writeCalendarClipboard("a",{kind:"workout",mode:"copy",workoutIds:["event:2"],label:"Run"},storage),/Finish the retained paste/);
+  assert.throws(()=>writeCalendarClipboard("a",selected,storage,pending),/Finish the retained paste/);
+  assert.throws(()=>writeCalendarClipboard("a",null,storage,pending),/still needs confirmation/);
+  assert.deepEqual(readCalendarClipboard("a",storage),pending);
+  writeCalendarClipboard("a",selected,storage,pending,{resolved:true});
+  assert.deepEqual(readCalendarClipboard("a",storage),selected);
+  writeCalendarClipboard("a",pending,storage,selected);
+  writeCalendarClipboard("a",null,storage,pending,{resolved:true});
+  assert.equal(readCalendarClipboardState("a",storage).status,"empty");
+});
+
+test("completion cannot clear a clipboard changed in another view",()=>{
+  let raw=null;const storage={getItem:()=>raw,setItem:(_key,value)=>{raw=value},removeItem:()=>{raw=null}};
+  const original={kind:"workout",mode:"copy",workoutIds:["event:1"],label:"Run"},changed={...original,workoutIds:["event:2"],label:"Swim"};
+  writeCalendarClipboard("a",changed,storage);
+  assert.throws(()=>writeCalendarClipboard("a",null,storage,original),/changed in another view/);
+  assert.deepEqual(readCalendarClipboard("a",storage),changed);
 });
 
 test("calendar summary consistently groups native and display sport names", () => {

@@ -1,0 +1,55 @@
+{
+  "runId": "decaa997-0fe2-4b93-a2f4-d31562b51f3c",
+  "source": "existing app encrypted settings",
+  "records": [
+    {
+      "sport": "Swim",
+      "appId": "app:08fef42b-1375-4083-8fa3-e4c4389765ae",
+      "providerId": "event:146889938",
+      "acceptedMs": 513,
+      "latestRevision": "app:2",
+      "externalReadback": true,
+      "reopenedModelExact": true,
+      "createAndEditRoundTripMs": 10578
+    },
+    {
+      "sport": "Ride",
+      "appId": "app:768165cf-b5c7-4eb8-b563-522f2a2a0cc8",
+      "providerId": "event:146890232",
+      "acceptedMs": 290,
+      "latestRevision": "app:2",
+      "externalReadback": true,
+      "reopenedModelExact": true,
+      "createAndEditRoundTripMs": 11783
+    },
+    {
+      "sport": "Run",
+      "appId": "app:c8f9870f-ac60-4a2f-9dbf-1be1d94f1679",
+      "providerId": "event:146890352",
+      "acceptedMs": 439,
+      "latestRevision": "app:2",
+      "externalReadback": true,
+      "reopenedModelExact": true,
+      "createAndEditRoundTripMs": 12007
+    }
+  ],
+  "cleanup": [
+    {
+      "appId": "app:08fef42b-1375-4083-8fa3-e4c4389765ae",
+      "providerId": "event:146889938",
+      "removed": true
+    },
+    {
+      "appId": "app:768165cf-b5c7-4eb8-b563-522f2a2a0cc8",
+      "providerId": "event:146890232",
+      "removed": true
+    },
+    {
+      "appId": "app:c8f9870f-ac60-4a2f-9dbf-1be1d94f1679",
+      "providerId": "event:146890352",
+      "removed": true
+    }
+  ],
+  "verified": true,
+  "timingNote": "Backend acceptance is a real encrypted database CAS acknowledgment; three samples only. createAndEditRoundTripMs spans first sync, independent reads, two durable reopens, and subsequent edit+sync. First sync was not isolated in this run; no sync percentile is claimed."
+}

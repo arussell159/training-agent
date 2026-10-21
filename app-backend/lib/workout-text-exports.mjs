@@ -72,8 +72,9 @@ function powerValue(value, target, model, format) {
 function validate(model, format) {
   if (!["zwo", "mrc", "erg"].includes(format)) fail(String(format), "Choose ZWO, MRC or ERG.");
   const errors = validateWorkout(model);
+  if (!model?.steps?.length) errors.push("Add device steps before exporting this workout format.");
   if (errors.length) fail(format, errors.join(". "));
-  if (!["Ride", "VirtualRide"].includes(model.sport))
+  if (!["Ride", "VirtualRide", "MountainBikeRide"].includes(model.sport))
     fail(format, "This format supports cycling workouts with power targets.");
   // XML 1.0 and course-line readers cannot safely preserve these controls.
   const texts = [model.name, model.notes];
@@ -94,6 +95,8 @@ function validate(model, format) {
     if (format === "zwo" && !Number.isInteger(step.end.value))
       fail(format, "ZWO duration must be a whole number of seconds.");
     const target = step.target;
+    if (target.kind === "rpe")
+      fail(format, "This format cannot preserve numeric RPE targets. Use Text export.");
     if (target.kind === "none") {
       if (format !== "zwo") fail(format, "Untargeted steps cannot be represented as fixed power.");
     } else {

@@ -1,5 +1,5 @@
 import "@/lib/framework7-picker"
-import { useEffect, useId, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { f7, f7ready } from "framework7-react"
 import type { Picker } from "framework7/types"
 import { Input } from "@/components/ui/input"
@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useWorkoutFieldValidity } from "./workout-input-validity"
 import {
   durationClock,
   parseDurationInput,
@@ -35,13 +36,14 @@ function MobileTimePicker({
       if (disposed || !container.current) return
       const values = (count: number) =>
         Array.from({ length: count }, (_, n) => String(n).padStart(2, "0"))
-      const current = (pace
-        ? [Math.floor(initialValue / 60), initialValue % 60]
-        : [
-            Math.floor(initialValue / 3600),
-            Math.floor(initialValue / 60) % 60,
-            initialValue % 60,
-          ]
+      const current = (
+        pace
+          ? [Math.floor(initialValue / 60), initialValue % 60]
+          : [
+              Math.floor(initialValue / 3600),
+              Math.floor(initialValue / 60) % 60,
+              initialValue % 60,
+            ]
       ).map((n) => String(n).padStart(2, "0"))
       const updateAccessibility = () => {
         picker?.cols
@@ -92,8 +94,7 @@ function MobileTimePicker({
           change: (_picker, value) => {
             const parts = (value as string[]).map(Number)
             if (parts.every(Number.isFinite)) {
-              if (pace && parts.length === 2)
-                onChange(parts[0] * 60 + parts[1])
+              if (pace && parts.length === 2) onChange(parts[0] * 60 + parts[1])
               else if (parts.length === 3)
                 onChange(parts[0] * 3600 + parts[1] * 60 + parts[2])
             }
@@ -172,26 +173,37 @@ function MobileTimePicker({
 
 export function DurationField({
   label = "Duration",
+  compactHours = false,
   value,
   onChange,
 }: {
   label?: string
+  compactHours?: boolean
   value: number
   onChange: (value: number) => void
 }) {
+  const format = useCallback((seconds: number) => compactHours ? durationClock(seconds).replace(/^0(?=\d:)/, "") : durationClock(seconds), [compactHours])
   const mobile = useIsMobile()
-  const [text, setText] = useState(durationClock(value))
+  const [text, setText] = useState(format(value))
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(value)
   const focused = useRef(false)
+  const focusValue = useRef(value)
+  const { invalid, markInvalid } = useWorkoutFieldValidity()
   useEffect(() => {
-    if (!focused.current) setText(durationClock(value))
-  }, [value])
+    if (!focused.current) {
+      setText(format(value))
+      markInvalid(false)
+    }
+  }, [value, markInvalid, format])
   const commitText = () => {
     focused.current = false
     const parsed = parseDurationInput(text)
-    if (parsed !== null) onChange(parsed)
-    setText(durationClock(parsed ?? value))
+    markInvalid(parsed === null)
+    if (parsed !== null) {
+      onChange(parsed)
+      setText(format(parsed))
+    }
   }
   return (
     <div className="we-field">
@@ -207,21 +219,29 @@ export function DurationField({
             setOpen(true)
           }}
         >
-          {durationClock(value)}
+          {format(value)}
         </button>
       ) : (
         <Input
           aria-label={label}
+          aria-invalid={invalid || undefined}
+          title={
+            invalid
+              ? "Enter a valid duration, such as 00:05:00 or 0500."
+              : undefined
+          }
           placeholder="hh:mm:ss"
           value={text}
           inputMode="numeric"
           onFocus={(event) => {
             focused.current = true
+            focusValue.current = value
             event.target.select()
           }}
           onChange={(event) => {
             setText(event.target.value)
             const parsed = parseDurationInput(event.target.value)
+            markInvalid(parsed === null)
             if (parsed !== null) onChange(parsed)
           }}
           onBlur={commitText}
@@ -230,6 +250,12 @@ export function DurationField({
               event.preventDefault()
               commitText()
               event.currentTarget.blur()
+            } else if (event.key === "Escape") {
+              event.preventDefault()
+              event.stopPropagation()
+              onChange(focusValue.current)
+              setText(format(focusValue.current))
+              markInvalid(false)
             }
           }}
         />
@@ -249,7 +275,7 @@ export function DurationField({
               variant="ghost"
               onClick={() => {
                 onChange(draft)
-                setText(durationClock(draft))
+                setText(format(draft))
                 setOpen(false)
               }}
             >
@@ -269,6 +295,11 @@ export function DurationField({
   )
 }
 
+function paceClock(value: number) {
+  const seconds = Math.round(value)
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`
+}
+
 export function PaceField({
   label,
   value,
@@ -281,13 +312,18 @@ export function PaceField({
   unit: string
 }) {
   const mobile = useIsMobile()
-  const [text, setText] = useState(durationClock(value).replace(/^00:/, ""))
+  const [text, setText] = useState(paceClock(value))
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(value)
-  useEffect(
-    () => setText(durationClock(value).replace(/^00:/, "")),
-    [value]
-  )
+  const focused = useRef(false)
+  const focusValue = useRef(value)
+  const { invalid, markInvalid } = useWorkoutFieldValidity()
+  useEffect(() => {
+    if (!focused.current) {
+      setText(paceClock(value))
+      markInvalid(false)
+    }
+  }, [value, markInvalid])
   const displayLabel = label
     .replace(" target", "")
     .replace("Range from", "From")
@@ -300,15 +336,41 @@ export function PaceField({
         </span>
         <Input
           aria-label={label}
+          aria-invalid={invalid || undefined}
+          title={
+            invalid
+              ? "Enter a positive pace in minutes:seconds, such as 08:30."
+              : undefined
+          }
           value={text}
+          onFocus={(event) => {
+            focused.current = true
+            focusValue.current = value
+            event.target.select()
+          }}
           onChange={(event) => {
             setText(event.target.value)
             const match = event.target.value.match(/^(\d+):([0-5]\d)$/)
-            if (match) onChange(Number(match[1]) * 60 + Number(match[2]))
+            const seconds = match ? Number(match[1]) * 60 + Number(match[2]) : 0
+            markInvalid(!Number.isFinite(seconds) || seconds <= 0)
+            if (Number.isFinite(seconds) && seconds > 0) onChange(seconds)
           }}
-          onBlur={() =>
-            setText(durationClock(value).replace(/^00:/, ""))
-          }
+          onBlur={() => {
+            focused.current = false
+            if (!invalid) setText(paceClock(value))
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault()
+              event.currentTarget.blur()
+            } else if (event.key === "Escape") {
+              event.preventDefault()
+              event.stopPropagation()
+              onChange(focusValue.current)
+              setText(paceClock(focusValue.current))
+              markInvalid(false)
+            }
+          }}
           inputMode="decimal"
         />
       </label>
@@ -328,7 +390,7 @@ export function PaceField({
           setOpen(true)
         }}
       >
-        {durationClock(value).replace(/^00:/, "")}
+        {paceClock(value)}
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
@@ -345,7 +407,7 @@ export function PaceField({
               variant="ghost"
               onClick={() => {
                 onChange(draft)
-                setText(durationClock(draft).replace(/^00:/, ""))
+                setText(paceClock(draft))
                 setOpen(false)
               }}
             >

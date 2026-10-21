@@ -1,5 +1,11 @@
 // Pure synthetic fixtures. This module has no backend, environment or network imports.
 import { createDesktopPerformanceFixtures } from "./desktop-performance-fixtures.mjs";
+import { createDesktopPaceSources } from './desktop-pace-fixtures.mjs';
+import { createDesktopHeartRateFixtures } from './desktop-heart-rate-fixtures.mjs';
+import { createDesktopCadenceFixtures } from './desktop-cadence-fixtures.mjs';
+import { createDesktopVelocityFixtures } from './desktop-velocity-fixtures.mjs';
+import { createDesktopChartTagsFixtures } from './desktop-chart-tags-fixtures.mjs';
+import { createDesktopNativePowerFixtures } from './desktop-native-power-fixtures.mjs';
 export const dateKey = (date) => date.toISOString().slice(0, 10);
 export const dateShift = (date, days) => {
   const value = new Date(`${date}T12:00:00Z`);
@@ -147,6 +153,12 @@ export function createDesktopPreviewFixtures(now = new Date(), { gps = false } =
     month: "2-digit",
     day: "2-digit",
   }).format(now);
+  const paceSources=createDesktopPaceSources({today,dateShift});
+  const heartRateSources=createDesktopHeartRateFixtures({today});
+  const cadenceSources=createDesktopCadenceFixtures({today});
+  const velocitySources=createDesktopVelocityFixtures({today});
+  const taggedSources=createDesktopChartTagsFixtures({today});
+  const nativePowerSources=createDesktopNativePowerFixtures({today});
   const anchor = new Date(`${today}T12:00:00Z`);
   anchor.setUTCDate(anchor.getUTCDate() - ((anchor.getUTCDay() + 6) % 7));
   const monday = dateKey(anchor),
@@ -328,6 +340,12 @@ export function createDesktopPreviewFixtures(now = new Date(), { gps = false } =
     })),
   });
   const lookup = (id) => {
+    const exactHeartRate=heartRateSources.lookup(id);if(exactHeartRate)return exactHeartRate;
+    const exactCadence=cadenceSources.lookup(id);if(exactCadence)return exactCadence;
+    const exactVelocity=velocitySources.lookup(id);if(exactVelocity)return exactVelocity;
+    const exactTagged=taggedSources.lookup(id);if(exactTagged)return exactTagged;
+    const exactNativePower=nativePowerSources.lookup(id);if(exactNativePower)return exactNativePower;
+    const exactPace=paceSources.lookup(id);if(exactPace)return exactPace;
     const native = id.match(/^i9(\d{4})(\d{2})(\d{2})(\d)$/);
     const original = native ? `preview-${native[1]}-${native[2]}-${native[3]}-${native[4]}` : id;
     const match = original.match(/^preview-(\d{4}-\d{2}-\d{2})-(\d)$/);
@@ -340,32 +358,43 @@ export function createDesktopPreviewFixtures(now = new Date(), { gps = false } =
     return native && workout ? { ...workout, id: `activity:${id}`, activity_id: id } : workout;
   };
   const analysisForWorkout = (workout) => {
+    const exactHeartRate=heartRateSources.analysis(workout?.activity_id || workout?.id);if(exactHeartRate)return exactHeartRate;
+    const exactCadence=cadenceSources.analysis(workout?.activity_id || workout?.id);if(exactCadence)return exactCadence;
+    const exactVelocity=velocitySources.analysis(workout?.activity_id || workout?.id);if(exactVelocity)return exactVelocity;
+    const exactTagged=taggedSources.analysis(workout?.activity_id || workout?.id);if(exactTagged)return exactTagged;
+    const exactNativePower=nativePowerSources.analysis(workout?.activity_id || workout?.id);if(exactNativePower)return exactNativePower;
+    const exactPace=paceSources.analysis(workout?.activity_id || workout?.id);if(exactPace)return exactPace;
     if (!workout?.workout_summary.completed) return null;
     const values = workout.workout_summary.completed,
       duration = values.duration_seconds,
       bike = workout.sport === "Bike",
       count = Math.min(1201, Math.ceil(duration / 10) + 1);
+    const points = Array.from({ length: count }, (_, index) => {
+      const fraction = index / (count - 1);
+      return {
+        time: fraction * duration,
+        distance: fraction * values.distance_meters,
+        speed: Math.max(0.2, values.average_speed * (0.94 + 0.06 * Math.sin(index / 13))),
+        heartRate: Math.round(137 + 12 * Math.sin(index / 17)),
+        cadence: bike ? Math.round(84 + 6 * Math.sin(index / 9)) : Math.round(165 + 5 * Math.sin(index / 9)),
+        power: bike ? Math.round(184 + 37 * Math.sin(index / 19)) : null,
+        elevation: workout.sport === "Swim" ? null : 180 + 50 * Math.sin(index / 31),
+        ...(gps && workout.sport !== "Swim" ? {
+          latitude: 30 + .018 * Math.sin(fraction * Math.PI * 2),
+          longitude: -95.66 + .025 * Math.cos(fraction * Math.PI * 2),
+        } : {}),
+      };
+    });
+    // A real, exactly sampled five-second synthetic effort for source drillthrough.
+    // Replace the initial coarse sample, retaining strictly increasing timestamps.
+    const sampled = bike ? [
+      ...Array.from({length: 6}, (_, time) => ({...points[0], time, distance: time / duration * values.distance_meters, power: 420})),
+      ...points.filter(point => point.time > 5),
+    ] : points;
     return {
       version: 8,
       duration,
-      points: Array.from({ length: count }, (_, index) => {
-        const fraction = index / (count - 1);
-        return {
-          time: fraction * duration,
-          distance: fraction * values.distance_meters,
-          speed: Math.max(0.2, values.average_speed * (0.94 + 0.06 * Math.sin(index / 13))),
-          heartRate: Math.round(137 + 12 * Math.sin(index / 17)),
-          cadence: bike
-            ? Math.round(84 + 6 * Math.sin(index / 9))
-            : Math.round(165 + 5 * Math.sin(index / 9)),
-          power: bike ? Math.round(184 + 37 * Math.sin(index / 19)) : null,
-          elevation: workout.sport === "Swim" ? null : 180 + 50 * Math.sin(index / 31),
-          ...(gps && workout.sport !== "Swim" ? {
-            latitude: 30 + .018 * Math.sin(fraction * Math.PI * 2),
-            longitude: -95.66 + .025 * Math.cos(fraction * Math.PI * 2),
-          } : {}),
-        };
-      }),
+      points: sampled,
       laps: [0, 1, 2, 3].map((index) => ({
         id: `lap-${index + 1}`,
         label: `Lap ${index + 1}`,
@@ -448,8 +477,9 @@ export function createDesktopPreviewFixtures(now = new Date(), { gps = false } =
     revisionHistory: [],
     isDraft: false,
   };
-  const performance = createDesktopPerformanceFixtures({ today, now, context, dateShift });
+  const performance = createDesktopPerformanceFixtures({ today, now, context, dateShift, paceSources });
   const performanceEffort = (id, type, duration, distance) => {
+    const exactPace=paceSources.effort(id,type,distance);if(exactPace)return exactPace;
     const workout = lookup(id),
       recording = analysis(id);
     const available = false;
@@ -460,6 +490,16 @@ export function createDesktopPreviewFixtures(now = new Date(), { gps = false } =
       workout.sport !== (type === "Ride" ? "Bike" : type)
     )
       return { ...base, reason: "This synthetic recording is unavailable." };
+    if (type === "Ride" && duration === 5) {
+      const point = performance.personalStatistics(workout.workout_date, workout.workout_date).powerCurve.points.find(point => point.duration_seconds === 5 && point.activity_id === id);
+      if (point && point.start_index === 0 && point.end_index === 5) {
+        const segment = recording.points.slice(point.start_index, point.end_index + 1);
+        if (segment.length === 6 && segment.every((sample, index) => sample.time === index && sample.power === point.value))
+          return {...base, available: true, value: point.value, duration_seconds: 5, distance_meters: null, start_seconds: segment[0].time, end_seconds: segment.at(-1).time, chart_start_seconds: segment[0].time, chart_end_seconds: segment.at(-1).time};
+      }
+      return {...base, reason: "The exact five-second source samples are unavailable."};
+    }
+    if(type==='Run' || type==='Swim')return {...base,reason:'Exact pace source sample bounds are unavailable for this synthetic recording.'};
     const history = performance.performanceHistory(type);
     const peak = [...history.weeks, ...history.months]
       .flatMap((period) => period.peaks)
@@ -496,6 +536,23 @@ export function createDesktopPreviewFixtures(now = new Date(), { gps = false } =
     context,
     ...performance,
     performanceEffort,
+    paceSourceSnapshot:paceSources.snapshot,
+    nativeActivity:id=>paceSources.nativeActivity(id) || heartRateSources.nativeActivity(id) || cadenceSources.nativeActivity(id) || velocitySources.nativeActivity(id) || taggedSources.nativeActivity(id) || nativePowerSources.nativeActivity(id),
+    heartRateCurve:input=>heartRateSources.service.load(heartRateSources.config,input,{actor:heartRateSources.actor}),
+    heartRateSourceSnapshot:heartRateSources.snapshot,
+    cadenceCurve:input=>cadenceSources.service.load(cadenceSources.config,input,{actor:cadenceSources.actor}),
+    cadenceSourceSnapshot:cadenceSources.snapshot,
+    setCadenceScenario:input=>cadenceSources.setScenario(input),
+    velocityCurve:input=>velocitySources.service.load(velocitySources.config,input,{actor:velocitySources.actor}),
+    velocitySourceSnapshot:velocitySources.snapshot,
+    setVelocityScenario:input=>velocitySources.setScenario(input),
+    chartTagsCatalog:()=>taggedSources.catalog.load(taggedSources.config,{actor:taggedSources.actor}),
+    taggedCurve:input=>taggedSources.service.load(taggedSources.config,input,{actor:taggedSources.actor}),
+    chartTagSourceSnapshot:taggedSources.snapshot,
+    setChartTagScenario:input=>taggedSources.setScenario(input),
+    nativePowerCurve:input=>nativePowerSources.service.load(nativePowerSources.config,input,{actor:nativePowerSources.actor}),
+    nativePowerSourceSnapshot:nativePowerSources.snapshot,
+    setNativePowerScenario:input=>nativePowerSources.setScenario(input),
     nutrition,
     lookup,
     analysis,

@@ -40,16 +40,15 @@ import {
 } from "@/lib/analysis-360-signals"
 import {
   analysisRangeMetrics,
+  canAddAnalysisTile,
   defaultAnalysisTiles,
+  restoreAnalysisTile,
   validAnalysisTiles,
   type AnalysisTile,
   type AnalysisRange,
   type AnalysisLap,
 } from "@/lib/analysis-360"
-import {
-  sportZoneSettings,
-  type SportZoneSettings,
-} from "../../../app-backend/lib/workout-editor-zones.mjs"
+import { historicalAnalysisThresholds } from "../../../app-backend/lib/recorded-analysis-thresholds.mjs"
 import { DesktopSportIcon } from "./desktop-sport-icon"
 import { DesktopWorkoutRouteMap } from "./desktop-workout-route-map"
 import {
@@ -387,7 +386,8 @@ export function WorkoutAnalysis360({
     try {
       saved = validAnalysisTiles(
         JSON.parse(localStorage.getItem(layoutKey) || "null"),
-        available
+        available,
+        { preserveUnavailable: true }
       )
     } catch {
       /* A bad or inaccessible local preference falls back to the default workspace. */
@@ -435,30 +435,20 @@ export function WorkoutAnalysis360({
       [data]
     ),
     routeCursor = nearestRouteCursorPoint(route, cursor)
-  const context = cachedTrainingContext(),
-    zoneSettings = sportZoneSettings(
-      (context.athlete as { sport_settings?: SportZoneSettings[] })
-        .sport_settings || [],
-      workout.sport
-    )
-  const ftp =
-    zoneSettings?.ftp ??
-    (/bike|ride|cycl/i.test(workout.sport)
-      ? context.athlete.zones?.bike_ftp
-      : null) ??
-    null
+  const thresholds = historicalAnalysisThresholds(summary)
+  const ftp = thresholds?.ftp ?? null
   const zoneConfiguration = useMemo<ZoneConfiguration>(
     () =>
-      zoneSettings?.power_zones?.length && ftp
-        ? { key: "power", threshold: ftp, boundaries: zoneSettings.power_zones }
-        : zoneSettings?.pace_zones?.length && zoneSettings.threshold_pace
+      thresholds?.powerZones.length && ftp
+        ? { key: "power", threshold: ftp, boundaries: thresholds.powerZones }
+        : thresholds?.paceZones.length && thresholds.thresholdPace
           ? {
               key: "speed",
-              threshold: zoneSettings.threshold_pace,
-              boundaries: zoneSettings.pace_zones,
+              threshold: thresholds.thresholdPace,
+              boundaries: thresholds.paceZones,
             }
           : null,
-    [zoneSettings, ftp]
+    [thresholds, ftp]
   )
   const laps = useMemo<AnalysisLap[]>(
     () =>
@@ -503,6 +493,7 @@ export function WorkoutAnalysis360({
     )
   const setting = tiles.find((tile) => tile.id === settingsId)
   const addTile = (kind: AnalysisTile["kind"], preset = false) => {
+    if (!canAddAnalysisTile(tiles, kind)) return
     const primary = available.includes("power")
       ? "power"
       : available.includes("pace")
@@ -535,6 +526,7 @@ export function WorkoutAnalysis360({
             : 160,
     }
     setTiles((current) => [...current, tile])
+    setTab("Analyze")
     setSettingsId(tile.id)
   }
   const moveTile = (id: string, destination: number) =>
@@ -547,6 +539,7 @@ export function WorkoutAnalysis360({
       return next
     })
   const addPreset = (name: string, channels: RecordedSignal[]) => {
+    if (!canAddAnalysisTile(tiles, "multi")) return
     const tile: AnalysisTile = {
       id: crypto.randomUUID(),
       kind: "multi",
@@ -557,6 +550,7 @@ export function WorkoutAnalysis360({
       height: 160,
     }
     setTiles((current) => [...current, tile])
+    setTab("Analyze")
     setSettingsId(tile.id)
   }
   const chooseTab = (value: typeof tab) => {
@@ -688,12 +682,14 @@ export function WorkoutAnalysis360({
                     {removed.tile.name} removed.{" "}
                     <button
                       type="button"
+                      disabled={
+                        !canAddAnalysisTile(tiles, removed.tile.kind) ||
+                        tiles.some((tile) => tile.id === removed.tile.id)
+                      }
                       onClick={() => {
-                        setTiles((current) => {
-                          const next = [...current]
-                          next.splice(removed.index, 0, removed.tile)
-                          return next
-                        })
+                        setTiles((current) =>
+                          restoreAnalysisTile(current, removed)
+                        )
                         setRemoved(null)
                       }}
                     >
@@ -837,7 +833,12 @@ export function WorkoutAnalysis360({
                         points={points}
                         sport={workout.sport}
                         duration={duration}
-                        tile={tile}
+                        tile={{
+                          ...tile,
+                          channels: tile.channels.filter((key) =>
+                            available.includes(key)
+                          ),
+                        }}
                         range={range}
                         selection={selection}
                         cursor={cursor}
@@ -1111,6 +1112,19 @@ export function WorkoutAnalysis360({
                             })
                           }}
                         >
+                          {setting.kind !== "zones" &&
+                            setting.channels[0] &&
+                            !available.includes(setting.channels[0]) && (
+                              <option value={setting.channels[0]} disabled>
+                                {
+                                  recordedSignalInfo(
+                                    setting.channels[0],
+                                    workout.sport
+                                  ).label
+                                }{" "}
+                                (not recorded)
+                              </option>
+                            )}
                           {available.map((key) => (
                             <option key={key} value={key}>
                               {recordedSignalInfo(key, workout.sport).label}
@@ -1161,6 +1175,15 @@ export function WorkoutAnalysis360({
                                       })
                                     }
                                   >
+                                    {!available.includes(key) && (
+                                      <option value={key} disabled>
+                                        {
+                                          recordedSignalInfo(key, workout.sport)
+                                            .label
+                                        }{" "}
+                                        (not recorded)
+                                      </option>
+                                    )}
                                     {available
                                       .filter(
                                         (item) =>
@@ -1198,7 +1221,9 @@ export function WorkoutAnalysis360({
                               className="a360-outline"
                               type="button"
                               disabled={
-                                setting.channels.length >= available.length
+                                !available.some(
+                                  (key) => !setting.channels.includes(key)
+                                )
                               }
                               onClick={() => {
                                 const next = available.find(
@@ -1228,9 +1253,11 @@ export function WorkoutAnalysis360({
                       key={kind}
                       type="button"
                       disabled={
-                        ["map", "laps"].includes(kind)
-                          ? tiles.some((tile) => tile.kind === kind)
-                          : !available.length
+                        !canAddAnalysisTile(
+                          tiles,
+                          kind as AnalysisTile["kind"]
+                        ) ||
+                        (!["map", "laps"].includes(kind) && !available.length)
                       }
                       onClick={() => addTile(kind as AnalysisTile["kind"])}
                     >
@@ -1255,7 +1282,10 @@ export function WorkoutAnalysis360({
                   <button
                     className="a360-library-item"
                     type="button"
-                    disabled={!available.includes("efficiency")}
+                    disabled={
+                      !canAddAnalysisTile(tiles, "multi") ||
+                      !available.includes("efficiency")
+                    }
                     onClick={() =>
                       addPreset("Aerobic Efficiency", [
                         "efficiency",
@@ -1273,7 +1303,10 @@ export function WorkoutAnalysis360({
                   <button
                     className="a360-library-item"
                     type="button"
-                    disabled={!available.includes("torque")}
+                    disabled={
+                      !canAddAnalysisTile(tiles, "multi") ||
+                      !available.includes("torque")
+                    }
                     onClick={() =>
                       addPreset("Force Profile", ["torque", "cadence", "power"])
                     }
@@ -1287,7 +1320,9 @@ export function WorkoutAnalysis360({
                   <button
                     className="a360-library-item"
                     type="button"
-                    disabled={!available.length}
+                    disabled={
+                      !canAddAnalysisTile(tiles, "stacked") || !available.length
+                    }
                     onClick={() => addTile("stacked", true)}
                   >
                     <Layers size={18} />

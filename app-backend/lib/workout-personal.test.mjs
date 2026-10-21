@@ -61,6 +61,35 @@ test("personal fields survive new service instances and equipment suggestions ar
   assert.equal(records.get("workout/event:1").fields.privateNotes, value.privateNotes);
   assert.ok(authorized.every((id) => id.startsWith("event:")));
 });
+test("Brick equipment stores two independent fields, preserves hidden generic equipment and validates their limits", async () => {
+  const { service, records } = harness();
+  const brick = { ...value, bikeEquipment: "Time trial bike", shoeEquipment: "Race shoes" };
+  const first = await service.save("event:44", { value: brick, revision: 0 });
+  assert.deepEqual((await service.read("event:44")).value, brick);
+  const restarted = createWorkoutPersonalService({
+    record: (key, fresh) => ({
+      read: async () => structuredClone(records.get(key) || fresh()),
+      update: async (change) => {
+        const state = structuredClone(records.get(key) || fresh()),
+          result = change(state);
+        records.set(key, state);
+        return result;
+      },
+    }),
+    authorizeWorkout: async () => {},
+  });
+  assert.equal((await restarted.read("event:44")).value.shoeEquipment, "Race shoes");
+  await restarted.save("event:44", {
+    value: { ...brick, bikeEquipment: "" },
+    revision: first.revision,
+  });
+  const loaded = (await service.read("event:44")).value;
+  assert.equal(loaded.bikeEquipment, "");
+  assert.equal(loaded.shoeEquipment, "Race shoes");
+  assert.equal(loaded.equipment, value.equipment);
+  for (const key of ["bikeEquipment", "shoeEquipment"])
+    assert.throws(() => validateWorkoutPersonal({ ...brick, [key]: "x".repeat(101) }));
+});
 test("stale revisions never overwrite another device's changes; identical retry is safe", async () => {
   const { service } = harness();
   await service.save("event:1", { value, revision: 0 });

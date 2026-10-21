@@ -1,0 +1,391 @@
+{
+  "rows": [
+    {
+      "delta": 0,
+      "property": "y",
+      "reference": 463.046875,
+      "actual": 463.046875,
+      "sport": "Run",
+      "selector": ".dtb-step-heading > input"
+    },
+    {
+      "delta": 0,
+      "property": "height",
+      "reference": 30,
+      "actual": 30,
+      "sport": "Run",
+      "selector": ".dtb-step-heading > input"
+    },
+    {
+      "delta": 0,
+      "property": "width",
+      "reference": 161.21875,
+      "actual": 161.21875,
+      "sport": "Run",
+      "selector": ".dtb-step-heading > input"
+    },
+    {
+      "delta": 0,
+      "property": "x",
+      "reference": 740.78125,
+      "actual": 740.78125,
+      "sport": "Run",
+      "selector": ".dtb-step-heading > input"
+    },
+    {
+      "delta": 0,
+      "property": "y",
+      "reference": 548.046875,
+      "actual": 548.046875,
+      "sport": "Run",
+      "selector": ".dtb-target-values > select"
+    },
+    {
+      "delta": 0,
+      "property": "height",
+      "reference": 30,
+      "actual": 30,
+      "sport": "Run",
+      "selector": ".dtb-target-values > select"
+    },
+    {
+      "delta": 0,
+      "property": "width",
+      "reference": 247,
+      "actual": 247,
+      "sport": "Run",
+      "selector": ".dtb-target-values > select"
+    },
+    {
+      "delta": 0,
+      "property": "x",
+      "reference": 835.78125,
+      "actual": 835.78125,
+      "sport": "Run",
+      "selector": ".dtb-target-values > select"
+    },
+    {
+      "delta": 0,
+      "property": "y",
+      "reference": 424.046875,
+      "actual": 424.046875,
+      "sport": "Run",
+      "selector": "#builder-duration_seconds"
+    },
+    {
+      "delta": 0,
+      "property": "height",
+      "reference": 22,
+      "actual": 22,
+      "sport": "Run",
+      "selector": "#builder-duration_seconds"
+    },
+    {
+      "delta": 0,
+      "property": "width",
+      "reference": 83.5,
+      "actual": 83.5,
+      "sport": "Run",
+      "selector": "#builder-duration_seconds"
+    },
+    {
+      "delta": 0.109375,
+      "property": "x",
+      "reference": 170.796875,
+      "actual": 170.90625,
+      "sport": "Run",
+      "selector": "#builder-duration_seconds"
+    },
+    {
+      "delta": 0,
+      "property": "y",
+      "reference": 512.546875,
+      "actual": 512.546875,
+      "sport": "Run",
+      "selector": ".dtb-target-values > input"
+    },
+    {
+      "delta": 0,
+      "property": "height",
+      "reference": 26,
+      "actual": 26,
+      "sport": "Run",
+      "selector": ".dtb-target-values > input"
+    },
+    {
+      "delta": 0,
+      "property": "width",
+      "reference": 45,
+      "actual": 45,
+      "sport": "Run",
+      "selector": ".dtb-target-values > input"
+    },
+    {
+      "delta": 0,
+      "property": "x",
+      "reference": 835.78125,
+      "actual": 835.78125,
+      "sport": "Run",
+      "selector": ".dtb-target-values > input"
+    },
+    {
+      "delta": 0,
+      "property": "y",
+      "reference": 10,
+      "actual": 10,
+      "sport": "Run",
+      "selector": ".we-tp-desktop"
+    },
+    {
+      "delta": 0,
+      "property": "height",
+      "reference": 662.390625,
+      "actual": 662.390625,
+      "sport": "Run",
+      "selector": ".we-tp-desktop"
+    },
+    {
+      "delta": 0,
+      "property": "width",
+      "reference": 1240,
+      "actual": 1240,
+      "sport": "Run",
+      "selector": ".we-tp-desktop"
+    },
+    {
+      "delta": 0,
+      "property": "x",
+      "reference": 20,
+      "actual": 20,
+      "sport": "Run",
+      "selector": ".we-tp-desktop"
+    },
+    {
+      "delta": 0,
+      "property": "y",
+      "reference": 424.5,
+      "actual": 424.5,
+      "sport": "Run",
+      "selector": ".dtb-text textarea"
+    },
+    {
+      "delta": 0,
+      "property": "height",
+      "reference": 29.125,
+      "actual": 29.125,
+      "sport": "Run",
+      "selector": ".dtb-text textarea"
+    },
+    {
+      "delta": -0.125,
+      "property": "width",
+      "reference": 275,
+      "actual": 274.875,
+      "sport": "Run",
+      "selector": ".dtb-text textarea"
+    },
+    {
+      "delta": -0.015625,
+      "property": "x",
+      "reference": 406.921875,
+      "actual": 406.90625,
+      "sport": "Run",
+      "selector": ".dtb-text textarea"
+    },
+    {
+      "delta": 0,
+      "property": "y",
+      "reference": 446.046875,
+      "actual": 446.046875,
+      "sport": "Run",
+      "selector": ".dtb-step-card"
+    },
+    {
+      "delta": -0.015625,
+      "property": "height",
+      "reference": 258.640625,
+      "actual": 258.625,
+      "sport": "Run",
+      "selector": ".dtb-step-card"
+    },
+    {
+      "delta": 0,
+      "property": "width",
+      "reference": 495.21875,
+      "actual": 495.21875,
+      "sport": "Run",
+      "selector": ".dtb-step-card"
+    },
+    {
+      "delta": 0,
+      "property": "x",
+      "reference": 723.78125,
+      "actual": 723.78125,
+      "sport": "Run",
+      "selector": ".dtb-step-card"
+    },
+    {
+      "delta": 0,
+      "property": "y",
+      "reference": 548.046875,
+      "actual": 548.046875,
+      "sport": "Swim",
+      "selector": ".dtb-target-values > select"
+    },
+    {
+      "delta": 0,
+      "property": "height",
+      "reference": 30,
+      "actual": 30,
+      "sport": "Swim",
+      "selector": ".dtb-target-values > select"
+    },
+    {
+      "delta": 0,
+      "property": "width",
+      "reference": 260,
+      "actual": 260,
+      "sport": "Swim",
+      "selector": ".dtb-target-values > select"
+    },
+    {
+      "delta": 0,
+      "property": "x",
+      "reference": 900.78125,
+      "actual": 900.78125,
+      "sport": "Swim",
+      "selector": ".dtb-target-values > select"
+    },
+    {
+      "delta": 0,
+      "property": "y",
+      "reference": 463.046875,
+      "actual": 463.046875,
+      "sport": "Swim",
+      "selector": ".dtb-step-heading > input"
+    },
+    {
+      "delta": 0,
+      "property": "height",
+      "reference": 30,
+      "actual": 30,
+      "sport": "Swim",
+      "selector": ".dtb-step-heading > input"
+    },
+    {
+      "delta": 0,
+      "property": "width",
+      "reference": 161.21875,
+      "actual": 161.21875,
+      "sport": "Swim",
+      "selector": ".dtb-step-heading > input"
+    },
+    {
+      "delta": 0,
+      "property": "x",
+      "reference": 740.78125,
+      "actual": 740.78125,
+      "sport": "Swim",
+      "selector": ".dtb-step-heading > input"
+    },
+    {
+      "delta": 0,
+      "property": "y",
+      "reference": 512.546875,
+      "actual": 512.546875,
+      "sport": "Swim",
+      "selector": ".dtb-target-values > input"
+    },
+    {
+      "delta": 0,
+      "property": "height",
+      "reference": 26,
+      "actual": 26,
+      "sport": "Swim",
+      "selector": ".dtb-target-values > input"
+    },
+    {
+      "delta": 0,
+      "property": "width",
+      "reference": 45,
+      "actual": 45,
+      "sport": "Swim",
+      "selector": ".dtb-target-values > input"
+    },
+    {
+      "delta": 0,
+      "property": "x",
+      "reference": 900.78125,
+      "actual": 900.78125,
+      "sport": "Swim",
+      "selector": ".dtb-target-values > input"
+    },
+    {
+      "sport": "Run",
+      "selector": ".dtb-footer > .dtb-primary",
+      "property": "x",
+      "reference": 1127.140625,
+      "actual": 1127.140625,
+      "delta": 0
+    },
+    {
+      "sport": "Run",
+      "selector": ".dtb-footer > .dtb-primary",
+      "property": "y",
+      "reference": 627.890625,
+      "actual": 627.890625,
+      "delta": 0
+    },
+    {
+      "sport": "Run",
+      "selector": ".dtb-footer > .dtb-primary",
+      "property": "width",
+      "reference": 116.859375,
+      "actual": 116.859375,
+      "delta": 0
+    },
+    {
+      "sport": "Run",
+      "selector": ".dtb-footer > .dtb-primary",
+      "property": "height",
+      "reference": 32,
+      "actual": 32,
+      "delta": 0
+    },
+    {
+      "sport": "Swim",
+      "selector": ".dtb-footer > .dtb-primary",
+      "property": "x",
+      "reference": 1127.140625,
+      "actual": 1127.140625,
+      "delta": 0
+    },
+    {
+      "sport": "Swim",
+      "selector": ".dtb-footer > .dtb-primary",
+      "property": "y",
+      "reference": 627.890625,
+      "actual": 627.890625,
+      "delta": 0
+    },
+    {
+      "sport": "Swim",
+      "selector": ".dtb-footer > .dtb-primary",
+      "property": "width",
+      "reference": 116.859375,
+      "actual": 116.859375,
+      "delta": 0
+    },
+    {
+      "sport": "Swim",
+      "selector": ".dtb-footer > .dtb-primary",
+      "property": "height",
+      "reference": 32,
+      "actual": 32,
+      "delta": 0
+    }
+  ],
+  "source": "Matched optimized build 2026-10-21T17:34:08.996Z; fresh native Run/Swim reference DOM and local matching thresholds",
+  "method": "1280x720 DPR1; native DOM supplied by signed-in browser owner, local headless Edge DOM. Run530sec/mi, Swim93sec/100yd. Populated valid titles; repeat presets and range targets match. Browser scrollbar rendering is compared separately in the same IAB by the owner.",
+  "unverified": "Bike exact repeat-card numerical DOM; all unmeasured states; whole-image pixel identity. Native rounding and rendered platform glyphs can differ."
+}

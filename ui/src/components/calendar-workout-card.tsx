@@ -1,25 +1,58 @@
 import { useRef, useState } from "react"
-import { Bike, CalendarDays, Dumbbell, Footprints, Waves, Ellipsis, Pencil, Scissors, Copy, Trash2 } from "lucide-react"
+import {
+  Bike,
+  CalendarDays,
+  Dumbbell,
+  Footprints,
+  Waves,
+  Ellipsis,
+  Pencil,
+  Scissors,
+  Copy,
+  Trash2,
+} from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { MobileActionMenu } from "@/components/ui/mobile-native-controls"
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
 import { DesktopSportIcon } from "@/components/desktop-sport-icon"
 import { WorkoutProfile } from "@/components/workout-profile"
 import { CalendarWorkoutProfile } from "@/components/calendar-workout-profile"
-import { gradeWorkoutCompletion, type CompletionGrade } from "@/lib/workout-completion"
+import {
+  workoutCompletionGrade,
+  type CompletionGrade,
+} from "@/lib/workout-completion"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
 import { durationMinutes, type PlannedWorkout } from "@/lib/training-context"
-import { formatWorkoutTss, workoutTime, workoutPlannedMinutes } from "@/lib/workout-metrics"
+import {
+  formatWorkoutTss,
+  workoutTime,
+  workoutPlannedMinutes,
+} from "@/lib/workout-metrics"
 import { canEditWorkout } from "@/lib/workout-permissions"
 import { prepareWorkout, workoutDetailRoute } from "@/lib/workout-preload"
-const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`
+import { workoutPresentationSport } from "@/lib/workout-presentation"
+import { calendarSportLabel } from "@/lib/calendar-events"
+const dateKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
 export function SportIcon({ sport }: { sport: string }) {
+  if (/^(?:Brick|Day off|Custom)$/i.test(sport))
+    return <DesktopSportIcon sport={sport} />
   const value = sport.toLowerCase()
   const base = "size-5 shrink-0"
   if (value.includes("swim"))
     return <Waves className={`${base} text-cyan-600`} />
-  if (value.includes("bike") || value.includes("ride") || value.includes("brick"))
+  if (
+    value.includes("bike") ||
+    value.includes("ride") ||
+    value.includes("brick")
+  )
     return <Bike className={`${base} text-violet-600`} />
   if (value.includes("run"))
     return <Footprints className={`${base} text-lime-600`} />
@@ -45,20 +78,7 @@ const gradeAccent: Partial<Record<CompletionGrade, string>> = {
 }
 
 export function completionGrade(workout: PlannedWorkout): CompletionGrade {
-  const completedDataDuration = Number(workout.completed_data?.duration_minutes)
-  const actualDuration = Number.isFinite(workout.actualDurationMinutes)
-    ? Number(workout.actualDurationMinutes)
-    : Number.isFinite(completedDataDuration)
-      ? completedDataDuration
-      : 0
-  return gradeWorkoutCompletion(
-    workout.status,
-    {
-      duration_minutes:
-        workout.planned?.duration_minutes ?? workout.plannedDurationMinutes,
-    },
-    { duration_minutes: actualDuration }
-  )
+  return workoutCompletionGrade(workout)
 }
 function WorkoutPreview({
   workout,
@@ -72,8 +92,22 @@ function WorkoutPreview({
   onOpen?: () => void
 }) {
   return (
-    <div onClickCapture={onOpen ? event=>{event.stopPropagation();onOpen()} : undefined} className={`${large ? "" : "-mx-2.5 mt-auto -mb-3 pt-2"} ${calendarPresentation ? "calendar-workout-profile" : ""}`}>
-      {calendarPresentation ? <CalendarWorkoutProfile workout={workout}/> : <WorkoutProfile workout={workout} compact={!large} />}
+    <div
+      onClickCapture={
+        onOpen
+          ? (event) => {
+              event.stopPropagation()
+              onOpen()
+            }
+          : undefined
+      }
+      className={`${large ? "" : "-mx-2.5 mt-auto -mb-3 pt-2"} ${calendarPresentation ? "calendar-workout-profile" : ""}`}
+    >
+      {calendarPresentation ? (
+        <CalendarWorkoutProfile workout={workout} />
+      ) : (
+        <WorkoutProfile workout={workout} compact={!large} />
+      )}
     </div>
   )
 }
@@ -94,8 +128,11 @@ function calendarWorkoutDuration(workout: PlannedWorkout) {
     ? workout.workout_summary?.completed?.duration_seconds
     : workout.workout_summary?.planned?.duration_seconds
   const minutes = completed
-    ? workout.actualDurationMinutes ?? workout.completed_data?.duration_minutes
-    : workout.planned?.duration_minutes ?? workout.plannedDurationMinutes ?? durationMinutes(workout)
+    ? (workout.actualDurationMinutes ??
+      workout.completed_data?.duration_minutes)
+    : (workout.planned?.duration_minutes ??
+      workout.plannedDurationMinutes ??
+      durationMinutes(workout))
   const seconds = summarySeconds ?? (minutes != null ? minutes * 60 : 0)
   if (!Number.isFinite(seconds) || seconds <= 0) return "—"
   const wholeSeconds = Math.round(seconds)
@@ -130,6 +167,10 @@ export function WorkoutCard({
 }) {
   disabled = disabled || Boolean(workout.app_pending_operation)
   const grade = completionGrade(workout)
+  const presentationSport =
+    workout.display_variant || workout.editor_model?.variant
+      ? calendarSportLabel(workoutPresentationSport(workout))
+      : workout.sport
   const openAfterMenu = useRef(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
   const completed = workout.status === "completed"
@@ -137,22 +178,64 @@ export function WorkoutCard({
   const time = workoutTime(workout)
   const distance = estimatedDistance(workout)
   const calendarDistance = calendarWorkoutDistance(workout)
-  const calendarTssValue = tss.replace(/ TSS$/, "").replace(/^~\s*/, '')
-  const skipped = calendarPresentation && !completed && Boolean(workout.workout_date && workout.workout_date < dateKey(new Date())) && workoutPlannedMinutes(workout) > 0
+  const calendarTssValue = tss.replace(/ TSS$/, "").replace(/^~\s*/, "")
+  const strength = workout.editor_model?.strength
+  const strengthExercises =
+    strength?.blocks.reduce((sum, block) => sum + block.exercises.length, 0) ||
+    0
+  const strengthSets =
+    strength?.blocks.reduce(
+      (sum, block) =>
+        sum +
+        block.exercises.reduce(
+          (count, exercise) => count + exercise.sets.length,
+          0
+        ),
+      0
+    ) || 0
+  const emptyStrength = strength?.blocks.length === 0
+  const calendarDuration = calendarWorkoutDuration(workout)
+  const description = strength
+    ? workout.editor_model?.notes || ""
+    : workout.details || workout.goal || ""
+  const skipped =
+    calendarPresentation &&
+    !completed &&
+    Boolean(
+      workout.workout_date && workout.workout_date < dateKey(new Date())
+    ) &&
+    workoutPlannedMinutes(workout) > 0
   return (
     <Card
       role="button"
       tabIndex={0}
-      onClick={() => { if (!disabled) onClick() }}
-      onContextMenu={calendarPresentation && canEditWorkout(workout) && onAction ? event => { event.preventDefault(); if (!disabled) setOptionsOpen(true) } : undefined}
+      onClick={() => {
+        if (!disabled) onClick()
+      }}
+      onContextMenu={
+        calendarPresentation && canEditWorkout(workout) && onAction
+          ? (event) => {
+              event.preventDefault()
+              if (!disabled) setOptionsOpen(true)
+            }
+          : undefined
+      }
       onKeyDown={(event) => {
-        if (calendarPresentation && onAction && !disabled && event.target === event.currentTarget && (event.ctrlKey || event.metaKey) && ["c", "x"].includes(event.key.toLowerCase())) {
+        if (
+          calendarPresentation &&
+          onAction &&
+          !disabled &&
+          event.target === event.currentTarget &&
+          (event.ctrlKey || event.metaKey) &&
+          ["c", "x"].includes(event.key.toLowerCase())
+        ) {
           event.preventDefault()
           onAction?.(event.key.toLowerCase() === "x" ? "cut" : "copy")
           return
         }
         if (
-          !disabled && event.target === event.currentTarget &&
+          !disabled &&
+          event.target === event.currentTarget &&
           (event.key === "Enter" || event.key === " ")
         ) {
           event.preventDefault()
@@ -165,8 +248,13 @@ export function WorkoutCard({
       data-workout-id={workout.id}
       onPointerEnter={() => prepareWorkout(workout, true)}
       onFocus={() => prepareWorkout(workout, true)}
-      onTouchStart={() => { void workoutDetailRoute.preload().catch(() => {}); prepareWorkout(workout, true) }}
-      data-calendar-completed={calendarPresentation && completed ? "true" : undefined}
+      onTouchStart={() => {
+        void workoutDetailRoute.preload().catch(() => {})
+        prepareWorkout(workout, true)
+      }}
+      data-calendar-completed={
+        calendarPresentation && completed ? "true" : undefined
+      }
       data-calendar-skipped={skipped ? "true" : undefined}
       className={`group/workout relative w-full cursor-pointer gap-2 rounded-lg px-2.5 ${completed ? "pt-5 pb-3" : "py-3"} shadow-[0_2px_6px_rgba(15,23,42,0.16)] transition-colors ${gradeStyles[grade]} ${calendarPresentation ? "calendar-workout-card" : ""}`}
     >
@@ -176,11 +264,25 @@ export function WorkoutCard({
           className={`absolute inset-x-0 top-0 h-2.5 rounded-t-lg ${gradeAccent[grade]}`}
         />
       )}
-      <div className={`flex min-w-0 flex-col items-start gap-2 ${calendarPresentation ? "calendar-workout-heading" : ""}`}>
-        <div className={`flex w-full items-center justify-between ${calendarPresentation ? "calendar-workout-sport-row" : ""}`}>
-          {calendarPresentation ? <DesktopSportIcon sport={workout.sport}/> : <SportIcon sport={workout.sport} />}
-          {calendarPresentation && <span className="calendar-workout-sport">{workout.sport}</span>}
-          {workout.app_pending_operation && <span role="status" className="text-[10px] text-muted-foreground">Syncing…</span>}
+      <div
+        className={`flex min-w-0 flex-col items-start gap-2 ${calendarPresentation ? "calendar-workout-heading" : ""}`}
+      >
+        <div
+          className={`flex w-full items-center justify-between ${calendarPresentation ? "calendar-workout-sport-row" : ""}`}
+        >
+          {calendarPresentation ? (
+            <DesktopSportIcon sport={presentationSport} />
+          ) : (
+            <SportIcon sport={presentationSport} />
+          )}
+          {calendarPresentation && (
+            <span className="calendar-workout-sport">{presentationSport}</span>
+          )}
+          {workout.app_pending_operation && (
+            <span role="status" className="text-[10px] text-muted-foreground">
+              Syncing…
+            </span>
+          )}
           {canEditWorkout(workout) && (
             <div
               onClick={(event) => event.stopPropagation()}
@@ -207,9 +309,16 @@ export function WorkoutCard({
                   },
                 ]}
               >
-                <DropdownMenu open={optionsOpen} onOpenChange={setOptionsOpen} onOpenChangeComplete={open => {
-                  if (!open && openAfterMenu.current) { openAfterMenu.current = false; onClick() }
-                }}>
+                <DropdownMenu
+                  open={optionsOpen}
+                  onOpenChange={setOptionsOpen}
+                  onOpenChangeComplete={(open) => {
+                    if (!open && openAfterMenu.current) {
+                      openAfterMenu.current = false
+                      onClick()
+                    }
+                  }}
+                >
                   <DropdownMenuTrigger
                     render={
                       <Button
@@ -226,13 +335,33 @@ export function WorkoutCard({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
                     align="end"
-                    className={calendarPresentation ? "calendar-context-menu" : "min-w-36"}
+                    className={
+                      calendarPresentation
+                        ? "calendar-context-menu"
+                        : "min-w-36"
+                    }
                     onClick={(event) => event.stopPropagation()}
                   >
-                    {calendarPresentation && <>
-                      <DropdownMenuItem disabled={disabled} onClick={() => { openAfterMenu.current = true }}><Pencil/>Edit</DropdownMenuItem>
-                      <DropdownMenuItem disabled={!onAction || disabled} onClick={() => onAction?.("cut")}><Scissors/>Cut</DropdownMenuItem>
-                    </>}
+                    {calendarPresentation && (
+                      <>
+                        <DropdownMenuItem
+                          disabled={disabled}
+                          onClick={() => {
+                            openAfterMenu.current = true
+                          }}
+                        >
+                          <Pencil />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={!onAction || disabled}
+                          onClick={() => onAction?.("cut")}
+                        >
+                          <Scissors />
+                          Cut
+                        </DropdownMenuItem>
+                      </>
+                    )}
                     {!onAction && (
                       <p className="max-w-48 px-2 py-1.5 text-xs text-muted-foreground">
                         Recorded history is read-only.
@@ -245,7 +374,7 @@ export function WorkoutCard({
                       <Copy />
                       Copy
                     </DropdownMenuItem>
-                    {calendarPresentation && <DropdownMenuSeparator/>}
+                    {calendarPresentation && <DropdownMenuSeparator />}
                     <DropdownMenuItem
                       disabled={!onAction || disabled}
                       variant="destructive"
@@ -260,59 +389,124 @@ export function WorkoutCard({
             </div>
           )}
         </div>
-        <span title={workout.title} className={`line-clamp-2 w-full text-left text-[13px] leading-tight font-semibold md:text-sm ${calendarPresentation ? "calendar-workout-title" : ""}`}>
+        <span
+          title={workout.title}
+          className={`line-clamp-2 w-full text-left text-[13px] leading-tight font-semibold md:text-sm ${calendarPresentation ? "calendar-workout-title" : ""}`}
+        >
           {workout.title}
         </span>
       </div>
       {calendarPresentation ? (
         <>
-          <dl className="calendar-workout-metrics">
-            <div className="calendar-workout-metric calendar-workout-duration">
-              <dt className="sr-only">Duration</dt>
-              <dd data-workout-metric="duration" aria-label={`Duration ${calendarWorkoutDuration(workout)}`}>{calendarWorkoutDuration(workout)}</dd>
-            </div>
-            <div className="calendar-workout-metric">
-              <dt className="sr-only">Distance</dt>
-              <dd data-workout-metric="distance" aria-label={`Distance ${calendarDistance.value}${calendarDistance.unit ? ` ${calendarDistance.unit}` : ""}`}>
-                <span className="calendar-workout-metric-value">{calendarDistance.value}</span>
-                {calendarDistance.unit && <span className="calendar-workout-metric-unit"> {calendarDistance.unit}</span>}
-              </dd>
-            </div>
-            <div className="calendar-workout-metric">
-              <dt className="sr-only">TSS</dt>
-              <dd data-workout-metric="tss" aria-label={`TSS ${tss}`}>
-                <span className="calendar-workout-metric-value">{calendarTssValue}</span>
-                {calendarTssValue !== "—" && <span className="calendar-workout-metric-unit"> TSS</span>}
-              </dd>
-            </div>
+          <dl
+            className="calendar-workout-metrics"
+            data-strength-prescription={strength ? "true" : undefined}
+          >
+            {(!strength || calendarDuration !== "—") && (
+              <div className="calendar-workout-metric calendar-workout-duration">
+                <dt className="sr-only">Duration</dt>
+                <dd
+                  data-workout-metric="duration"
+                  aria-label={`Duration ${calendarDuration}`}
+                >
+                  {calendarDuration}
+                </dd>
+              </div>
+            )}
+            {!strength && (
+              <div className="calendar-workout-metric">
+                <dt className="sr-only">Distance</dt>
+                <dd
+                  data-workout-metric="distance"
+                  aria-label={`Distance ${calendarDistance.value}${calendarDistance.unit ? ` ${calendarDistance.unit}` : ""}`}
+                >
+                  <span className="calendar-workout-metric-value">
+                    {calendarDistance.value}
+                  </span>
+                  {calendarDistance.unit && (
+                    <span className="calendar-workout-metric-unit">
+                      {" "}
+                      {calendarDistance.unit}
+                    </span>
+                  )}
+                </dd>
+              </div>
+            )}
+            {(!strength || calendarTssValue !== "—") && (
+              <div className="calendar-workout-metric">
+                <dt className="sr-only">TSS</dt>
+                <dd data-workout-metric="tss" aria-label={`TSS ${tss}`}>
+                  <span className="calendar-workout-metric-value">
+                    {calendarTssValue}
+                  </span>
+                  {calendarTssValue !== "—" && (
+                    <span className="calendar-workout-metric-unit"> TSS</span>
+                  )}
+                </dd>
+              </div>
+            )}
+            {strength && (
+              <>
+                <div className="calendar-workout-metric">
+                  <dt className="sr-only">Prescribed sets</dt>
+                  <dd data-workout-metric="sets">
+                    {emptyStrength ? "--" : strengthSets}
+                    <span className="calendar-workout-metric-unit">
+                      {" "}
+                      {strengthSets === 1 ? "Set" : "Sets"}
+                    </span>
+                  </dd>
+                </div>
+                <div className="calendar-workout-metric">
+                  <dt className="sr-only">Prescribed exercises</dt>
+                  <dd data-workout-metric="exercises">
+                    {emptyStrength ? "--" : strengthExercises}
+                    <span className="calendar-workout-metric-unit">
+                      {" "}
+                      {strengthExercises === 1 ? "Exercise" : "Exercises"}
+                    </span>
+                  </dd>
+                </div>
+              </>
+            )}
           </dl>
         </>
-      ) : <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-muted-foreground md:text-xs">
-        {time.value !== "—" && (
-          <span>
-            {time.label.replace(" time", "")}: {time.value}
-          </span>
-        )}
-        {distance && (
-          <span>· {distance}</span>
-        )}
-        {tss !== "—" && <span>· {tss}</span>}
-      </div>}
-      {(workout.details || workout.goal) && (
-        <p className={`line-clamp-6 text-xs leading-relaxed break-words whitespace-pre-line text-muted-foreground ${calendarPresentation ? "calendar-workout-description" : ""}`}>
-          {(workout.details || workout.goal || "").trim()}
+      ) : (
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-muted-foreground md:text-xs">
+          {time.value !== "—" && (
+            <span>
+              {time.label.replace(" time", "")}: {time.value}
+            </span>
+          )}
+          {distance && <span>· {distance}</span>}
+          {tss !== "—" && <span>· {tss}</span>}
+        </div>
+      )}
+      {description && (
+        <p
+          className={`line-clamp-6 text-xs leading-relaxed break-words whitespace-pre-line text-muted-foreground ${calendarPresentation ? "calendar-workout-description" : ""}`}
+        >
+          {description.trim()}
         </p>
       )}
-      {workout.status === "completed" && grade !== "unknown" && !calendarPresentation && (
-        <span className="flex items-center gap-1 text-[10px] font-medium">
-          {grade === "good"
-            ? "On target"
-            : grade === "medium"
-              ? "Near target"
-              : "Outside target"}
-        </span>
+      {workout.status === "completed" &&
+        grade !== "unknown" &&
+        !calendarPresentation && (
+          <span className="flex items-center gap-1 text-[10px] font-medium">
+            {grade === "good"
+              ? "On target"
+              : grade === "medium"
+                ? "Near target"
+                : "Outside target"}
+          </span>
+        )}
+      {!strength && (
+        <WorkoutPreview
+          workout={workout}
+          calendarPresentation={calendarPresentation}
+          onOpen={calendarPresentation && !disabled ? onClick : undefined}
+        />
       )}
-      <WorkoutPreview workout={workout} calendarPresentation={calendarPresentation} onOpen={calendarPresentation && !disabled ? onClick : undefined} />
     </Card>
   )
 }

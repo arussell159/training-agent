@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import {browserNetworkEvidence} from "./browser-network-evidence.mjs";
 
 const require = createRequire(import.meta.url);
 let playwright;
@@ -15,12 +16,38 @@ const origin = process.env.APP_TEST_ORIGIN || "http://127.0.0.1:5197";
 assert.ok(["127.0.0.1", "localhost"].includes(new URL(origin).hostname), "Synthetic localhost preview only");
 const output = path.resolve("artifacts/workout-parity");
 await fs.mkdir(output, { recursive: true });
-const browser = await playwright.chromium.launch({ headless: true, channel: "msedge" });
+const browser = await playwright.chromium.launch({ headless: true, channel: process.env.APP_TEST_BROWSER || "msedge" });
 const context = await browser.newContext({ viewport: { width: 1673, height: 741 }, colorScheme: "light" });
 const page = await context.newPage();
+const nativeDragDiagnostic=process.env.APP_DIAGNOSTIC_CANCEL_HTML_DRAG === "1";
+const overflowDiagnostic=process.env.APP_DIAGNOSTIC_RESET_DRAG_OVERFLOW || "";
+assert.ok(["","1","display"].includes(overflowDiagnostic),"Overflow diagnostics accept1(clip) ordisplay; leave unset for acceptance");
+const dragDiagnosticSession=nativeDragDiagnostic ? await context.newCDPSession(page) : null;
+const network=browserNetworkEvidence();network.attach(context);
 page.setDefaultTimeout(10000);
 const errors = [];
 const checks = [];
+let keyboardPaletteVerified=false;
+const resetRepeats=Number(process.env.APP_DRAG_RESET_REPEATS || "1");
+assert.ok(Number.isInteger(resetRepeats) && resetRepeats>=1 && resetRepeats<=10,"Use1–10 bounded reset cycles");
+const scrollTrace=[];
+await page.exposeFunction("__recordDragResetTrace",entry=>scrollTrace.push(entry));
+await page.addInitScript(()=>{
+  const scrolling=Object.getOwnPropertyDescriptor(Element.prototype,"scrollLeft");
+  Object.defineProperty(Element.prototype,"scrollLeft",{...scrolling,set(value){
+    if(window.__dragResetTraceActive && this.matches?.(".dtb-chart-scroll"))
+      window.__recordDragResetTrace({at:performance.now(),cycle:window.__dragResetTraceActive,event:"script-scroll-write",value,stack:new Error().stack});
+    return scrolling.set.call(this,value);
+  }});
+  const snapshot=(event,phase)=>{
+    if(!window.__dragResetTraceActive)return;
+    const viewport=document.querySelector(".dtb-chart-scroll"),target=event.target;
+    if(!viewport)return;
+    window.__recordDragResetTrace({at:performance.now(),cycle:window.__dragResetTraceActive,event:event.type,phase,key:event.key || null,target:target?.getAttribute?.("aria-label") || target?.className?.baseVal || target?.className || null,x:event.clientX ?? null,y:event.clientY ?? null,scrollLeft:viewport.scrollLeft,clientWidth:viewport.clientWidth,scrollWidth:viewport.scrollWidth,plotWidth:viewport.querySelector("svg")?.getBoundingClientRect().width,feedback:Boolean(document.querySelector(".dtb-profile-drag-feedback")),marker:Boolean(document.querySelector(".dtb-profile-drop-marker")),visibility:document.visibilityState});
+  };
+  for(const type of ["dragstart","dragend","dragover","drop","keydown","pointerdown","pointerup","pointercancel","lostpointercapture","mousedown","mouseup","click","scroll"])
+    document.addEventListener(type,event=>{if(type==="scroll" && !event.target?.matches?.(".dtb-chart-scroll"))return;snapshot(event,"event");if(type==="click")requestAnimationFrame(()=>snapshot(event,"next-animation-frame"));},true);
+});
 page.on("pageerror", error => errors.push(error.message));
 const title = `Actual drag verification ${Date.now()}`;
 const apiPath = url => new URL(url).searchParams.get("__api_route") || new URL(url).pathname;
@@ -133,6 +160,17 @@ try {
   await page.getByLabel("Workout title", { exact: true }).fill(title);
   await page.getByRole("button", { name: "Build Workout", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
+  for(const key of ["Enter","Space"]) {
+    const active=page.getByRole("button", {name:"Add Active",exact:true});
+    await active.focus();
+    await active.press(key);
+    await cards().first().waitFor({state:"visible"});
+    assert.equal(await cards().count(),1,"Keyboard palette activation must append exactly one block");
+    await root().getByRole("button",{name:"Workout actions",exact:true}).click();
+    await page.getByRole("button",{name:"Undo",exact:true}).click();
+    await page.waitForFunction(()=>document.querySelectorAll(".we-tp-desktop .dtb-step-card").length===0);
+  }
+  keyboardPaletteVerified=true;
   await paletteDrag("Active", 0.5, ["Active"]);
   await cards().first().getByLabel("Step title", { exact: true }).fill("Rich interval");
   await card("Rich interval").getByLabel("Step duration", { exact: true }).fill("00:05:00");
@@ -172,7 +210,8 @@ try {
   await page.mouse.up();
   assert.deepEqual(await blocks(), beforeHiddenTail, "Viewport gap cannot append while the true plot end is offscreen");
   checks.push("hidden-plot-tail-rejects-drop");
-  for (const kind of ["palette", "reorder"]) {
+  for (let cycle=1;cycle<=resetRepeats;cycle++) for (const kind of ["palette", "reorder"]) {
+    await page.evaluate(cycle=>{window.__dragResetTraceActive=cycle;},`${cycle}:${kind}`);
     const beforeEdge = await blocks();
     const edge = await root().locator(".dtb-chart-scroll").boundingBox();
     const source = kind === "palette" ? page.getByRole("button", { name: "Add Active", exact: true }) : profile().first();
@@ -184,13 +223,36 @@ try {
     const markerAfter = await marker().evaluate(node => node.getBoundingClientRect().x);
     assert.notEqual(markerAfter, markerBefore, "Insertion marker must update while the chart auto-pans");
     await screenshot(`${kind}-edge-autopan`);
+    const focusedBeforeCancel=await page.evaluateHandle(()=>document.activeElement);
     await page.keyboard.press("Escape");
     await page.mouse.up();
+    if(dragDiagnosticSession) await dragDiagnosticSession.send("Input.cancelDragging");
+    if(overflowDiagnostic) await page.evaluate(mode=>{
+      const viewport=document.querySelector(".dtb-chart-scroll");
+      const property=mode==="display" ? "display" : "overflow";
+      const previous=viewport.style[property],left=viewport.scrollLeft;
+      viewport.style[property]=mode==="display" ? "none" : "clip";
+      viewport.getBoundingClientRect();
+      viewport.style[property]=previous;
+      viewport.scrollTo({left,behavior:"instant"});
+    },overflowDiagnostic);
+    assert.equal(await focusedBeforeCancel.evaluate(element=>element.isConnected && element===document.activeElement),true,"Canceling a drag must preserve the focused DOM element");
+    await focusedBeforeCancel.dispose();
     assert.deepEqual(await blocks(), beforeEdge, "Canceling edge auto-pan must leave the model unchanged");
     await page.getByRole("button", { name: "Zoom out workout profile", exact: true }).click();
     await page.getByRole("button", { name: "Zoom in workout profile", exact: true }).click();
     await page.waitForFunction(() => document.querySelector(".dtb-chart-scroll").scrollLeft === 0);
+    const stableScroll = await page.evaluate(async () => {
+      const positions=[];
+      for(let frame=0;frame<12;frame++) {
+        await new Promise(resolve=>requestAnimationFrame(resolve));
+        positions.push(document.querySelector(".dtb-chart-scroll").scrollLeft);
+      }
+      return positions;
+    });
+    assert.deepEqual(stableScroll,Array(12).fill(0),"Canceled auto-pan must stay stopped after zoom reset, without a surviving animation loop");
     checks.push(`${kind}-edge-autopan-cancel`);
+    await page.evaluate(()=>{window.__dragResetTraceActive=false;});
   }
   for (let count = 0; count < 3; count++) {
     const pan = page.getByRole("button", { name: "Scroll workout profile forward", exact: true });
@@ -235,12 +297,14 @@ try {
   checks.push("drag-save-reopen-preserves-all-fields");
   await screenshot("saved-reopened");
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ checks, errors }, null, 2));
+  console.log(JSON.stringify({ checks, errors, acceptanceEligible:!nativeDragDiagnostic && !overflowDiagnostic }, null, 2));
 } catch (error) {
   await screenshot("failure");
   console.error(JSON.stringify({ checks, errors, blocks: await blocks().catch(() => []) }, null, 2));
   throw error;
 } finally {
-  await fs.writeFile(path.join(output, "drag-results.json"), JSON.stringify({ checks, errors }, null, 2));
+  await fs.writeFile(path.join(output,"network-drag.json"),JSON.stringify(network.entries,null,2));
+  await fs.writeFile(path.join(output, "drag-results.json"), JSON.stringify({ checks, errors, keyboardPaletteVerified, browser:process.env.APP_TEST_BROWSER || "msedge", browserVersion:browser.version(), diagnosticNativeDragCancel:nativeDragDiagnostic, diagnosticOverflowReset:overflowDiagnostic, acceptanceEligible:!nativeDragDiagnostic && !overflowDiagnostic }, null, 2));
+  await fs.writeFile(path.join(output,"drag-scroll-trace.json"),JSON.stringify({resetRepeats,trace:scrollTrace},null,2));
   await browser.close();
 }

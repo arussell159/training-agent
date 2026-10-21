@@ -1,5 +1,6 @@
 // Validate recorded data before it reaches a chart or a durable device cache.
 // Missing measurements are legitimate; malformed shapes and non-finite values are not.
+import { validRecordedAnalysisThresholds } from "../../../app-backend/lib/recorded-analysis-thresholds.mjs"
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
 const finite = (value: unknown): value is number =>
@@ -25,7 +26,8 @@ const dfaNumbers = [
 ] as const
 
 export function validActivitySummary(value: unknown): boolean {
-  return record(value) && value.error == null && optionalNumbers(value, summaryNumbers)
+  return record(value) && value.error == null && optionalNumbers(value, summaryNumbers) &&
+    (value.recorded_thresholds == null || validRecordedAnalysisThresholds(value.recorded_thresholds))
 }
 
 const validLap = (value: unknown) =>

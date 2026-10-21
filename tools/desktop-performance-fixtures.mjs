@@ -1,5 +1,5 @@
 // Pure local demonstration data. No provider, database, environment or network imports.
-export function createDesktopPerformanceFixtures({ today, now, context, dateShift }) {
+export function createDesktopPerformanceFixtures({ today, now, context, dateShift, paceSources }) {
   const records = context(dateShift(today, -730), today).history.map((row) => ({
     id: `i9${row.date.replaceAll("-", "")}${row.activity_id.split("-").at(-1)}`,
     date: row.date,
@@ -27,6 +27,56 @@ export function createDesktopPerformanceFixtures({ today, now, context, dateShif
     [1200, 170],
     [3600, 144],
   ]);
+  // Explicit synthetic samples, not interpolated from the legacy eight anchors.
+  const fullPowers = new Map([
+    [5, 420],
+    [10, 390],
+    [12, 370],
+    [20, 340],
+    [30, 310],
+    [60, 222],
+    [120, 210],
+    [300, 199],
+    [360, 196],
+    [600, 184],
+    [720, 180],
+    [1200, 170],
+    [1800, 160],
+    [3600, 144],
+    [5400, 130],
+  ]);
+  // Independent literal distance/elapsed samples. Zero elapsed demonstrates a
+  // missing native effort; it is never published as infinite or zero pace.
+  const fullPaces = {
+    Run: [
+      [400, 88],
+      [800, 181],
+      [1000, 232],
+      [1234, 0],
+      [1600, 382],
+      [1609.344, 386],
+      [5000, 1320],
+      [8046.72, 2200],
+      [10000, 2810],
+      [15000, 4380],
+      [16093.44, 4720],
+      [21097.5, 6400],
+      [30000, 9500],
+    ],
+    Swim: [
+      [91.44, 80],
+      [100, 89],
+      [182.88, 166],
+      [200, 183],
+      [365.76, 338],
+      [400, 376],
+      [548.64, 525],
+      [731.52, 708],
+      [914.4, 901],
+      [1000, 1000],
+      [1500, 1540],
+    ],
+  };
   const sportName = (type) => (type === "Ride" ? "Bike" : type);
   const anchors = (type) =>
     type === "Ride"
@@ -45,7 +95,7 @@ export function createDesktopPerformanceFixtures({ today, now, context, dateShif
     const power = type === "Ride";
     const distance = anchor.distance_meters;
     const value = power
-      ? powers.get(anchor.duration_seconds) - (index % 5) * 3
+      ? powers.get(anchor.duration_seconds) - (anchor.duration_seconds === 5 ? 0 : (index % 5) * 3)
       : type === "Run"
         ? (distance <= 1000 ? 4.08 : distance <= 5000 ? 3.04 : 2.92) - (index % 4) * 0.025
         : (distance <= 200 ? 1.17 : 1.09) - (index % 4) * 0.005;
@@ -99,12 +149,87 @@ export function createDesktopPerformanceFixtures({ today, now, context, dateShif
         });
       }
     }
+    const powerCurve = {
+      version: 1,
+      sport: "Bike",
+      kind: "power",
+      unit: "watts",
+      source: "intervals-power-curve",
+      window: { oldest, newest },
+      points: [...fullPowers].map(([duration_seconds, value]) => {
+        const activity = records.findLast(
+          (row) =>
+            row.sport === "Bike" &&
+            (!oldest || row.date >= oldest) &&
+            row.date <= newest &&
+            row.duration_seconds >= duration_seconds
+        );
+        return {
+          duration_seconds,
+          value: activity ? value : null,
+          activity_id: activity?.id || null,
+          date: activity?.date || null,
+          name: activity?.name || null,
+          estimated: false,
+          ...(activity && duration_seconds === 5 ? { start_index: 0, end_index: 5 } : {}),
+        };
+      }),
+      warning: null,
+    };
+    if (powerCurve.points.some((point) => point.value === null))
+      powerCurve.warning =
+        "Some exact synthetic duration samples are unavailable in this selected range.";
+    const paceCurves = Object.fromEntries(
+      ["Run", "Swim"].map((sport) => {
+        if (paceSources)
+          return [sport, paceSources.project(sport, { oldest, newest }, fullPaces[sport], records)];
+        const points = fullPaces[sport].map(([distance_meters, elapsed]) => {
+          const activity =
+            elapsed > 0
+              ? records.findLast(
+                  (row) =>
+                    row.sport === sport &&
+                    (!oldest || row.date >= oldest) &&
+                    row.date <= newest &&
+                    row.distance_meters >= distance_meters &&
+                    row.duration_seconds >= elapsed
+                )
+              : null;
+          return {
+            distance_meters,
+            elapsed_seconds: activity ? elapsed : null,
+            value: activity ? distance_meters / elapsed : null,
+            activity_id: activity?.id || null,
+            date: activity?.date || null,
+            name: activity?.name || null,
+            estimated: false,
+          };
+        });
+        return [
+          sport,
+          {
+            version: 1,
+            sport,
+            kind: "pace",
+            unit: "m/s",
+            source: "intervals-pace-curve",
+            window: { oldest, newest },
+            points,
+            warning: points.some((point) => point.value === null)
+              ? "Some exact synthetic distance samples are unavailable in this selected range."
+              : null,
+          },
+        ];
+      })
+    );
     return {
-      records,
+      records: records.concat(paceSources?.records || []),
       today,
       source: "synthetic-local-preview",
       synced_at: now.toISOString(),
       bestEfforts,
+      powerCurve,
+      paceCurves,
       bestEffortsWindow: { oldest, newest },
     };
   }

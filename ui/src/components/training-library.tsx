@@ -1,8 +1,14 @@
-import { readPageSnapshot, writePageSnapshot, pageSnapshotFresh, pageSnapshotRevision } from "@/lib/page-snapshots"
+import {
+  readPageSnapshot,
+  writePageSnapshot,
+  pageSnapshotFresh,
+  pageSnapshotRevision,
+} from "@/lib/page-snapshots"
 import { ListSkeleton, WorkoutGridSkeleton } from "@/components/loading-layouts"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
 import { loadWorkspaceRead } from "@/lib/workspace-reads"
+import { validatedLibraryWorkout } from "@/lib/training-context-validation"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useEffect, useMemo, useState } from "react"
 import { Activity, Bike, Footprints, Search, Waves } from "lucide-react"
@@ -28,7 +34,9 @@ export function TrainingLibrary({
   onWorkoutOpen?: (workout: PlannedWorkout) => void
 }) {
   const mobile = useIsMobile()
-  const [workouts, setWorkouts] = useState<PlannedWorkout[]>(() => readPageSnapshot<PlannedWorkout[]>("library") || [])
+  const [workouts, setWorkouts] = useState<PlannedWorkout[]>(
+    () => readPageSnapshot<PlannedWorkout[]>("library") || []
+  )
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(() => !readPageSnapshot("library"))
   const [discipline, setDiscipline] =
@@ -42,10 +50,14 @@ export function TrainingLibrary({
       const request = ++latest
       const snapshotRevision = pageSnapshotRevision()
       try {
-        const value = await loadWorkspaceRead<{workouts: PlannedWorkout[]}>("/api/workout-library", controller.signal)
+        const value = await loadWorkspaceRead<{ workouts: PlannedWorkout[] }>(
+          "/api/workout-library",
+          controller.signal
+        )
         if (controller.signal.aborted || request !== latest) return
-        writePageSnapshot("library", value.workouts || [], snapshotRevision)
-        setWorkouts(value.workouts || [])
+        const confirmed = value.workouts.map(validatedLibraryWorkout)
+        writePageSnapshot("library", confirmed, snapshotRevision)
+        setWorkouts(confirmed)
         setError("")
       } catch (error) {
         if (!controller.signal.aborted && request === latest)
@@ -60,9 +72,11 @@ export function TrainingLibrary({
     }
     if (!pageSnapshotFresh("library")) void load()
     window.addEventListener("training-context-updated", load)
+    window.addEventListener("workout-library-updated", load)
     return () => {
       controller.abort()
       window.removeEventListener("training-context-updated", load)
+      window.removeEventListener("workout-library-updated", load)
     }
   }, [])
 
@@ -100,7 +114,20 @@ export function TrainingLibrary({
               <ListSkeleton />
             ) : (
               <SettingsList>
-                {filtered.map(workout => <SettingsListItem key={workout.id} icon={workoutIcon(workout.sport)} label={workout.title} description={`${workout.sport} · ${workout.duration}`} onClick={() => onWorkoutOpen?.(workout)} />)}
+                {filtered.map((workout) => (
+                  <SettingsListItem
+                    key={workout.id}
+                    icon={workoutIcon(workout.sport)}
+                    label={workout.title}
+                    description={[
+                      `${workout.sport} · ${workout.duration}`,
+                      workout.template_metadata_error,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                    onClick={() => onWorkoutOpen?.(workout)}
+                  />
+                ))}
               </SettingsList>
             )}
             {!loading && !error && !filtered.length && (
@@ -114,59 +141,76 @@ export function TrainingLibrary({
   return (
     <div className="flex w-full min-w-0 flex-1 flex-col overflow-y-auto bg-background">
       <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-1 flex-col gap-6 px-4 py-5 md:px-8 md:py-14">
-      <header className="hidden md:block">
-        <h1 className="text-2xl font-medium tracking-tight">Library</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Browse and search your saved workouts.</p>
-      </header>
-      <Card className="gap-3 rounded-xl border p-4 shadow-none ring-1 ring-foreground/10">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full sm:max-w-sm">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search workouts"
-            aria-label="Search workouts"
-            className="pl-9"
-          />
-        </div>
-        <div
-          className="flex flex-wrap gap-2"
-          aria-label="Filter workouts by discipline"
-        >
-          {disciplines.map((item) => (
-            <Button
-              key={item}
-              type="button"
-              size="sm"
-              variant={discipline === item ? "default" : "outline"}
-              className="cursor-pointer"
-              aria-pressed={discipline === item}
-              onClick={() => setDiscipline(item)}
+        <header className="hidden md:block">
+          <h1 className="text-2xl font-medium tracking-tight">Library</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Browse and search your saved workouts.
+          </p>
+        </header>
+        <Card className="gap-3 rounded-xl border p-4 shadow-none ring-1 ring-foreground/10">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative w-full sm:max-w-sm">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search workouts"
+                aria-label="Search workouts"
+                className="pl-9"
+              />
+            </div>
+            <div
+              className="flex flex-wrap gap-2"
+              aria-label="Filter workouts by discipline"
             >
-              {item}
-            </Button>
-          ))}
-        </div>
-      </div>
-      </Card>
+              {disciplines.map((item) => (
+                <Button
+                  key={item}
+                  type="button"
+                  size="sm"
+                  variant={discipline === item ? "default" : "outline"}
+                  className="cursor-pointer"
+                  aria-pressed={discipline === item}
+                  onClick={() => setDiscipline(item)}
+                >
+                  {item}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </Card>
 
-      {error && <p role="alert" className="rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive">{error}</p>}
-      {loading ? <WorkoutGridSkeleton /> : filtered.length ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((workout) => (
-            <WorkoutCard
-              key={workout.id}
-              workout={workout}
-              onClick={() => onWorkoutOpen?.(workout)}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="rounded-xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">
-          No workouts match this search.
-        </div>
-      )}
+        {error && (
+          <p
+            role="alert"
+            className="rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive"
+          >
+            {error}
+          </p>
+        )}
+        {loading ? (
+          <WorkoutGridSkeleton />
+        ) : filtered.length ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {filtered.map((workout) => (
+              <div key={workout.id} className="min-w-0">
+                <WorkoutCard
+                  workout={workout}
+                  onClick={() => onWorkoutOpen?.(workout)}
+                />
+                {workout.template_metadata_error && (
+                  <p role="alert" className="mt-2 text-sm text-destructive">
+                    {workout.template_metadata_error}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">
+            No workouts match this search.
+          </div>
+        )}
       </div>
     </div>
   )

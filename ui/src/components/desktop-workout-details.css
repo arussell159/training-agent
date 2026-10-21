@@ -1,5 +1,17 @@
 /* Desktop dialogs have a fixed header and footer surrounding a scrollable body. */
 @media (min-width: 768px) {
+  :root:not(.dark) .desktop-workout-preview {
+    --foreground: #1a202e;
+    --border: #dedee4;
+    --primary: #1840ec;
+  }
+  :root:not(.dark) .desktop-workout-preview .desktop-workout-dialog-footer button {
+    color: #1840ec;
+  }
+  :root:not(.dark) .desktop-workout-preview .desktop-workout-dialog-footer .desktop-workout-save-close {
+    color: white;
+    background: #1840ec;
+  }
   .desktop-workout-create .desktop-workout-dialog-body {
     min-height: 0;
   }
@@ -54,14 +66,22 @@
     padding: 0;
     overflow: hidden;
     border-radius: 8px;
+    transition-property: opacity, transform;
     font-family: var(--font-sans);
+    line-height: 14px;
     color: var(--foreground);
     background: var(--background);
   }
   [role="dialog"].desktop-workout-preview {
+    /* Reference centers a 690px frame whose 700px content overflows right. */
+    left: calc(var(--app-window-width, 100vw) / 2 + 5px);
+    top: 25px;
+    translate: -50% 0;
     width: min(700px, calc(100vw - 32px));
     max-width: 700px;
-    height: min(750px, calc(100dvh - 58px));
+    height: 92dvh;
+    max-height: calc(100dvh - 52px);
+    box-shadow: 0 16px 32px rgb(26 32 46 / 30%);
   }
   [role="dialog"].desktop-workout-analysis-dialog {
     width: calc(100vw - 40px);
@@ -81,8 +101,8 @@
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
-    scrollbar-width: thin;
-    padding: 0 18px 12px 4px;
+    scrollbar-width: auto;
+    padding: 0 22px 12px 4px;
     border-top: 1px solid var(--border);
   }
   .desktop-workout-dialog-body[hidden] {
@@ -99,7 +119,7 @@
     justify-content: flex-end;
     flex-wrap: wrap;
     gap: 24px;
-    min-height: 56px;
+    min-height: 57px;
     padding: 10px 16px;
     border-top: 1px solid var(--border);
     background: var(--background);
@@ -123,7 +143,7 @@
   }
   .desktop-workout-header {
     flex: 0 0 auto;
-    padding: 12px 16px;
+    padding: 12px 14px 12px 16px;
     background: var(--background);
   }
   .desktop-workout-heading-row {
@@ -131,7 +151,7 @@
     grid-template-columns: auto 90px auto minmax(0, 1fr);
     align-items: center;
     gap: 8px;
-    min-height: 26px;
+    min-height: 24.5px;
   }
   .desktop-workout-date {
     color: #2441d6;
@@ -141,7 +161,15 @@
   }
   .desktop-workout-date-edit {
     position: relative;
+    top: 0.5px;
+    margin-left: -4px;
+    padding: 4px 8px;
+    border: 1px solid transparent;
     cursor: pointer;
+  }
+  .desktop-workout-date-edit::after {
+    content: " ";
+    white-space: pre;
   }
   .desktop-workout-weekday {
     text-transform: uppercase;
@@ -194,7 +222,7 @@
     align-items: center;
     width: 90px;
     min-width: 90px;
-    height: 26px;
+    height: 24.5px;
     border: 1px solid #d0d6e1;
     border-radius: 4px;
     padding: 2px 5px;
@@ -207,32 +235,34 @@
   .desktop-workout-fitness {
     display: flex;
     justify-content: flex-start;
-    gap: 5px;
+    gap: 6px;
+    margin-left: 5.40625px;
   }
   .desktop-workout-fitness > span {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 5px 7px;
+    height: 24.5px;
+    padding: 5px 10px;
     border-radius: 4px;
     color: white;
     font-size: 12px;
     line-height: 16px;
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
+    font-weight: 400;
+    font-variant-numeric: normal;
     white-space: nowrap;
   }
   .desktop-workout-fitness strong {
-    font-weight: 600;
+    font-weight: 400;
   }
   .desktop-workout-fitness [data-training-metric="fitness"] {
-    background: #2046eb;
+    background: #1840ec;
   }
   .desktop-workout-fitness [data-training-metric="fatigue"] {
-    background: #ed368d;
+    background: #e63788;
   }
   .desktop-workout-fitness [data-training-metric="form"] {
-    background: #ff7500;
+    background: #fd6b00;
   }
   .desktop-workout-actions {
     display: flex;
@@ -241,11 +271,14 @@
     justify-content: flex-end;
   }
   .desktop-workout-actions button {
-    width: 24px;
-    height: 26px;
+    width: 22px;
+    height: 22px;
   }
   .desktop-workout-repeat {
-    margin: 8px 0 14px;
+    display: flex;
+    align-items: center;
+    min-height: 30px;
+    margin: 8px 0 12px;
     padding-left: 6px;
     font-size: 12px;
   }
@@ -317,7 +350,7 @@
     font-size: 22px;
     line-height: 27px;
     font-weight: 700;
-    font-variant-numeric: tabular-nums;
+    font-variant-numeric: normal;
     white-space: nowrap;
   }
   .desktop-workout-context {
@@ -389,31 +422,34 @@
   }
   .desktop-workout-details-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.16fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 351fr) minmax(0, 275fr);
     align-items: start;
-    gap: 22px;
+    gap: 0;
     width: 100%;
     max-width: 1080px;
     min-width: 0;
-    padding: 10px 0 4px;
+    padding: 7.546875px 0 4px;
     font-size: 11px;
   }
   .desktop-workout-totals,
   .desktop-workout-detail-text {
     min-width: 0;
   }
+  .desktop-workout-totals {
+    padding: 0 20px 20px 15px;
+  }
   .desktop-workout-totals table {
     width: 100%;
     table-layout: fixed;
     border-collapse: separate;
-    border-spacing: 3px 2px;
+    border-spacing: 0 2px;
     font-size: 11px;
   }
   .desktop-workout-totals .metric-label {
-    width: 34%;
+    width: 31.64557%;
   }
   .desktop-workout-totals .metric-unit {
-    width: 15%;
+    width: 14.24051%;
   }
   .desktop-workout-totals th {
     font-weight: 400;
@@ -429,6 +465,9 @@
   }
   .desktop-workout-totals td {
     vertical-align: middle;
+  }
+  .desktop-workout-totals td:has(input, output) {
+    padding-right: 2px;
   }
   .desktop-workout-totals input {
     width: 100%;
@@ -448,11 +487,25 @@
   .desktop-new-recorded-values {
     margin-top: 12px;
   }
+  .desktop-workout-totals .desktop-new-recorded-values thead th,
+  .desktop-workout-recorded thead th {
+    height: 16.546875px;
+  }
+  .desktop-new-recorded-values tbody tr,
+  .desktop-workout-recorded tbody tr {
+    height: 22px;
+  }
   .desktop-new-recorded-values tbody th {
     color: #9ba3b1;
   }
   .desktop-new-recorded-values .desktop-recorded-value {
-    min-height: 22px;
+    height: 20px;
+    min-height: 20px;
+  }
+  .desktop-workout-preview .desktop-new-recorded-values .desktop-recorded-value,
+  .desktop-workout-preview .desktop-workout-recorded .desktop-recorded-value {
+    height: 20px;
+    min-height: 20px;
   }
   .desktop-workout-totals input:disabled,
   .desktop-workout-totals input[aria-label="Planned normalized power"] {
@@ -460,8 +513,11 @@
   }
   .desktop-editable-metric {
     display: block;
-    color: #2444df;
+    color: inherit;
     cursor: text;
+  }
+  .desktop-editable-metric:is([for$="duration_seconds"], [for$="distance_meters"], [for$="tss"]) {
+    color: #1840ec;
     text-decoration: underline;
     text-decoration-style: dotted;
     text-underline-offset: 3px;
@@ -821,7 +877,7 @@
   .desktop-workout-preview .desktop-workout-totals th,
   .desktop-workout-preview .desktop-workout-totals td,
   .desktop-workout-preview .desktop-workout-detail-text h3 {
-    color: #12345b;
+    color: var(--foreground);
   }
   .desktop-workout-title-input::placeholder,
   .dtb-overview > input::placeholder {
@@ -959,6 +1015,8 @@
 
 @media (min-width: 768px) {
   [role="dialog"].desktop-workout-dialog-expanded {
+    left: calc(var(--app-window-width, 100vw) / 2);
+    top: 16px;
     width: calc(100vw - 32px);
     max-width: 1600px !important;
     height: calc(100dvh - 32px);
@@ -977,7 +1035,7 @@
   }
   .desktop-workout-preview .desktop-workout-details-shell {
     display: grid;
-    grid-template-columns: 34px minmax(0, 1fr);
+    grid-template-columns: 33px minmax(0, 1fr);
     min-width: 0;
     width: 100%;
   }
@@ -1025,15 +1083,16 @@
     min-height: 22px;
   }
   .desktop-workout-preview .desktop-workout-detail-text {
-    padding-top: 7px;
-    gap: 12px;
+    padding-top: 4.8125px;
+    gap: 12.25px;
   }
   .desktop-workout-preview .desktop-workout-detail-text h3 {
-    color: #12345b;
+    color: var(--foreground);
     font-size: 11px;
+    line-height: 13.354px;
   }
   .desktop-workout-preview .desktop-description-input {
-    min-height: 30px !important;
+    min-height: 29.125px !important;
     max-height: none !important;
     overflow: hidden !important;
     resize: none;
@@ -1045,6 +1104,12 @@
   .desktop-workout-preview .desktop-workout-description h3 {
     margin-bottom: 8px;
   }
+  .desktop-workout-preview .desktop-workout-description-heading h3 {
+    margin: 0;
+  }
+  .desktop-workout-preview .desktop-workout-description-heading {
+    margin-bottom: 5.640625px;
+  }
   .desktop-workout-preview .desktop-planned-comments {
     margin: 0;
   }
@@ -1052,9 +1117,14 @@
   .desktop-workout-preview .desktop-workout-description textarea {
     border-color: #d6dce7;
     background: #f1f1f1;
-    font-size: 12px;
-    line-height: 15px;
-    padding: 6px 7px;
+    font-size: 12.25px;
+    line-height: 14.8715px;
+    padding: 6.125px;
+  }
+  .desktop-workout-preview .desktop-planned-comments textarea:placeholder-shown {
+    height: 29.125px;
+    min-height: 29.125px;
+    resize: none;
   }
   .desktop-workout-preview .desktop-planned-comments .desktop-workout-detail-actions {
     display: none;
@@ -1070,12 +1140,12 @@
     min-width: 0;
     height: 60px;
     margin-top: 8px;
-    padding: 7px;
+    padding: 6.125px;
     border: 1px solid #d6dce7;
     border-radius: 4px;
     font-family: inherit;
-    font-size: 12px;
-    line-height: 15px;
+    font-size: 12.25px;
+    line-height: 14.8715px;
     resize: vertical;
     background: #f1f1f1;
     color: var(--foreground);
@@ -1087,10 +1157,11 @@
   }
   .desktop-workout-character-count {
     display: block;
-    margin-top: 8px;
+    margin-top: 12.25px;
     color: #4c76b5;
     text-align: right;
     font-size: 11px;
+    line-height: 11px;
   }
   .desktop-workout-private-notes textarea,
   .desktop-workout-equipment input,
@@ -1113,13 +1184,23 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    min-height: 25px;
+    min-height: 20.359375px;
+    padding-bottom: 6px;
     border-bottom: 1px solid #d6dce7;
+  }
+  .desktop-workout-preview .desktop-workout-tags {
+    margin-top: 2.9375px;
   }
   .desktop-workout-tags h3 > button {
     padding: 0;
+    width: 14px;
+    height: 13.359375px;
     color: #67717d;
     cursor: pointer;
+  }
+  .desktop-workout-tags h3 > button svg {
+    width: 14px;
+    height: 14px;
   }
   .desktop-workout-tag-list {
     display: flex;
@@ -1182,7 +1263,8 @@
     color: #12345b;
     font-size: 11px;
   }
-  .desktop-workout-equipment input {
+  .desktop-workout-equipment input,
+  .desktop-workout-equipment select {
     min-width: 0;
     width: 100%;
     height: 30px;
@@ -1192,6 +1274,14 @@
     background: #f4f6f9;
     font-size: 14px;
     text-align: left;
+  }
+  .desktop-workout-equipment .desktop-workout-pools {
+    margin-top: 8px;
+  }
+  .desktop-workout-equipment label + label { margin-top: 8px; }
+  .desktop-workout-equipment select:disabled {
+    opacity: 1;
+    color: #a3afc3;
   }
   .desktop-workout-auto-calculate {
     display: inline-flex;
@@ -1208,8 +1298,27 @@
     accent-color: #2342e8;
   }
   .desktop-workout-preview .desktop-workout-dialog-footer {
-    gap: 20px;
-    padding: 10px 16px 10px 22px;
+    gap: 8px;
+    padding: 0 16px 0 22px;
+    border-top: 0;
+    box-shadow: inset 0 1px 0 var(--border);
+  }
+  .desktop-workout-preview .desktop-workout-dialog-footer button {
+    min-height: 32px;
+    padding: 7px 15px;
+    line-height: 14px;
+    color: #1840ec;
+  }
+  :root:not(.dark) .desktop-workout-preview .desktop-workout-dialog-footer .desktop-workout-save-close {
+    color: #fff;
+    background: #1840ec;
+  }
+  .desktop-workout-preview .desktop-workout-detail-navigation button {
+    width: 33px;
+    color: #1a202e;
+  }
+  .dark .desktop-workout-preview .desktop-workout-detail-navigation button {
+    color: #e6e8ed;
   }
   .desktop-workout-preview .desktop-workout-dialog-footer:has(.desktop-workout-auto-calculate) > button:first-of-type:not(.desktop-workout-save-close) {
     margin-left: 0;
@@ -1225,8 +1334,8 @@
     cursor: pointer;
   }
   .desktop-workout-sport-picker > svg:first-child {
-    width: 26px;
-    height: 26px;
+    width: 24px;
+    height: 24px;
   }
   .desktop-workout-sport-picker select {
     position: absolute;
@@ -1246,10 +1355,10 @@
     font-size: 22px;
   }
   .desktop-workout-create .desktop-workout-title-input {
-    width: 86%;
+    width: calc(100% - 82px);
   }
   .desktop-workout-empty-duration {
-    letter-spacing: 2px;
+    letter-spacing: normal;
   }
   .desktop-workout-create .desktop-workout-value-unit {
     font-size: 16px;
@@ -1269,9 +1378,9 @@
     color: #bac2d0;
   }
   .desktop-new-workout-build {
-    height: 60px;
+    height: 58px;
     margin: 4px 8px 12px 16px;
-    padding: 10px 6px 0;
+    padding: 8px 6px 0;
     position: relative;
   }
   .desktop-new-workout-build > button {
@@ -1284,7 +1393,7 @@
     white-space: nowrap;
   }
   .desktop-new-workout-outline {
-    height: 48px;
+    height: 46px;
     align-items: end;
     grid-template-columns: 1fr 6fr 1fr;
   }
@@ -1310,6 +1419,7 @@
   }
   .dark .desktop-workout-private-notes textarea,
   .dark .desktop-workout-equipment input,
+  .dark .desktop-workout-equipment select,
   .dark .desktop-workout-preview .desktop-planned-comments textarea,
   .dark .desktop-workout-preview .desktop-workout-description textarea,
   .dark .desktop-workout-detail-navigation button[aria-pressed="true"],

@@ -1,5 +1,6 @@
 import { eventId, validDate } from "./intervals.mjs";
 import { workoutRevision } from "./workout-editor.mjs";
+import { providerWorkoutDescription } from "./workout-provider-description.mjs";
 import {
   readPlannedValues,
   validatePlannedValues,
@@ -61,11 +62,12 @@ export async function savePlannedWorkoutMetrics(request, id, input = {}) {
     ["tss", "load_target"],
   ])
     if (key in values) patch[field] = values[key];
-  if ("intensity_factor" in values)
-    patch.icu_intensity = values.intensity_factor == null ? null : values.intensity_factor * 100;
+  // Manual IF is an exact private planned value. ICU owns its independently
+  // derived intensity, which may differ after native load/duration rounding.
   if ("work_kj" in values)
     patch.joules = values.work_kj == null ? null : Math.round(values.work_kj * 1000);
-  if (patch.description.length > 30000) fail("Workout text exceeds 30,000 characters.");
+  if (providerWorkoutDescription(patch.description).length > 30000)
+    fail("Workout text exceeds 30,000 characters.");
   const same = (event) =>
     Object.entries(patch).every(([key, value]) =>
       typeof value === "number"

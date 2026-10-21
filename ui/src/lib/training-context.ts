@@ -9,8 +9,11 @@ import { validatedTrainingContext, validatedTrainingWorkout } from "./training-c
 import { withRequestDeadline, waitForRequestDelay } from "./request-deadline"
 import { twelveWeekStart } from "../../../app-backend/lib/training-retention.mjs"
 import { projectOptimisticWorkout, rollbackOptimisticWorkout, clearOptimisticWorkout, type OptimisticWorkoutChange } from "./optimistic-workout"
-import { applyVerifiedCalendarPair } from "./calendar-interactions"
+import { applyVerifiedCalendarPair, removeVerifiedCalendarPlans } from "./calendar-interactions"
 import { mergeVerifiedWorkout } from "./workout-save-state"
+import { acceptWorkoutCommit, overlayWorkoutCommits, startWorkoutCommitRecovery, localCommittedWorkout, committedWorkouts, restoreWorkoutCommits } from "./workout-commits"
+import { workoutRevisionInput } from "../../../app-backend/lib/workout-revision-input.mjs"
+import { importWorkout } from "../../../app-backend/lib/workout-editor-model.mjs"
 export interface TrainingHistoryItem {
   workout_date: string
   planned?: { duration_minutes?: number; tss?: number }
@@ -18,7 +21,22 @@ export interface TrainingHistoryItem {
   recovery?: { hrv?: number | null; resting_hr?: number | null }
 }
 
+export interface HeartRateZoneSummary {
+  seconds: number[]
+  boundaries_bpm: number[]
+  threshold_bpm: number | null
+}
+
 export interface WorkoutSummaryValues {
+  recorded_thresholds?: import("../../../app-backend/lib/recorded-analysis-thresholds.mjs").RecordedAnalysisThresholds | null
+  power_load?: number | null
+  hr_load?: number | null
+  pace_load?: number | null
+  hr_load_type?: string | null
+  pace_load_type?: string | null
+  heart_rate_zones?: HeartRateZoneSummary | null
+  power_zone_times?: import("../../../app-backend/lib/recorded-zone-times.mjs").RecordedZoneTimes | null
+  pace_zone_times?: import("../../../app-backend/lib/recorded-zone-times.mjs").RecordedZoneTimes | null
   elapsed_time_seconds?: number | null
   elapsed_speed?: number | null
   min_hr?: number | null
@@ -49,6 +67,16 @@ export interface WorkoutSummaryValues {
 }
 
 export interface PlannedWorkout {
+  structure_read_only?: boolean
+  template_metadata_error?: string
+  display_variant?: "brick" | "day-off" | "custom"
+  unstructured?: boolean
+  calendar_event_key?: string
+  calendar_annotation?: import("../../../app-backend/lib/calendar-annotations-model.mjs").CalendarAnnotation
+  calendar_annotation_key?: string
+  calendar_annotation_kind?: "goals" | "availability"
+  calendar_annotation_error?: string
+  workout_end_date?: string
   app_pending_operation?: string
   sync_status?: string
   planned_values_edited?: boolean
@@ -62,6 +90,8 @@ export interface PlannedWorkout {
   id: string
   day: string
   activity_id?: string | null
+  provider_type?: string | null
+  activity_type?: string | null
   recorded_start_local?: string | null
   device_name?: string | null
   completion_grade?: "good" | "medium" | "failed"
@@ -153,6 +183,7 @@ export interface TrainingContext {
   synced_at?: string
   sync_error?: string | null
   context_scope?: "week" | "full" | "range"
+  display_range?: { start: string; end: string }
   full_history_available?: boolean
   retention_days?: number
 }
@@ -339,7 +370,7 @@ export function rememberTrainingContext(
   context: CachedContext,
   scope: "week" | "full" = "week"
 ) {
-  context = validatedTrainingContext(context) as CachedContext
+  context = overlayWorkoutCommits(validatedTrainingContext(context) as CachedContext)
   const previous = (contextCache.get("full") || contextCache.get("week")) as
     CachedContext | undefined
   if (
@@ -788,10 +819,27 @@ export async function changeWorkout(
   action: "copy" | "delete" | "move",
   date?: string,
   creationId?: string,
-  options: { feedback?: boolean | "complete" } = {}
+  options: { feedback?: boolean | "complete"; optimistic?: boolean } = {}
 ) {
+  const prior = [...cachedTrainingContext().planned, ...cachedTrainingContext().history].find(row => "id" in row && row.id === id) as PlannedWorkout | undefined
+  if (prior && /^(Swim|Ride|Bike|Run)$/.test(prior.sport) && prior.status !== "completed") {
+    const local = localCommittedWorkout(id)
+    const raw = (prior as PlannedWorkout & {raw?:Record<string,unknown>}).raw
+    const parsed = !local?.input.model && !prior.editor_model && raw ? importWorkout(raw) : null
+    if (parsed?.issues.length) throw Error(`This workout's full prescription needs review before it can be changed: ${parsed.issues.join(" ")}`)
+    const model = local?.input.model || prior.editor_model || parsed?.model
+    if (model) {
+      const cachedRevision = raw ? [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(workoutRevisionInput(raw))))].map(byte=>byte.toString(16).padStart(2,"0")).join("") : undefined
+      const appRevision = (prior as PlannedWorkout & {app_revision?:number}).app_revision
+      const revision = local?.revision || (appRevision ? `app:${appRevision}` : cachedRevision) || (await (await import("./workout-read-cache")).loadWorkoutEditor(`/api/workouts/${encodeURIComponent(id)}/editor`)).revision
+      const input = { ...(local?.input || {}), model: { ...structuredClone(model), ...(date ? { date } : {}) }, revision }
+      const result = await acceptWorkoutCommit(action === "copy" ? null : id, { ...input, ...(action === "copy" ? { creationId: creationId || randomId(), revision: undefined } : {}) }, prior, action === "delete" ? "delete" : undefined, action !== "copy" && !local && !appRevision ? raw : undefined)
+      return { ...result, context: cachedTrainingContext() }
+    }
+  }
   const revision = beginMutation()
-  const optimistic = action === "copy" ? null : optimisticWorkout({ id, ...(action === "delete" ? { remove: true } : { patch: { workout_date: date } }) }, action === "delete" ? "Removing workout…" : "Moving workout…", options.feedback ?? "complete")
+  const deferredDelete = action === "delete" && options.optimistic === false
+  const optimistic = action === "copy" || deferredDelete ? null : optimisticWorkout({ id, ...(action === "delete" ? { remove: true } : { patch: { workout_date: date } }) }, action === "delete" ? "Removing workout…" : "Moving workout…", options.feedback ?? "complete")
   try {
     const { response, result } = await readMutationResponse<{
       verified?: boolean
@@ -817,7 +865,9 @@ export async function changeWorkout(
     const previous = contextCache.get("full") || contextCache.get("week")
     if (result.context) {
       const context = { ...previous, ...result.context } as TrainingContext
-      result.context = acceptMutationContext(context, revision)
+      result.context = acceptMutationContext(deferredDelete ? removeVerifiedCalendarPlans(context, [id]) : context, revision)
+    } else if (deferredDelete) {
+      result.context = acceptMutationContext(removeVerifiedCalendarPlans(cachedTrainingContext(), [id]), revision)
     }
     optimistic?.confirm()
     return result
@@ -826,6 +876,7 @@ export async function changeWorkout(
     throw error
   } finally {
     mutationsInFlight--
+    if (deferredDelete && typeof window !== "undefined") window.dispatchEvent(new Event("training-mutation-settled"))
   }
 }
 
@@ -907,7 +958,22 @@ export async function createPlannedWorkout(input: {
   reconcileOnly?: boolean
   descriptionMode?: "manual"
   description?: string
+  personal?: import("./workout-local-metadata").WorkoutLocalMetadata
+  recurrence?: import("./workout-recurrence").WorkoutRecurrenceDraft | null
+  personalId?: string
 }) {
+  if (/^(Swim|Ride|Run)$/.test(input.model.sport)) {
+    await restoreWorkoutCommits()
+    const accepted = localCommittedWorkout(`app:${input.creationId}`)
+    // A crash may occur after IDB commits but before the old creation-recovery
+    // slot is cleared. Recover the accepted identity without replaying the
+    // legacy provider POST alongside the independent worker.
+    if (accepted) {
+      if (accepted.deleted) throw Object.assign(Error("This workout was already deleted. Start a separate workout to create another."), {status:409,code:"DELETED"})
+      return {workout:accepted.workout,revision:accepted.revision,accepted:true,verified:accepted.state === "synced",durableBoundary:"local" as const,syncStatus:accepted.state,context:undefined as TrainingContext | undefined,refreshWarning:accepted.state === "synced" ? undefined : "Saved on this device; sync pending."}
+    }
+    if (!input.reconcileOnly) return acceptWorkoutCommit(null, input)
+  }
   const seconds = input.values.duration_seconds || 0
   const description = input.description ?? input.model.notes
   const placeholder: PlannedWorkout = { id: `pending:${input.creationId}`, category: "WORKOUT", title: input.model.name, sport: input.model.sport, workout_date: input.model.date, day: "", date: input.model.date, duration: `${Math.floor(seconds / 3600)}:${String(Math.floor(seconds % 3600 / 60)).padStart(2,"0")}:${String(Math.round(seconds % 60)).padStart(2,"0")}`, status: "upcoming", goal: description, details: description, ...(input.descriptionMode === "manual" ? {manual_description:description} : {}), editor_model: input.model, planned_values_edited: true, plannedDurationMinutes: seconds / 60, workout_summary: { planned: input.values, completed: null } }
@@ -952,6 +1018,7 @@ export async function savePlannedWorkoutValues(id: string, values: Partial<Worko
 }
 
 export async function scheduleLibraryWorkout(source:PlannedWorkout,date:string,creationId:string,reconcileOnly=false) {
+  if (!reconcileOnly && (source.structure_read_only || source.template_metadata_error)) throw Error(source.template_metadata_error || "The private template prescription is unavailable. Reload before scheduling.")
   const placeholder:PlannedWorkout={id:`pending:${creationId}`,title:source.title,sport:source.sport,day:"",date,workout_date:date,duration:source.duration,status:"upcoming",category:"WORKOUT",goal:source.goal || "",details:source.details,structure:source.structure,plannedDurationMinutes:source.plannedDurationMinutes,planned:source.planned,workout_summary:{planned:source.workout_summary?.planned || null,completed:null},...(source.editor_model?{editor_model:{...source.editor_model,date}}:{})}
   beginMutation()
   const stage=optimisticWorkout({id:placeholder.id,insert:placeholder},"Scheduling workout…")
@@ -1033,7 +1100,14 @@ export async function writeWorkoutEditor(id: string | null, input: {
   model: import("../../../app-backend/lib/workout-editor-model.mjs").WorkoutModel
   revision?: string; creationId?: string; reconcileOnly?: boolean
   values?: Partial<WorkoutSummaryValues>; time?: string; description?: string; descriptionMode?: "manual"; comment?: string; commentId?: string
+  personal?: import("./workout-local-metadata").WorkoutLocalMetadata
+  recurrence?: import("./workout-recurrence").WorkoutRecurrenceDraft | null
+  comments?: {id:string;body:string}[]; zoneSettings?: import("../../../app-backend/lib/workout-editor-zones.mjs").SportZoneSettings[]; personalId?: string
 }) {
+  if (/^(Swim|Ride|Run)$/.test(input.model.sport) && !input.reconcileOnly) {
+    const previous = [...cachedTrainingContext().planned, ...cachedTrainingContext().history].find(row => "id" in row && row.id === id) as PlannedWorkout | undefined
+    return acceptWorkoutCommit(id, input, previous)
+  }
   const {response,result}=await readMutationResponse<{
     verified?:boolean;workout?:PlannedWorkout;context?:TrainingContext;revision?:string;error?:string;code?:string;refreshWarning?:string
   }>(id?`/api/workouts/${encodeURIComponent(id)}/editor`:"/api/workouts/editor",{
@@ -1182,4 +1256,18 @@ export function completedMinutes(workout: PlannedWorkout) {
     return Number(workout.completed_data?.duration_minutes)
   }
   return workout.status === "completed" ? durationMinutes(workout) : 0
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("workout-commits-updated", event => {
+    let context = cachedTrainingContext()
+    for (const row of (event as CustomEvent<{ synced: ReturnType<typeof committedWorkouts> }>).detail?.synced || []) {
+      if (!row.deleted) context = mergeVerifiedWorkout(context, row.workout, row.providerWorkoutId).context
+    }
+    for (const row of committedWorkouts()) {
+      if (row.deleted) context = { ...context, planned: context.planned.filter(w => w.id !== row.workoutId && w.id !== row.providerWorkoutId), history: context.history.filter(w => !("id" in w && (w.id === row.workoutId || w.id === row.providerWorkoutId))) }
+    }
+    rememberTrainingContext(overlayWorkoutCommits(context), contextCache.has("full") ? "full" : "week")
+  })
+  startWorkoutCommitRecovery()
 }

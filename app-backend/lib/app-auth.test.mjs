@@ -48,7 +48,14 @@ function fixture({ store = memoryAuthStore(), environment = env } = {}) {
       if (value) clientJar.set(key, value);
       else clientJar.delete(key);
     }
-    return { status, result, headers: responseHeaders, handled, session: req.appSession };
+    return {
+      status,
+      result,
+      headers: responseHeaders,
+      handled,
+      session: req.appSession,
+      actor: req.appActor,
+    };
   }
   return {
     request,
@@ -61,6 +68,27 @@ function fixture({ store = memoryAuthStore(), environment = env } = {}) {
   };
 }
 const auth = (name) => `/api/auth/${name}`;
+
+test("authenticated library actor uses stable server-owned account identity across sessions and cannot be selected by a client header", async () => {
+  const f = fixture();
+  await f.request(auth("password"), { password });
+  const first = await f.request("/api/strength-exercises", undefined, {
+    "x-actor-id": "attacker-selected",
+  });
+  assert.equal(first.handled, false);
+  assert.equal(first.actor.id, (await f.store.read()).userID);
+  assert.equal(first.actor.origin, origin);
+  assert.equal(first.actor.readOnly, false);
+  const session = first.session.id;
+  await f.request(auth("password"), { password });
+  const next = await f.request("/api/strength-exercises");
+  assert.notEqual(next.session.id, session);
+  assert.deepEqual(next.actor, first.actor);
+  const other = fixture();
+  await other.request(auth("password"), { password });
+  assert.notEqual((await other.request("/api/strength-exercises")).actor.id, first.actor.id);
+  assert.equal((await fixture().request("/api/strength-exercises")).actor, undefined);
+});
 
 test("app authentication blocks every API, fails closed and rejects hostile origins", async () => {
   const f = fixture();

@@ -22,6 +22,11 @@ export function parseTestWorkout(description) {
     if (!amount) throw Error("Fixture parser cannot read the end condition");
     const v = Number(amount[1]),
       u = amount[2];
+    if (/^\-\s+RPE\s/.test(text))
+      s.text = text
+        .slice(2, text.indexOf(amount[0]))
+        .trim()
+        .replace(/\s+Press lap$/i, "");
     if (u === "s") s.duration = v;
     else s.distance = v * { mtr: 1, km: 1000, mi: 1609.344, y: 0.9144 }[u];
     const absolute = text.match(

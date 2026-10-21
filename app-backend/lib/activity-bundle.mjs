@@ -5,6 +5,7 @@ import { recordedExtremes } from "./recorded-extremes.mjs";
 import { mapIntervalsWorkout } from "./intervals.mjs";
 import { elapsedSummary } from "./elapsed-summary.mjs";
 import { providerConnection } from "./completed-workout-store.mjs";
+import { recordedAnalysisThresholds } from "./recorded-analysis-thresholds.mjs";
 const bundleRequests = new Map();
 
 export async function downloadOriginalActivityFile(config, id, fetchImpl = fetch) {
@@ -126,13 +127,16 @@ export async function loadActivityView(archive, config, request, id, kind, optio
   }
   if (
     kind === "summary" &&
-    (view.elapsed_time_seconds === undefined || view.normalized_power === undefined)
+    (view.elapsed_time_seconds === undefined ||
+      view.normalized_power === undefined ||
+      view.recorded_thresholds === undefined)
   ) {
     const bundle = await archive.load(id, "bundle", () =>
       downloadActivityBundle(request, id, (fileId) => downloadOriginalActivityFile(config, fileId))
     );
     Object.assign(view, elapsedSummary(bundle.activity), {
       normalized_power: bundle.activity.icu_weighted_avg_watts ?? null,
+      recorded_thresholds: recordedAnalysisThresholds(bundle.activity),
     });
     if (archive.ready)
       await archive.saveViews(id, {

@@ -10,6 +10,8 @@ import {
 import { sportZoneSettings } from "./workout-editor-zones.mjs";
 import { encodeWorkoutFit } from "./workout-fit-export.mjs";
 import { encodeWorkoutTextFormat } from "./workout-text-exports.mjs";
+import { readManualWorkoutDescription } from "./workout-manual-description.mjs";
+import { providerWorkoutDescription } from "./workout-provider-description.mjs";
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const fail = (message, status = 400) => {
@@ -159,10 +161,17 @@ export async function exportWorkoutFile(config, input = {}, { fetchImpl = global
   if (input.model) {
     const errors = validateWorkout(input.model);
     if (errors.length) fail(errors.join(". "));
-    if (!input.model.steps.length) fail("Add a workout block before exporting.");
+    if (!input.model.steps.length && format !== "txt")
+      fail("Add device steps before exporting this workout format.");
     name = input.model.name;
     model = globalThis.structuredClone(input.model);
     description = serializeWorkout(model);
+    if (format === "txt" && expandSteps(model.steps).some(({ step }) => step.target.kind === "rpe"))
+      description = [name, providerWorkoutDescription(description)].join("\n\n");
+    if (model.strength && format === "txt")
+      description = [name, providerWorkoutDescription(description)].join("\n\n");
+    if (model.unstructured && format === "txt")
+      description = [name, model.notes].filter(Boolean).join("\n\n");
   } else {
     const id = eventId(input.workoutId);
     const event = await request(`/athlete/0/events/${id}`);
@@ -170,6 +179,20 @@ export async function exportWorkoutFile(config, input = {}, { fetchImpl = global
       fail("The workout could not be found.", 404);
     name = event.name;
     description = event.description || "";
+    if (format === "txt") {
+      const imported = importWorkout(event);
+      if (imported.model.strength && !imported.issues.length)
+        description = [name, providerWorkoutDescription(description)].join("\n\n");
+      if (
+        !imported.issues.length &&
+        expandSteps(imported.model.steps).some(({ step }) => step.target.kind === "rpe")
+      )
+        description = [name, providerWorkoutDescription(description)].join("\n\n");
+      if (imported.model.unstructured && !imported.issues.length)
+        description = [name, readManualWorkoutDescription(event, imported.model)]
+          .filter(Boolean)
+          .join("\n\n");
+    }
     if (format !== "txt") {
       const imported = importWorkout(event);
       if (imported.issues.length)
@@ -181,6 +204,7 @@ export async function exportWorkoutFile(config, input = {}, { fetchImpl = global
   }
   let lthr;
   if (model && format !== "txt") {
+    if (!model.steps.length) fail("Add device steps before exporting this workout format.");
     const targets = expandSteps(model.steps).map(({ step }) => step.target);
     const needsPace =
       format === "fit" &&

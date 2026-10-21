@@ -17,17 +17,25 @@ import {
   ChevronRight,
 } from "lucide-react"
 import { DesktopSportIcon } from "./desktop-sport-icon"
-import { DesktopWorkoutToolbar } from "./desktop-workout-toolbar"
+import { startAnimationLoop } from "@/lib/animation-loop"
+import { workoutPresentationSport, workoutSelectionKey } from "@/lib/workout-presentation"
+import { calendarAddTypes } from "@/lib/calendar-events"
+import { DesktopWorkoutContextMenu } from "./desktop-workout-toolbar"
 import { WorkoutDetailNavigation } from "./desktop-workout-personal-fields"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip"
 import { DurationField, PaceField } from "./workout-duration-field"
+import { useWorkoutFieldValidity } from "./workout-input-validity"
+import { WorkoutRpeField } from "./workout-rpe-field"
 import {
   cachedTrainingContext,
   trainingCacheScope,
 } from "@/lib/training-context"
 import {
   plannedValueRows,
+  recordedValueRows,
+  plannedDraftValue,
   type PlannedValueKey,
+  type PlannedValuePresentation,
 } from "@/lib/planned-workout-values"
 import {
   builderBlock,
@@ -36,6 +44,10 @@ import {
   displayTarget,
   desktopTargetPresentation,
   desktopBuilderTotals,
+  desktopProfileAxis,
+  desktopProfileMaximum,
+  desktopProfileTicks,
+  desktopWorkoutZoneOptions,
   desktopProfileRange,
   resizeDesktopRamp,
   desktopPaletteDropIndex,
@@ -47,6 +59,7 @@ import {
   readDesktopBuilderPreferences,
   rememberDesktopBuilderPreferences,
   targetKind,
+  editRpeTarget,
   type DesktopBlockLength,
 } from "@/lib/desktop-workout-builder"
 import {
@@ -66,7 +79,6 @@ import {
 } from "../../../app-backend/lib/workout-editor-model.mjs"
 import { durationClock } from "../../../app-backend/lib/workout-editor-inputs.mjs"
 import {
-  workoutZoneOptions,
   type SportZoneSettings,
 } from "../../../app-backend/lib/workout-editor-zones.mjs"
 import type { DesktopWorkoutMetadata } from "./desktop-workout-header"
@@ -98,7 +110,7 @@ type Props = {
   onMetadata: (value: DesktopWorkoutMetadata) => void
   onSport: (sport: string) => void
   planned: Record<PlannedValueKey, string>
-  onPlanned: (key: PlannedValueKey, value: string) => void
+  onPlanned: (key: PlannedValueKey, value: string, presentation?: PlannedValuePresentation) => void
   autoCalculate: boolean
   onAutoCalculate: (value: boolean) => void
   comment: string
@@ -122,6 +134,7 @@ type Props = {
   canRedo: boolean
   isNew: boolean
   recovery?: ReactNode
+  syncAction?: ReactNode
   personalFields?: ReactNode
   descriptionHeading?: ReactNode
   equipment?: ReactNode
@@ -154,7 +167,8 @@ function MiniProfile({
 }) {
   const parts = chartSegments({ ...model, steps: nodes }).segments
   const total = parts.reduce((sum, p) => sum + p.width, 0) || 1
-  const max = Math.max(1.5, ...parts.flatMap((p) => [p.start, p.end]))
+  const rpe=parts.length>0 && parts.every(part=>part.step.target.kind === "rpe")
+  const max = rpe ? 1 : Math.max(1.5, ...parts.flatMap((p) => [p.start, p.end]))
   let left = 0
   return (
     <svg viewBox="0 0 80 32" preserveAspectRatio="none" aria-hidden="true">
@@ -162,10 +176,12 @@ function MiniProfile({
         const x = (left / total) * 80,
           width = (p.width / total) * 80
         left += p.width
+        const top = rpe ? desktopProfileRange(p).high : p.start
+        const end = rpe ? top : p.end
         return (
           <polygon
             key={i}
-            points={`${x},32 ${x},${30 - (p.start / max) * 27} ${x + width},${30 - (p.end / max) * 27} ${x + width},32`}
+            points={`${x},32 ${x},${30 - (top / max) * 27} ${x + width},${30 - (end / max) * 27} ${x + width},32`}
           />
         )
       })}
@@ -176,44 +192,63 @@ function TargetNumber({
   label,
   value,
   onChange,
+  allowZero = false,
+  precision = 2,
+  minimum,
+  maximum,
 }: {
   label: string
   value: number
   onChange: (value: number) => void
+  allowZero?: boolean
+  precision?: number
+  minimum?: number
+  maximum?: number
 }) {
-  const format = (number: number) => String(Number(number.toFixed(2)))
+  const format = useCallback((number: number) => String(Number(number.toFixed(precision))), [precision])
   const [draft, setDraft] = useState(() => format(value))
   const focused = useRef(false)
+  const focusValue = useRef(value)
+  const { invalid, markInvalid } = useWorkoutFieldValidity()
   useEffect(() => {
-    if (!focused.current) setDraft(format(value))
-  }, [value])
+    if (!focused.current) { setDraft(format(value)); markInvalid(false) }
+  }, [value, markInvalid, format])
   return (
     <input
       aria-label={label}
+      aria-invalid={invalid || undefined}
+      title={invalid ? `Enter a ${allowZero ? "nonnegative" : "positive"} number with at most ${precision} decimal places${minimum != null && maximum != null ? ` from ${minimum} to ${maximum}` : ""}.` : undefined}
       type="text"
       inputMode="decimal"
       className="dtb-target-number"
       value={draft}
-      style={{ width: `${Math.max(4, draft.length) + 2}ch` }}
       onFocus={(event) => {
         focused.current = true
+        focusValue.current = value
         event.currentTarget.select()
       }}
       onChange={(event) => {
         const next = event.target.value
-        if (!/^\d*\.?\d{0,2}$/.test(next)) return
         setDraft(next)
         const amount = Number(next)
-        if (amount > 0 && amount <= 10000) onChange(amount)
+        const valid = new RegExp(`^(?:\\d+(?:\\.\\d{0,${precision}})?|\\.\\d{1,${precision}})$`).test(next) && Number.isFinite(amount) && (allowZero ? amount >= 0 : amount > 0) && (minimum == null || amount >= minimum) && (maximum == null || amount <= maximum)
+        markInvalid(!valid)
+        if (valid) onChange(amount)
       }}
       onBlur={() => {
         focused.current = false
-        setDraft(format(value))
+        if (!invalid) setDraft(format(value))
       }}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
           event.preventDefault()
           event.currentTarget.blur()
+        } else if (event.key === "Escape") {
+          event.preventDefault()
+          event.stopPropagation()
+          onChange(focusValue.current)
+          setDraft(format(focusValue.current))
+          markInvalid(false)
         }
       }}
     />
@@ -225,12 +260,14 @@ function StepTarget({
   model,
   zones,
   change,
+  selectZone,
 }: {
   step: Step
   unit: string
   model: WorkoutModel
   zones: SportZoneSettings[]
   change: (s: Step) => void
+  selectZone: (step: Step, target: Step["target"]) => void
 }) {
   let target = step.target
   try {
@@ -239,7 +276,7 @@ function StepTarget({
     /* Imported prescriptions remain editable in their original units. */
   }
   const current = target
-  const options = workoutZoneOptions(zones, model.sport, target.unit).filter(
+  const options = desktopWorkoutZoneOptions(model, zones, target.unit || unit).filter(
     (option) => option.target.kind === target.kind
   )
   const presentation = desktopTargetPresentation(target, model, zones)
@@ -280,7 +317,7 @@ function StepTarget({
       </button>
     )
   const number = (key: "value" | "start" | "end") =>
-    paceFactors[target.unit!] ? (
+    target.kind === "rpe" ? <WorkoutRpeField label={key === "value" ? "Target" : key === "start" ? "Range from" : "Range to"} value={target[key] || 1} onChange={value=>change({...step,target:editRpeTarget(current,key,value)})}/> : paceFactors[target.unit!] ? (
       <PaceField
         label={key === "value" ? "Target pace" : `${key} pace`}
         value={target[key] || 0}
@@ -291,6 +328,7 @@ function StepTarget({
       />
     ) : (
       <TargetNumber
+        allowZero={target.kind === "power"}
         label={
           key === "value"
             ? "Target"
@@ -320,12 +358,12 @@ function StepTarget({
       )}
       <span className="dtb-target-unit">
         <strong>
-          {desktopTargetUnits.find(([value]) => value === target.unit)?.[1] ||
+          {(target.unit === "%ftp" ? "% FTP" : target.unit === "w" ? "W" : desktopTargetUnits.find(([value]) => value === target.unit)?.[1]) ||
             target.unit.replace("_zone", " zone")}
         </strong>
         {presentation.physical && <span>{presentation.physical}</span>}
       </span>
-      <select
+      {target.kind !== "rpe" && <select
         aria-label="Training zone"
         value={
           options.some((option) => option.id === presentation.zoneId)
@@ -334,7 +372,7 @@ function StepTarget({
         }
         onChange={(event) => {
           const zone = options.find((z) => z.id === event.target.value)
-          if (zone) change({ ...step, target: zone.target })
+          if (zone) selectZone(step, zone.target)
         }}
       >
         <option value="">
@@ -345,7 +383,7 @@ function StepTarget({
             {option.label}
           </option>
         ))}
-      </select>
+      </select>}
       <button
         type="button"
         className="dtb-subtle"
@@ -365,6 +403,7 @@ function StepCard({
   selected,
   onSelect,
   change,
+  selectZone,
   add,
   remove,
   duplicate,
@@ -381,6 +420,7 @@ function StepCard({
   selected: boolean
   onSelect: () => void
   change: (step: Step) => void
+  selectZone: (step: Step, target: Step["target"]) => void
   add: () => void
   remove: () => void
   duplicate: () => void
@@ -418,9 +458,9 @@ function StepCard({
             change({ ...step, role: event.target.value as Step["role"] })
           }
         >
-          {roles.map((role) => (
+          {roles.filter(role => ["warmup", "active", "recovery", "cooldown", step.role].includes(role)).map((role) => (
             <option key={role} value={role}>
-              {role === "active" ? "Work" : roleNames[role]}
+              {role === "active" ? "Work" : role === "warmup" ? "Warmup" : role === "cooldown" ? "Cooldown" : role === "recovery" ? "Recover" : roleNames[role]}
             </option>
           ))}
         </select>
@@ -477,22 +517,20 @@ function StepCard({
         >
           <option value="single">Target</option>
           <option value="range">Range</option>
-          <option value="ramp">Ramp</option>
+          <option value="ramp" disabled={step.target.kind === "rpe"}>Ramp</option>
         </select>
       </div>
       <div className="dtb-step-prescription">
         {step.end.kind === "distance" ? (
           <label className="dtb-length">
-            <input
-              aria-label="Step distance"
-              type="number"
-              min="0.001"
-              step="0.01"
-              value={Number(step.end.value.toFixed(2))}
-              onChange={(event) =>
+            <TargetNumber
+              label="Step distance"
+              precision={5}
+              value={step.end.value}
+              onChange={(value) =>
                 change({
                   ...step,
-                  end: { ...step.end, value: Number(event.target.value) },
+                  end: { ...step.end, value },
                 })
               }
             />
@@ -520,12 +558,13 @@ function StepCard({
               }}
             >
               {["mi", "km", "m", "yd"].map((value) => (
-                <option key={value}>{value}</option>
+                <option key={value} value={value}>{value === "yd" ? "yds" : value}</option>
               ))}
             </select>
           </label>
         ) : (
           <DurationField
+            compactHours
             label="Step duration"
             value={step.end.value}
             onChange={(value) =>
@@ -539,6 +578,7 @@ function StepCard({
           model={model}
           zones={zones}
           change={change}
+          selectZone={selectZone}
         />
       </div>
       <div className="dtb-step-tools">
@@ -552,19 +592,21 @@ function StepCard({
             </button>
           </>
         )}
-        <button
+        {(!/swim/i.test(model.sport) || cadenceOpen) && <button
           type="button"
           onClick={() => {
             change({
               ...step,
-              cadence: cadenceOpen ? null : { start: 80, end: 90 },
+              cadence: cadenceOpen ? null : /run/i.test(model.sport) ? { start: 160, end: 170 } : { start: 80, end: 90 },
             })
           }}
         >
           {cadenceOpen ? "× Remove cadence" : "+ Add cadence range"}
-        </button>
+        </button>}
         {!recoverySlot && (
-          <details className="dtb-step-menu">
+          <details className="dtb-step-menu" onClick={event => {
+            if (event.target instanceof Element && event.target.closest("button")) event.currentTarget.open = false
+          }}>
             <summary aria-label={`More actions for ${step.label}`}>
               <MoreHorizontal size={14} />
             </summary>
@@ -620,59 +662,105 @@ function StepCard({
       {step.cadence && (
         <div className="dtb-cadence">
           <span>Cadence</span>
-          <input
-            aria-label="Minimum cadence"
-            type="number"
-            min="1"
-            max="300"
+          <TargetNumber
+            label="Minimum cadence"
+            minimum={1}
+            maximum={300}
             value={step.cadence.start}
-            onChange={(event) =>
+            onChange={(value) =>
               change({
                 ...step,
                 cadence: {
                   ...step.cadence!,
-                  start: Number(event.target.value),
+                  start: value,
                 },
               })
             }
           />
           <span>–</span>
-          <input
-            aria-label="Maximum cadence"
-            type="number"
-            min="1"
-            max="300"
+          <TargetNumber
+            label="Maximum cadence"
+            minimum={1}
+            maximum={300}
             value={step.cadence.end}
-            onChange={(event) =>
+            onChange={(value) =>
               change({
                 ...step,
-                cadence: { ...step.cadence!, end: Number(event.target.value) },
+                cadence: { ...step.cadence!, end: value },
               })
             }
           />
-          <span>rpm</span>
+          <span>{/run/i.test(model.sport) ? "spm" : "rpm"}</span>
         </div>
       )}
-      <input
+      <div className="dtb-step-notes-container">
+      <textarea
         className="dtb-step-notes"
         aria-label="Step notes"
         placeholder="Enter notes"
-        maxLength={4000}
+        maxLength={2000}
         value={step.notes}
         onChange={(event) => change({ ...step, notes: event.target.value })}
-      />
+      /></div>
     </section>
   )
 }
 export function DesktopWorkoutBuilder(props: Props) {
   const { model, commit, zones, selected, select } = props
+  const presentationSport = workoutPresentationSport(model)
+  const workspace = useRef<HTMLDivElement>(null)
+  const titleField = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    // Native autoFocus ran during React's DOM commit, forcing the entire new
+    // dialog to lay out and scrolling the calendar underneath it. Let its first
+    // layout finish, then keep the same initial field focused without scrolling.
+    let nextFrame = 0
+    let interacted = false
+    const interactedWithEditor = () => { interacted = true }
+    const editor = workspace.current
+    editor?.addEventListener("pointerdown", interactedWithEditor)
+    editor?.addEventListener("keydown", interactedWithEditor)
+    const firstFrame = requestAnimationFrame(() => {
+      nextFrame = requestAnimationFrame(() => {
+        if (!interacted) titleField.current?.focus({ preventScroll: true })
+      })
+    })
+    return () => {
+      cancelAnimationFrame(firstFrame)
+      cancelAnimationFrame(nextFrame)
+      editor?.removeEventListener("pointerdown", interactedWithEditor)
+      editor?.removeEventListener("keydown", interactedWithEditor)
+    }
+  }, [])
+  useEffect(() => {
+    const dismiss = (event: PointerEvent) => {
+      workspace.current?.querySelectorAll<HTMLDetailsElement>(".dtb-step-menu[open]").forEach(menu => {
+        if (!(event.target instanceof Node) || !menu.contains(event.target)) menu.open = false
+      })
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      const menus = workspace.current?.querySelectorAll<HTMLDetailsElement>(".dtb-step-menu[open]")
+      if (!menus?.length) return
+      event.preventDefault()
+      event.stopPropagation()
+      menus.forEach(menu => { menu.open = false })
+      menus[0].querySelector<HTMLElement>("summary")?.focus({preventScroll:true})
+    }
+    document.addEventListener("pointerdown", dismiss)
+    document.addEventListener("keydown", escape, true)
+    return () => {
+      document.removeEventListener("pointerdown", dismiss)
+      document.removeEventListener("keydown", escape, true)
+    }
+  }, [])
   const descriptionField = useRef<HTMLTextAreaElement>(null)
   useEffect(() => {
     const field = descriptionField.current
     if (!field) return
     const resize = () => {
       field.style.height = "0px"
-      field.style.height = `${Math.max(30, field.scrollHeight + 2)}px`
+      field.style.height = `${Math.max(29.125, field.scrollHeight + 2)}px`
     }
     resize()
     let width = field.parentElement?.clientWidth
@@ -711,19 +799,14 @@ export function DesktopWorkoutBuilder(props: Props) {
   const firstTarget = chartData.segments.find(
     (segment) => segment.step.target.kind !== "none"
   )?.step.target
-  const chartMaximum = Math.max(
-    1.2,
-    ...chartData.segments.flatMap((segment) => [
-      segment.start,
-      segment.end,
-      desktopProfileRange(segment).high,
-    ])
-  )
+  const hasRpe = chartData.segments.some(segment=>segment.step.target.kind === "rpe")
+  const rpeAxis = hasRpe && chartData.segments.every(segment=>["none","rpe"].includes(segment.step.target.kind))
+  const chartMaximum = desktopProfileMaximum(chartData.segments)
   const [unit, setUnit] = useState(() => {
     const preferred =
       !firstTarget && preferences
         ? preferences.unit
-        : firstTarget?.kind === "hr"
+        : firstTarget?.kind === "rpe" ? "rpe" : firstTarget?.kind === "hr"
           ? desktopTargetUnits.some(([value]) => value === firstTarget.unit)
             ? firstTarget.unit!
             : "bpm"
@@ -765,6 +848,8 @@ export function DesktopWorkoutBuilder(props: Props) {
   const invalidRampCount = Object.keys(rampDrafts).some(
     (id) => findNode(model.steps, id)?.kind === "repeat"
   )
+  const { markInvalid: markRepeatInvalid } = useWorkoutFieldValidity()
+  useEffect(() => { markRepeatInvalid(invalidRampCount) }, [invalidRampCount, markRepeatInvalid])
   const [zoom, setZoom] = useState(1)
   const chartScroll = useRef<HTMLDivElement>(null)
   const [canPanForward, setCanPanForward] = useState(true)
@@ -823,6 +908,7 @@ export function DesktopWorkoutBuilder(props: Props) {
   }, [length, unit, mode, model.sport])
   const drag = useRef<{ nodes: WorkoutNode[]; original: WorkoutModel } | null>(null)
   const palettePointer = useRef<{ x: number; y: number } | null>(null)
+  const stopPalettePan = useRef<(() => void) | null>(null)
   const [palettePreview, setPalettePreview] = useState<DesktopPalettePreview | null>(null)
   const paletteDropAt = useCallback((x: number, y: number): DesktopPalettePreview | null => {
     const pending = drag.current
@@ -837,22 +923,45 @@ export function DesktopWorkoutBuilder(props: Props) {
     const blocks = model.steps.map(node => ({
       width: chartData.segments.filter(part => Boolean(findNode([node], part.step.id))).reduce((sum, part) => sum + part.width, 0),
     }))
-    const index = desktopPaletteDropIndex(blocks, (x - bounds.left) / bounds.width)
+    const axis = desktopProfileAxis(model)
+    const index = desktopPaletteDropIndex(blocks, (x - bounds.left) / bounds.width * axis.maximum / axis.actual)
     const total = blocks.reduce((sum, block) => sum + block.width, 0)
-    return { nodes: pending.nodes, index, position: total ? blocks.slice(0, index).reduce((sum, block) => sum + block.width, 0) / total : 0 }
+    return { nodes: pending.nodes, index, position: total ? blocks.slice(0, index).reduce((sum, block) => sum + block.width, 0) / axis.maximum : 0 }
   }, [chartData, model])
   const cancelPaletteDrag = useCallback(() => {
+    const nativeDragActive = drag.current !== null
+    stopPalettePan.current?.()
     drag.current = null
     palettePointer.current = null
     setPalettePreview(null)
+    const viewport = chartScroll.current
+    if (nativeDragActive && viewport?.isConnected) {
+      // Chromium may retain native HTML-drag auto-scroll after dragend,
+      // independently of our canceled animation frames. Retire its scroll
+      // layout box synchronously, before paint, without moving the viewport.
+      const display = viewport.style.getPropertyValue("display")
+      const priority = viewport.style.getPropertyPriority("display")
+      const left = viewport.scrollLeft
+      const top = viewport.scrollTop
+      const focused = document.activeElement as HTMLElement | null
+      try {
+        viewport.style.setProperty("display", "none", "important")
+        viewport.getBoundingClientRect()
+      } finally {
+        if (display) viewport.style.setProperty("display", display, priority)
+        else viewport.style.removeProperty("display")
+        if (focused?.isConnected && viewport.contains(focused))
+          focused.focus({ preventScroll: true })
+        viewport.scrollTo({ left, top, behavior: "instant" })
+      }
+    }
   }, [])
   const paletteOverChart = palettePreview !== null
   useEffect(() => {
     if (!paletteOverChart) return
-    let frame = 0
-    const pan = () => {
+    const stop = startAnimationLoop(() => {
       const point = palettePointer.current, viewport = chartScroll.current
-      if (point && viewport) {
+      if (drag.current && point && viewport) {
         const bounds = viewport.getBoundingClientRect()
         const delta = point.x < bounds.left + 32 ? -Math.min(12, (bounds.left + 32 - point.x) / 3)
           : point.x > bounds.right - 32 ? Math.min(12, (point.x - bounds.right + 32) / 3) : 0
@@ -862,10 +971,12 @@ export function DesktopWorkoutBuilder(props: Props) {
           if (before !== viewport.scrollLeft) setPalettePreview(paletteDropAt(point.x, point.y))
         }
       }
-      frame = requestAnimationFrame(pan)
+    })
+    stopPalettePan.current = stop
+    return () => {
+      stop()
+      if (stopPalettePan.current === stop) stopPalettePan.current = null
     }
-    frame = requestAnimationFrame(pan)
-    return () => cancelAnimationFrame(frame)
   }, [paletteOverChart, paletteDropAt])
   useEffect(() => {
     const cancel = (event: KeyboardEvent) => {
@@ -877,9 +988,15 @@ export function DesktopWorkoutBuilder(props: Props) {
     }
     window.addEventListener("keydown", cancel, true)
     window.addEventListener("blur", cancelPaletteDrag)
+    // Native HTML drag cancellation can retire the source before React's
+    // source handler runs. End the gesture at the window boundary as well.
+    window.addEventListener("dragend", cancelPaletteDrag, true)
+    window.addEventListener("mouseup", cancelPaletteDrag, true)
     return () => {
       window.removeEventListener("keydown", cancel, true)
       window.removeEventListener("blur", cancelPaletteDrag)
+      window.removeEventListener("dragend", cancelPaletteDrag, true)
+      window.removeEventListener("mouseup", cancelPaletteDrag, true)
     }
   }, [cancelPaletteDrag])
   const date = new Date(`${props.metadata.date}T12:00:00Z`).toLocaleDateString(
@@ -947,6 +1064,8 @@ export function DesktopWorkoutBuilder(props: Props) {
                   }
                   aria-invalid={rampDrafts[node.id] != null || undefined}
                   onChange={(event) => {
+                    const count = Number(event.target.value)
+                    markRepeatInvalid(!Number.isInteger(count) || count < (node.label === "Ramp" && node.repetitions === 1 ? 2 : 1) || count > 100 || Object.keys(rampDrafts).some(id => id !== node.id && findNode(model.steps, id)?.kind === "repeat"))
                     if (node.label === "Ramp" && node.repetitions === 1) {
                       try {
                         const resized = resizeDesktopRamp(
@@ -1088,6 +1207,12 @@ export function DesktopWorkoutBuilder(props: Props) {
           onSelect={() => {
             if (!selected.includes(node.id)) select(node.id, false)
           }}
+          selectZone={(step, target) => {
+            try {
+              changeNode({...step, target})
+              setLocalError("")
+            } catch (error) { setLocalError(error instanceof Error ? error.message : "The zone could not be applied.") }
+          }}
           change={changeNode}
           remove={remove}
           add={() => {
@@ -1134,7 +1259,7 @@ export function DesktopWorkoutBuilder(props: Props) {
   }))
   const distance = props.planned.distance_meters || "—"
   return (
-    <div className="dtb-workspace">
+    <div ref={workspace} className="dtb-workspace" data-sport={presentationSport}>
       {props.recovery}
       <header className="dtb-header">
         <div className="dtb-date-row">
@@ -1145,6 +1270,7 @@ export function DesktopWorkoutBuilder(props: Props) {
             {date.split(", ").slice(1).join(", ")}
             <input
               type="date"
+              required
               aria-label="Workout date"
               value={props.metadata.date}
               disabled={saving}
@@ -1200,7 +1326,8 @@ export function DesktopWorkoutBuilder(props: Props) {
             )}
           </div>
           <div className="dtb-window-tools">
-            <DesktopWorkoutToolbar
+            <DesktopWorkoutContextMenu
+              rootRef={workspace}
               disabled={saving}
               settings={<>
                 {props.settings || <label><input type="checkbox" disabled={saving} checked={props.autoCalculate} onChange={event => props.onAutoCalculate(event.target.checked)} /> Automatically calculate planned values</label>}
@@ -1211,7 +1338,7 @@ export function DesktopWorkoutBuilder(props: Props) {
                 </label>
                 {length.kind === "distance" && <label>Distance units
                   <select aria-label="New block distance units" disabled={saving || setupOpen} value={length.unit} onChange={event => setLength({...length,unit:event.target.value as DesktopBlockLength["unit"]})}>
-                    {["mi","km","m","yd"].map(value => <option key={value}>{value}</option>)}
+                    {["mi","km","m","yd"].map(value => <option key={value} value={value}>{value === "yd" ? "yds" : value}</option>)}
                   </select>
                 </label>}
               </>}
@@ -1252,8 +1379,8 @@ export function DesktopWorkoutBuilder(props: Props) {
         <div className="dtb-build-row">
           <div className="dtb-overview">
             <input
+              ref={titleField}
               aria-label="Workout title"
-              autoFocus
               placeholder="Untitled Workout"
               maxLength={200}
               value={model.name}
@@ -1267,20 +1394,15 @@ export function DesktopWorkoutBuilder(props: Props) {
             />
             <div>
               <span className="dtb-sport-picker">
-                <DesktopSportIcon sport={model.sport} />
+                <DesktopSportIcon sport={presentationSport} />
                 <select
                   aria-label="Workout sport"
                   title="Changing sport recalculates planned values from the workout blocks"
                   disabled={saving}
-                  value={model.sport}
+                  value={workoutSelectionKey(model)}
                   onChange={(event) => props.onSport(event.target.value)}
                 >
-                  {[
-                    ["Run", "Run"],
-                    ["Ride", "Bike"],
-                    ["Swim", "Swim"],
-                    ["WeightTraining", "Strength"],
-                    ["Other", "Sauna / Other"],
+                  {[...calendarAddTypes.filter(type=>type.sport!=="Note" && type.label!=="Sauna").map(type=>[workoutSelectionKey(type),type.label]),
                     ["VirtualRide", "Virtual Bike"],
                     ["VirtualRun", "Virtual Run"],
                     ["TrailRun", "Trail Run"],
@@ -1300,18 +1422,18 @@ export function DesktopWorkoutBuilder(props: Props) {
               </strong>
               <strong>
                 {distance}{" "}
-                <small>{/swim/i.test(model.sport) ? "yd" : "mi"}</small>
+                <small>{/swim/i.test(model.sport) ? "yds" : /rowing/i.test(model.sport) ? "m" : "mi"}</small>
               </strong>
               <strong title="Estimated planned training stress from step targets">
                 {props.planned.tss || "—"} <small>TSS</small>
               </strong>
             </div>
             <span>
-              {model.sport === "Ride"
+              {presentationSport === "Ride"
                 ? "Bike"
-                : model.sport === "WeightTraining"
+                : presentationSport === "WeightTraining"
                   ? "Strength"
-                  : model.sport}
+                  : presentationSport}
             </span>
             {props.onExport && <button type="button" className="desktop-workout-export" title="Export workout" aria-label="Export workout" onClick={props.onExport} disabled={saving || !model.steps.length}><Download size={17}/></button>}
           </div>
@@ -1381,7 +1503,7 @@ export function DesktopWorkoutBuilder(props: Props) {
               >
                 {desktopTargetUnits.map(([value, label]) => (
                   <option key={value} value={value}>
-                    {label}
+                      {value === "%pace" && /ride|bike/i.test(model.sport) ? "% Threshold Speed" : label}
                   </option>
                 ))}
               </select>
@@ -1490,7 +1612,7 @@ export function DesktopWorkoutBuilder(props: Props) {
                 >
                   {["mi", "km", "m", "yd"].map((value) => (
                     <option key={value} value={value}>
-                      {value}
+                      {value === "yd" ? "yds" : value}
                     </option>
                   ))}
                 </select>
@@ -1502,7 +1624,7 @@ export function DesktopWorkoutBuilder(props: Props) {
               >
                 {desktopTargetUnits.map(([value, label]) => (
                   <option key={value} value={value}>
-                    {label}
+                    {value === "%pace" && /ride|bike/i.test(model.sport) ? "% Threshold Speed" : label}
                   </option>
                 ))}
               </select>
@@ -1527,9 +1649,9 @@ export function DesktopWorkoutBuilder(props: Props) {
           </section>
         )}
         <div className="dtb-chart-axis" aria-hidden="true">
-          {Array.from({length: Math.ceil(chartMaximum / 0.5)}, (_, index) => index * 0.5).map(value => (
-            <span key={value} style={{ top: `${(180 - value / chartMaximum * 150) / 195 * 100}%` }}>
-              {Math.round(value * 100)}%
+          {hasRpe && !rpeAxis ? <span>Mixed units</span> : desktopProfileTicks(chartMaximum, rpeAxis).map(value => (
+            <span key={value} style={{ top: `${(180 - value / chartMaximum * 180) / 195 * 100}%` }}>
+              {rpeAxis ? Math.round(value * 10) : `${Math.round(value * 100)}%`}
             </span>
           ))}
         </div>
@@ -1543,6 +1665,7 @@ export function DesktopWorkoutBuilder(props: Props) {
             aria-label={`Scroll workout profile ${canPanForward ? "forward" : "backward"}`}
             disabled={zoom === 1}
             onClick={() => {
+              cancelPaletteDrag()
               const viewport = chartScroll.current
               if (viewport) viewport.scrollBy({ left: viewport.clientWidth * (canPanForward ? 0.75 : -0.75), behavior: "smooth" })
             }}
@@ -1552,7 +1675,17 @@ export function DesktopWorkoutBuilder(props: Props) {
             type="button"
             aria-label="Zoom out workout profile"
             disabled={zoom === 1}
-            onClick={() => setZoom((n) => Math.max(1, n - 1))}
+            onClick={() => {
+              cancelPaletteDrag()
+              const next = Math.max(1, zoom - 1)
+              if (next === 1) {
+                // Reset now: a rapid zoom-in can otherwise restore the wide
+                // plot before the browser clamps its previous scroll position.
+                chartScroll.current?.scrollTo({ left: 0, behavior: "instant" })
+                setCanPanForward(true)
+              }
+              setZoom(next)
+            }}
           >
             <Minus size={14} />
           </button>
@@ -1561,7 +1694,10 @@ export function DesktopWorkoutBuilder(props: Props) {
             type="button"
             aria-label="Zoom in workout profile"
             disabled={zoom === 5}
-            onClick={() => setZoom((n) => Math.min(5, n + 1))}
+            onClick={() => {
+              cancelPaletteDrag()
+              setZoom((n) => Math.min(5, n + 1))
+            }}
           >
             <Plus size={14} />
           </button>
@@ -1586,22 +1722,22 @@ export function DesktopWorkoutBuilder(props: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {plannedValueRows(model.sport).map(
-                    ({ key, label, unit: rowUnit }) => (
-                      <tr key={key}>
+                  {plannedValueRows(presentationSport).map(
+                    ({ key, rowKey = key, presentation, label, unit: rowUnit, planned }) => (
+                      <tr key={rowKey}>
                         <th>
-                          <label htmlFor={`builder-${key}`}>{label}</label>
+                          {planned === false ? <span>{label}</span> : <label htmlFor={`builder-${rowKey}`}>{label}</label>}
                         </th>
                         <td>
-                          <input
-                            id={`builder-${key}`}
+                          {planned !== false && <input
+                            id={`builder-${rowKey}`}
                             aria-label={`Planned ${label.toLowerCase()}`}
                             disabled={saving || key === "normalized_power"}
-                            value={props.planned[key] || ""}
+                            value={plannedDraftValue(props.planned, key, presentationSport, presentation)}
                             onChange={(event) =>
-                              props.onPlanned(key, event.target.value)
+                              props.onPlanned(key, event.target.value, presentation)
                             }
-                          />
+                          />}
                         </td>
                         <td>
                           <output
@@ -1626,10 +1762,7 @@ export function DesktopWorkoutBuilder(props: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {[
-                    /bike|ride/i.test(model.sport) ? "Power" : "Pace",
-                    "Heart Rate",
-                  ].map((label) => (
+                  {recordedValueRows(presentationSport).map(({ label }) => (
                     <tr key={label}>
                       <th>{label}</th>
                       <td>—</td>
@@ -1707,7 +1840,7 @@ export function DesktopWorkoutBuilder(props: Props) {
           {(localError || props.error) && (
             <p role="alert">
               {localError || props.error}
-              {props.onReload && props.error && (
+              {props.syncAction || (props.onReload && props.error && (
                 <button
                   type="button"
                   className="dtb-link"
@@ -1715,7 +1848,7 @@ export function DesktopWorkoutBuilder(props: Props) {
                 >
                   Review remote version
                 </button>
-              )}
+              ))}
             </p>
           )}
           {!props.error && props.validation.length > 0 && (

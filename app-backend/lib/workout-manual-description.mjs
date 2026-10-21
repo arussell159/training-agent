@@ -1,10 +1,14 @@
 import { stripPlannedValues } from "./planned-workout-values.mjs";
 import { stripWorkoutCommentText } from "./workout-comment-text.mjs";
+import { providerWorkoutDescription } from "./workout-provider-description.mjs";
+import { STRENGTH_MARKER } from "./workout-strength-model.mjs";
 import {
   DEFINITION_MARKER,
   importWorkout,
+  readEditorModel,
   readableDescription,
   serializeWorkout,
+  workoutDefinitionSuffix,
 } from "./workout-editor-model.mjs";
 
 // Keep an explicit choice to leave Description blank separate from a legacy
@@ -12,7 +16,10 @@ import {
 const marker = "\n\n```training-agent-manual-description-v1\n";
 const block = /\n\n```training-agent-manual-description-v1\n[^]*?\n```/g;
 const strip = (description) =>
-  stripPlannedValues(stripWorkoutCommentText(description)).replace(block, "");
+  providerWorkoutDescription(stripPlannedValues(stripWorkoutCommentText(description))).replace(
+    block,
+    ""
+  );
 
 function displayedText(description) {
   // The provider's parser ignores fenced text. Never allow prose containing
@@ -39,6 +46,21 @@ export function hasManualWorkoutDescription(description) {
 export function readManualWorkoutDescription(event, originalModel) {
   const description = String(event?.description || "");
   const source = strip(description);
+  const strengthModel = readEditorModel(description);
+  if (strengthModel?.strength) {
+    const generated = providerWorkoutDescription(serializeWorkout(strengthModel));
+    const exactGenerated = source.endsWith(generated);
+    const prefix = exactGenerated
+      ? source.slice(0, -generated.length)
+      : source.split(STRENGTH_MARKER)[0];
+    const head = readableDescription(prefix),
+      record = manualRecord(description);
+    return record &&
+      (head === displayedText(record.text) ||
+        (exactGenerated && !prefix && record.text === strengthModel.notes))
+      ? record.text
+      : head;
+  }
   const head = readableDescription(source);
   const record = manualRecord(description);
   if (record) {
@@ -64,7 +86,8 @@ export function readManualWorkoutDescription(event, originalModel) {
     }
     return head;
   }
-  if (!event?.workout_doc?.steps?.length) return source;
+  if (!event?.workout_doc?.steps?.length)
+    return readEditorModel(description)?.unstructured ? head : source;
   // Native Intervals workouts mix prose with executable lines. Keep the prose
   // without copying those old instructions into the manually edited field.
   // Preserve line breaks and headings rather than dropping whole paragraphs.
@@ -82,21 +105,31 @@ export function readManualWorkoutDescription(event, originalModel) {
     .trim();
 }
 
-export function withManualWorkoutDescription(description, nativeSuffix = "") {
+export function withManualWorkoutDescription(
+  description,
+  nativeSuffix = "",
+  { includeVisible = true } = {}
+) {
   if (typeof description !== "string" || description.length > 30000)
     throw Error("Enter a description under 30,000 characters.");
   // Store the original text in an inert block so even embedded code fences and
   // device-marker text round-trip exactly through the editable field.
   const record = JSON.stringify({ text: description }).replaceAll("`", "\\u0060");
-  const text = `\`\`\`\n${displayedText(description)}\n\`\`\`${nativeSuffix.replace(block, "")}${marker}${record}\n\`\`\``;
-  if (text.length > 30000) throw Error("Workout text exceeds the 30,000 character export limit.");
+  const visible =
+    includeVisible && (description || nativeSuffix.includes(DEFINITION_MARKER))
+      ? `\`\`\`\n${displayedText(description)}\n\`\`\``
+      : "";
+  const text = `${visible}${nativeSuffix.replace(block, "")}${marker}${record}\n\`\`\``;
+  if (providerWorkoutDescription(text).length > 30000)
+    throw Error("Workout text exceeds the 30,000 character export limit.");
   return text;
 }
 
 export function serializeManualWorkout(model, description) {
-  const serialized = serializeWorkout(model);
+  const serialized = serializeWorkout(model, { checkProviderLength: false });
   return withManualWorkoutDescription(
     description,
-    serialized.slice(serialized.indexOf(DEFINITION_MARKER))
+    model.strength ? serialized : workoutDefinitionSuffix(serialized),
+    { includeVisible: !model.strength || description !== model.notes }
   );
 }

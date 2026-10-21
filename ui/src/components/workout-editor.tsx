@@ -1,5 +1,9 @@
 import { preloadable } from "@/lib/preloadable"
-import { loadWorkoutEditor, type WorkoutEditorRead } from "@/lib/workout-read-cache"
+import { useWorkoutAccountBoundary } from "@/hooks/use-workout-account-boundary"
+import { registerWorkoutNavigationGuard, bypassWorkoutNavigationGuard } from "@/lib/workout-navigation-guard"
+import { startAnimationLoop } from "@/lib/animation-loop"
+import { WorkoutInputValidityContext, useWorkoutInputValidity } from "./workout-input-validity"
+import { loadWorkoutEditor, cachedWorkoutEditor, type WorkoutEditorRead } from "@/lib/workout-read-cache"
 import "@/lib/framework7-workout-controls"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -8,6 +12,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -94,13 +99,22 @@ import {
   type PlannedWorkout,
   type WorkoutSummaryValues,
 } from "@/lib/training-context"
-import { desktopBuilderTotals, desktopProfileDropSlot, desktopProfileRange, desktopTargetPresentation, desktopTargetUnits, displayTarget } from "@/lib/desktop-workout-builder"
-import { changedPlannedValues, formatPlannedValue, plannedValueDraft, updatePlannedValueDraft, type PlannedValueKey } from "@/lib/planned-workout-values"
+import { desktopBuilderTotals, desktopProfileMaximum, desktopProfileAxis, desktopDistanceTicks, desktopProfileDropSlot, desktopProfileRange, desktopTargetPresentation, desktopTargetUnits, displayTarget, editRpeTarget, normalizeRpeValue, reshapeRpeTarget } from "@/lib/desktop-workout-builder"
+import { WorkoutRpeField } from "./workout-rpe-field"
+import { DesktopStrengthBuilder } from "./desktop-strength-builder"
+import { editorStartTime, withStrengthTimeAssignment } from "@/lib/strength-start-time"
+import { readPendingWorkoutCreation, rememberPendingWorkoutCreation, clearPendingWorkoutCreation } from "@/lib/pending-workout-creation"
+import { validatePlannedValues } from "../../../app-backend/lib/planned-workout-values.mjs"
+import { builderWorkoutModel } from "@/lib/unstructured-workout"
+import { workoutPresentationSport, workoutSelection } from "@/lib/workout-presentation"
+import { changedPlannedValues, withCalculatedPlannedValues, plannedValueDraft, updatePlannedValueDraft, type PlannedValueKey } from "@/lib/planned-workout-values"
 import type { DesktopWorkoutMetadata } from "./desktop-workout-header"
 import type { DesktopPalettePreview } from "./desktop-workout-builder"
 import { WorkoutAttachments, WorkoutEquipment, WorkoutPersonalNotes, useWorkoutPersonalFields } from "./desktop-workout-personal-fields"
 import { normalizeWorkoutLocalMetadata, type WorkoutLocalMetadata } from "@/lib/workout-local-metadata"
 import { useWorkoutFiles } from "./workout-file-actions"
+import { SaveWorkoutTemplateDialog } from "./save-workout-template-dialog"
+import { notifyWorkoutLibraryChanged } from "@/lib/workspace-reads"
 import { WorkoutRecurrenceControl } from "./desktop-workout-recurrence"
 import { applyWorkoutRecurrence, type WorkoutRecurrenceDraft } from "@/lib/workout-recurrence"
 import {
@@ -129,6 +143,7 @@ import {
   validateWorkout,
   workoutOutline,
   workoutTotals,
+  workoutProviderWarnings,
   type Role,
   type Step,
   type Target,
@@ -152,6 +167,9 @@ import {
   parseDurationInput,
 } from "../../../app-backend/lib/workout-editor-inputs.mjs"
 import "./workout-editor.css"
+import { localCommittedWorkout } from "@/lib/workout-commits"
+import { WorkoutSyncAction } from "./workout-sync-action"
+import { yieldForWorkoutFeedback } from "@/lib/workout-feedback-frame"
 
 const desktopBuilder = preloadable(() => import("./desktop-workout-builder").then(module => ({default: module.DesktopWorkoutBuilder})), () => <DesktopBuilderSkeleton/>)
 const DesktopWorkoutBuilder = desktopBuilder.Component
@@ -176,7 +194,31 @@ type Draft = {
   creationId?: string
   creationAttempted?: boolean
   savedId?: string
+  creationSnapshot?: EditorCreationSnapshot
   desktop?: {time: string; draft: Record<PlannedValueKey,string>; comment: string; commentId: string; autoCalculate: boolean; manualValues?: boolean; descriptionOverride?: string; personal?: WorkoutLocalMetadata; personalId?: string; recurrence?: WorkoutRecurrenceDraft | null}
+}
+type EditorCreationSnapshot = {
+  input: Parameters<typeof writeWorkoutEditor>[1] & { creationId: string }
+  personal: WorkoutLocalMetadata
+  recurrence: WorkoutRecurrenceDraft | null
+  desktop?: Draft["desktop"]
+}
+function validEditorCreationSnapshot(value: unknown): value is EditorCreationSnapshot {
+  if (!value || typeof value !== "object") return false
+  const snapshot = value as EditorCreationSnapshot, input = snapshot.input
+  try {
+    return Boolean(input && !validateWorkout(input.model).length &&
+      /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(input.creationId) &&
+      typeof input.revision === "string" &&
+      (input.time === undefined || /^([01]\d|2[0-3]):[0-5]\d$/.test(input.time)) &&
+      (input.comment === undefined || (typeof input.comment === "string" && input.comment.length <= 2000)) &&
+      (input.commentId === undefined || typeof input.commentId === "string") &&
+      (input.description === undefined || (typeof input.description === "string" && input.description.length <= 30000)) &&
+      (input.descriptionMode === undefined || input.descriptionMode === "manual") &&
+      validatePlannedValues(input.values || {}) &&
+      snapshot.personal && typeof snapshot.personal === "object" && !Array.isArray(snapshot.personal) &&
+      (snapshot.recurrence === null || (typeof snapshot.recurrence === "object" && typeof snapshot.recurrence.operationId === "string")))
+  } catch { return false }
 }
 const tones: Record<Role, string> = {
   warmup: "#66a8a0",
@@ -292,7 +334,7 @@ function TargetShape({
     <Choice
       label="Target shape"
       value={target.mode}
-      options={(target.unit.includes("zone")
+      options={(target.unit.includes("zone") || target.kind === "rpe"
         ? ["single", "range"]
         : ["single", "range", "ramp"]
       ).map((value) => ({
@@ -300,7 +342,7 @@ function TargetShape({
         label: { single: "Single", range: "Range", ramp: "Ramp" }[value]!,
       }))}
       onChange={(mode) =>
-        onChange({
+        onChange(target.kind === "rpe" ? reshapeRpeTarget(target,mode as "single"|"range") : {
           ...target,
           mode: mode as "single" | "range" | "ramp",
           ...(mode === "single"
@@ -723,9 +765,9 @@ function TargetFields({
   onChange: (t: Target) => void
 }) {
   const settings = useContext(ZoneSettingsContext)
-  const units = editorUnits(sport)
+  const units = target.kind === "rpe" ? {kind:"rpe",target:"rpe",label:"RPE"} : editorUnits(sport)
   const displayed = editorTarget(target, sport, settings, thresholds)
-  const zones = workoutZoneOptions(settings, sport, units.target)
+  const zones = target.kind === "rpe" ? [] : workoutZoneOptions(settings, sport, units.target)
   const selectedZone =
     zones.find((zone) => {
       if (target.unit?.endsWith("_zone") && target.mode === "single")
@@ -745,7 +787,8 @@ function TargetFields({
   const valueField = (label: string, key: "value" | "start" | "end") => {
     if (!displayed || displayed.kind === "none") return null
     const value = displayed[key] || 0
-    const change = (n: number) => onChange({ ...displayed, [key]: n })
+    const change = (n: number) => onChange(displayed.kind === "rpe" ? editRpeTarget(displayed,key,n) : { ...displayed, [key]: n })
+    if(displayed.kind === "rpe")return <label className="we-field"><span>{label} (RPE)</span><WorkoutRpeField label={label} value={value} onChange={change}/></label>
     return units.kind === "pace" ? (
       <PaceField
         label={label}
@@ -816,7 +859,7 @@ function TargetFields({
           </Button>
         </div>
       )}
-      <div className="we-zone-choice">
+      {target.kind !== "rpe" && <div className="we-zone-choice">
         <Choice
           label="Training zone"
           value={selectedZone}
@@ -833,7 +876,7 @@ function TargetFields({
             if (zone) onChange(zone.target)
           }}
         />
-      </div>
+      </div>}
     </div>
   )
 }
@@ -1189,8 +1232,8 @@ function MobileIntervalSheet({
       const next = clone(current)
       const targetKind = editorUnits(model.sport).kind
       next.label = roleNames[next.role]
-      if (next.role === "rest") next.target = { kind: "none" }
-      else if (next.target.kind !== targetKind)
+      if (next.role === "rest" && next.target.kind !== "rpe") next.target = { kind: "none" }
+      else if (next.target.kind !== targetKind && next.target.kind !== "rpe")
         next.target = defaultTarget(model.sport)
       setDraft(next)
     }
@@ -2579,6 +2622,7 @@ type ChartGesture = {
   clientY: number
   width: number
   blocks: { id: string; width: number }[]
+  axisMaximum: number
   original: WorkoutModel
   preview: WorkoutModel
 }
@@ -2630,7 +2674,8 @@ function IntervalChart({
     observer.observe(chart)
     if (viewport) observer.observe(viewport)
     viewport?.addEventListener("scroll", update, { passive: true })
-    update()
+    // ResizeObserver delivers initial geometry after layout. Reading it here
+    // forces the newly mounted dialog to lay out synchronously a second time.
     return () => {
       observer.disconnect()
       viewport?.removeEventListener("scroll", update)
@@ -2638,7 +2683,9 @@ function IntervalChart({
   }, [desktop])
   const [gesture, setGesture] = useState<ChartGesture | null>(null)
   const gestureRef = useRef<ChartGesture | null>(null)
+  const stopGesturePan = useRef<(() => void) | null>(null)
   const updateGesture = useCallback((next: ChartGesture | null) => {
+    if (!next) stopGesturePan.current?.()
     gestureRef.current = next
     setGesture(next)
   }, [])
@@ -2650,7 +2697,7 @@ function IntervalChart({
     const endVisible = bounds.right <= visible.right + 1
     const right = endVisible ? bounds.right + 30 : visible.right
     if (x < visible.left || x > right || y < bounds.top || y > Math.min(bounds.bottom, visible.bottom) || !bounds.width) return null
-    return desktopProfileDropSlot(active.blocks, active.selectionId, (x - bounds.left) / bounds.width)
+    return desktopProfileDropSlot(active.blocks, active.selectionId, (x - bounds.left) / bounds.width * active.axisMaximum / (active.blocks.reduce((sum, block) => sum + block.width, 0) || 1))
   }, [])
   const activePointer = gesture?.pointerId
   useEffect(() => {
@@ -2662,7 +2709,6 @@ function IntervalChart({
       updateGesture(null)
     }
     const blur = () => updateGesture(null)
-    let frame = 0
     const pan = () => {
       const active = gestureRef.current
       const viewport = chartElement.current?.closest<HTMLElement>(".dtb-chart-scroll")
@@ -2677,13 +2723,14 @@ function IntervalChart({
           if (before !== viewport.scrollLeft) updateGesture({ ...active, drop: reorderDropAt(active, x, y) })
         }
       }
-      frame = requestAnimationFrame(pan)
     }
-    if (desktop) frame = requestAnimationFrame(pan)
+    const stop = desktop ? startAnimationLoop(pan) : () => {}
+    stopGesturePan.current = stop
     window.addEventListener("keydown", cancel, true)
     window.addEventListener("blur", blur)
     return () => {
-      cancelAnimationFrame(frame)
+      stop()
+      if (stopGesturePan.current === stop) stopGesturePan.current = null
       window.removeEventListener("keydown", cancel, true)
       window.removeEventListener("blur", blur)
     }
@@ -2711,11 +2758,12 @@ function IntervalChart({
           findNode([findNode(model.steps, id)!].filter(Boolean), selectedId)
         )
     )
-  const total = chart.segments.reduce((n, s) => n + s.width, 0) || 1,
-    maximum = Math.max(desktop ? 1.2 : 1.3, ...chart.segments.flatMap((s) => [s.start, s.end, ...(desktop ? [desktopProfileRange(s).high] : [])]))
+  const profileAxis = desktopProfileAxis(model)
+  const total = desktop ? profileAxis.maximum : chart.segments.reduce((n, s) => n + s.width, 0) || 1,
+    maximum = desktop ? desktopProfileMaximum(chart.segments) : chart.segments.some(s=>s.step.target.kind === "rpe") && chart.segments.every(s=>["none","rpe"].includes(s.step.target.kind)) ? 1 : Math.max(1.3, ...chart.segments.flatMap((s) => [s.start, s.end]))
   let position = 0
   const width = Math.max(600, Math.min(12000, chart.segments.length * 20))
-  const height = (v: number) => (desktop ? 0 : 16) + (Math.max(0, v) / maximum) * (desktop ? 150 : 140)
+  const height = (v: number) => (desktop ? 0 : 16) + (Math.max(0, v) / maximum) * (desktop ? 180 : 140)
   const profileWidths = new Map<string, number>()
   if (desktop) for (const segment of chart.segments) {
     const id = groupId(segment.step)
@@ -2746,6 +2794,7 @@ function IntervalChart({
       clientY: e.clientY,
       width: segmentWidth * screenScale,
       blocks: profileBlocks,
+      axisMaximum: total,
       original: model,
       preview: model,
     })
@@ -2788,8 +2837,7 @@ function IntervalChart({
         const t = n.target,
           inverse = Boolean(paceFactors[t.unit]),
           delta = Math.round(-dy / 3) * (inverse ? -1 : 1)
-        const alter = (v: number) =>
-          Math.max(
+        const alter = (v: number) => t.kind === "rpe" ? normalizeRpeValue(v + delta) : Math.max(
             t.unit.includes("zone") ? 1 : 0.1,
             Math.min(t.unit.includes("zone") ? 10 : 10000, v + delta)
           )
@@ -2827,12 +2875,9 @@ function IntervalChart({
     ? Math.max(baseTickEvery, Math.ceil(total / Math.max(2, Math.floor(chartWidth / 80)) / baseTickEvery) * baseTickEvery)
     : baseTickEvery
   const tickValues = chart.axis.startsWith("Distance")
-    ? [0, 0.25, 0.5, 0.75, 1].map((f) => total * f)
+    ? desktop ? desktopDistanceTicks(total, profileAxis.factor) : Array.from({length: 5}, (_, index) => index * total / 4)
     : Array.from({ length: Math.floor(total / tickEvery) + 1 }, (_, i) => i * tickEvery)
-  if (desktop && tickValues.at(-1) !== total) {
-    if (tickValues.length > 1 && (total-tickValues.at(-1)!) / total * chartWidth < 72) tickValues.pop()
-    tickValues.push(total)
-  }
+
   const compactDuration = (seconds: number) => {
     const rounded = Math.round(seconds)
     return rounded % 60 === 0 ? `${rounded / 60} min`
@@ -2845,11 +2890,11 @@ function IntervalChart({
       catch { /* A missing threshold leaves the original prescription visible. */ }
     }
     const duration = step.end.kind === "distance"
-      ? `${round(step.end.value)} ${step.end.unit}`
+      ? `${round(step.end.value)} ${step.end.unit === "yd" ? "yds" : step.end.unit}`
       : step.end.kind === "lap" ? "Until lap button" : compactDuration(step.end.value)
     const ending = step.end.kind !== "lap" && step.end.pressLap ? `${duration} + lap` : duration
     if (target.kind === "none") return { summary: ending, physical: "" }
-    const unitLabel = desktopTargetUnits.find(([unit]) => unit === target.unit)?.[1] || target.unit
+    const unitLabel = target.unit === "%ftp" ? "% FTP" : target.unit === "w" ? "W" : desktopTargetUnits.find(([unit]) => unit === target.unit)?.[1] || target.unit
     const numbers = target.mode === "single" ? [target.value!] : [target.start!, target.end!]
     const targetText = paceFactors[target.unit] || target.unit.endsWith("_zone")
       ? targetLabel(target)
@@ -2867,7 +2912,7 @@ function IntervalChart({
       const id=groupId(segment.step), node=roots.get(id), y=Math.max(0,180-height(desktopProfileRange(segment).high))
       const label=desktopLabels.get(id)
       if (label) {label.width+=segment.width;label.y=Math.min(label.y,y)}
-      else desktopLabels.set(id,{x:offset,width:segment.width,y,label:node?.kind==="repeat" ? `${node.repetitions} × ${node.steps.map(stepLabel).join(", ")}` : `${segment.step.label}: ${desktopPrescription(segment.step).summary}`})
+      else desktopLabels.set(id,{x:offset,width:segment.width,y,label:node?.kind==="repeat" ? `${node.repetitions} × ${node.steps.map(step => step.kind === "step" ? desktopPrescription(step).summary : stepLabel(step)).join(", ")}` : `${segment.step.label}: ${desktopPrescription(segment.step).summary}`})
       offset+=segment.width
     }
   }
@@ -2905,7 +2950,7 @@ function IntervalChart({
         const qualifier = candidateChart.placeholder ? "Estimated timeline: " : candidateChart.estimated ? "Estimated: " : ""
         dragPreview = {
           kind: palettePreview ? "palette" : "reorder",
-          position: drop.position,
+          position: palettePreview ? drop.position : drop.position * profileAxis.actual / total,
           name,
           prescriptions: unique.slice(0, 2).map(step => ({ id: step.id, ...desktopPrescription(step) })),
           timeline: `${qualifier}Starting at: ${formatPosition(start)}, Ending at: ${formatPosition(end)}`,
@@ -2971,10 +3016,10 @@ function IntervalChart({
                   }
                   onPointerEnter={() => setHovered(groupId(s.step))}
                 >
-                  {desktop && active && <rect x={x} width={w} y={5} height={175} fill="#b7bbc2" opacity=".25" pointerEvents="none"/>}
+                  {desktop && active && <rect x={x} width={w} y={0} height={180} fill="#999999" opacity=".25" pointerEvents="none"/>}
                   <polygon
                     points={`${x},180 ${x},${y1} ${x + w},${y2} ${x + w},180`}
-                    fill={desktop ? s.step.target.kind === "none" ? "#a9b2c1" : active ? "#004575" : "#005b93" : tones[s.step.role]}
+                    fill={desktop ? s.step.target.kind === "none" ? "#a9b2c1" : active ? "#004575" : "#005595" : tones[s.step.role]}
                     stroke={desktop ? "#ffffff" : active ? "#2563eb" : "var(--background)"}
                     strokeWidth={desktop ? .7 : active ? 1.5 : 1}
                     vectorEffect="non-scaling-stroke"
@@ -3070,8 +3115,8 @@ function IntervalChart({
                 }}
               >
                 {chart.axis.startsWith("Distance")
-                  ? Math.round(value).toLocaleString() + " m"
-                  : desktop ? durationClock(value).replace(/^0(?=\d:)/, "") : Math.floor(value / 3600) +
+                  ? desktop ? String(Number((value / profileAxis.factor).toFixed(2))) : Math.round(value).toLocaleString() + " m"
+                  : desktop ? value === 0 ? "0" : durationClock(value).replace(/^0(?=\d:)/, "") : Math.floor(value / 3600) +
                     ":" +
                     String(Math.floor(value / 60) % 60).padStart(2, "0")}
               </span>
@@ -3125,50 +3170,64 @@ export function WorkoutEditor({
   date,
   initialSport,
   initialName,
+  initialVariant,
   initialFocusId,
   onClose,
   onSaveClose,
   onSaved,
   initialModel,
   onApplyDraft,
+  externalCreationPending = false,
   initialDesktopDraft,
+  initialWarnings,
   onDelete,
 }: {
   workout?: PlannedWorkout
   date?: string
   initialSport?: string
   initialName?: string
+  initialVariant?: WorkoutModel["variant"]
   initialFocusId?: string
   onClose: () => void
   onSaveClose?: () => void
   onSaved?: (w: PlannedWorkout, close?: boolean) => void
   initialModel?: WorkoutModel
+  externalCreationPending?: boolean
   onApplyDraft?: (model: WorkoutModel, submission?: DesktopBuilderSubmission) => void | Promise<void>
   initialDesktopDraft?: Omit<DesktopBuilderSubmission, "close">
+  initialWarnings?: string[]
   onDelete?: () => Promise<void> | void
 }) {
   const mobile = useIsMobile()
+  const existingWorkout = Boolean(workout)
   const editorId = workout?.id || "new:" + date
   const editorUrl = workout
     ? "/api/workouts/" + encodeURIComponent(workout.id) + "/editor"
     : "/api/workouts/new/editor?" + new URLSearchParams({ date: date || "", ...(initialSport ? { sport: initialSport } : {}), ...(initialName ? { name: initialName } : {}) })
-  const [loaded, setLoaded] = useState<Loaded | null>(null),
+  const [loaded, setLoaded] = useState<Loaded | null>(() => {
+    const data = cachedWorkoutEditor(editorUrl)
+    if (!data) return null
+    const selected = initialModel ? { ...data, model: withStrengthTimeAssignment({ ...initialModel, thresholds: initialModel.thresholds || data.model.thresholds }, initialDesktopDraft && initialModel.strength ? Boolean(initialDesktopDraft.time) : initialModel.strength?.startTimeAssigned), manualDescription:initialModel.notes, ...(data.isNew && initialModel.strength ? { scheduledTime: "" } : {}), ...(initialDesktopDraft ? { plannedValues: initialDesktopDraft.values, scheduledTime: initialDesktopDraft.time, initialComment: initialDesktopDraft.comment } : {}) } : data
+    return {...selected,warnings:[...selected.warnings,...(initialWarnings || [])],model:builderWorkoutModel(!existingWorkout && !initialModel && initialVariant && selected.model.sport === "Other" ? {...selected.model,variant:initialVariant} : selected.model)}
+  }),
     [loadError, setLoadError] = useState("")
   const [reloadKey, setReloadKey] = useState(0)
   const [initialDesktopSnapshot] = useState(initialDesktopDraft)
+  const [initialWarningSnapshot] = useState(initialWarnings)
   useEffect(() => {
     const controller = new AbortController()
     setLoadError("")
     loadWorkoutEditor(editorUrl, controller.signal, reloadKey > 0)
       .then((data) => {
         if (controller.signal.aborted) return
-        setLoaded(initialModel ? { ...data, model: { ...initialModel, thresholds: initialModel.thresholds || data.model.thresholds }, manualDescription:initialModel.notes, ...(initialDesktopSnapshot ? { plannedValues: initialDesktopSnapshot.values, scheduledTime: initialDesktopSnapshot.time, initialComment: initialDesktopSnapshot.comment } : {}) } : data)
+        const selected = initialModel ? { ...data, model: withStrengthTimeAssignment({ ...initialModel, thresholds: initialModel.thresholds || data.model.thresholds }, initialDesktopSnapshot && initialModel.strength ? Boolean(initialDesktopSnapshot.time) : initialModel.strength?.startTimeAssigned), manualDescription:initialModel.notes, ...(data.isNew && initialModel.strength ? { scheduledTime: "" } : {}), ...(initialDesktopSnapshot ? { plannedValues: initialDesktopSnapshot.values, scheduledTime: initialDesktopSnapshot.time, initialComment: initialDesktopSnapshot.comment } : {}) } : data
+        setLoaded({...selected,warnings:[...selected.warnings,...(initialWarningSnapshot || [])],model:builderWorkoutModel(!existingWorkout && !initialModel && initialVariant && selected.model.sport === "Other" ? {...selected.model,variant:initialVariant} : selected.model)})
       })
       .catch((e) => {
         if (!controller.signal.aborted) setLoadError(e.message)
       })
     return () => controller.abort()
-  }, [editorUrl, reloadKey, workout, initialModel, initialDesktopSnapshot])
+  }, [editorUrl, reloadKey, existingWorkout, initialModel, initialVariant, initialDesktopSnapshot, initialWarningSnapshot])
   if (loaded)
     return (
       <EditorWorkspace
@@ -3180,6 +3239,7 @@ export function WorkoutEditor({
         onSaveClose={onSaveClose}
         onSaved={onSaved}
         onApplyDraft={onApplyDraft}
+        externalCreationPending={externalCreationPending}
         initialPersonal={initialDesktopSnapshot?.personal}
         initialPersonalId={initialDesktopSnapshot?.personalId}
         initialRecurrence={initialDesktopSnapshot?.recurrence}
@@ -3237,6 +3297,7 @@ function EditorWorkspace({
   onSaved,
   onReload,
   onApplyDraft,
+  externalCreationPending = false,
   onDelete,
   initialPersonal,
   initialPersonalId,
@@ -3249,6 +3310,7 @@ function EditorWorkspace({
   onSaveClose?: () => void
   onSaved?: (w: PlannedWorkout, close?: boolean) => void
   onReload: () => void
+  externalCreationPending?: boolean
   onApplyDraft?: (model: WorkoutModel, submission?: DesktopBuilderSubmission) => void | Promise<void>
   onDelete?: () => Promise<void> | void
   initialPersonal?: WorkoutLocalMetadata
@@ -3256,28 +3318,38 @@ function EditorWorkspace({
   initialRecurrence?: WorkoutRecurrenceDraft | null
 }) {
   const mobile = useIsMobile()
+  const editorAccount = useWorkoutAccountBoundary(true)
+  const editorDialogRef = useRef<HTMLDivElement>(null)
+  const inputValidity = useWorkoutInputValidity()
   const [history, setHistory] = useState({
     past: [] as WorkoutModel[],
     present: loaded.model,
     future: [] as WorkoutModel[],
   })
   const [personalScope] = useState(trainingCacheScope)
+  const [pendingStrength] = useState(() => loaded.isNew ? readPendingWorkoutCreation(localStorage,personalScope) : null)
+  const pendingEditorSnapshot = (pendingStrength as typeof pendingStrength & {editorSnapshot?: EditorCreationSnapshot})?.editorSnapshot
+  const pendingStrengthRecovery:Draft|null=pendingStrength ? {model:pendingStrength.model,revision:loaded.revision,creationId:pendingStrength.creationId,creationAttempted:true,...(validEditorCreationSnapshot(pendingEditorSnapshot) ? {creationSnapshot:pendingEditorSnapshot} : {}),desktop:validEditorCreationSnapshot(pendingEditorSnapshot) && pendingEditorSnapshot.desktop ? pendingEditorSnapshot.desktop : {time:pendingStrength.time,draft:plannedValueDraft(pendingStrength.values,workoutPresentationSport(pendingStrength.model)),comment:pendingStrength.comment,commentId:pendingEditorSnapshot?.input.commentId || pendingStrength.creationId,autoCalculate:false,manualValues:true,descriptionOverride:pendingStrength.description ?? pendingStrength.model.notes,...(validEditorCreationSnapshot(pendingEditorSnapshot) ? {personal:pendingEditorSnapshot.personal,recurrence:pendingEditorSnapshot.recurrence} : {})}} : null
   const draftKey = `workout-editor-draft:${personalScope}:${workoutId}`,
     blocksKey = `workout-editor-blocks:${personalScope}`
   const [recovered, setRecovered] = useState<Draft | null>(() => {
+    // A submitted create intent is authoritative across all Add entry points.
+    // An older per-date draft must never turn an uncertain POST into a new one.
+    if(pendingStrengthRecovery)return pendingStrengthRecovery
     try {
       const value = JSON.parse(localStorage.getItem(draftKey) || "null")
       return value?.model &&
         typeof value.revision === "string" &&
         (!value.creationId || /^[a-zA-Z0-9-]{16,80}$/.test(value.creationId)) &&
-        (!value.savedId || /^event:[1-9]\d*$/.test(value.savedId)) &&
+        (!value.savedId || /^(event:[1-9]\d*|app:[a-f\d-]{36})$/.test(value.savedId)) &&
         (!value.desktop?.personalId || /^(?:draft:[a-zA-Z0-9-]{16,80}|event:[1-9]\d*)$/.test(value.desktop.personalId)) &&
         (!initialPersonalId || !value.desktop?.personalId || initialPersonalId === value.desktop.personalId) &&
+        (!value.creationSnapshot || (validEditorCreationSnapshot(value.creationSnapshot) && value.creationSnapshot.input.creationId === value.creationId && JSON.stringify(value.creationSnapshot.input.model) === JSON.stringify(value.model))) &&
         !validateWorkout(value.model).length
         ? value
-        : null
+        : pendingStrengthRecovery
     } catch {
-      return null
+      return pendingStrengthRecovery
     }
   })
   const [savedId, setSavedId] = useState(loaded.isNew ? "" : workoutId)
@@ -3286,28 +3358,39 @@ function EditorWorkspace({
     ? recovered?.desktop?.personalId || recovered?.savedId || `draft:${creationId}`
     : workoutId))
   const personal = useWorkoutPersonalFields(personalScope, personalId, initialPersonal, !mobile)
+  const creationSnapshot = useRef<EditorCreationSnapshot | null>(validEditorCreationSnapshot(recovered?.creationSnapshot) ? recovered.creationSnapshot : pendingStrength ? {
+    input: {model:pendingStrength.model,revision:loaded.revision,creationId:pendingStrength.creationId,values:pendingStrength.values,time:pendingStrength.time || "00:00",comment:pendingStrength.comment,...(pendingEditorSnapshot?.input.commentId ? {commentId:pendingEditorSnapshot.input.commentId} : {}),...(pendingStrength.description !== undefined ? {description:pendingStrength.description} : {}),...(pendingStrength.descriptionMode ? {descriptionMode:pendingStrength.descriptionMode} : {})},
+    personal: normalizeWorkoutLocalMetadata(recovered?.desktop?.personal || personal.value),recurrence:recovered?.desktop?.recurrence || null,
+  } : null)
   const [recurrence, setRecurrence] = useState<WorkoutRecurrenceDraft | null>(initialRecurrence || null)
   const [creationAttempted, setCreationAttempted] = useState(false)
   const isNew = !savedId
-  const model = history.present
-  const [desktopTime, setDesktopTime] = useState((loaded.scheduledTime ?? "00:00").slice(0,5))
+  const creationLocked = isNew && (externalCreationPending || creationAttempted || Boolean(recovered?.creationAttempted))
+  const [strengthTimeAssigned, setStrengthTimeAssigned] = useState(loaded.model.strength?.startTimeAssigned)
+  const model = useMemo(() => withStrengthTimeAssignment(history.present, strengthTimeAssigned), [history.present, strengthTimeAssigned])
+  const presentationSport = workoutPresentationSport(model)
+  const providerWarnings = useMemo(() => {try{return workoutProviderWarnings(model)}catch{return []}},[model])
+  const [desktopTime, setDesktopTime] = useState(() => editorStartTime(loaded.model, loaded.scheduledTime))
   const [desktopComment, setDesktopComment] = useState(loaded.initialComment || "")
   const [desktopCommentId, setDesktopCommentId] = useState(uid)
   const [desktopComments, setDesktopComments] = useState(loaded.comments || [])
-  const [desktopDraft, setDesktopDraft] = useState(() => plannedValueDraft(loaded.plannedValues, loaded.model.sport))
+  const [desktopDraft, setDesktopDraft] = useState(() => plannedValueDraft(loaded.plannedValues, workoutPresentationSport(loaded.model)))
   const [desktopSavedValues, setDesktopSavedValues] = useState(loaded.plannedValues || {})
   const [desktopDescription, setDesktopDescription] = useState(loaded.manualDescription ?? loaded.descriptionOverride ?? loaded.model.notes ?? "")
-  const [desktopDescriptionBaseline, setDesktopDescriptionBaseline] = useState(desktopDescription)
+  const [strengthDescriptionMirrors] = useState((loaded.manualDescription ?? loaded.descriptionOverride ?? loaded.model.notes ?? "")===loaded.model.notes)
+  const nativeDescription=model.strength && strengthDescriptionMirrors ? model.notes : desktopDescription
+  const [desktopDescriptionBaseline, setDesktopDescriptionBaseline] = useState(nativeDescription)
   const [autoCalculate, setAutoCalculateState] = useState(personal.value.autoCalculate)
   const autoCalculateTouched = useRef(false)
   const setAutoCalculate = (value: boolean) => { autoCalculateTouched.current = true; setAutoCalculateState(value) }
   useEffect(() => {
     if (!personal.loading && !autoCalculateTouched.current) setAutoCalculateState(personal.value.autoCalculate)
   }, [personal.loading, personal.value.autoCalculate])
-  const files = useWorkoutFiles({ model, workout: savedId ? [...cachedTrainingContext().planned, ...cachedTrainingContext().history].find(row => "id" in row && row.id === savedId) as PlannedWorkout | undefined : undefined })
+  const files = useWorkoutFiles({ model, workoutId: savedId || undefined, presentation: !mobile && model.strength ? "strength" : undefined, workout: savedId ? [...cachedTrainingContext().planned, ...cachedTrainingContext().history].find(row => "id" in row && row.id === savedId) as PlannedWorkout | undefined : undefined })
+  const [templateOpen, setTemplateOpen] = useState(false)
   const [manualValues, setManualValues] = useState(false)
   const [desktopExpanded,setDesktopExpanded] = useState(true)
-  const [desktopBaseline, setDesktopBaseline] = useState(() => JSON.stringify({ time: (loaded.scheduledTime ?? "00:00").slice(0,5), draft: plannedValueDraft(loaded.plannedValues, loaded.model.sport), comment: loaded.initialComment || "" }))
+  const [desktopBaseline, setDesktopBaseline] = useState(() => JSON.stringify({ time: editorStartTime(loaded.model, loaded.scheduledTime), draft: plannedValueDraft(loaded.plannedValues, workoutPresentationSport(loaded.model)), comment: loaded.initialComment || "" }))
   const [baseline, setBaseline] = useState(JSON.stringify(loaded.model)),
     [revision, setRevision] = useState(loaded.revision)
   const [selected, setSelected] = useState<string[]>([])
@@ -3324,14 +3407,40 @@ function EditorWorkspace({
   const [discardOpen, setDiscardOpen] = useState(false),
     [reloadOpen, setReloadOpen] = useState(false)
   const [status, setStatus] = useState<
-      "draft" | "saving" | "synced" | "failed"
+      "draft" | "saving" | "pending" | "synced" | "failed"
     >("draft"),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("")
+  const [strengthLocalDirty,setStrengthLocalDirty]=useState(false)
+  const syncErrorRef = useRef("")
+  useEffect(() => {
+    const update = () => {
+      const row = savedId && localCommittedWorkout(savedId)
+      if (!row) return
+      setStatus(current => current === "saving" ? current : row.state === "synced" ? "synced" : row.state === "failed" ? "failed" : "pending")
+      setNotice(row.state === "synced" ? "Synced to Intervals.icu." : row.state === "failed" ? "" : row.state === "local" ? "Saved on this device; sync pending." : "Saved in the app; sync pending.")
+      if (row.state === "failed") {
+        const message = row.error || "Workout saved; synchronization needs attention."
+        syncErrorRef.current = message; setError(message)
+      } else if (syncErrorRef.current) {
+        const previous = syncErrorRef.current
+        syncErrorRef.current = ""
+        setError(current => current === previous ? "" : current)
+      }
+    }
+    update()
+    window.addEventListener("workout-commits-updated", update)
+    return () => window.removeEventListener("workout-commits-updated", update)
+  }, [savedId])
   const [dragLabel, setDragLabel] = useState(""),
     [bulkSeconds, setBulkSeconds] = useState(60),
     [bulkTarget, setBulkTarget] = useState<Target>(defaultTarget(model.sport))
   const saveInFlight = useRef(false)
+  const deleteInFlight = useRef(false)
+  const discardIntent = useRef<"local" | "navigation" | null>(null)
+  const navigationDiscard = useRef<((allowed: boolean) => void) | null>(null)
+  const navigationCleanup = useRef(false)
+  const editorNavigation = useRef({dirty: false, decide: async () => false, commit: () => {}})
   const [blocks, setBlocks] = useState<SavedBlock[]>(() => {
     try {
       const value = JSON.parse(localStorage.getItem(blocksKey) || "[]")
@@ -3348,14 +3457,15 @@ function EditorWorkspace({
     }
   })
   const modelDirty = JSON.stringify(model) !== baseline
-  const desktopRemoteDirty = desktopDescription !== desktopDescriptionBaseline ||
+  const desktopRemoteDirty = nativeDescription !== desktopDescriptionBaseline ||
     JSON.stringify({time: desktopTime, draft: desktopDraft, comment: desktopComment}) !== desktopBaseline
   const saving = status === "saving",
-    dirty = modelDirty || (!mobile && (personal.dirty || autoCalculate !== personal.value.autoCalculate || desktopRemoteDirty || Boolean(recurrence)))
+    dirty = modelDirty || strengthLocalDirty || inputValidity.hasInvalid || (!mobile && (personal.dirty || autoCalculate !== personal.value.autoCalculate || desktopRemoteDirty || Boolean(recurrence)))
   const useSharedEditor = model.version === 1
-  const commit = (next: WorkoutModel) => {
-    if (saving) return
-    if (next.sport !== model.sport || JSON.stringify(next.steps) !== JSON.stringify(model.steps) || JSON.stringify(next.thresholds) !== JSON.stringify(model.thresholds)) setManualValues(false)
+  const commit = (next: WorkoutModel, restoring = false) => {
+    if (saving || (creationLocked && !restoring)) return
+    next = builderWorkoutModel(next)
+    if (next.sport !== model.sport || next.variant !== model.variant || JSON.stringify(next.steps) !== JSON.stringify(model.steps) || JSON.stringify(next.thresholds) !== JSON.stringify(model.thresholds)) setManualValues(false)
     setHistory((h) =>
       JSON.stringify(h.present) === JSON.stringify(next)
         ? h
@@ -3365,7 +3475,7 @@ function EditorWorkspace({
     setError("")
   }
   const undo = () => {
-    if (saving) return
+    if (saving || creationLocked) return
     setHistory((h) =>
       h.past.length
         ? {
@@ -3378,7 +3488,7 @@ function EditorWorkspace({
     setStatus("draft")
   }
   const redo = () => {
-    if (saving) return
+    if (saving || creationLocked) return
     setHistory((h) =>
       h.future.length
         ? {
@@ -3542,13 +3652,16 @@ function EditorWorkspace({
           creationId,
           creationAttempted,
           savedId,
-          ...(!mobile ? {desktop: {time:desktopTime,draft:desktopDraft,comment:desktopComment,commentId:desktopCommentId,autoCalculate,manualValues,descriptionOverride:desktopDescription,personal:personal.value,personalId:personal.id,recurrence}} : {}),
+          ...(creationSnapshot.current ? {creationSnapshot: creationSnapshot.current} : {}),
+          ...(!mobile ? {desktop: {time:desktopTime,draft:desktopDraft,comment:desktopComment,commentId:desktopCommentId,autoCalculate,manualValues,descriptionOverride:nativeDescription,personal:personal.value,personalId:personal.id,recurrence}} : {}),
         })
       )
+      return true
     } catch {
       setNotice(
         "Browser storage is unavailable. Keep this editor open to retain your draft."
       )
+      return false
     }
   }
   useEffect(() => {
@@ -3562,7 +3675,8 @@ function EditorWorkspace({
             creationId,
             creationAttempted,
             savedId,
-            ...(!mobile ? {desktop: {time:desktopTime,draft:desktopDraft,comment:desktopComment,commentId:desktopCommentId,autoCalculate,manualValues,descriptionOverride:desktopDescription,personal:personal.value,personalId:personal.id,recurrence}} : {}),
+            ...(creationSnapshot.current ? {creationSnapshot: creationSnapshot.current} : {}),
+            ...(!mobile ? {desktop: {time:desktopTime,draft:desktopDraft,comment:desktopComment,commentId:desktopCommentId,autoCalculate,manualValues,descriptionOverride:nativeDescription,personal:personal.value,personalId:personal.id,recurrence}} : {}),
           })
         )
       } catch {
@@ -3578,7 +3692,7 @@ function EditorWorkspace({
     creationId,
     creationAttempted,
     savedId,
-    mobile, desktopTime, desktopDraft, desktopComment, desktopCommentId, autoCalculate, manualValues, desktopDescription, personal.value, personal.id, recurrence,
+    mobile, desktopTime, desktopDraft, desktopComment, desktopCommentId, autoCalculate, manualValues, nativeDescription, personal.value, personal.id, recurrence,
   ])
   useEffect(() => {
     const guard = (e: BeforeUnloadEvent) => {
@@ -3591,49 +3705,128 @@ function EditorWorkspace({
     return () => window.removeEventListener("beforeunload", guard)
   }, [dirty, saving])
   const discardAndClose = () => {
+    if (!editorAccount.isCurrent()) {
+      navigationDiscard.current?.(false)
+      navigationDiscard.current = null
+      discardIntent.current = null
+      return
+    }
+    if (navigationDiscard.current) {
+      navigationCleanup.current = true
+      const resolve = navigationDiscard.current
+      navigationDiscard.current = null
+      discardIntent.current = null
+      resolve(true)
+      return
+    }
     try {
       localStorage.removeItem(draftKey)
     } catch {
-      /* Optional. */
+      setNotice("The recovery draft could not be discarded. Keep this editor open and retry.")
+      discardIntent.current = null
+      return
     }
-    onClose()
+    discardIntent.current = null
+    if (editorAccount.isCurrent()) bypassWorkoutNavigationGuard(onClose)
+  }
+  const onDiscardOpenChange = (open: boolean) => {
+    setDiscardOpen(open)
+    if (!open) {
+      navigationDiscard.current?.(false)
+      navigationDiscard.current = null
+      discardIntent.current = null
+    }
   }
   const requestClose = () => {
-    if (saving) return
-    if (!dirty) {
+    if (saving || saveInFlight.current || deleteInFlight.current || personal.busy || files.busy || templateOpen || discardIntent.current || !editorAccount.isCurrent()) return
+    if (externalCreationPending || creationAttempted || (pendingStrength && recovered)) { if (storeDraft()) bypassWorkoutNavigationGuard(onClose); return }
+    if (!dirty && !(isNew && (model.steps.length || model.strength?.blocks.length))) {
       // A reverted edit leaves the last dirty snapshot in storage. Retire that
       // snapshot, but keep a recovery the user has not reviewed or a failed sync.
       if (!recovered && status === "draft") discardAndClose()
-      else onClose()
+      else bypassWorkoutNavigationGuard(onClose)
       return
     }
     if (mobile) {
+      discardIntent.current = "local"
       void confirmWithFramework7(
         "Discard unsaved changes?",
         "Discard the local workout draft? Changes already saved remain unchanged."
       ).then((discard) => {
-        if (discard) discardAndClose()
+        if (discard && editorAccount.isCurrent()) discardAndClose()
+        else discardIntent.current = null
       })
-    } else setDiscardOpen(true)
+    } else { discardIntent.current = "local";setDiscardOpen(true) }
   }
+  const requestEditorNavigation = async () => {
+    navigationCleanup.current = false
+    if (saving || saveInFlight.current || deleteInFlight.current || personal.busy || files.busy || templateOpen || discardIntent.current || !editorAccount.isCurrent()) return false
+    // Leaving an uncertain create keeps its original immutable identity. It is
+    // never handled by the destructive discard action.
+    if (externalCreationPending || creationAttempted || (pendingStrength && recovered)) return storeDraft()
+    if (!dirty && !(isNew && (model.steps.length || model.strength?.blocks.length))) {
+      if (!recovered && status === "draft") {
+        navigationCleanup.current = true
+      }
+      return true
+    }
+    discardIntent.current = "navigation"
+    if (mobile) {
+      try {
+        if (!(await confirmWithFramework7("Discard unsaved changes?", "Discard the local workout draft? Changes already saved remain unchanged.")) || !editorAccount.isCurrent()) return false
+        navigationCleanup.current = true
+        return true
+      } catch (reason) { setNotice(reason instanceof Error ? reason.message : "The recovery draft could not be discarded.");return false }
+      finally { discardIntent.current = null }
+    }
+    return new Promise<boolean>(resolve => { navigationDiscard.current = resolve;setDiscardOpen(true) })
+  }
+  const commitEditorNavigation = () => {
+    if (!navigationCleanup.current) return
+    if (!editorAccount.isCurrent()) throw Error("The connected account changed. Reopen this workout.")
+    try { localStorage.removeItem(draftKey);navigationCleanup.current = false }
+    catch (reason) { setNotice("The recovery draft could not be discarded. Keep this editor open and retry.");throw reason }
+  }
+  editorNavigation.current = {
+    dirty: dirty || saving || saveInFlight.current || deleteInFlight.current || personal.busy || files.busy || templateOpen || creationAttempted || Boolean(isNew && (model.steps.length || model.strength?.blocks.length)),
+    decide: requestEditorNavigation,
+    commit: commitEditorNavigation,
+  }
+  useEffect(() => {
+    const unregister = registerWorkoutNavigationGuard(() => editorNavigation.current.decide(), () => editorNavigation.current.dirty, 10, () => editorNavigation.current.commit())
+    return () => { unregister();navigationDiscard.current?.(false);navigationDiscard.current = null;discardIntent.current = null;navigationCleanup.current = false }
+  }, [])
   const validation = validateWorkout(model)
+  const assertEditorOwner = () => {
+    if (!editorAccount.ownsAccount()) throw Error("The connected account changed. Reopen this workout before continuing the save.")
+  }
+  const deleteWorkout = onDelete ? async () => {
+    if (deleteInFlight.current || saveInFlight.current || saving || personal.busy || files.busy || !editorAccount.isCurrent()) return
+    deleteInFlight.current = true
+    setStatus("saving")
+    try { assertEditorOwner();await onDelete();assertEditorOwner() }
+    finally { deleteInFlight.current = false;if (editorAccount.isCurrent()) setStatus("draft") }
+  } : undefined
   const canSave =
-    !saving && !recovered && (mobile || !personal.busy) && (dirty || isNew) && !loaded.issues.length && !validation.length
+    !saving && !recovered && !strengthLocalDirty && !inputValidity.hasInvalid && (mobile || !personal.busy) && (dirty || (isNew && (!model.strength || model.strength.blocks.length > 0 || creationAttempted))) && !loaded.issues.length && !validation.length
   const save = async (close = true) => {
-    if (!canSave || saveInFlight.current) return
-    if (!mobile && !isNew && !onApplyDraft && !recurrence && !modelDirty && !desktopRemoteDirty && autoCalculate === personal.value.autoCalculate) {
+    if (!canSave || !inputValidity.isValid() || saveInFlight.current || deleteInFlight.current || !editorAccount.isCurrent()) return
+    const durableSave = /^(Swim|Ride|Run)$/.test(model.sport) && !creationAttempted
+    if (!durableSave && !mobile && !isNew && !onApplyDraft && !recurrence && !modelDirty && !desktopRemoteDirty && autoCalculate === personal.value.autoCalculate) {
       try {
         const value = {...personal.value, autoCalculate}
         saveInFlight.current = true
         setStatus("saving")
+        assertEditorOwner()
         await personal.save(savedId, value)
+        assertEditorOwner()
         personal.setValue(value)
         try { localStorage.removeItem(draftKey) } catch { /* Optional recovery cache. */ }
         setRecovered(null)
         setError("")
         setStatus("synced")
         setNotice("Personal workout fields saved.")
-        if (close) (onSaveClose || onClose)()
+        if (close && editorAccount.isCurrent()) bypassWorkoutNavigationGuard(onSaveClose || onClose)
       } catch (reason) {
         setStatus("failed")
         setError(reason instanceof Error ? reason.message : "Personal fields could not be saved.")
@@ -3646,10 +3839,12 @@ function EditorWorkspace({
       saveInFlight.current = true
       setStatus("saving")
       try {
-        const values = changedPlannedValues(desktopPlanned, plannedValueDraft(null, model.sport), model.sport)
-        await onApplyDraft({...clone(model),notes:desktopDescription}, {close, values, time: desktopTime, comment: desktopComment, personal:{...personal.value,autoCalculate}, personalId:personal.id, recurrence})
+        assertEditorOwner()
+        const values = changedPlannedValues(desktopPlanned, plannedValueDraft(null, presentationSport), presentationSport)
+        await onApplyDraft({...clone(model),notes:nativeDescription}, {close, values, time: desktopTime, comment: desktopComment, personal:{...personal.value,autoCalculate}, personalId:personal.id, recurrence})
+        assertEditorOwner()
         try { localStorage.removeItem(draftKey) } catch { /* Optional local draft. */ }
-        onClose()
+        if (editorAccount.isCurrent()) bypassWorkoutNavigationGuard(onClose)
       } catch (reason) { setStatus("failed"); setError(reason instanceof Error ? reason.message : "Your draft could not be saved.") }
       finally { saveInFlight.current = false }
       return
@@ -3657,66 +3852,88 @@ function EditorWorkspace({
     saveInFlight.current = true
     setStatus("saving")
     setError("")
+    await yieldForWorkoutFeedback()
     storeDraft()
     let optimistic: ReturnType<typeof beginOptimisticWorkoutWrite> | undefined
     let providerStarted = false
     try {
-      if (!mobile) await personal.save(savedId || personalId, {...personal.value, autoCalculate})
-      const desktopValues = !mobile ? changedPlannedValues(desktopPlanned, plannedValueDraft(desktopSavedValues, model.sport), model.sport) : {}
+      assertEditorOwner()
+      const retained = isNew && creationAttempted ? creationSnapshot.current : null
+      if (isNew && creationAttempted && !retained) throw Error("The original save request is unavailable. Keep this draft and review the calendar before starting another workout.")
+      const personalValue = clone(retained ? retained.personal : {...personal.value, autoCalculate})
+      const recurrenceValue = retained ? retained.recurrence : recurrence
+      if (!durableSave && !mobile && !retained) await personal.save(savedId || personalId, personalValue)
+      assertEditorOwner()
+      const desktopValues = retained?.input.values || (!mobile ? changedPlannedValues(desktopPlanned, plannedValueDraft(desktopSavedValues, presentationSport), presentationSport) : {})
+      const saveModel = retained?.input.model || model
+      const requestInput = retained?.input || {
+        model: clone(model), revision, ...(isNew ? {creationId} : {}),
+        ...(!mobile ? {values:desktopValues,time:desktopTime || "00:00",comment:desktopComment,commentId:desktopCommentId,description:nativeDescription,descriptionMode:"manual" as const} : {}),
+      }
+      if (isNew && !retained) creationSnapshot.current = {
+        input: clone({...requestInput,creationId}),personal:personalValue,recurrence:clone(recurrenceValue),
+        ...(!mobile ? {desktop:clone({time:desktopTime,draft:desktopDraft,comment:desktopComment,commentId:desktopCommentId,autoCalculate,manualValues,descriptionOverride:nativeDescription,personal:personalValue,personalId:personal.id,recurrence:recurrenceValue})} : {}),
+      }
+      const attemptedId = requestInput.creationId || creationId
       const priorWorkout = [...cachedTrainingContext().history, ...cachedTrainingContext().planned].find(row => "id" in row && row.id === savedId) as PlannedWorkout | undefined
-      const localTotals = workoutTotals(model)
+      const localTotals = workoutTotals(saveModel)
       const planned = { ...priorWorkout?.workout_summary?.planned, ...(mobile ? {duration_seconds:localTotals.seconds,tss:localTotals.load} : {...desktopSavedValues,...desktopValues}) }
-      const localId = savedId || `pending:${creationId}`
-      const description=(mobile?model.notes:desktopDescription) || ""
-      const patch = {title:model.name,workout_date:model.date,goal:description,details:description,editable_description:description,...(!mobile ? {manual_description:description} : {}),editor_model:clone(model),planned_values_edited:!mobile,plannedDurationMinutes:(planned.duration_seconds || 0)/60,workout_summary:{planned,completed:priorWorkout?.workout_summary?.completed || null}}
-      const localWorkout: PlannedWorkout = { id:localId,sport:model.sport,day:"",date:model.date,duration:"",status:"upcoming",...patch }
-      optimistic=beginOptimisticWorkoutWrite(isNew?{id:localId,insert:localWorkout}:{id:localId,patch})
+      const localId = savedId || `pending:${attemptedId}`
+      const description=(retained ? retained.input.description ?? saveModel.notes : mobile?model.notes:nativeDescription) || ""
+      const patch = {title:saveModel.name,workout_date:saveModel.date,goal:description,details:description,editable_description:description,...(!mobile ? {manual_description:description} : {}),editor_model:clone(saveModel),planned_values_edited:!mobile,plannedDurationMinutes:(planned.duration_seconds || 0)/60,workout_summary:{planned,completed:priorWorkout?.workout_summary?.completed || null}}
+      const localWorkout: PlannedWorkout = { id:localId,sport:saveModel.sport,day:"",date:saveModel.date,duration:"",status:"upcoming",...patch }
+      if (!durableSave) optimistic=beginOptimisticWorkoutWrite(isNew?{id:localId,insert:localWorkout}:{id:localId,patch})
       if (isNew) {
         setCreationAttempted(true)
         try {
           localStorage.setItem(draftKey, JSON.stringify({
-            model, revision, creationId, creationAttempted: true, savedId,
-            ...(!mobile ? {desktop: {time:desktopTime,draft:desktopDraft,comment:desktopComment,commentId:desktopCommentId,autoCalculate,manualValues,descriptionOverride:desktopDescription,personal:personal.value,personalId:personal.id,recurrence}} : {}),
+            model:saveModel, revision, creationId:attemptedId, creationAttempted: true, savedId,creationSnapshot:creationSnapshot.current,
+            ...(!mobile ? {desktop:creationSnapshot.current?.desktop} : {}),
           }))
         } catch {
           /* In-memory state retains the attempt. */
         }
       }
+      const pendingInput = {...requestInput,model:saveModel,values:requestInput.values || {},time:requestInput.time || "00:00",comment:requestInput.comment || "",creationId:attemptedId,reconcileOnly:creationAttempted,editorSnapshot:creationSnapshot.current}
+      if (isNew && !rememberPendingWorkoutCreation(localStorage, personalScope, pendingInput))throw Object.assign(Error("This browser could not retain the pending save. Allow browser storage before creating a workout."),{status:409,code:"CREATION_STORAGE"})
       providerStarted = true
-      const pending=writeWorkoutEditor(isNew?null:savedId,{
-            model,
-            revision,
-            ...(isNew ? { creationId, reconcileOnly: creationAttempted } : {}),
-            ...(!mobile ? { values: desktopValues, time: desktopTime || "00:00", comment: desktopComment, commentId: desktopCommentId, description: desktopDescription, descriptionMode:"manual" as const } : {}),
-      })
+      assertEditorOwner()
+      const pending=writeWorkoutEditor(isNew?null:savedId,{...clone(requestInput),...(isNew ? {reconcileOnly:creationAttempted} : {}),...(durableSave ? {personal:personalValue,personalId:personal.id,recurrence:recurrenceValue,comments:desktopComments,zoneSettings:loaded.zoneSettings} : {})})
       // Close both builder and preview before waiting for the provider. The
       // retained draft, central cache and completion toast outlive this view.
-      if (close && !mobile) (onSaveClose || onClose)()
+      if (close && !mobile && !saveModel.strength && !durableSave) bypassWorkoutNavigationGuard(onSaveClose || onClose)
       const data=await pending
-      const committed=optimistic.commit(data.workout,data.context)
+      assertEditorOwner()
+      if (isNew) clearPendingWorkoutCreation(localStorage,personalScope,attemptedId)
+      const committed=optimistic ? optimistic.commit(data.workout,data.context) : {workout:data.workout,context:data.context,applied:true}
       data.workout=committed.workout
       let personalMigrationFailed = false
-      if (!mobile) {
+      if (!mobile && !durableSave) {
         try {
-          await personal.save(data.workout.id, {...personal.value, autoCalculate})
-          personal.setValue({...personal.value, autoCalculate})
-          if (recurrence) { await applyWorkoutRecurrence(data.workout.id, recurrence); setRecurrence(null) }
+          await personal.save(data.workout.id, personalValue)
+          assertEditorOwner()
+          personal.setValue(personalValue)
+          if (recurrenceValue) { assertEditorOwner();await applyWorkoutRecurrence(data.workout.id, recurrenceValue);assertEditorOwner();setRecurrence(null) }
         } catch (reason) {
+          if (!editorAccount.ownsAccount()) throw reason
           personalMigrationFailed = true
           data.refreshWarning = [data.refreshWarning, reason instanceof Error ? reason.message : "Additional workout changes could not be saved. Reopen the retained draft to retry."].filter(Boolean).join(" ")
         }
       }
       setSavedId(data.workout.id)
       setCreationAttempted(false)
+      creationSnapshot.current = null
       setRevision(data.revision)
-      setBaseline(JSON.stringify(model))
-      setStatus("synced")
+      setBaseline(JSON.stringify(saveModel))
+      setStatus(data.verified ? "synced" : "pending")
+      if (durableSave) personal.acceptCommitted(personalValue)
+      if (durableSave && recurrenceValue) setRecurrence(null)
       setNotice(data.refreshWarning || "")
       try {
         if (!personalMigrationFailed) localStorage.removeItem(draftKey)
         else localStorage.setItem(draftKey, JSON.stringify({
           model, revision: data.revision, creationId, creationAttempted: false, savedId: data.workout.id,
-          desktop: {time:desktopTime,draft:desktopDraft,comment:"",commentId:uid(),autoCalculate,manualValues,descriptionOverride:desktopDescription,personal:personal.value,personalId:personal.id,recurrence},
+          desktop: {time:desktopTime,draft:desktopDraft,comment:"",commentId:uid(),autoCalculate,manualValues,descriptionOverride:nativeDescription,personal:personal.value,personalId:personal.id,recurrence},
         }))
       } catch {
         /* Optional cache. */
@@ -3724,7 +3941,7 @@ function EditorWorkspace({
       setRecovered(null)
       if (!mobile) {
         setDesktopSavedValues(current => ({...current,...desktopValues}))
-        setDesktopDescriptionBaseline(desktopDescription)
+        setDesktopDescriptionBaseline(description)
         if (desktopComment.trim()) setDesktopComments(current => [{id: `comment-${desktopCommentId}`, body: desktopComment.trim()}, ...current])
         setDesktopComment("")
         setDesktopCommentId(uid())
@@ -3733,13 +3950,24 @@ function EditorWorkspace({
       if(committed.applied)window.dispatchEvent(
         new CustomEvent("workout-editor-saved", { detail: data.workout })
       )
-      optimistic.confirm(false,data.refreshWarning)
-      if (!close || mobile) onSaved?.(data.workout, close)
-      if (close && mobile) onClose()
+      optimistic?.confirm(!data.verified,data.refreshWarning)
+      if ((!close || mobile) && editorAccount.isCurrent()) onSaved?.(data.workout, close)
+      if (close && !mobile && (saveModel.strength || durableSave) && editorAccount.isCurrent()) {
+        bypassWorkoutNavigationGuard(() => {onSaved?.(data.workout, true);(onSaveClose || onClose)()})
+      }
+      if (close && mobile && editorAccount.isCurrent()) bypassWorkoutNavigationGuard(onClose)
     } catch (e) {
       const failure=e as Error & {status?:number;code?:string}
-      if(providerStarted && failure.status && failure.status>=400 && failure.status<500 && failure.code!=="CREATE_UNCONFIRMED")setCreationAttempted(false)
-      optimistic?.fail(close && !mobile ? new Error(`${e instanceof Error ? e.message : "The save could not be confirmed."} Reopen the workout to restore your draft.`) : e)
+      if(!providerStarted) {setCreationAttempted(creationAttempted);if (!creationAttempted) creationSnapshot.current = null}
+      if(providerStarted && failure.status && failure.status>=400 && failure.status<500 && failure.code!=="CREATE_UNCONFIRMED") {
+        // A denied recheck does not establish whether the earlier POST applied.
+        if(!creationAttempted) {
+          setCreationAttempted(false)
+          creationSnapshot.current = null
+          if(failure.code!=="CREATION_PENDING")clearPendingWorkoutCreation(localStorage,personalScope,creationId)
+        }
+      }
+      if (editorAccount.ownsAccount()) optimistic?.fail(close && !mobile ? new Error(`${e instanceof Error ? e.message : "The save could not be confirmed."} Reopen the workout to restore your draft.`) : e)
       setStatus("failed")
       setError(
         e instanceof Error ? e.message : "Save failed. Your draft is retained."
@@ -3767,9 +3995,12 @@ function EditorWorkspace({
     distance_meters: !model.steps.length || totals.unknownDistance ? null : /swim/i.test(model.sport) ? totals.distance / .9144 : totals.distance,
     average_speed: totals.unknownDistance || totals.unknownTime || !totals.seconds || !totals.distance ? null : totals.distance / (/swim/i.test(model.sport) ? .9144 : 1) / totals.seconds,
     tss: !model.steps.length || totals.load == null ? null : Math.round(totals.load),
-    intensity_factor: totals.load == null || !totals.seconds ? null : Math.sqrt(totals.load / (totals.seconds / 3600 * 100)),
+    intensity_factor: totals.intensityFactor ?? (totals.load == null || !totals.seconds ? null : Math.sqrt(totals.load / (totals.seconds / 3600 * 100))),
+    normalized_power: totals.normalizedPower ?? null,
+    average_power: totals.averagePower ?? null,
+    work_kj: totals.workKilojoules == null ? null : Math.round(totals.workKilojoules),
   }
-  const desktopPlanned = autoCalculate && !manualValues && model.steps.length ? { ...desktopDraft, ...Object.fromEntries(Object.entries(autoValues).map(([key,value]) => [key, formatPlannedValue(key as PlannedValueKey, value, model.sport)])) } : desktopDraft
+  const desktopPlanned = autoCalculate && !manualValues && model.steps.length ? withCalculatedPlannedValues(desktopDraft,autoValues,presentationSport,true) : desktopDraft
   const durationText = `${totals.open ? "Open · " : totals.unknownTime ? "At least " : totals.estimated ? "≈ " : ""}${durationClock(totals.seconds)}`
   const saveBlock = () => {
     const chosen: WorkoutNode[] = []
@@ -3801,6 +4032,45 @@ function EditorWorkspace({
       setNotice("Could not save the block: browser storage is unavailable.")
     }
   }
+  const restoreRecovered = () => {
+    if (!recovered || saving || !editorAccount.isCurrent()) return
+    const snapshot = validEditorCreationSnapshot(recovered.creationSnapshot) ? recovered.creationSnapshot : creationSnapshot.current
+    if (snapshot && recovered.creationAttempted) creationSnapshot.current = snapshot
+    commit(snapshot && recovered.creationAttempted ? snapshot.input.model : recovered.model, true)
+    setStrengthTimeAssigned(recovered.model.strength?.startTimeAssigned)
+    if (recovered.savedId) setSavedId(recovered.savedId)
+    if (recovered.creationId) setCreationId(recovered.creationId)
+    setCreationAttempted(Boolean(recovered.creationAttempted))
+    setRevision(recovered.revision)
+    const desktop = snapshot && recovered.creationAttempted ? snapshot.desktop || recovered.desktop : recovered.desktop
+    if (desktop) {
+      setDesktopTime(desktop.time);setDesktopDraft(desktop.draft);setDesktopComment(desktop.comment);setDesktopCommentId(desktop.commentId);setAutoCalculate(desktop.autoCalculate);setManualValues(desktop.manualValues ?? true);setDesktopDescription(desktop.descriptionOverride ?? recovered.model.notes ?? "")
+      if (desktop.personal) personal.setValue(normalizeWorkoutLocalMetadata(desktop.personal))
+      setRecurrence(desktop.recurrence || null)
+    }
+    setRecovered(null)
+  }
+  const recoveryPanel = recovered ? <div className={model.strength ? "dsb-notice" : "dtb-draft-recovery"}>
+    <span>{recovered.creationAttempted ? "An earlier save needs confirmation. Review the original request to recheck it before starting a different workout." : "A local draft is available."}{recovered.revision !== loaded.revision ? " The saved version changed; review before saving." : ""}</span>
+    <button type="button" onClick={restoreRecovered}>{recovered.creationAttempted ? "Review pending save" : "Restore draft"}</button>
+    {!recovered.creationAttempted && !pendingStrength && <button type="button" onClick={() => {try {localStorage.removeItem(draftKey)} catch {return}onReload()}}>Discard saved draft</button>}
+  </div> : undefined
+  if (!mobile && model.strength) return <DesktopStrengthBuilder
+    model={model} onChange={next => { if(saving || templateOpen || creationLocked)return;commit(next) }} onDraftState={setStrengthLocalDirty}
+    additionalDescription={!strengthDescriptionMirrors ? <label className="dsb-float-label dsb-workout-fields"><span>Additional description</span><textarea aria-label="Additional description" maxLength={30000} disabled={saving || creationLocked} value={desktopDescription} onChange={event=>{if(!creationLocked)setDesktopDescription(event.target.value)}}/></label> : undefined}
+    planned={desktopPlanned} onPlanned={(key,value) => {if(creationLocked)return;setDesktopDraft(updatePlannedValueDraft(desktopPlanned,key,value,presentationSport,false));setManualValues(true)}}
+    time={desktopTime} onTime={value => {if(saving || files.busy || templateOpen || creationLocked)return;setDesktopTime(value);setStrengthTimeAssigned(Boolean(value))}} onClose={() => {if(!templateOpen)requestClose()}} onSave={close => {if(!templateOpen)void save(close)}} saving={saving || files.busy} canSave={canSave && !files.busy && !templateOpen} pending={creationAttempted}
+    disabled={saving || files.busy || templateOpen || creationLocked || Boolean(loaded.issues.length)} error={error} notice={[notice, ...loaded.warnings, ...providerWarnings].filter(Boolean).join(" ")} validation={[...loaded.issues,...validation]}
+    undo={undo} redo={redo} canUndo={history.past.length > 0} canRedo={history.future.length > 0}
+    privateNotes={<WorkoutPersonalNotes value={personal.value} onChange={value => {if(!creationLocked)personal.setValue(value)}} disabled={saving || creationLocked || creationLocked}/>}
+    comment={desktopComment} onComment={value => {if(!creationLocked)setDesktopComment(value)}} comments={desktopComments}
+    onReload={!isNew ? () => {storeDraft();onReload()} : undefined} onDelete={deleteWorkout}
+    onFiles={savedId && /^event:[1-9]\d*$/.test(savedId) && !creationAttempted && !loaded.issues.length ? files.upload : undefined} fileDialogs={files.dialogs}
+    onSaveTemplate={savedId && /^event:[1-9]\d*$/.test(savedId) && /^[a-f0-9]{64}$/.test(revision) && !creationAttempted && !loaded.issues.length ? () => setTemplateOpen(true) : undefined}
+    templateDialogs={<SaveWorkoutTemplateDialog open={templateOpen} sourceWorkoutId={savedId} sourceRevision={revision} workoutTitle={model.name} onOpenChange={setTemplateOpen} onSaved={() => { notifyWorkoutLibraryChanged();setNotice("Workout added to your library.") }} onResolved={() => { notifyWorkoutLibraryChanged() }}/>}
+    discardOpen={discardOpen} onDiscardOpen={onDiscardOpenChange} onDiscard={discardAndClose}
+    recovery={recoveryPanel}
+  />
   return (
     <ZoneSettingsContext.Provider value={loaded.zoneSettings || []}>
       <Dialog
@@ -3815,6 +4085,9 @@ function EditorWorkspace({
         <DialogContent
           showCloseButton={false}
           fullscreen={mobile}
+          ref={editorDialogRef}
+          initialFocus={mobile ? undefined : editorDialogRef}
+          overlayClassName={!mobile ? "dtb-editor-backdrop" : undefined}
           className={`we-dialog ${!mobile ? `we-tp-desktop ${desktopExpanded?"":"dtb-compact"}` : ""}`}
           onKeyDown={(e) => {
             const a = keyActions.current,
@@ -3894,30 +4167,26 @@ function EditorWorkspace({
             <DialogTitle className="sr-only">Workout Builder</DialogTitle>
             <DialogDescription className="sr-only">Build structured workout blocks, edit planned values, and save to Intervals.icu.</DialogDescription>
             {files.dialogs}
-            <Suspense fallback={<DesktopBuilderSkeleton/>}><DesktopWorkoutBuilder key={model.sport} model={model} commit={commit} zones={loaded.zoneSettings || []} selected={selected} select={select} expanded={desktopExpanded} onToggleExpanded={()=>setDesktopExpanded(value=>!value)}
-              onUpload={files.upload} onExport={files.exportWorkout}
-              recurrence={<WorkoutRecurrenceControl workoutId={savedId || undefined} date={model.date} disabled={saving} {...(!savedId ? {draft:recurrence,onDraftChange:setRecurrence} : {})}/>}
-              onSport={sport => {const setting=sportZoneSettings(loaded.zoneSettings || [],sport);setAutoCalculate(true);commit({...model,sport,poolLength:/swim/i.test(sport)?model.poolLength || "25y":"",thresholds:{ftp:setting?.ftp || null,pace:setting?.threshold_pace || null}})}}
+            {creationLocked && recoveryPanel}
+            <fieldset disabled={creationLocked} inert={creationLocked || undefined} style={{display:"contents"}}>
+            <WorkoutInputValidityContext.Provider value={inputValidity.report}><Suspense fallback={<DesktopBuilderSkeleton/>}><DesktopWorkoutBuilder key={`${model.sport}:${model.variant || ""}`} model={model} commit={commit} zones={loaded.zoneSettings || []} selected={selected} select={select} expanded={desktopExpanded} onToggleExpanded={()=>setDesktopExpanded(value=>!value)}
+              onUpload={creationLocked ? undefined : files.upload} onExport={files.exportWorkout}
+              recurrence={<WorkoutRecurrenceControl workoutId={savedId || undefined} date={model.date} disabled={saving || creationLocked} {...(!savedId ? {draft:recurrence,onDraftChange:(value) => {if(!creationLocked)setRecurrence(value)}} : {})}/>}
+              onSport={value => {if(creationLocked)return;const selection=workoutSelection(value), setting=sportZoneSettings(loaded.zoneSettings || [],selection.sport);try { const values=changedPlannedValues(desktopPlanned,plannedValueDraft(null,presentationSport),presentationSport);setDesktopDraft(plannedValueDraft(values,workoutPresentationSport(selection),presentationSport)) } catch { setError("Correct the planned values before changing workout type.");return } setAutoCalculate(true);commit({...model,...selection,variant:selection.variant,poolLength:/swim/i.test(selection.sport)?model.poolLength || "25y":"",thresholds:{ftp:setting?.ftp || null,pace:setting?.threshold_pace || null}})}}
               chart={(unit, palettePreview) => <IntervalChart model={model} selected={selected} select={select} commit={commit} desktop desktopUnit={unit} palettePreview={palettePreview} zones={loaded.zoneSettings || []}/>}
               metadata={{name: model.name, date: model.date, time: desktopTime}}
-              onMetadata={(value: DesktopWorkoutMetadata) => { setDesktopTime(value.time); if (value.date && (value.name !== model.name || value.date !== model.date)) commit({...model,name:value.name,date:value.date}) }}
-              planned={desktopPlanned} onPlanned={(key,value) => { setDesktopDraft(updatePlannedValueDraft(desktopPlanned,key,value,model.sport,autoCalculate));setManualValues(true) }} autoCalculate={autoCalculate} onAutoCalculate={value => {if(!value)setDesktopDraft(desktopPlanned);setManualValues(!value);setAutoCalculate(value)}}
+              onMetadata={(value: DesktopWorkoutMetadata) => { if(creationLocked)return;setDesktopTime(value.time); if (value.name !== model.name || value.date !== model.date) commit({...model,name:value.name,date:value.date}) }}
+              planned={desktopPlanned} onPlanned={(key,value,presentation) => { if(creationLocked)return;setDesktopDraft(updatePlannedValueDraft(desktopPlanned,key,value,presentationSport,autoCalculate,presentation));setManualValues(true) }} autoCalculate={autoCalculate} onAutoCalculate={value => {if(creationLocked)return;if(!value)setDesktopDraft(desktopPlanned);setManualValues(!value);setAutoCalculate(value)}}
               comment={desktopComment} onComment={setDesktopComment} comments={desktopComments}
-              description={desktopDescription} onDescription={setDesktopDescription}
-              descriptionHeading={<WorkoutAttachments personal={personal}/>}
-              personalFields={<WorkoutPersonalNotes value={personal.value} onChange={personal.setValue} disabled={saving}/>}
-              equipment={<WorkoutEquipment value={personal.value} onChange={personal.setValue} scope={personalScope} options={personal.equipmentOptions} sport={model.sport} disabled={saving}/>}
-              onSave={close => void save(close)} onClose={requestClose} onDelete={onDelete ? async () => {setStatus("saving");try {await onDelete()} finally {setStatus("draft")}} : undefined} canSave={canSave} saving={saving} dirty={dirty} error={error} notice={notice || (status === "synced" ? "Saved to Intervals.icu." : loaded.zoneError || loaded.warnings.join(" "))} onReload={!isNew ? ()=>setReloadOpen(true) : undefined}
-              validation={[...loaded.issues,...validation]} undo={undo} redo={redo} canUndo={history.past.length>0} canRedo={history.future.length>0} isNew={isNew}
-              recovery={recovered ? <div className="dtb-draft-recovery"><span>A local draft is available.{recovered.revision !== loaded.revision ? " The provider version changed; review before saving." : ""}</span><button type="button" onClick={() => {
-                commit(recovered.model)
-                if (recovered.savedId) setSavedId(recovered.savedId)
-                if (recovered.creationId) setCreationId(recovered.creationId)
-                setCreationAttempted(Boolean(recovered.creationAttempted))
-                setRevision(recovered.revision)
-                if (recovered.desktop) {setDesktopTime(recovered.desktop.time);setDesktopDraft(recovered.desktop.draft);setDesktopComment(recovered.desktop.comment);setDesktopCommentId(recovered.desktop.commentId);setAutoCalculate(recovered.desktop.autoCalculate);setManualValues(recovered.desktop.manualValues ?? true);setDesktopDescription(recovered.desktop.descriptionOverride ?? recovered.model.notes ?? "");if(recovered.desktop.personal)personal.setValue(normalizeWorkoutLocalMetadata(recovered.desktop.personal));setRecurrence(recovered.desktop.recurrence || null)}
-                setRecovered(null)
-              }}>Restore draft</button><button type="button" onClick={() => {try {localStorage.removeItem(draftKey)} catch {/* Optional. */} onReload()}}>Discard saved draft</button></div> : undefined}/></Suspense>
+              description={desktopDescription} onDescription={value => {if(!creationLocked)setDesktopDescription(value)}}
+              descriptionHeading={<WorkoutAttachments personal={personal} disabled={saving || files.busy || templateOpen || creationLocked}/>}
+              personalFields={<WorkoutPersonalNotes value={personal.value} onChange={value => {if(!creationLocked)personal.setValue(value)}} disabled={saving || creationLocked}/>}
+              equipment={<WorkoutEquipment value={personal.value} onChange={personal.setValue} scope={personalScope} options={personal.equipmentOptions} sport={presentationSport} disabled={saving || creationLocked} poolLength={model.poolLength} onPoolLength={model.sport === "Swim" && model.swimUnitMode === "explicit" ? value => commit({...model,poolLength:value || "25y"}) : undefined}/>}
+              onSave={close => void save(close)} onClose={requestClose} onDelete={deleteWorkout} canSave={canSave} saving={saving} dirty={dirty} error={error} notice={[notice || (status === "synced" ? "Saved to Intervals.icu." : ""),loaded.zoneError,...new Set([...loaded.warnings,...providerWarnings])].filter(Boolean).join(" ")} onReload={!isNew ? ()=>setReloadOpen(true) : undefined}
+              validation={[...loaded.issues,...validation,...(inputValidity.hasInvalid ? ["Correct the highlighted interval inputs before saving."] : [])]} undo={undo} redo={redo} canUndo={history.past.length>0} canRedo={history.future.length>0} isNew={isNew}
+              syncAction={savedId && status === "failed" && localCommittedWorkout(savedId)?.state === "failed" ? <WorkoutSyncAction workoutId={savedId} onError={setError}/> : undefined}
+              recovery={creationLocked ? undefined : recoveryPanel}/></Suspense></WorkoutInputValidityContext.Provider></fieldset>
+            {creationLocked && !recovered && <div className="dtb-draft-recovery" role="status"><span>The original save needs confirmation. Its workout fields are locked until it is confirmed.</span><button type="button" disabled={saving} onClick={() => void save(false)}>Recheck Save</button><button type="button" disabled={saving} onClick={requestClose}>Close</button></div>}
           </> : useSharedEditor ? (
             <>
               {!mobile && (
@@ -4576,7 +4845,7 @@ function EditorWorkspace({
           )}
         </DialogContent>
       </Dialog>
-      <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
+      <AlertDialog open={discardOpen} onOpenChange={onDiscardOpenChange}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>

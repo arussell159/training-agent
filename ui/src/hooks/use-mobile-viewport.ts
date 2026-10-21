@@ -18,6 +18,7 @@ export function useMobileViewport() {
       const keyboard =
         (viewport?.scale ?? 1) <= 1.05 && window.innerHeight - height > 120
       root.style.setProperty("--app-viewport-height", `${height}px`)
+      root.style.setProperty("--app-window-width", `${window.innerWidth}px`)
       root.style.setProperty("--app-viewport-top", `${top}px`)
       root.dataset.mobileEditing = String(
         mobile.matches && (editing || keyboard)
@@ -43,6 +44,7 @@ export function useMobileViewport() {
       document.removeEventListener("focusin", schedule)
       document.removeEventListener("focusout", schedule)
       root.style.removeProperty("--app-viewport-height")
+      root.style.removeProperty("--app-window-width")
       root.style.removeProperty("--app-viewport-top")
       delete root.dataset.mobileEditing
       delete root.dataset.mobileKeyboardOpen

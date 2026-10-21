@@ -1,32 +1,70 @@
-import type {PlannedWorkout} from './training-context'
-import {recordedSwimYards} from '../../../app-backend/lib/swim-units.mjs'
-import {expandSteps,workoutTotals} from '../../../app-backend/lib/workout-editor-model.mjs'
+import type { PlannedWorkout } from "./training-context"
+import { recordedSwimYards } from "../../../app-backend/lib/swim-units.mjs"
+import {
+  expandSteps,
+  workoutTotals,
+} from "../../../app-backend/lib/workout-editor-model.mjs"
 
-export function estimatedPlannedDistance(workout:PlannedWorkout):number|null{
- const planned=workout.workout_summary?.planned
- if(planned?.distance_meters!=null && planned.distance_meters>0)return planned.distance_meters
- const speed=planned?.average_speed,time=planned?.duration_seconds
- if(speed!=null && speed>0 && time!=null && time>0)return speed*time
- if(planned?.distance_meters!=null && planned.distance_meters>0)return planned.distance_meters
- try{const doc=JSON.parse(workout.structure || 'null');if(Number(doc?.distance)>0)return Number(doc.distance)}catch{/* No usable provider structure. */}
- // Power is not speed: no fixed watts-to-distance conversion is valid without
- // an athlete/course model, so power-only sessions remain unavailable.
- return null
+export function estimatedPlannedDistance(
+  workout: PlannedWorkout
+): number | null {
+  const planned = workout.workout_summary?.planned
+  if (planned?.distance_meters != null && planned.distance_meters > 0)
+    return planned.distance_meters
+  const speed = planned?.average_speed,
+    time = planned?.duration_seconds
+  if (speed != null && speed > 0 && time != null && time > 0)
+    return speed * time
+  if (planned?.distance_meters != null && planned.distance_meters > 0)
+    return planned.distance_meters
+  try {
+    const doc = JSON.parse(workout.structure || "null")
+    if (Number(doc?.distance) > 0) return Number(doc.distance)
+  } catch {
+    /* No usable provider structure. */
+  }
+  // Power is not speed: no fixed watts-to-distance conversion is valid without
+  // an athlete/course model, so power-only sessions remain unavailable.
+  return null
 }
 
-export function plannedDistanceLabel(workout:PlannedWorkout):string{
- const completed=workout.status==='completed'
- if(!completed&&!workout.planned_values_edited&&workout.editor_model){
-  const totals=workoutTotals(workout.editor_model)
-  if(!totals.distance)return totals.unknownDistance?'—':'0'
-  const steps=expandSteps(workout.editor_model.steps)
-  const hasTime=steps.some(({step})=>step.end.kind!=='distance'&&step.role!=='rest')
-  const swimDistance=totals.distance/.9144+steps.reduce((sum,{step})=>sum+(step.end.kind==='distance'&&step.end.unit==='m'?step.end.value-step.end.value/.9144:0),0)
-  const amount=/swim/i.test(workout.sport)?`${Math.round(swimDistance).toLocaleString()} yds`:`${(totals.distance/1609.344).toFixed(2)} mi`
-  return `${totals.unknownDistance?'≥ ':hasTime?'~':''}${amount}`
- }
- const meters=completed?(workout.workout_summary?.completed?.distance_meters ?? workout.distance_meters ?? null):estimatedPlannedDistance(workout)
- if(meters==null)return '—'
- const prefix=completed?'':'~'
- return /swim/i.test(workout.sport)?`${prefix}${Math.round(completed?recordedSwimYards(meters):meters).toLocaleString()} yds`:`${prefix}${(meters/1609.344).toFixed(2)} mi`
+export function plannedDistanceLabel(workout: PlannedWorkout): string {
+  const completed = workout.status === "completed"
+  const sport = workout.editor_model?.sport || workout.provider_type || workout.sport
+  if (!completed && !workout.planned_values_edited && workout.editor_model) {
+    const totals = workoutTotals(workout.editor_model)
+    if (!totals.distance) return totals.unknownDistance ? "—" : "0"
+    const steps = expandSteps(workout.editor_model.steps)
+    const hasTime = steps.some(
+      ({ step }) => step.end.kind !== "distance" && step.role !== "rest"
+    )
+    const swimDistance =
+      totals.distance / 0.9144 +
+      steps.reduce(
+        (sum, { step }) =>
+          sum +
+          (step.end.kind === "distance" && step.end.unit === "m"
+            ? step.end.value - step.end.value / 0.9144
+            : 0),
+        0
+      )
+    const amount = /swim/i.test(sport)
+      ? `${Math.round(swimDistance).toLocaleString()} yds`
+      : /rowing/i.test(sport)
+        ? `${Math.round(totals.distance).toLocaleString()} m`
+        : `${(totals.distance / 1609.344).toFixed(2)} mi`
+    return `${totals.unknownDistance ? "≥ " : hasTime ? "~" : ""}${amount}`
+  }
+  const meters = completed
+    ? (workout.workout_summary?.completed?.distance_meters ??
+      workout.distance_meters ??
+      null)
+    : estimatedPlannedDistance(workout)
+  if (meters == null) return "—"
+  const prefix = completed ? "" : "~"
+  return /swim/i.test(sport)
+    ? `${prefix}${Math.round(completed ? recordedSwimYards(meters) : meters).toLocaleString()} yds`
+    : /rowing/i.test(sport)
+      ? `${prefix}${Math.round(meters).toLocaleString()} m`
+      : `${prefix}${(meters / 1609.344).toFixed(2)} mi`
 }

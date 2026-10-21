@@ -1,10 +1,18 @@
 import { clock, paceFactors, round } from "./workout-editor-model.mjs";
 
 export function sportZoneSettings(settings, sport) {
-  const family = /swim/i.test(sport) ? /swim/i : /run/i.test(sport) ? /run/i : /ride|bike/i;
+  const family = /swim/i.test(sport)
+    ? /swim/i
+    : /run/i.test(sport)
+      ? /run/i
+      : /ride|bike/i.test(sport)
+        ? /ride|bike/i
+        : null;
   return (
     settings.find((s) => (s.types || [s.type]).includes(sport)) ||
-    settings.find((s) => (s.types || [s.type]).some((t) => family.test(t || "")))
+    (family
+      ? settings.find((s) => (s.types || [s.type]).some((t) => family.test(t || "")))
+      : undefined)
   );
 }
 
@@ -18,7 +26,15 @@ export function workoutZoneOptions(settings, sport, preferredUnit) {
   const boundaries = bike ? setting.power_zones : setting.pace_zones;
   if (!Array.isArray(boundaries)) return [];
   const threshold = bike ? setting.ftp : setting.threshold_pace;
-  const absoluteUnit = bike ? "w" : /swim/i.test(sport) ? "secs/100y" : "secs/mi";
+  const absoluteUnit = bike
+    ? "w"
+    : /swim/i.test(sport)
+      ? "secs/100y"
+      : /rowing/i.test(sport)
+        ? "secs/500m"
+        : /ski/i.test(sport)
+          ? "secs/km"
+          : "secs/mi";
   const names = bike ? setting.power_zone_names : setting.pace_zone_names;
   const amount = (percent, unit) =>
     bike
@@ -54,7 +70,7 @@ export function workoutZoneOptions(settings, sport, preferredUnit) {
     return [
       {
         id: String(index + 1),
-        label: `Zone ${index + 1} | ${range}${!bike && threshold > 0 ? (/swim/i.test(sport) ? " /100 yd" : " /mi") : ""}${names?.[index] ? ` · ${names[index]}` : ""}`,
+        label: `Zone ${index + 1} | ${range}${!bike && threshold > 0 ? ` /${{ "secs/100y": "100 yd", "secs/500m": "500 m", "secs/km": "km", "secs/mi": "mi" }[absoluteUnit]}` : ""}${names?.[index] ? ` · ${names[index]}` : ""}`,
         target:
           openLow || openHigh
             ? { kind, unit: `${kind}_zone`, mode: "single", value: index + 1 }

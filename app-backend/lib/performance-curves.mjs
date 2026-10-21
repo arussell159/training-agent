@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { athleteLocalDate } from "./athlete-date.mjs";
 import { validDate } from "./intervals.mjs";
 import { recordedEffortBounds } from "./activity-analysis.mjs";
+import { projectPowerCurve, POWER_CURVE_ERROR } from "./power-curve-projection.mjs";
+import { projectPaceCurve, PACE_CURVE_ERROR } from "./pace-curve-projection.mjs";
 
 // Source contracts: https://intervals.icu/api/v1/docs and the public application's
 // computePace: pace curve distance is metres, values are elapsed seconds.
@@ -981,21 +983,61 @@ export function createPerformanceHistory({
       const recordsTask = load(`${account}:${today}:personal-records`, () =>
         fetchPersonalActivityRecords(request(config), today)
       );
-      const tasks = ["Ride", "Run", "Swim"].map(async (type) =>
-        curveBestEfforts(
-          (await curves(config, type, [window.token], today)).get(window.token),
-          type
-        )
-      );
+      const tasks = ["Ride", "Run", "Swim"].map(async (type) => {
+        const bundle = (await curves(config, type, [window.token], today)).get(window.token);
+        const value = { bestEfforts: curveBestEfforts(bundle, type) };
+        if (type === "Ride") {
+          try {
+            value.powerCurve = projectPowerCurve(bundle, {
+              oldest: window.oldest,
+              newest: window.newest,
+            });
+          } catch {
+            value.powerCurve = null;
+            value.powerCurveError = POWER_CURVE_ERROR;
+          }
+        } else {
+          try {
+            value.paceCurve = projectPaceCurve(bundle, type, {
+              oldest: window.oldest,
+              newest: window.newest,
+            });
+          } catch {
+            value.paceCurve = null;
+            value.paceCurveError = PACE_CURVE_ERROR;
+          }
+        }
+        return value;
+      });
       const [records, settled] = await Promise.all([recordsTask, Promise.allSettled(tasks)]);
       const bestEfforts = settled.flatMap((value) =>
-        value.status === "fulfilled" ? value.value : []
+        value.status === "fulfilled" ? value.value.bestEfforts : []
       );
       const failed = settled.some((value) => value.status === "rejected");
+      const ride = settled[0],
+        powerCurve = ride.status === "fulfilled" ? ride.value.powerCurve : null;
+      const powerCurveError =
+        ride.status === "rejected" ? POWER_CURVE_ERROR : ride.value.powerCurveError;
+      const paceCurves = {},
+        paceCurveErrors = {};
+      for (const [index, sport] of [
+        [1, "Run"],
+        [2, "Swim"],
+      ]) {
+        const response = settled[index];
+        paceCurves[sport] = response.status === "fulfilled" ? response.value.paceCurve : null;
+        const error =
+          response.status === "rejected" ? PACE_CURVE_ERROR : response.value.paceCurveError;
+        if (error) paceCurveErrors[sport] = error;
+      }
       return structuredClone({
         records,
         today,
         bestEfforts,
+        powerCurve,
+        ...(powerCurveError ? { powerCurveError } : {}),
+        paceCurves,
+        ...(Object.keys(paceCurveErrors).length ? { paceCurveErrors } : {}),
         bestEffortsWindow: { oldest: window.oldest, newest: window.newest },
         ...(failed
           ? {

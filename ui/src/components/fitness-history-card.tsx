@@ -45,12 +45,17 @@ const FitnessHistoryGraph = lazy(() =>
 export function FitnessHistoryCard({
   enabled = true,
   onEffortOpen,
+  sport: controlledSport,
+  hideSportSelector = false,
 }: {
   enabled?: boolean
   onEffortOpen?: (peak: FitnessPeak, sport: FitnessSport) => void
+  sport?: FitnessSport
+  hideSportSelector?: boolean
 }) {
   const isMobile = useIsMobile()
-  const [sport, setSport] = useState<FitnessSport>("Ride")
+  const [selectedSport, setSport] = useState<FitnessSport>("Ride")
+  const sport = controlledSport || selectedSport
   const [view, setView] = useState<"table" | "graph">("table")
   const [graphSelection, setGraphSelection] = useState<
     Partial<Record<FitnessSport, string>>
@@ -186,9 +191,7 @@ export function FitnessHistoryCard({
     activeGraphPoint.anchor === selectedAnchorKey &&
     activeGraphPoint.point.period === selectedGraphPoint?.period
   const canOpenPeak = (peak: FitnessPeak | undefined) =>
-    !!onEffortOpen &&
-    !!peak &&
-    !!fitnessPeakEffortTarget(peak, sport)
+    !!onEffortOpen && !!peak && !!fitnessPeakEffortTarget(peak, sport)
   const canOpenSelectedGraphPeak = (peak: FitnessPeak | undefined) =>
     hasExplicitGraphSelection && canOpenPeak(peak)
   const openPeak = (peak: FitnessPeak | undefined) => {
@@ -266,42 +269,43 @@ export function FitnessHistoryCard({
       >
         <div className="training-history-filter-scroll fitness-history-filter-bar">
           <div className="fitness-history-filter-bar-controls">
-            {isMobile ? (
-              <MobileFilterTabs
-                label="Fitness history sport"
-                items={sports.map(({ type, label, icon }) => ({
-                  value: type,
-                  label,
-                  icon,
-                }))}
-                value={sport}
-                onChange={changeSport}
-                className="training-history-mobile-filters"
-              />
-            ) : (
-              <div
-                className="training-history-filters fitness-history-filters"
-                role="group"
-                aria-label="Fitness history sport"
-              >
-                {sports.map(({ type, label, icon: Icon }) => (
-                  <F7Button
-                    key={type}
-                    active={sport === type}
-                    round
-                    outline
-                    aria-pressed={sport === type}
-                    onClick={(event) => {
-                      event.preventDefault()
-                      changeSport(type)
-                    }}
-                  >
-                    <Icon className="size-4" aria-hidden="true" />
-                    <span>{label}</span>
-                  </F7Button>
-                ))}
-              </div>
-            )}
+            {!hideSportSelector &&
+              (isMobile ? (
+                <MobileFilterTabs
+                  label="Fitness history sport"
+                  items={sports.map(({ type, label, icon }) => ({
+                    value: type,
+                    label,
+                    icon,
+                  }))}
+                  value={sport}
+                  onChange={changeSport}
+                  className="training-history-mobile-filters"
+                />
+              ) : (
+                <div
+                  className="training-history-filters fitness-history-filters"
+                  role="group"
+                  aria-label="Fitness history sport"
+                >
+                  {sports.map(({ type, label, icon: Icon }) => (
+                    <F7Button
+                      key={type}
+                      active={sport === type}
+                      round
+                      outline
+                      aria-pressed={sport === type}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        changeSport(type)
+                      }}
+                    >
+                      <Icon className="size-4" aria-hidden="true" />
+                      <span>{label}</span>
+                    </F7Button>
+                  ))}
+                </div>
+              ))}
             <div
               role="group"
               aria-label="Fitness history view"

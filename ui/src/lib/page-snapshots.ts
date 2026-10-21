@@ -25,6 +25,11 @@ export function clearPageSnapshots() {
   revision++
   snapshots.clear()
 }
+export function invalidatePageSnapshot(key: string) {
+  revision++
+  const entry = snapshots.get(key)
+  if (entry) entry.time = 0
+}
 if (typeof window !== "undefined") {
   for (const event of [
     "training-cache-reset",

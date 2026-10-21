@@ -1,19 +1,31 @@
 import { athleteLocalDate } from "./athlete-date.mjs";
+import { recordedAnalysisThresholds } from "./recorded-analysis-thresholds.mjs";
+import { recordedZoneTimes } from "./recorded-zone-times.mjs";
+import { raceEventKey } from "./race-event-details-model.mjs";
 import { readPlannedValues } from "./planned-workout-values.mjs";
 import {
   readableDescription,
   DEFINITION_MARKER,
   readEditorModel,
   workoutTotals,
+  validateWorkout,
   clock,
 } from "./workout-editor-model.mjs";
 import { eventWorkoutDescription } from "./workout-readable-description.mjs";
 import { readManualWorkoutDescription } from "./workout-manual-description.mjs";
+import { intervalsWorkoutMetadata } from "./provider-workout-metadata.mjs";
+import {
+  calendarAnnotationKey,
+  calendarAnnotationKind,
+  annotationNativeProjection,
+  annotationInclusiveEnd,
+  annotationOverlapsRange,
+} from "./calendar-annotations-model.mjs";
 
 export function createIntervalsClient(config, fetchImpl = fetch) {
   const key = config.INTERVALS_API_KEY;
   if (!key) throw new Error("Connect Intervals.icu in Settings first");
-  return async (pathname, options = {}) => {
+  const request = async (pathname, options = {}) => {
     if (!pathname.startsWith("/") || pathname.includes(".."))
       throw new Error("Invalid Intervals.icu path");
     const response = await fetchImpl(`https://intervals.icu/api/v1${pathname}`, {
@@ -33,11 +45,16 @@ export function createIntervalsClient(config, fetchImpl = fetch) {
         `Intervals.icu request failed (${response.status}). ${response.status === 401 || response.status === 403 ? "Check your API key in Settings." : response.status === 429 ? "Rate limit reached; wait before refreshing." : "Refresh before retrying any change."}`
       );
       error.status = response.status;
+      const retryAfter = response.headers?.get?.("Retry-After");
+      if (retryAfter) error.retryAfterMs = /^\d+(?:\.\d+)?$/.test(retryAfter)
+        ? Number(retryAfter) * 1000
+        : Math.max(0, Date.parse(retryAfter) - Date.now()) || undefined;
       throw error;
     }
     const text = await response.text();
     return text ? redactSecrets(JSON.parse(text)) : null;
   };
+  return intervalsWorkoutMetadata(config, fetchImpl).wrap(request);
 }
 
 function redactSecrets(value) {
@@ -203,6 +220,35 @@ function appWorkoutDoc(doc, type) {
   return { ...doc, steps: normalize(doc.steps) };
 }
 
+function recordedHeartRateZones(value) {
+  const seconds = value?.icu_hr_zone_times,
+    boundaries = value?.icu_hr_zones;
+  if (
+    !Array.isArray(seconds) ||
+    !Array.isArray(boundaries) ||
+    !seconds.length ||
+    seconds.length > 100 ||
+    seconds.length !== boundaries.length ||
+    seconds.some((n) => typeof n !== "number" || !Number.isFinite(n) || n < 0) ||
+    boundaries.some(
+      (n, index) =>
+        typeof n !== "number" ||
+        !Number.isFinite(n) ||
+        n <= 0 ||
+        (index > 0 && n <= boundaries[index - 1])
+    )
+  )
+    return null;
+  return {
+    seconds: [...seconds],
+    boundaries_bpm: [...boundaries],
+    threshold_bpm:
+      typeof value.lthr === "number" && Number.isFinite(value.lthr) && value.lthr > 0
+        ? value.lthr
+        : null,
+  };
+}
+
 export function mapIntervalsWorkout(
   item,
   today,
@@ -211,13 +257,28 @@ export function mapIntervalsWorkout(
   settings = []
 ) {
   const actual = isActivity ? item : activity;
-  const editorModel = !isActivity ? readEditorModel(item.description) : null;
+  const storedEditorModel = !isActivity ? readEditorModel(item.description) : null;
+  // Provider-owned calendar metadata may change through the summary editor or
+  // a native move without rewriting the exact private interval document.
+  const nativeEditorModel = storedEditorModel
+    ? {
+        ...storedEditorModel,
+        name: item.name || storedEditorModel.name,
+        sport: item.type || storedEditorModel.sport,
+        date: String(item.start_date_local || "").slice(0, 10),
+      }
+    : null;
+  const editorModel =
+    nativeEditorModel && !validateWorkout(nativeEditorModel).length ? nativeEditorModel : null;
+  const unstructured = editorModel?.unstructured === true;
+  const noDeviceIntervals = unstructured || Boolean(editorModel?.strength);
   if (editorModel)
     editorModel.thresholds = { ftp: item.icu_ftp || null, pace: item.icu_threshold_pace || null };
   const editorTotals = editorModel ? workoutTotals(editorModel) : null;
-  const plannedTimeLabel = editorTotals
-    ? `${editorTotals.open ? "Open · ≈ " : editorTotals.unknownTime ? "At least " : editorTotals.estimated ? "≈ " : ""}${clock(editorTotals.seconds)}`
-    : null;
+  const plannedTimeLabel =
+    editorTotals && !noDeviceIntervals
+      ? `${editorTotals.open ? "Open · ≈ " : editorTotals.unknownTime ? "At least " : editorTotals.estimated ? "≈ " : ""}${clock(editorTotals.seconds)}`
+      : null;
   const sourceDescription = readableDescription(item.description)
     .replace(/^\*\*(Warm Up:|Main Set:|Warm Down:)\*\*$/gm, "$1")
     .trim();
@@ -235,29 +296,32 @@ export function mapIntervalsWorkout(
   const plannedSeconds =
     "duration_seconds" in plannedValues
       ? plannedValues.duration_seconds
-      : (item.time_target ?? item.moving_time ?? item.workout_doc?.duration);
+      : (item.time_target ??
+        (noDeviceIntervals ? null : (item.moving_time ?? item.workout_doc?.duration)));
   const minutes = Math.round(Number(plannedSeconds || 0) / 60);
   const actualMinutes = actual ? Math.round(Number(actual.moving_time || 0) / 60) : 0;
   const local = new Date(`${date}T12:00:00Z`);
   const summary = (value) => {
     if (!value) return null;
     const overrides = value === item && !isActivity ? plannedValues : {};
+    const freeformPlan = value === item && !isActivity && noDeviceIntervals;
     const durationSeconds =
       "duration_seconds" in overrides
         ? overrides.duration_seconds
         : ((value === item && !isActivity ? value.time_target : null) ??
-          value.moving_time ??
-          value.workout_doc?.duration ??
+          (freeformPlan ? null : value.moving_time) ??
+          (freeformPlan ? null : value.workout_doc?.duration) ??
           null);
     const distanceMeters =
       "distance_meters" in overrides
         ? overrides.distance_meters
         : ((value === item && !isActivity ? value.distance_target : null) ??
-          value.distance ??
-          value.workout_doc?.distance ??
+          (freeformPlan ? null : value.distance) ??
+          (freeformPlan ? null : value.workout_doc?.distance) ??
           null);
     return {
       duration_seconds: durationSeconds,
+      ...(value === actual ? { recorded_thresholds: recordedAnalysisThresholds(value) } : {}),
       distance_meters: distanceMeters,
       average_speed:
         value.average_speed ??
@@ -267,6 +331,14 @@ export function mapIntervalsWorkout(
       elevation_gain: value.total_elevation_gain ?? null,
       elevation_loss: value.total_elevation_loss ?? null,
       tss: value.icu_training_load ?? value.load_target ?? null,
+      power_load: value.power_load ?? null,
+      hr_load: value.hr_load ?? null,
+      pace_load: value.pace_load ?? null,
+      hr_load_type: typeof value.hr_load_type === "string" ? value.hr_load_type : null,
+      pace_load_type: typeof value.pace_load_type === "string" ? value.pace_load_type : null,
+      heart_rate_zones: recordedHeartRateZones(value),
+      power_zone_times: recordedZoneTimes(value, "power"),
+      pace_zone_times: recordedZoneTimes(value, "pace"),
       intensity_factor: value.icu_intensity != null ? value.icu_intensity / 100 : null,
       work_kj:
         (value.icu_joules ?? value.joules) != null
@@ -303,8 +375,29 @@ export function mapIntervalsWorkout(
     provider: "intervals",
     editable: !isActivity,
     activity_id: actual?.id || null,
+    provider_type: item.type || null,
+    activity_type: actual?.type || null,
     activity_file_type: actual?.file_type || null,
     category: item.category || "ACTIVITY",
+    ...(!isActivity &&
+    /^(?:NOTE|RACE_[ABC])$/.test(item.category || "") &&
+    raceEventKey(item.external_id)
+      ? { calendar_event_key: raceEventKey(item.external_id) }
+      : {}),
+    ...(!isActivity && calendarAnnotationKey(item.external_id)
+      ? {
+          calendar_annotation_key: calendarAnnotationKey(item.external_id),
+          calendar_annotation_kind: calendarAnnotationKind(item.external_id),
+          calendar_annotation_source: annotationNativeProjection(item),
+          workout_end_date: (() => {
+            try {
+              return annotationInclusiveEnd(item);
+            } catch {
+              return date;
+            }
+          })(),
+        }
+      : {}),
     workout_date: date,
     planned_workout_date: isActivity ? null : plannedDate,
     recorded_start_local: actual?.start_date_local || null,
@@ -312,7 +405,7 @@ export function mapIntervalsWorkout(
     date: local.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),
     sport: sport(item.type),
     title: item.name || `${sport(item.type)} ${isActivity ? "activity" : "event"}`,
-    duration: duration(plannedSeconds),
+    duration: noDeviceIntervals && plannedSeconds == null ? "" : duration(plannedSeconds),
     distance_meters: actual?.distance ?? summary(item)?.distance_meters ?? null,
     plannedDurationMinutes: isActivity ? 0 : minutes,
     actualDurationMinutes: actualMinutes,
@@ -349,7 +442,10 @@ export function mapIntervalsWorkout(
       !isActivity && /T(?!00:00(?::00)?(?:\.000)?(?:Z|$))/.test(String(item.start_date_local || ""))
         ? item.start_date_local
         : null,
-    structure: item.workout_doc ? JSON.stringify(appWorkoutDoc(item.workout_doc, item.type)) : null,
+    structure:
+      !noDeviceIntervals && item.workout_doc
+        ? JSON.stringify(appWorkoutDoc(item.workout_doc, item.type))
+        : null,
     source_updated_at: item.updated || null,
     source: "intervals",
     measurement_quality: {
@@ -358,6 +454,10 @@ export function mapIntervalsWorkout(
     },
     workout_summary: { planned: isActivity ? null : summary(item), completed: summary(actual) },
     planned_values_edited: Object.keys(plannedValues).length > 0,
+    ...(unstructured ? { unstructured: true } : {}),
+    ...(editorModel?.variant && editorModel.sport === item.type
+      ? { display_variant: editorModel.variant }
+      : {}),
     ...(editorModel
       ? {
           editor_model: editorModel,
@@ -524,7 +624,11 @@ export async function fetchIntervalsContext(
       tsb: w.ctl != null && w.atl != null ? w.ctl - w.atl : null,
     })),
     history: sessions.filter((w) => w.workout_date <= today),
-    planned: sessions.filter((w) => w.workout_date >= today),
+    planned: sessions.filter((w) =>
+      w.calendar_annotation_key
+        ? annotationOverlapsRange(w, today, range?.end || shift(60))
+        : w.workout_date >= today
+    ),
     source: "intervals",
     synced_at: new Date().toISOString(),
     retention_days: 90,
@@ -823,6 +927,13 @@ export function assertEditableCalendarEvent(event) {
 }
 
 export function calendarCopyBody(original, date) {
+  if (calendarAnnotationKey(original.external_id))
+    throw Object.assign(
+      Error(
+        "Goals and Availability cannot be copied through workout copy. Create a separate entry to preserve its exact metadata."
+      ),
+      { status: 400, code: "ANNOTATION_COPY_UNSUPPORTED" }
+    );
   const fields = [
     "category",
     "type",
@@ -868,18 +979,23 @@ export function calendarCopyBody(original, date) {
   return body;
 }
 
-export async function createIntervalsRaceEvent(request, { name, date, priority, externalId } = {}) {
+export async function createIntervalsRaceEvent(
+  request,
+  { name, date, priority, externalId, type, description, allowUnprioritized = false } = {}
+) {
   const cleanName = String(name || "").trim();
   if (!cleanName) throw new Error("Enter a race name");
   validDate(date);
   const cleanPriority = String(priority || "").toUpperCase();
-  if (!["A", "B", "C"].includes(cleanPriority)) throw new Error("Choose race priority A, B or C");
+  if (!["A", "B", "C"].includes(cleanPriority) && !(allowUnprioritized && cleanPriority === ""))
+    throw new Error("Choose race priority A, B or C");
   const body = {
-    category: `RACE_${cleanPriority}`,
-    type: "Other",
+    category: cleanPriority ? `RACE_${cleanPriority}` : "NOTE",
+    type: type || "Other",
     name: cleanName,
     start_date_local: `${date}T00:00:00`,
     ...(externalId ? { external_id: String(externalId) } : {}),
+    ...(description !== undefined ? { description } : {}),
   };
   const sameDay = externalId
     ? await request(`/athlete/0/events?oldest=${date}&newest=${date}`)
@@ -895,6 +1011,8 @@ export async function createIntervalsRaceEvent(request, { name, date, priority, 
   if (
     verified.name !== body.name ||
     verified.category !== body.category ||
+    (type !== undefined && verified.type !== type) ||
+    (description !== undefined && (verified.description || "") !== description) ||
     String(verified.start_date_local).slice(0, 10) !== date
   ) {
     throw new Error("Intervals.icu did not confirm the race event. Refresh before retrying.");
@@ -902,23 +1020,38 @@ export async function createIntervalsRaceEvent(request, { name, date, priority, 
   return verified;
 }
 
-export async function updateIntervalsRaceEvent(request, id, { name, date, priority } = {}) {
+export async function updateIntervalsRaceEvent(
+  request,
+  id,
+  { name, date, priority, type, description, allowUnprioritized = false, appEvent = false } = {}
+) {
   const cleanName = String(name || "").trim();
   if (!cleanName) throw new Error("Enter a race name");
   validDate(date);
   const cleanPriority = String(priority || "").toUpperCase();
-  if (!["A", "B", "C"].includes(cleanPriority)) throw new Error("Choose race priority A, B or C");
+  if (!["A", "B", "C"].includes(cleanPriority) && !(allowUnprioritized && cleanPriority === ""))
+    throw new Error("Choose race priority A, B or C");
   const path = `/athlete/0/events/${eventId(id)}`;
   const existing = await request(path);
-  if (!/^RACE(?:_[ABC])?$/.test(String(existing.category || "")))
+  assertEditableCalendarEvent(existing);
+  if (
+    !/^RACE(?:_[ABC])?$/.test(String(existing.category || "")) &&
+    !(
+      allowUnprioritized &&
+      existing.category === "NOTE" &&
+      (raceEventKey(existing.external_id) || appEvent)
+    )
+  )
     throw new Error("Only race events can be edited here");
   const originalDate = String(existing.start_date_local || "").slice(0, 10);
   validDate(originalDate);
   const suffix = String(existing.start_date_local || "").slice(10) || "T00:00:00";
   const body = {
     name: cleanName,
-    category: `RACE_${cleanPriority}`,
+    category: cleanPriority ? `RACE_${cleanPriority}` : "NOTE",
     start_date_local: `${date}${suffix}`,
+    ...(type !== undefined ? { type } : {}),
+    ...(description !== undefined ? { description } : {}),
   };
   if (existing.end_date_local) {
     const delta = Date.parse(`${date}T00:00:00Z`) - Date.parse(`${originalDate}T00:00:00Z`);
@@ -932,6 +1065,8 @@ export async function updateIntervalsRaceEvent(request, id, { name, date, priori
   if (
     verified.name !== cleanName ||
     verified.category !== body.category ||
+    (type !== undefined && verified.type !== type) ||
+    (description !== undefined && (verified.description || "") !== description) ||
     String(verified.start_date_local).slice(0, 10) !== date
   )
     throw new Error("Intervals.icu did not confirm the race update. Refresh before retrying.");

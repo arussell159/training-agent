@@ -158,7 +158,7 @@ test("distance-only axis uses proportional metres; mixed chart labels estimates"
   model.steps.push(newStep("Swim", "rest"));
   assert.match(chartSegments(model).axis, /Estimated time/);
 });
-test("ramp load estimate integrates squared power", () => {
+test("ramp load uses the normalized planned power estimate", () => {
   const model = importWorkout(fixtureEvent()).model;
   model.steps = [
     {
@@ -167,7 +167,9 @@ test("ramp load estimate integrates squared power", () => {
       target: { kind: "power", unit: "%ftp", mode: "ramp", start: 50, end: 100 },
     },
   ];
-  assert.ok(Math.abs(workoutTotals(model).load - (100 * (0.25 + 0.5 + 1)) / 3) < 1e-8);
+  const totals = workoutTotals(model);
+  assert.ok(Math.abs(totals.normalizedIntensity - 0.7883958880835134) < 1e-10);
+  assert.ok(Math.abs(totals.load - 62.15680763469918) < 1e-8);
 });
 test("reordering guards against cycles and preserves order within parents", () => {
   const nodes = [newStep("Ride"), newRepeat([newStep("Ride")]), newStep("Ride")];

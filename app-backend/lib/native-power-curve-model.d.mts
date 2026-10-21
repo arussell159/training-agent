@@ -1,0 +1,52 @@
+export const nativePowerSports: readonly string[];
+export const NATIVE_POWER_GRID_SECONDS: readonly number[];
+export function nativePowerSourceMatches(native: string, selected: string): boolean;
+export type NativePowerCurveSelection = {
+  kind: "power";
+  sport: string;
+  nativeTypes: string[];
+  start: string;
+  end: string;
+};
+export function nativePowerCurveSelection(input: unknown, today: string): NativePowerCurveSelection;
+export type NativePowerCurvePoint = {
+  duration_seconds: number;
+  value: number | null;
+  activity_id: string;
+  native_type: string;
+  date: string;
+  name: string | null;
+  estimated: false;
+  start_index?: number;
+  end_index?: number;
+};
+export type NativePowerCurveCoverage = {
+  status: "available-recordings" | "partial";
+  inventoryRecords: number;
+  eligibleRecordings: number;
+  fetchedRecordings: number;
+  failedRecordings: number;
+  missingRecordings: number;
+  skippedForCap: number;
+  excludedWithoutPower: number;
+  excludedIgnoredRecordings: number;
+  unknownLengthRecordings: number;
+  unknownStreamRecordings: number;
+  invalidInventoryRecords: number;
+  conflictingRecordings: number;
+  unknownPoints: number;
+};
+export type NativePowerCurveResult = {
+  version: 1;
+  kind: "power";
+  unit: "W";
+  source: "intervals-activity-power-curves";
+  unitPolicy: "native-watts";
+  valuePolicy: "native-reported";
+  tagsSupported: false;
+  selection: { sport: string; nativeTypes: string[] };
+  window: { oldest: string; newest: string };
+  points: NativePowerCurvePoint[];
+  coverage: NativePowerCurveCoverage;
+  warning: string;
+};

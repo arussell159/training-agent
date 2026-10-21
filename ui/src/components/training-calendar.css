@@ -26,13 +26,13 @@
 /* Desktop calendar presentation. */
 @media (min-width: 768px) {
   .training-calendar {
-    --calendar-toolbar-height: 55px;
+    --calendar-toolbar-height: 56px;
     font-family: var(--font-sans);
     background: var(--background);
   }
   .calendar-desktop-toolbar {
     height: var(--calendar-toolbar-height);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 0;
     background: var(--background);
   }
   .calendar-desktop-toolbar button {
@@ -347,30 +347,48 @@
     color: #1a202e;
   }
   .calendar-desktop-toolbar {
-    padding-inline: 16px;
-    gap: 16px;
+    padding-inline: 26px;
+    gap: 24px;
   }
   .calendar-desktop-month-trigger {
-    width: 212px;
-    flex-basis: 212px;
-    border-radius: 3px;
+    width: 164px;
+    height: 32px;
+    flex-basis: 164px;
+    gap: 0;
+    padding: 0;
+    border-radius: 0;
+    color: #364152;
+    line-height: 24px;
+  }
+  .calendar-desktop-month-trigger > span {
+    width: 150px;
+    flex: 0 0 150px;
   }
   .calendar-desktop-month-trigger > svg {
+    width: 14px;
+    height: 14px;
     color: #2444ed;
   }
   .calendar-desktop-navigation {
-    gap: 4px;
+    gap: 0;
   }
   .calendar-desktop-navigation > button {
-    height: 30px;
-    border-radius: 3px;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
     box-shadow: none;
     font-size: 12px;
+    line-height: 16px;
   }
   .calendar-desktop-navigation > button:first-child {
-    padding-inline: 12px;
-    border: 1px solid #d8dbe3;
-    background: #fafbfc;
+    width: 57px;
+    height: 30px;
+    margin-right: 12px;
+    padding: 0;
+    border: 1px solid #cfd8e3;
+    border-radius: 4px;
+    background: #fff;
+    color: #364152;
   }
   .calendar-weekday-header {
     height: 30px;
@@ -444,7 +462,7 @@
     );
     background-origin: border-box;
     background-clip: border-box;
-    box-shadow: 0 1px 3px rgb(26 32 46 / 28%);
+    box-shadow: 0 1px 2px rgb(26 32 46 / 30%);
     transition: box-shadow 120ms ease;
   }
   .calendar-workout-card[data-completion-grade="good"] {
@@ -574,7 +592,7 @@
   }
   .calendar-note-card {
     padding: 12px 0 4px;
-    box-shadow: 0 1px 3px rgb(26 32 46 / 28%);
+    box-shadow: 0 1px 2px rgb(26 32 46 / 30%);
   }
   .calendar-note-card > div:first-child {
     height: 28px;
@@ -763,6 +781,10 @@
   .calendar-operation-notice > p {
     min-width: 0;
   }
+  body:has([data-slot="dialog-content"]) .calendar-operation-notice {
+    /* Calendar feedback belongs below the modal and its protected save controls. */
+    z-index: 40;
+  }
   .calendar-operation-notice > div {
     display: flex;
     flex-shrink: 0;
@@ -799,22 +821,6 @@
 }
 
 @media (min-width: 768px) {
-  .calendar-desktop-toolbar {
-    padding-left: 26px;
-    gap: 4px;
-  }
-  .calendar-desktop-month-trigger {
-    width: 184px;
-    flex-basis: 184px;
-    padding-inline: 0;
-    font-variant-numeric: tabular-nums;
-  }
-  .calendar-desktop-navigation {
-    gap: 0;
-  }
-  .calendar-desktop-navigation > button:first-child {
-    margin-right: 12px;
-  }
   .calendar-week-actions {
     position: absolute;
     top: 8px;
@@ -863,4 +869,20 @@
   .calendar-operation-notice {
     flex-wrap: wrap;
   }
+}
+
+/* Exercise prescriptions have set/exercise counts, not an endurance distance. */
+.calendar-workout-metrics[data-strength-prescription="true"] {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 6px;
+}
+.calendar-workout-metrics[data-strength-prescription="true"] .calendar-workout-duration {
+  grid-column: 1 / -1;
+}
+.calendar-workout-metrics[data-strength-prescription="true"] .calendar-workout-metric-unit {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
 }
