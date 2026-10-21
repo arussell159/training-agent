@@ -57,15 +57,21 @@ export function portionLabel(entry: Pick<FoodEntry, "quantity" | "unit">) {
 }
 
 export function calorieMovingAverage(
-  days: { logged: boolean; totals: { calories: number } }[]
+  days: {
+    logged: boolean
+    unavailable?: boolean
+    totals: { calories: number } | null
+  }[]
 ) {
   return days.map((day, index) => {
-    if (!day.logged) return null
+    if (!day.logged || day.unavailable || !day.totals) return null
+    const window = days.slice(Math.max(0, index - 2), index + 1)
+    if (window.some((item) => item.unavailable || !item.totals)) return null
     const logged = days
       .slice(Math.max(0, index - 2), index + 1)
-      .filter((item) => item.logged)
+      .filter((item) => item.logged && item.totals)
     return (
-      logged.reduce((sum, item) => sum + item.totals.calories, 0) /
+      logged.reduce((sum, item) => sum + item.totals!.calories, 0) /
       logged.length
     )
   })

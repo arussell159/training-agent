@@ -141,7 +141,7 @@ export function storedNutritionEntry(entry) {
     meal: entry.meal,
   };
 }
-export function createNutritionStore(record) {
+export function createNutritionStore(record, { historyDeadlineMs = 1500 } = {}) {
   const preferences = () => record("preferences", () => ({ revision: 0, targets: emptyTargets() }));
   const month = (date) => record(date.slice(0, 7), () => ({ days: {} }));
   const library = () => record("library", () => ({ revision: 0, items: [] }));
@@ -161,12 +161,68 @@ export function createNutritionStore(record) {
         ...months.map((m) => month(m).read()),
       ]);
       const days = Object.assign({}, ...records.map((r) => r.days));
-      await Promise.all(
-        dates.map(async (d) => {
-          if (days[d])
-            days[d] = { ...days[d], entries: await Promise.all(days[d].entries.map(resolve)) };
-        })
-      );
+      const unavailable = new Map();
+      // Resolve the requested diary before secondary history can occupy the
+      // provider queue. A history outage must not block today's useful data.
+      if (days[date])
+        days[date] = {
+          ...days[date],
+          entries: await Promise.all(days[date].entries.map((entry) => resolve(entry))),
+        };
+      const history = dates.filter((d) => d !== date && days[d]);
+      const historyController = new AbortController();
+      const historySignal = historyController.signal;
+      const historyTimer = history.length
+        ? setTimeout(() => historyController.abort(), historyDeadlineMs)
+        : null;
+      let cursor = 0;
+      const hydrateHistoricalDay = async (d) => {
+        if (!days[d]) return;
+        let stop;
+        try {
+          if (historySignal.aborted)
+            throw new NutritionError(
+              "Previous nutrition could not load in time. Select this day to retry.",
+              504
+            );
+          const resolved = await Promise.race([
+            Promise.all(days[d].entries.map((entry) => resolve(entry, historySignal))),
+            new Promise((_, reject) => {
+              stop = () =>
+                reject(
+                  new NutritionError(
+                    "Previous nutrition could not load in time. Select this day to retry.",
+                    504
+                  )
+                );
+              historySignal.addEventListener("abort", stop, { once: true });
+            }),
+          ]);
+          days[d] = { ...days[d], entries: resolved };
+        } catch (error) {
+          // Never report today's unresolved entries as an empty meal or a
+          // complete total. Historical days are independent secondary data.
+          if (d === date) throw error;
+          unavailable.set(d, {
+            error:
+              error instanceof NutritionError
+                ? error.message
+                : "This day's nutrition could not load. Select it to retry.",
+            ...(Number.isInteger(error.providerCode) ? { providerCode: error.providerCode } : {}),
+          });
+        } finally {
+          if (stop) historySignal.removeEventListener("abort", stop);
+        }
+      };
+      try {
+        await Promise.all(
+          Array.from({ length: Math.min(2, history.length) }, async () => {
+            while (cursor < history.length) await hydrateHistoricalDay(history[cursor++]);
+          })
+        );
+      } finally {
+        if (historyTimer) clearTimeout(historyTimer);
+      }
       const targetsAt = (day) =>
         [...(settings.targetHistory || [])]
           .filter((item) => item.date <= day)
@@ -176,14 +232,17 @@ export function createNutritionStore(record) {
       return {
         date,
         day: days[date] || emptyDay(),
-        recentDays: dates.map((d) => ({ date: d, entries: days[d]?.entries || [] })),
+        recentDays: dates
+          .filter((d) => !unavailable.has(d))
+          .map((d) => ({ date: d, entries: days[d]?.entries || [] })),
         targets: targetsAt(date),
         targetsRevision: settings.revision,
         week: dates.map((d) => ({
           date: d,
           logged: Boolean(days[d]?.entries.length),
           targets: targetsAt(d),
-          totals: nutritionTotals(days[d]?.entries || []),
+          totals: unavailable.has(d) ? null : nutritionTotals(days[d]?.entries || []),
+          ...(unavailable.has(d) ? { unavailable: true, ...unavailable.get(d) } : {}),
         })),
       };
     },
@@ -211,7 +270,7 @@ export function createNutritionStore(record) {
       const result = await library().read();
       result.items = await Promise.all(
         result.items.map(async (item) => {
-          const entries = await Promise.all(item.entries.map(resolve));
+          const entries = await Promise.all(item.entries.map((entry) => resolve(entry)));
           return {
             ...item,
             entries,

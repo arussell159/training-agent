@@ -362,10 +362,10 @@ export function createFoodCatalog({
         throw new NutritionError("FatSecret returned incomplete food details. Please retry.", 502);
       return value;
     },
-    async hydrate(entry) {
+    async hydrate(entry, signal) {
       if (entry.source !== "fatsecret") return entry;
       return entryFromFatSecret(
-        await catalog.product(entry.foodId),
+        await catalog.product(entry.foodId, signal),
         entry.servingId,
         entry.quantity,
         entry.meal,

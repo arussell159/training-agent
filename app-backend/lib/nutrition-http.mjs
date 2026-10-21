@@ -11,8 +11,7 @@ export function createNutritionHttp({
 }) {
   let running = 0;
   const views = new Map();
-  let viewRevision = 0;
-  const hydrate = (entry) => (catalog.hydrate ? catalog.hydrate(entry) : entry);
+  const hydrate = (entry, signal) => (catalog.hydrate ? catalog.hydrate(entry, signal) : entry);
   const resolveWrites = (entries) => {
     if (!Array.isArray(entries) || !entries.length || entries.length > 30)
       throw new NutritionError("Save between 1 and 30 foods at a time.");
@@ -51,18 +50,24 @@ export function createNutritionHttp({
       if (req.method !== "GET") {
         checkOrigin(req, config);
         views.clear();
-        viewRevision++;
       }
       const url = new URL(req.url, "http://localhost");
       if (req.method === "GET" && pathname === "/api/nutrition") {
         const date = nutritionDate(url.searchParams.get("date"));
-        const key = `${req.headers.host}:${date}`;
+        // This installation is single-user. Keep in-flight sharing isolated
+        // by host, settings realm and provider account; never cache Basic
+        // catalog response values after the operation settles.
+        const key = JSON.stringify([
+          req.headers.host,
+          env().SETTINGS_SCOPE || "default",
+          env().FATSECRET_CONSUMER_KEY || env().FATSECRET_CLIENT_ID || "unconfigured",
+          date,
+        ]);
         const cached = views.get(key);
-        if (cached && cached.expires > Date.now()) {
+        if (cached) {
           json(200, await cached.promise);
           return true;
         }
-        const revision = viewRevision;
         const promise = (async () => {
           const store = await getStore(req);
           return {
@@ -71,7 +76,7 @@ export function createNutritionHttp({
             localPreview: env().NUTRITION_LOCAL_PREVIEW === "true" && !env().VERCEL,
           };
         })();
-        const entry = { promise, expires: Date.now() + 30_000 };
+        const entry = { promise };
         views.set(key, entry);
         if (views.size > 32) views.delete(views.keys().next().value);
         try {
@@ -80,7 +85,7 @@ export function createNutritionHttp({
           if (views.get(key) === entry) views.delete(key);
           throw error;
         } finally {
-          if (revision !== viewRevision && views.get(key) === entry) views.delete(key);
+          if (views.get(key) === entry) views.delete(key);
         }
       } else if (req.method === "GET" && pathname === "/api/nutrition/library")
         json(200, await (await getStore(req)).library(hydrate));
@@ -168,6 +173,7 @@ export function createNutritionHttp({
       json(
         error.status || 502,
         {
+          ...(Number.isInteger(error.providerCode) ? { providerCode: error.providerCode } : {}),
           error:
             error instanceof NutritionError || error.status
               ? error.message

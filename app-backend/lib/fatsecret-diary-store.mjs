@@ -133,6 +133,7 @@ export function createFatSecretDiaryStore({ local, diary, record }) {
         diaryStorage: "fatsecret",
         day: current.day,
         week: current.base.week.map((day) => {
+          if (day.unavailable || !day.totals) return day;
           if (day.date === date)
             return {
               ...day,

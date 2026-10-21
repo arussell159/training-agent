@@ -7,6 +7,7 @@ import { Readable } from "node:stream";
 import { EventEmitter } from "node:events";
 import {
   createNutritionStore,
+  NutritionError,
   emptyTargets,
   nutritionDate,
   validateEntry,
@@ -87,6 +88,66 @@ const add = (patch = {}) => ({
   ...patch,
 });
 const ok = (body) => ({ ok: true, status: 200, json: async () => body });
+
+test("unavailable historical food never erases the requested diary or fabricates a zero total", async () => {
+  const store = createNutritionStore(memoryRecords());
+  await store.change(add({ date: "2026-10-20", entries: [food({ id: "historical-food" })] }));
+  await store.change(add({ date: "2026-10-21", entries: [food({ id: "current-food" })] }));
+  const calls = [];
+  const resolve = async (entry) => {
+    calls.push(entry.id);
+    if (entry.id === "historical-food") {
+      const error = new NutritionError("FatSecret denied access to this saved food.", 502);
+      error.providerCode = 14;
+      throw error;
+    }
+    return entry;
+  };
+  const view = await store.view("2026-10-21", resolve);
+  assert.equal(calls[0], "current-food");
+  assert.equal(view.day.entries[0].id, "current-food");
+  const failed = view.week.find((day) => day.date === "2026-10-20");
+  assert.equal(failed.logged, true);
+  assert.equal(failed.unavailable, true);
+  assert.equal(failed.totals, null);
+  assert.equal(failed.providerCode, 14);
+  assert.ok(!view.recentDays.some((day) => day.date === "2026-10-20"));
+  await assert.rejects(store.view("2026-10-20", resolve), { status: 502, providerCode: 14 });
+});
+
+test("history has a finite shared deadline and at most two days hydrate after the requested diary", async () => {
+  const store = createNutritionStore(memoryRecords(), { historyDeadlineMs: 15 });
+  for (let day = 15; day <= 21; day++)
+    await store.change(add({ date: `2026-10-${day}`, entries: [food({ id: `food-row-${day}` })] }));
+  let running = 0,
+    maximum = 0;
+  const calls = [];
+  const start = performance.now();
+  const view = await store.view("2026-10-21", async (entry, signal) => {
+    calls.push(entry.id);
+    if (entry.id === "food-row-21") return entry;
+    running++;
+    maximum = Math.max(maximum, running);
+    await new Promise((_, reject) =>
+      signal.addEventListener(
+        "abort",
+        () => {
+          running--;
+          reject(new Error("Aborted"));
+        },
+        { once: true }
+      )
+    );
+  });
+  assert.equal(calls[0], "food-row-21");
+  assert.ok(maximum <= 2);
+  assert.ok(performance.now() - start < 200);
+  assert.equal(view.day.entries.length, 1);
+  assert.equal(
+    view.week.filter((day) => day.unavailable && day.logged && day.totals === null).length,
+    6
+  );
+});
 
 test("nutrition rejects impossible dates and invalid quantities/macros", () => {
   for (const date of ["2026-02-30", "2026-2-01", "2026-13-01", null])
@@ -420,6 +481,21 @@ async function request(
   await handler(req, res, new URL(route, "http://localhost").pathname);
   return res;
 }
+
+test("nutrition errors expose only a sanitized numeric provider code for diagnosis", async () => {
+  const error = new NutritionError("FatSecret denied this request.", 502);
+  error.providerCode = 14;
+  const handler = createNutritionHttp({
+    getStore: async () => ({
+      view: async () => {
+        throw error;
+      },
+    }),
+  });
+  const result = await request(handler);
+  assert.equal(result.status, 502);
+  assert.deepEqual(result.body, { error: "FatSecret denied this request.", providerCode: 14 });
+});
 test("HTTP requires session and same-origin writes; estimate never saves", async () => {
   const store = createNutritionStore(memoryRecords());
   const handler = createNutritionHttp({
@@ -461,7 +537,7 @@ test("HTTP requires session and same-origin writes; estimate never saves", async
   assert.equal((await request(handler)).body.day.entries.length, 1);
 });
 
-test("nutrition opens share a cached view and saving food immediately invalidates it", async () => {
+test("nutrition opens share only an in-flight view; completed responses and writes are never cached", async () => {
   const store = createNutritionStore(memoryRecords());
   let reads = 0;
   const handler = createNutritionHttp({
@@ -476,7 +552,7 @@ test("nutrition opens share a cached view and saving food immediately invalidate
   assert.equal(a.status, 200);
   assert.deepEqual(a.body, b.body);
   await request(handler);
-  assert.equal(reads, 1);
+  assert.equal(reads, 2);
   assert.equal((await request(handler, { session: false })).status, 401);
   const write = await request(handler, {
     route: "/api/nutrition/entries",
@@ -485,7 +561,7 @@ test("nutrition opens share a cached view and saving food immediately invalidate
   });
   assert.equal(write.status, 200);
   assert.equal((await request(handler)).body.day.entries.length, 1);
-  assert.equal(reads, 3);
+  assert.equal(reads, 4);
 });
 
 test("food commit returns a durable receipt without post-commit provider work and replays during outage", async () => {

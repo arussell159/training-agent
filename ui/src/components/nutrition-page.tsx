@@ -44,7 +44,6 @@ import {
   type NutritionWrite,
   type NutritionWriteResult,
 } from "@/lib/pending-nutrition-write"
-import { prefetchNutrition } from "@/lib/nutrition"
 import { loadFoodLibrary } from "@/lib/nutrition-read-cache"
 import { performanceProbe } from "@/lib/performance-probe"
 import {
@@ -297,16 +296,6 @@ export function NutritionPage({
     performanceProbe("nutrition-visible")
     const frame = requestAnimationFrame(() => {
       void loadFoodLibrary().catch(() => {})
-      for (const offset of [-1, 1]) {
-        const adjacent = new Date(`${date}T12:00:00`)
-        adjacent.setDate(adjacent.getDate() + offset)
-        const key = [
-          adjacent.getFullYear(),
-          String(adjacent.getMonth() + 1).padStart(2, "0"),
-          String(adjacent.getDate()).padStart(2, "0"),
-        ].join("-")
-        void prefetchNutrition(key).catch(() => {})
-      }
     })
     return () => cancelAnimationFrame(frame)
   }, [date, nutritionReady])
@@ -317,12 +306,15 @@ export function NutritionPage({
     data?.week.map((day, index) =>
       calorieGoal(day.targets?.calories, weekExercise[index])
     ) || []
-  const averages = calorieMovingAverage(data?.week || [])
+  const historyUnavailable = Boolean(data?.week.some((day) => day.unavailable))
+  const averages = historyUnavailable
+    ? data!.week.map(() => null)
+    : calorieMovingAverage(data?.week || [])
   const totals = foodTotals(data?.day.entries || []),
     target = calorieGoal(data?.targets.calories, exercise)
   const averageDaily = (key: keyof typeof totals) =>
-    data?.week.length
-      ? data.week.reduce((sum, day) => sum + day.totals[key], 0) /
+    data?.week.length && !historyUnavailable
+      ? data.week.reduce((sum, day) => sum + (day.totals?.[key] || 0), 0) /
         data.week.length
       : null
   const resolvedTargets = data ? dailyTargets(data.targets, exercise) : null
@@ -467,7 +459,7 @@ export function NutritionPage({
   }
   const maximum = Math.max(
     ...weekGoals.map((goal) => goal || 0),
-    ...(data?.week.map((day) => day.totals.calories) || []),
+    ...(data?.week.map((day) => day.totals?.calories || 0) || []),
     1
   )
   return (
@@ -622,6 +614,22 @@ export function NutritionPage({
                       </p>
                     </div>
                   </div>
+                  {historyUnavailable && (
+                    <div
+                      role="status"
+                      className="text-sm text-muted-foreground"
+                    >
+                      Some previous days could not load. Their totals and weekly
+                      averages are unavailable.
+                      <button
+                        type="button"
+                        className="min-h-11 font-semibold underline"
+                        onClick={reload}
+                      >
+                        Retry previous days
+                      </button>
+                    </div>
+                  )}
                   <div
                     className="relative grid h-40 grid-cols-7 items-end"
                     aria-label="Calories logged over the last seven days"
@@ -655,13 +663,15 @@ export function NutritionPage({
                         aria-current={day.date === date ? "date" : undefined}
                         onClick={() => selectDate(day.date)}
                         disabled={mutating}
-                        aria-label={`${day.date}: ${day.logged ? Math.round(day.totals.calories) + " calories" : "no food logged"}${weekGoals[index] != null ? `, target ${Math.round(weekGoals[index]!)} calories` : ""}`}
+                        aria-label={`${day.date}: ${day.unavailable ? "food totals unavailable; select to retry" : day.logged ? Math.round(day.totals!.calories) + " calories" : "no food logged"}${weekGoals[index] != null ? `, target ${Math.round(weekGoals[index]!)} calories` : ""}`}
                         className="relative grid h-full w-full grid-rows-[16px_112px_16px] justify-items-center gap-2"
                       >
                         <span className="nutrition-week-total text-[11px] font-medium text-muted-foreground tabular-nums">
-                          {day.logged
-                            ? displayNutrient(day.totals.calories)
-                            : "—"}
+                          {day.unavailable
+                            ? "Retry"
+                            : day.logged
+                              ? displayNutrient(day.totals?.calories)
+                              : "—"}
                         </span>
                         <span className="relative h-28 w-full max-w-6">
                           {weekGoals[index] != null && (
@@ -672,7 +682,7 @@ export function NutritionPage({
                               }}
                             />
                           )}
-                          {day.logged && (
+                          {day.logged && !day.unavailable && day.totals && (
                             <span
                               className={`nutrition-week-bar absolute inset-x-0 bottom-0 rounded-full ${day.date === date ? "is-selected" : ""}`}
                               style={{

@@ -28,7 +28,7 @@ try {
   for (const [kind, url] of [
     ["nutrition", `/api/nutrition?date=${date}`],
     ["food-search", "/api/nutrition/search?q=oats"],
-  ]) {
+  ].filter(([kind]) => kind !== "nutrition" || process.env.MOBILE_LIVE_SKIP_DIARY !== "1")) {
     const start = performance.now();
     try {
       const r = await fetch(origin + url, {
@@ -43,7 +43,10 @@ try {
         serverTiming: r.headers.get("server-timing"),
         ...(r.ok
           ? { count: body.products?.length ?? body.day?.entries?.length }
-          : { error: typeof body.error === "string" ? body.error : "Invalid response" }),
+          : {
+              error: typeof body.error === "string" ? body.error : "Invalid response",
+              providerCode: body.providerCode,
+            }),
       });
     } catch (error) {
       output.checks.push({

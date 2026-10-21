@@ -102,7 +102,10 @@ export type NutritionView = {
   week: {
     date: string
     logged: boolean
-    totals: Record<Nutrient, number>
+    totals: Record<Nutrient, number> | null
+    unavailable?: boolean
+    error?: string
+    providerCode?: number
     targets: Targets
   }[]
 }
@@ -377,10 +380,13 @@ export function validatedNutritionView(
         object(row) &&
         typeof row.date === "string" &&
         validTargets(row.targets) &&
-        object(row.totals) &&
-        nutrientKeys.every((key) =>
-          nutrientValue((row.totals as Record<string, unknown>)[key])
-        )
+        ((row.unavailable === true &&
+          row.totals === null &&
+          typeof row.error === "string") ||
+          (object(row.totals) &&
+            nutrientKeys.every((key) =>
+              nutrientValue((row.totals as Record<string, unknown>)[key])
+            )))
     )
   )
     throw Error("Your food log is incomplete. Please retry.")

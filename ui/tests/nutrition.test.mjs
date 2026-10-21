@@ -12,28 +12,55 @@ import {
 test("diary portions combine serving counts with catalog labels without confusing weight and volume", () => {
   assert.equal(portionLabel({ quantity: 2, unit: "1 regular" }), "2 regular")
   assert.equal(portionLabel({ quantity: 10, unit: "1 fl oz" }), "10 fl oz")
-  assert.equal(portionLabel({ quantity: 10, unit: "1 fluid ounce" }), "10 fl oz")
+  assert.equal(
+    portionLabel({ quantity: 10, unit: "1 fluid ounce" }),
+    "10 fl oz"
+  )
   assert.equal(portionLabel({ quantity: 2, unit: "100 g" }), "200 g")
   assert.equal(portionLabel({ quantity: 2, unit: "1/2 cup" }), "1 cup")
   assert.equal(portionLabel({ quantity: 2, unit: "1 1/2 cups" }), "3 cups")
   assert.equal(portionLabel({ quantity: 10, unit: "1 oz" }), "10 oz")
-  assert.equal(portionLabel({ quantity: 1.25, unit: "serving" }), "1.25 serving")
+  assert.equal(
+    portionLabel({ quantity: 1.25, unit: "serving" }),
+    "1.25 serving"
+  )
 })
 test("three-day calorie average leaves unlogged days empty and averages only recorded intake", () => {
-  const days = [1000, 2000, null, 3000, 1500].map((calories) => ({ logged: calories != null, totals: { calories: calories || 0 } }))
+  const days = [1000, 2000, null, 3000, 1500].map((calories) => ({
+    logged: calories != null,
+    totals: { calories: calories || 0 },
+  }))
   assert.deepEqual(calorieMovingAverage(days), [1000, 1500, null, 2500, 2250])
 })
+test("unavailable prior-day intake never becomes a zero or an apparently complete average", () => {
+  const days = [
+    { logged: true, totals: { calories: 1000 } },
+    { logged: true, unavailable: true, totals: null },
+    { logged: true, totals: { calories: 2000 } },
+  ]
+  assert.deepEqual(calorieMovingAverage(days), [1000, null, null])
+})
 test("percentage macros follow workout-adjusted calories while gram targets remain fixed", () => {
-  const base = { calories: 2000, protein: 150, carbs: 225, fat: 55.56, fiber: null };
-  assert.deepEqual(dailyTargets(base, 400), { ...base, calories: 2400 });
-  const percent = { ...base, macroMode: "percent", percentages: { protein: 30, carbs: 45, fat: 25 } };
-  const result = dailyTargets(percent, 400);
-  assert.equal(result.protein, 180);
-  assert.equal(result.carbs, 270);
-  assert.equal(result.fat, 66.67);
-  assert.equal(percent.protein, 150);
-  assert.equal(dailyTargets({ ...percent, calories: null }, 400).protein, null);
-});
+  const base = {
+    calories: 2000,
+    protein: 150,
+    carbs: 225,
+    fat: 55.56,
+    fiber: null,
+  }
+  assert.deepEqual(dailyTargets(base, 400), { ...base, calories: 2400 })
+  const percent = {
+    ...base,
+    macroMode: "percent",
+    percentages: { protein: 30, carbs: 45, fat: 25 },
+  }
+  const result = dailyTargets(percent, 400)
+  assert.equal(result.protein, 180)
+  assert.equal(result.carbs, 270)
+  assert.equal(result.fat, 66.67)
+  assert.equal(percent.protein, 150)
+  assert.equal(dailyTargets({ ...percent, calories: null }, 400).protein, null)
+})
 const workout = (patch = {}) => ({
   id: "event:1",
   activity_id: "a1",
