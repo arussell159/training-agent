@@ -3389,7 +3389,7 @@ function EditorWorkspace({
   const files = useWorkoutFiles({ model, workoutId: savedId || undefined, presentation: !mobile && model.strength ? "strength" : undefined, workout: savedId ? [...cachedTrainingContext().planned, ...cachedTrainingContext().history].find(row => "id" in row && row.id === savedId) as PlannedWorkout | undefined : undefined })
   const [templateOpen, setTemplateOpen] = useState(false)
   const [manualValues, setManualValues] = useState(false)
-  const [desktopExpanded,setDesktopExpanded] = useState(true)
+  const [desktopExpanded,setDesktopExpanded] = useState(false)
   const [desktopBaseline, setDesktopBaseline] = useState(() => JSON.stringify({ time: editorStartTime(loaded.model, loaded.scheduledTime), draft: plannedValueDraft(loaded.plannedValues, workoutPresentationSport(loaded.model)), comment: loaded.initialComment || "" }))
   const [baseline, setBaseline] = useState(JSON.stringify(loaded.model)),
     [revision, setRevision] = useState(loaded.revision)
