@@ -1,5 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode, type ComponentProps } from "react"
-import { f7, Navbar, NavLeft, NavRight, NavTitle } from "framework7-react"
+import { type ReactNode, type ComponentProps } from "react"
 import { ChevronLeft } from "lucide-react"
 import { MobileHeaderMenu } from "@/components/ui/mobile-header-menu"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -37,69 +36,58 @@ export function MobileSiteNavbar({
   fixed?: boolean
 }) {
   const mobile = useIsMobile()
-  const header = useRef<HTMLElement>(null)
-  useLayoutEffect(() => {
-    const navbar = header.current?.querySelector<HTMLElement>(".navbar")
-    if (!mobile || !navbar) return
-    // Center before first paint, then only when an actual control width changes.
-    const resize = () => f7?.navbar?.size(navbar)
-    resize()
-    if (typeof ResizeObserver === "undefined") return
-    const observer = new ResizeObserver(resize)
-    observer.observe(navbar)
-    navbar
-      .querySelectorAll(".title, .left, .right")
-      .forEach((element) => observer.observe(element))
-    return () => observer.disconnect()
-  }, [mobile])
   if (!mobile) return null
 
   return (
     <header
-      ref={header}
       className={cn(
         "mobile-site-navbar",
         className,
         fixed && "mobile-site-navbar-fixed"
       )}
     >
-      <Navbar>
-        {(onBack || left) && (
-          <NavLeft>
-            {onBack && (
-              <button
-                type="button"
-                className={cn(
-                  "mobile-navbar-action liquid-glass-button",
-                  backText != null && "mobile-navbar-action-with-text"
-                )}
-                aria-label={backLabel}
-                onClick={onBack}
-              >
-                <LiquidGlassLayer />
-                <ChevronLeft aria-hidden="true" />
-                {backText != null && <span aria-hidden="true">{backText}</span>}
-              </button>
-            )}
-            {left}
-          </NavLeft>
-        )}
-        <NavTitle>
-          <h1 aria-label={titleLabel}>{title}</h1>
-        </NavTitle>
-        {(right || showMenu) && (
-          <NavRight>
-            {right}
-            {showMenu && (
-              <MobileHeaderMenu
-                actions={actions}
-                onEditWorkout={onEditWorkout}
-              />
-            )}
-          </NavRight>
-        )}
-        {children}
-      </Navbar>
+      <div className="navbar">
+        <div className="navbar-bg" />
+        <div className="navbar-inner">
+          {(onBack || left) && (
+            <div className="left">
+              {onBack && (
+                <button
+                  type="button"
+                  className={cn(
+                    "mobile-navbar-action liquid-glass-button",
+                    backText != null && "mobile-navbar-action-with-text"
+                  )}
+                  aria-label={backLabel}
+                  onClick={onBack}
+                >
+                  <LiquidGlassLayer />
+                  <ChevronLeft aria-hidden="true" />
+                  {backText != null && (
+                    <span aria-hidden="true">{backText}</span>
+                  )}
+                </button>
+              )}
+              {left}
+            </div>
+          )}
+          <div className="title">
+            <h1 aria-label={titleLabel}>{title}</h1>
+          </div>
+          {(right || showMenu) && (
+            <div className="right">
+              {right}
+              {showMenu && (
+                <MobileHeaderMenu
+                  actions={actions}
+                  onEditWorkout={onEditWorkout}
+                />
+              )}
+            </div>
+          )}
+          {children}
+        </div>
+      </div>
     </header>
   )
 }

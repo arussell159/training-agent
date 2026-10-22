@@ -29,7 +29,7 @@ export function FoodEditor({
 }) {
   // Scale from the original values so repeated unit changes never accumulate rounding.
   const fatSecretServings =
-    product?.source === "fatsecret" ? (product.servings || []) : []
+    product?.source === "fatsecret" ? product.servings || [] : []
   const options = fatSecretServings.length
     ? fatSecretServings.map((serving) => ({
         value: serving.id,
@@ -40,14 +40,17 @@ export function FoodEditor({
       ? [{ value: entry.servingId || "current", label: entry.unit, factor: 1 }]
       : portionOptions(entry, product?.servingQuantity || entry.servingQuantity)
   const [unit, setUnit] = useState(
-    entry.servingId && options.some((option) => option.value === entry.servingId)
+    entry.servingId &&
+      options.some((option) => option.value === entry.servingId)
       ? entry.servingId
       : options[0].value
   )
   const [baseline] = useState(entry)
   useEffect(() => {
     if (!product?.servings?.length) return
-    const selected = product.servings.some((serving) => serving.id === entry.servingId)
+    const selected = product.servings.some(
+      (serving) => serving.id === entry.servingId
+    )
       ? entry.servingId!
       : product.servingId || product.servings[0].id
     setUnit(selected)
@@ -66,7 +69,13 @@ export function FoodEditor({
       ...entry,
       ...patch,
       ...(editable
-        ? { source: "manual" as const, foodId: undefined, servingId: undefined }
+        ? {
+            source: "manual" as const,
+            foodId: undefined,
+            servingId: undefined,
+            catalogReceipt: undefined,
+            catalogExpiresAt: undefined,
+          }
         : {}),
     })
   const changeAmount = (value: string) => {

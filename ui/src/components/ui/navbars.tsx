@@ -1,5 +1,4 @@
 import { type ReactNode, type MouseEvent, type KeyboardEvent } from "react"
-import { Tab, Tabs, Toolbar, ToolbarPane } from "framework7-react"
 import {
   CalendarDays,
   CalendarRange,
@@ -33,20 +32,19 @@ export function MobilePageTabs({
   const mobile = useIsMobile()
   if (!mobile) return children
   return (
-    <Tabs className="mobile-page-tabs">
+    <div className="tabs mobile-page-tabs">
       {destinations.map(({ label, id }) => (
-          <Tab
-            key={id}
-            id={`mobile-panel-${id}`}
-            tabActive={activeItem === label}
-            className={`mobile-page-tab ${activeItem === label ? "app-surface-enter" : ""}`}
-            {...{ role: "tabpanel" }}
-            aria-label={label}
-          >
-            {activeItem === label ? children : null}
-          </Tab>
-        ))}
-    </Tabs>
+        <div
+          key={id}
+          id={`mobile-panel-${id}`}
+          className={`tab mobile-page-tab ${activeItem === label ? "tab-active app-surface-enter" : ""}`}
+          {...{ role: "tabpanel" }}
+          aria-label={label}
+        >
+          {activeItem === label ? children : null}
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -62,76 +60,74 @@ export function MobileNavbar({
   const mobile = useIsMobile()
   if (!mobile) return null
   return (
-    <Toolbar
-      bottom
-      tabbar
-      icons
-      className="mobile-navbar"
-      {...{ role: "navigation" }}
+    <nav
+      className="toolbar toolbar-bottom tabbar tabbar-icons no-outline mobile-navbar"
       aria-label="Primary navigation"
     >
-      <ToolbarPane className="liquid-glass-nav" {...{ role: "tablist" }} aria-label="App pages">
-        <LiquidGlassLayer />
-        {destinations.map(({ label, displayLabel, icon: Icon, id }, index) => (
-          <button
-            key={id}
-            type="button"
-            data-tab={
-              activeItem === label ? undefined : `#mobile-panel-${id}`
-            }
-            className={
-              activeItem === label ? "tab-link tab-link-active" : "tab-link"
-            }
-            id={`mobile-tab-${id}`}
-            role="tab"
-            aria-label={displayLabel ?? label}
-            aria-selected={activeItem === label}
-            aria-controls={`mobile-panel-${id}`}
-            tabIndex={
-              activeItem === label ||
-              (activeItem === "Annual Plan" && index === 0)
-                ? 0
-                : -1
-            }
-            onClick={(event: MouseEvent) => {
-              event.preventDefault()
-              if (label === "Calendar" && activeItem === "Calendar") {
-                window.dispatchEvent(new Event("calendar-go-today"))
-                return
-              }
-              if (label === "Annual Plan" && activeItem === "Annual Plan") {
-                window.dispatchEvent(new Event("annual-plan-go-current-week"))
-                return
-              }
-              onNavigate(label)
-            }}
-            onPointerEnter={() => onPrefetch?.(label)}
-            onFocus={() => onPrefetch?.(label)}
-            onTouchStart={() => onPrefetch?.(label)}
-            onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
-              const next =
-                event.key === "ArrowRight"
-                  ? (index + 1) % destinations.length
-                  : event.key === "ArrowLeft"
-                    ? (index + destinations.length - 1) % destinations.length
-                    : event.key === "Home"
-                      ? 0
-                      : event.key === "End"
-                        ? destinations.length - 1
-                        : null
-              if (next == null) return
-              event.preventDefault()
-              onNavigate(destinations[next].label)
-              document
-                .getElementById(`mobile-tab-${destinations[next].id}`)
-                ?.focus()
-            }}
-          >
-            <Icon aria-hidden="true" strokeWidth={label === "Settings" ? 2.8 : undefined} />
-            <span className="tabbar-label">{displayLabel ?? label}</span>
-          </button>
-        ))}
-      </ToolbarPane>
-    </Toolbar>
+      <div className="toolbar-inner">
+        <div
+          className="toolbar-pane liquid-glass-nav"
+          role="tablist"
+          aria-label="App pages"
+        >
+          <LiquidGlassLayer />
+          {destinations.map(
+            ({ label, displayLabel, icon: Icon, id }, index) => (
+              <button
+                key={id}
+                type="button"
+                className={
+                  activeItem === label ? "tab-link tab-link-active" : "tab-link"
+                }
+                id={`mobile-tab-${id}`}
+                role="tab"
+                aria-label={displayLabel ?? label}
+                aria-selected={activeItem === label}
+                aria-controls={`mobile-panel-${id}`}
+                tabIndex={
+                  activeItem === label ||
+                  (activeItem === "Annual Plan" && index === 0)
+                    ? 0
+                    : -1
+                }
+                onClick={(event: MouseEvent) => {
+                  event.preventDefault()
+                  onNavigate(label)
+                }}
+                onPointerEnter={() => onPrefetch?.(label)}
+                onFocus={() => onPrefetch?.(label)}
+                onTouchStart={() => onPrefetch?.(label)}
+                onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+                  const next =
+                    event.key === "ArrowRight"
+                      ? (index + 1) % destinations.length
+                      : event.key === "ArrowLeft"
+                        ? (index + destinations.length - 1) %
+                          destinations.length
+                        : event.key === "Home"
+                          ? 0
+                          : event.key === "End"
+                            ? destinations.length - 1
+                            : null
+                  if (next == null) return
+                  event.preventDefault()
+                  onNavigate(destinations[next].label)
+                  document
+                    .getElementById(`mobile-tab-${destinations[next].id}`)
+                    ?.focus()
+                }}
+              >
+                <Icon
+                  aria-hidden="true"
+                  strokeWidth={label === "Settings" ? 2.8 : undefined}
+                />
+                <span className="tabbar-label">{displayLabel ?? label}</span>
+              </button>
+            )
+          )}
+          <span className="tab-link-highlight" aria-hidden="true" />
+        </div>
+      </div>
+    </nav>
   )
 }

@@ -6,6 +6,7 @@ import {
   pendingNutritionWrite,
   recoverPendingNutritionWrite,
   nutritionWriteInFlight,
+  type NutritionWriteResult,
 } from "@/lib/pending-nutrition-write"
 
 /** One app-level recovery owner; leaving Nutrition never cancels an accepted intent. */
@@ -85,21 +86,33 @@ export function NutritionSyncFeedback() {
       })
       try {
         // Defer the nutrition route's dependency graph until recovery is needed.
+        let confirmedResult: NutritionWriteResult | undefined
         const recovered = await recoverPendingNutritionWrite(
           localStorage,
           scope,
           current,
           async () => {
             const { nutritionRequest } = await import("@/lib/nutrition")
-            return (payload) => nutritionRequest("/entries", payload)
+            return async (payload) => {
+              const result = await nutritionRequest<NutritionWriteResult>(
+                "/entries",
+                payload
+              )
+              confirmedResult = result
+              return result
+            }
           }
         )
         if (!recovered || !current()) return
-        const { nutritionChanged, recordRecentFoods } =
+        const { nutritionChanged, recordRecentFoods, reconcileNutritionWrite } =
           await import("@/lib/nutrition")
         if (input.action === "add" && input.entries)
           recordRecentFoods(input.entries)
-        nutritionChanged()
+        if (
+          !confirmedResult ||
+          !reconcileNutritionWrite(input, confirmedResult)
+        )
+          nutritionChanged()
         update("success")
         toastRef.current.update("nutrition-save", {
           type: "success",

@@ -1,0 +1,29 @@
+{
+  "configured": true,
+  "mode": "OAuth1",
+  "operations": [
+    {
+      "kind": "search",
+      "ms": 230,
+      "count": 30
+    },
+    {
+      "kind": "detail",
+      "ms": 38,
+      "servings": 1,
+      "complete": true
+    }
+  ],
+  "upstream": [
+    {
+      "path": "/rest/foods/search/v1",
+      "status": 200,
+      "headersMs": 226
+    },
+    {
+      "path": "/rest/food/v5",
+      "status": 200,
+      "headersMs": 37
+    }
+  ]
+}

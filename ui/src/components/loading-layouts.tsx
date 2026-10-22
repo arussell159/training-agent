@@ -1,5 +1,4 @@
 import type { ReactNode } from "react"
-import { Toolbar, ToolbarPane } from "framework7-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
@@ -667,16 +666,18 @@ export function AppStartupSkeleton() {
         <PageSkeleton page={page} />
       </main>
       <div aria-hidden="true" inert className="md:hidden">
-        <Toolbar bottom tabbar icons className="mobile-navbar">
-          <ToolbarPane>
-            {[0, 1, 2, 3, 4].map((i) => (
-              <span key={i} className="tab-link">
-                <Skeleton className="size-6 rounded-md" />
-                <Skeleton className="mt-1 h-2 w-8" />
-              </span>
-            ))}
-          </ToolbarPane>
-        </Toolbar>
+        <div className="toolbar toolbar-bottom tabbar tabbar-icons no-outline mobile-navbar">
+          <div className="toolbar-inner">
+            <div className="toolbar-pane">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <span key={i} className="tab-link">
+                  <Skeleton className="size-6 rounded-md" />
+                  <Skeleton className="mt-1 h-2 w-8" />
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )

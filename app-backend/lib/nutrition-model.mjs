@@ -91,6 +91,12 @@ export function validateEntry(input) {
       ? {
           foodId: text(input.foodId, 20, "FatSecret food ID"),
           servingId: text(input.servingId, 20, "FatSecret serving ID"),
+          ...(input.catalogReceipt == null
+            ? {}
+            : { catalogReceipt: text(input.catalogReceipt, 8192, "verified food serving") }),
+          ...(Number.isFinite(input.catalogExpiresAt) && input.catalogExpiresAt > 0
+            ? { catalogExpiresAt: input.catalogExpiresAt }
+            : {}),
         }
       : {}),
     name: text(input.name, 180, "food name").replace(

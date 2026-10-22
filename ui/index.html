@@ -81,7 +81,17 @@
       }
       if (/^\/nutrition\/?$/.test(location.pathname)) {
         const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-        window.__nutritionStartupRequest = { date, response: startupRead('/api/handler?__api_route=nutrition&date=' + date) };
+        let cached = false;
+        try {
+          const scope = JSON.parse(localStorage.getItem('training-agent-startup-v2') || 'null')?.cache_scope;
+          const snapshot = JSON.parse(localStorage.getItem('nutrition-view-v2:' + scope + ':' + date) || localStorage.getItem('training-agent-nutrition-startup-v1') || 'null');
+          const age = Date.now() - snapshot?.time;
+          cached = !!scope && snapshot?.scope === scope && snapshot?.view?.date === date && age >= 0 && age < 23 * 60 * 60 * 1000;
+        } catch {}
+        // A fresh device diary already contains the selected serving facts.
+        // React validates it after authentication; don't speculatively hydrate
+        // the entire provider history when the cache can open immediately.
+        if (!cached) window.__nutritionStartupRequest = { date, response: startupRead('/api/handler?__api_route=nutrition&date=' + date) };
       }
       if (location.pathname === '/' && window.matchMedia('(max-width: 767px)').matches) {
         const image = document.createElement('link');

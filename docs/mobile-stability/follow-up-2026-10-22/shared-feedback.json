@@ -1,0 +1,36 @@
+[
+  {
+    "reducedMotion": "no-preference",
+    "pressed": {
+      "marked": true,
+      "scale": "none",
+      "transform": "none"
+    },
+    "pageAnimation": "none",
+    "toastTransform": "none",
+    "probe": {
+      "renders": 1,
+      "subscriptions": 1,
+      "cleanups": 0
+    },
+    "toastCount": 1,
+    "errors": []
+  },
+  {
+    "reducedMotion": "reduce",
+    "pressed": {
+      "marked": true,
+      "scale": "none",
+      "transform": "none"
+    },
+    "pageAnimation": "none",
+    "toastTransform": "none",
+    "probe": {
+      "renders": 1,
+      "subscriptions": 1,
+      "cleanups": 0
+    },
+    "toastCount": 1,
+    "errors": []
+  }
+]

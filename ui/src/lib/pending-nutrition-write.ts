@@ -11,6 +11,7 @@ export type NutritionWrite = {
 }
 export type NutritionWriteResult = {
   day: NutritionDay | null
+  changedEntries?: FoodEntry[] | null
   committed?: boolean
   revision?: number
 }

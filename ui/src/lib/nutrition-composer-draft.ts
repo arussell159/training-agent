@@ -70,7 +70,40 @@ export function readNutritionComposerDraft(
       storage.removeItem(key(scope, date, meal))
       return null
     }
-    return value
+    // Keep user-entered quantity/meal/identifiers after provider content expiry,
+    // then resolve current serving facts when the retained entry is reviewed.
+    const freshEntry = (entry: FoodEntry): FoodEntry =>
+      entry.source === "fatsecret" &&
+      entry.catalogExpiresAt &&
+      entry.catalogExpiresAt <= now
+        ? {
+            id: entry.id,
+            source: entry.source,
+            foodId: entry.foodId,
+            servingId: entry.servingId,
+            quantity: entry.quantity,
+            meal: entry.meal,
+            name: "Food",
+            unit: "serving",
+            calories: 0,
+            protein: 0,
+            carbs: 0,
+            fat: 0,
+            fiber: null,
+            notes: entry.notes,
+            barcode: null,
+            imageUrl: null,
+          }
+        : entry
+    return {
+      ...value,
+      draft: value.draft.map(freshEntry),
+      ingredients: value.ingredients?.map(freshEntry) ?? null,
+      product:
+        value.product?.catalogExpiresAt && value.product.catalogExpiresAt <= now
+          ? null
+          : value.product,
+    }
   } catch {
     return null
   }

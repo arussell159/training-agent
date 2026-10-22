@@ -1,0 +1,153 @@
+{
+  "conditions": {
+    "dist": "ui/dist",
+    "n": 24,
+    "coldSamples": 10,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "network": "40ms RTT,40Mbps down/10Mbps up; 4x CPU slowdown; local uncompressed production build + in-memory synthetic backend; no service worker; new context per cold sample",
+    "method": "Cold useful=populated .home-athlete-name + next frame. Add opening=trusted click to enabled search input + next frame. LCP/CLS lab observers; no field INP measurement.",
+    "browser": "155.0.4283.62",
+    "cpu": "Intel(R) Core(TM) Ultra 7 265"
+  },
+  "coldUseful": [
+    1348.8000000044703,
+    1300.1000000014901,
+    1346.7000000029802,
+    1376.0999999940395,
+    1359.8999999985099,
+    1326.5,
+    1331.8999999985099,
+    1292.2000000029802,
+    1314,
+    1352.6000000014901
+  ],
+  "criticalJs": [
+    {
+      "decodedBytes": 794765,
+      "frameworkRequests": 0,
+      "scripts": 48
+    },
+    {
+      "decodedBytes": 794765,
+      "frameworkRequests": 0,
+      "scripts": 48
+    },
+    {
+      "decodedBytes": 794765,
+      "frameworkRequests": 0,
+      "scripts": 48
+    },
+    {
+      "decodedBytes": 794765,
+      "frameworkRequests": 0,
+      "scripts": 48
+    },
+    {
+      "decodedBytes": 794765,
+      "frameworkRequests": 0,
+      "scripts": 48
+    },
+    {
+      "decodedBytes": 794765,
+      "frameworkRequests": 0,
+      "scripts": 48
+    },
+    {
+      "decodedBytes": 794765,
+      "frameworkRequests": 0,
+      "scripts": 48
+    },
+    {
+      "decodedBytes": 794765,
+      "frameworkRequests": 0,
+      "scripts": 48
+    },
+    {
+      "decodedBytes": 794765,
+      "frameworkRequests": 0,
+      "scripts": 48
+    },
+    {
+      "decodedBytes": 794765,
+      "frameworkRequests": 0,
+      "scripts": 48
+    }
+  ],
+  "lcp": [
+    1180,
+    1136,
+    1164,
+    1208,
+    1148,
+    1168,
+    1140,
+    1136,
+    1124,
+    1152
+  ],
+  "cls": [
+    0.08833767172508696,
+    0.08833767172508696,
+    0.08833767172508696,
+    0.08833767172508696,
+    0.08833767172508696,
+    0.08833767172508696,
+    0.08833767172508696,
+    0.08833767172508696,
+    0.08833767172508696,
+    0.08833767172508696
+  ],
+  "warmAdd": [
+    71,
+    71.10000000149012,
+    70.30000000447035,
+    73.30000000447035,
+    71.30000000447035,
+    69.29999999701977,
+    68.70000000298023,
+    70.09999999403954,
+    68.5,
+    70.5,
+    63.20000000298023,
+    73.29999999701977,
+    65.89999999850988,
+    84.79999999701977,
+    70.59999999403954,
+    68.89999999850988,
+    80.30000000447035,
+    88.39999999850988,
+    69.89999999850988,
+    66.10000000149012,
+    64.89999999850988,
+    71,
+    68.79999999701977,
+    67.79999999701977
+  ],
+  "coldUsefulSummary": {
+    "median": 1346.7000000029802,
+    "p95": 1376.0999999940395,
+    "min": 1292.2000000029802,
+    "max": 1376.0999999940395
+  },
+  "lcpSummary": {
+    "median": 1152,
+    "p95": 1208,
+    "min": 1124,
+    "max": 1208
+  },
+  "clsSummary": {
+    "median": 0.08833767172508696,
+    "p95": 0.08833767172508696,
+    "min": 0.08833767172508696,
+    "max": 0.08833767172508696
+  },
+  "warmAddSummary": {
+    "median": 70.30000000447035,
+    "p95": 84.79999999701977,
+    "min": 63.20000000298023,
+    "max": 88.39999999850988
+  }
+}

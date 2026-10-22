@@ -38,7 +38,8 @@ export function mergeFoodHistory(
         Number.isFinite(row.loggedAt) &&
         now - row.loggedAt <= 90 * 24 * 60 * 60_000 &&
         (row.entry.source !== "fatsecret" ||
-          now - (row.cachedAt ?? row.loggedAt) <= 24 * 60 * 60_000)
+          (now - (row.cachedAt ?? row.loggedAt) <= 24 * 60 * 60_000 &&
+            (!row.entry.catalogExpiresAt || row.entry.catalogExpiresAt > now)))
     )
     .sort(
       (a, b) => b.loggedAt - a.loggedAt || a.entry.id.localeCompare(b.entry.id)
@@ -64,7 +65,10 @@ export function foodSuggestions(
       !Number.isFinite(row.loggedAt) ||
       now - row.loggedAt > 90 * 24 * 60 * 60_000 ||
       (row.entry.source === "fatsecret" &&
-        now - (row.cachedAt ?? row.loggedAt) > 24 * 60 * 60_000)
+        (now - (row.cachedAt ?? row.loggedAt) > 24 * 60 * 60_000 ||
+          Boolean(
+            row.entry.catalogExpiresAt && row.entry.catalogExpiresAt <= now
+          )))
     )
       continue
     const key = foodSuggestionKey(row.entry)

@@ -11,6 +11,10 @@ import { dashboardToday } from "./dashboard-metrics"
 import { completedWorkoutCalories } from "./nutrition-math"
 import { randomId } from "./random-id"
 import { withRequestDeadline } from "./request-deadline"
+import type {
+  NutritionWrite,
+  NutritionWriteResult,
+} from "./pending-nutrition-write"
 import {
   foodSuggestions,
   mergeFoodHistory,
@@ -49,6 +53,8 @@ export type FoodEntry = {
   source: "manual" | "ai" | "openfoodfacts" | "fatsecret"
   foodId?: string
   servingId?: string
+  catalogReceipt?: string
+  catalogExpiresAt?: number
   notes: string
   barcode: string | null
   imageUrl: string | null
@@ -56,6 +62,7 @@ export type FoodEntry = {
 }
 export type FatSecretServing = {
   id: string
+  catalogReceipt?: string
   label: string
   unit: string
   units: number
@@ -68,6 +75,7 @@ export type FatSecretServing = {
   fiber: number | null
 }
 export type FoodProduct = {
+  catalogExpiresAt?: number
   source?: "fatsecret"
   servingId?: string
   servings?: FatSecretServing[]
@@ -92,6 +100,7 @@ export type SavedFood = {
 }
 export type FoodLibrary = { revision: number; items: SavedFood[] }
 export type NutritionView = {
+  catalogReadAt?: number
   date: string
   day: NutritionDay
   targets: Targets
@@ -244,6 +253,8 @@ export function foodFromProduct(product: FoodProduct, meal: Meal): FoodEntry {
       source: "fatsecret",
       foodId: product.code,
       servingId: product.servingId,
+      catalogReceipt: serving?.catalogReceipt,
+      catalogExpiresAt: product.catalogExpiresAt,
       quantity: 1,
       unit: serving?.label.slice(0, 40) || product.servingSize.slice(0, 40),
       servingQuantity: 1,
@@ -300,8 +311,6 @@ export async function nutritionRequest<T>(
   payload?: unknown,
   signal?: AbortSignal
 ): Promise<T> {
-  if (payload !== undefined && path.startsWith("/library"))
-    window.dispatchEvent(new Event("food-library-updated"))
   return withRequestDeadline(
     async (requestSignal) => {
       const response = await apiFetch(`/api/nutrition${path}`, {
@@ -332,6 +341,8 @@ export async function nutritionRequest<T>(
           ),
           { status: response.status }
         )
+      if (payload !== undefined && path.startsWith("/library"))
+        window.dispatchEvent(new Event("food-library-updated"))
       return data as T
     },
     path === "/estimate" ? 65000 : 22000,
@@ -396,7 +407,61 @@ const cache = new Map<string, { time: number; view: NutritionView }>(),
   pending = new Map<string, Promise<NutritionView>>()
 let generation = 0
 const SNAPSHOT_KEY = "training-agent-nutrition-startup-v1"
-const SNAPSHOT_TTL = 15 * 60_000
+// FatSecret non-identifier content must be refreshed within 24 hours. Keep a
+// short margin and never extend the original retrieval time on cache reads.
+const SNAPSHOT_TTL = 23 * 60 * 60_000
+const snapshotKey = (scope: string, date: string) =>
+  `nutrition-view-v2:${scope}:${date}`
+function retainNutritionView(
+  view: NutritionView,
+  scope: string,
+  time = Date.now()
+) {
+  time = Math.min(view.catalogReadAt ?? time, time)
+  for (const entry of [
+    ...view.day.entries,
+    ...(view.recentDays || []).flatMap((day) => day.entries),
+  ]) {
+    if (entry.source === "fatsecret" && Number.isFinite(entry.catalogExpiresAt))
+      time = Math.min(time, entry.catalogExpiresAt! - SNAPSHOT_TTL)
+  }
+  view = { ...view, catalogReadAt: time }
+  const key = `${scope}:${view.date}`
+  const previous = cache.get(key)
+  if (previous && previous.view.day.revision > view.day.revision)
+    return previous.view
+  cache.set(key, { time, view })
+  if (cache.size > 14) cache.delete(cache.keys().next().value!)
+  void writeDeviceCache(`nutrition:${key}`, view)
+  try {
+    const encoded = JSON.stringify({ scope, time, view })
+    localStorage.setItem(SNAPSHOT_KEY, encoded)
+    localStorage.setItem(snapshotKey(scope, view.date), encoded)
+    const retained: { key: string; time: number }[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const name = localStorage.key(i)
+      if (!name?.startsWith("nutrition-view-v2:")) continue
+      try {
+        const row = JSON.parse(localStorage.getItem(name) || "null")
+        if (
+          !Number.isFinite(row?.time) ||
+          Date.now() - row.time >= SNAPSHOT_TTL
+        )
+          localStorage.removeItem(name)
+        else retained.push({ key: name, time: row.time })
+      } catch {
+        localStorage.removeItem(name)
+      }
+    }
+    retained
+      .sort((a, b) => b.time - a.time)
+      .slice(14)
+      .forEach((row) => localStorage.removeItem(row.key))
+  } catch {
+    /* Cache failure must not change a confirmed save. */
+  }
+  return view
+}
 export function cachedNutrition(date: string): NutritionView | null {
   const key = `${deviceCacheScope()}:${date}`,
     saved = cache.get(key)
@@ -406,13 +471,24 @@ export function cachedNutrition(date: string): NutritionView | null {
     return saved.view
   }
   try {
-    const snapshot = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || "null")
+    const scope = deviceCacheScope()
+    const snapshot = JSON.parse(
+      localStorage.getItem(snapshotKey(scope, date)) ||
+        localStorage.getItem(SNAPSHOT_KEY) ||
+        "null"
+    )
     if (
       snapshot?.scope === deviceCacheScope() &&
       Date.now() - snapshot.time >= 0 &&
       Date.now() - snapshot.time < SNAPSHOT_TTL
-    )
-      return validatedNutritionView(snapshot.view, date)
+    ) {
+      const view = {
+        ...validatedNutritionView(snapshot.view, date),
+        catalogReadAt: snapshot.time,
+      }
+      cache.set(key, { time: snapshot.time, view })
+      return view
+    }
     if (snapshot && Date.now() - snapshot.time >= SNAPSHOT_TTL)
       localStorage.removeItem(SNAPSHOT_KEY)
   } catch {
@@ -425,10 +501,9 @@ export function prefetchNutrition(date = nutritionToday()) {
 }
 function load(date: string, refresh = false) {
   const scope = deviceCacheScope(),
-    key = `${scope}:${date}`,
-    saved = cache.get(key)
-  if (!refresh && saved && Date.now() - saved.time < 30000)
-    return Promise.resolve(saved.view)
+    key = `${scope}:${date}`
+  const available = refresh ? null : cachedNutrition(date)
+  if (available) return Promise.resolve(available)
   const underway = pending.get(key)
   if (underway) return underway
   const version = generation
@@ -456,17 +531,7 @@ function load(date: string, refresh = false) {
         throw new DOMException("Aborted", "AbortError")
       const view = validatedNutritionView(value, date)
       if (generation === version) {
-        cache.set(key, { time: Date.now(), view })
-        void writeDeviceCache(`nutrition:${key}`, view)
-        try {
-          localStorage.setItem(
-            SNAPSHOT_KEY,
-            JSON.stringify({ scope, time: Date.now(), view })
-          )
-        } catch {
-          /* Storage is optional. */
-        }
-        if (cache.size > 14) cache.delete(cache.keys().next().value!)
+        return retainNutritionView(view, scope)
       }
       return view
     })
@@ -490,6 +555,11 @@ if (typeof window !== "undefined")
       pending.clear()
       try {
         localStorage.removeItem(SNAPSHOT_KEY)
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const name = localStorage.key(i)
+          if (name?.startsWith("nutrition-view-v2:"))
+            localStorage.removeItem(name)
+        }
       } catch {
         /* Storage is optional. */
       }
@@ -501,6 +571,11 @@ export function nutritionChanged(broadcast = true) {
   void deleteDeviceCachePrefix("nutrition:")
   try {
     localStorage.removeItem(SNAPSHOT_KEY)
+    const prefix = `nutrition-view-v2:${deviceCacheScope()}:`
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const name = localStorage.key(i)
+      if (name?.startsWith(prefix)) localStorage.removeItem(name)
+    }
     if (broadcast)
       localStorage.setItem(`nutrition-change:${deviceCacheScope()}`, randomId())
   } catch {
@@ -508,10 +583,152 @@ export function nutritionChanged(broadcast = true) {
   }
   window.dispatchEvent(new Event("nutrition-updated"))
 }
+/** Publish the confirmed diary directly instead of rehydrating its entire history. */
+export function commitNutritionView(value: NutritionView, broadcast = true) {
+  const view = validatedNutritionView(value, value.date),
+    scope = deviceCacheScope()
+  const current = cachedNutrition(view.date)
+  if (current && current.day.revision > view.day.revision) return current
+  const factsTime = Math.min(
+    view.catalogReadAt ?? Date.now(),
+    ...view.day.entries
+      .filter(
+        (entry) =>
+          entry.source === "fatsecret" &&
+          Number.isFinite(entry.catalogExpiresAt)
+      )
+      .map((entry) => entry.catalogExpiresAt! - SNAPSHOT_TTL)
+  )
+  generation++
+  pending.clear()
+  for (const [key, row] of cache) {
+    if (!key.startsWith(`${scope}:`) || row.view.date === view.date) continue
+    const week = row.view.week.map((day) =>
+      day.date === view.date
+        ? {
+            ...day,
+            logged: view.day.entries.length > 0,
+            totals: foodTotals(view.day.entries),
+            unavailable: false,
+          }
+        : day
+    )
+    const recentDays = row.view.recentDays?.map((day) =>
+      day.date === view.date ? { ...day, entries: view.day.entries } : day
+    )
+    retainNutritionView(
+      { ...row.view, week, recentDays },
+      scope,
+      Math.min(row.time, factsTime)
+    )
+  }
+  const confirmed = retainNutritionView(
+    {
+      ...view,
+      recentDays: view.recentDays?.map((day) =>
+        day.date === view.date ? { ...day, entries: view.day.entries } : day
+      ),
+    },
+    scope
+  )
+  try {
+    if (broadcast)
+      localStorage.setItem(
+        `nutrition-change:${scope}`,
+        JSON.stringify({
+          date: view.date,
+          revision: view.day.revision,
+          nonce: randomId(),
+        })
+      )
+  } catch {
+    /* Optional broadcast. */
+  }
+  window.dispatchEvent(
+    new CustomEvent("nutrition-updated", { detail: { confirmed: true } })
+  )
+  return confirmed
+}
+/** Reuse verified base state and signed facts after a lost response. An ambiguous
+ * revision or unsigned legacy catalog entry still needs one authoritative read. */
+export function reconcileNutritionWrite(
+  input: NutritionWrite,
+  result: NutritionWriteResult
+) {
+  const view = cachedNutrition(input.date)
+  if (!view) return false
+  const revision = result.day?.revision ?? result.revision
+  if (!Number.isSafeInteger(revision)) return false
+  if (view.day.revision >= revision!) return true
+  let day = result.day
+  if (!day) {
+    if (view.day.revision !== input.revision || revision !== input.revision + 1)
+      return false
+    const entries = result.changedEntries ?? input.entries ?? []
+    if (
+      !result.changedEntries &&
+      entries.some(
+        (entry) =>
+          entry.source === "fatsecret" &&
+          (!entry.catalogReceipt ||
+            !entry.catalogExpiresAt ||
+            entry.catalogExpiresAt <= Date.now())
+      )
+    )
+      return false
+    const current = new Map(view.day.entries.map((entry) => [entry.id, entry]))
+    if (input.action === "delete") current.delete(input.id || "")
+    else for (const entry of entries) current.set(entry.id, entry)
+    day = { revision: revision!, entries: [...current.values()] }
+  }
+  const savedDay = day
+  commitNutritionView({
+    ...view,
+    day: savedDay,
+    week: view.week.map((row) =>
+      row.date === input.date
+        ? {
+            ...row,
+            logged: savedDay.entries.length > 0,
+            totals: foodTotals(savedDay.entries),
+            unavailable: false,
+          }
+        : row
+    ),
+  })
+  return true
+}
 if (typeof window !== "undefined")
   window.addEventListener("storage", (event) => {
-    if (event.key === `nutrition-change:${deviceCacheScope()}`)
+    if (event.key === `nutrition-change:${deviceCacheScope()}`) {
+      try {
+        const change = JSON.parse(event.newValue || "null")
+        if (change?.date) {
+          const saved = JSON.parse(
+            localStorage.getItem(
+              snapshotKey(deviceCacheScope(), change.date)
+            ) || "null"
+          )
+          if (
+            saved?.scope === deviceCacheScope() &&
+            Date.now() - saved.time < SNAPSHOT_TTL &&
+            saved.view.day.revision >= change.revision
+          ) {
+            commitNutritionView(
+              {
+                ...validatedNutritionView(saved.view, change.date),
+                catalogReadAt: saved.time,
+              },
+              false
+            )
+            return
+          }
+        }
+      } catch {
+        /* Legacy broadcasts revalidate normally. */
+      }
       nutritionChanged(false)
+    }
   })
 export function beginNutritionWrite() {
   // A pre-save GET must never paint over the local change or its confirmation.
@@ -548,7 +765,12 @@ export function useNutrition(date: string) {
           `nutrition:${scope}:${date}`,
           SNAPSHOT_TTL
         ).then((saved) => {
-          if (saved && current() && !cache.has(`${scope}:${date}`))
+          if (
+            saved &&
+            Date.now() - (saved.catalogReadAt ?? Date.now()) < SNAPSHOT_TTL &&
+            current() &&
+            !cache.has(`${scope}:${date}`)
+          )
             try {
               setData(validatedNutritionView(saved, date))
               setLoading(false)
@@ -569,7 +791,24 @@ export function useNutrition(date: string) {
         })
     }
     read()
-    const update = () => read(true)
+    const update = (event: Event) => {
+      const saved = (event as CustomEvent<{ confirmed?: boolean }>).detail
+        ?.confirmed
+        ? cachedNutrition(date)
+        : null
+      if (saved) {
+        sequence++
+        setData((current) =>
+          !current ||
+          current.date !== date ||
+          current.day.revision <= saved.day.revision
+            ? saved
+            : current
+        )
+        setError("")
+        setLoading(false)
+      } else read(true)
+    }
     const reset = () => {
       sequence++
       displayed.current = null

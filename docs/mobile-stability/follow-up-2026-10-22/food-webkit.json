@@ -1,0 +1,66 @@
+[
+  {
+    "width": 320,
+    "passed": true,
+    "writes": 4,
+    "checks": [
+      "All on fresh open after Type",
+      "debounce/stale search",
+      "429 explicit retry",
+      "failed save preserves portion and operation",
+      "named success",
+      "reload persistence",
+      "lost response reload recovery without duplicate",
+      "offline and clear restores recent",
+      "Back restores body/focus"
+    ]
+  },
+  {
+    "width": 390,
+    "passed": true,
+    "writes": 4,
+    "checks": [
+      "All on fresh open after Type",
+      "debounce/stale search",
+      "429 explicit retry",
+      "failed save preserves portion and operation",
+      "named success",
+      "reload persistence",
+      "lost response reload recovery without duplicate",
+      "offline and clear restores recent",
+      "Back restores body/focus"
+    ]
+  },
+  {
+    "width": 844,
+    "passed": true,
+    "writes": 4,
+    "checks": [
+      "All on fresh open after Type",
+      "debounce/stale search",
+      "429 explicit retry",
+      "failed save preserves portion and operation",
+      "named success",
+      "reload persistence",
+      "lost response reload recovery without duplicate",
+      "offline and clear restores recent",
+      "Back restores body/focus"
+    ]
+  },
+  {
+    "width": 1440,
+    "passed": true,
+    "writes": 4,
+    "checks": [
+      "All on fresh open after Type",
+      "debounce/stale search",
+      "429 explicit retry",
+      "failed save preserves portion and operation",
+      "named success",
+      "reload persistence",
+      "lost response reload recovery without duplicate",
+      "offline and clear restores recent",
+      "Back restores body/focus"
+    ]
+  }
+]

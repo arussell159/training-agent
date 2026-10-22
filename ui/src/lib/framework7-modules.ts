@@ -1,4 +1,5 @@
 import Framework7 from "framework7/lite"
+import { initializeFramework7 } from "./framework7-runtime.ts"
 import type { Framework7Plugin } from "framework7/types"
 
 // The pinned runtime exposes the same loader on the class and its instances.
@@ -11,4 +12,5 @@ export function registerFramework7Modules(...modules: Framework7Plugin[]) {
   // Module objects install synchronously; no network request is involved. This
   // works both before app creation and when importing a route after app startup.
   for (const module of modules) void runtime.loadModule(module)
+  initializeFramework7()
 }

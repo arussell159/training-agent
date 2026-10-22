@@ -21,6 +21,7 @@ import {
   foodTotals,
   meals,
   nutritionChanged,
+  commitNutritionView,
   beginNutritionWrite,
   validatedNutritionView,
   nutritionRequest,
@@ -379,11 +380,18 @@ export function NutritionPage({
         setRetainedWrite(null)
         return
       }
+      const canonical = result.changedEntries?.length
+        ? projectNutritionChange(data, action, result.changedEntries, id)
+        : projected
       const savedDay: NutritionDay = result.day || {
-        ...projected.day,
+        ...canonical.day,
         revision: result.revision!,
       }
-      const confirmed = validatedNutritionView({ ...data, day: savedDay }, date)
+      const confirmed = validatedNutritionView(
+        { ...canonical, day: savedDay },
+        date
+      )
+      commitNutritionView(confirmed)
       setData((current) =>
         !current ||
         current.date !== date ||
@@ -403,7 +411,6 @@ export function NutritionPage({
               ),
             }
       )
-      nutritionChanged()
       setRetainedWrite(null)
     } catch (error) {
       if (scope === deviceCacheScope()) {

@@ -1,0 +1,14 @@
+[
+  {
+    "width": 390,
+    "foods": 6,
+    "normalSaveRequests": 6,
+    "searchRequests": 6,
+    "detailRequests": 6,
+    "diaryReadsDuringMeal": 0,
+    "diaryReadsOnReload": 0,
+    "providerWrites": false,
+    "persistence": "Independent disposable backend read confirmed each food exactly once",
+    "errors": []
+  }
+]

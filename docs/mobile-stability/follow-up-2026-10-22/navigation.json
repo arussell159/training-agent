@@ -1,0 +1,71 @@
+[
+  {
+    "width": 320,
+    "header": {
+      "titleCenter": 160,
+      "viewportCenter": 160,
+      "titleRight": 243.015625,
+      "menuLeft": 262,
+      "width": 320,
+      "height": 56,
+      "documentWidth": 320,
+      "pageAnimation": "none"
+    },
+    "calendarHighlight": "matrix(1, 0, 0, 1, 54.7969, 0)",
+    "homeChartFilters": true,
+    "datePicker": true,
+    "editorCancel": true,
+    "keyboardNavigation": true,
+    "rapidNavigation": true,
+    "historyScrollRestored": 640,
+    "freshNavigationScroll": 0,
+    "writes": 0,
+    "errors": []
+  },
+  {
+    "width": 390,
+    "header": {
+      "titleCenter": 194.9921875,
+      "viewportCenter": 195,
+      "titleRight": 292.875,
+      "menuLeft": 332,
+      "width": 390,
+      "height": 56,
+      "documentWidth": 390,
+      "pageAnimation": "none"
+    },
+    "calendarHighlight": "matrix(1, 0, 0, 1, 68.7969, 0)",
+    "homeChartFilters": true,
+    "datePicker": true,
+    "editorCancel": true,
+    "keyboardNavigation": true,
+    "rapidNavigation": true,
+    "historyScrollRestored": 640,
+    "freshNavigationScroll": 0,
+    "writes": 0,
+    "errors": []
+  },
+  {
+    "width": 430,
+    "header": {
+      "titleCenter": 215,
+      "viewportCenter": 215,
+      "titleRight": 315.375,
+      "menuLeft": 372,
+      "width": 430,
+      "height": 56,
+      "documentWidth": 430,
+      "pageAnimation": "none"
+    },
+    "calendarHighlight": "matrix(1, 0, 0, 1, 76.7969, 0)",
+    "homeChartFilters": true,
+    "datePicker": true,
+    "editorCancel": true,
+    "keyboardNavigation": true,
+    "rapidNavigation": true,
+    "historyScrollRestored": 640,
+    "freshNavigationScroll": 0,
+    "writes": 0,
+    "errors": []
+  }
+]

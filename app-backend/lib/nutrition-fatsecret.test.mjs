@@ -8,6 +8,7 @@ import {
   exactCatalogPortion,
 } from "./nutrition-fatsecret.mjs";
 import { createNutritionStore, storedNutritionEntry } from "./nutrition-model.mjs";
+import { createServingReceipts } from "./fatsecret-serving-receipt.mjs";
 
 test("explicit portions use exact catalog measurements rather than rounded model serving counts", () => {
   const drink = {
@@ -65,6 +66,81 @@ const food = {
 const product = normalizeFatSecret(food);
 const env = () => ({ FATSECRET_CLIENT_ID: "fake-id", FATSECRET_CLIENT_SECRET: "fake-secret" });
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status });
+
+test("signed selected servings save without another lookup and cannot trust altered client nutrition", async () => {
+  let lookups = 0;
+  const catalog = createFoodCatalog({
+    env,
+    fetchImpl: async (url) => {
+      if (url.includes("/connect/token")) return json({ access_token: "dummy", expires_in: 3600 });
+      lookups++;
+      return json({ food });
+    },
+  });
+  const selected = await catalog.product("123");
+  assert.ok(selected.servings[0].catalogReceipt);
+  const entry = entryFromFatSecret(selected, "12", 2, "lunch", "signed-entry-123");
+  assert.ok(entry.catalogReceipt);
+  const saved = await catalog.hydrate({ ...entry, name: "Tampered", calories: 1, protein: 999 });
+  assert.equal(lookups, 1);
+  assert.equal(saved.calories, 260);
+  assert.equal(saved.protein, 5.4);
+  assert.equal(saved.name, product.name);
+  assert.equal(storedNutritionEntry(saved).catalogReceipt, undefined);
+  assert.equal(storedNutritionEntry(saved).calories, undefined);
+});
+
+test("serving receipts reject tampering, wrong foods, servings and account realms without a provider call", async () => {
+  const receipts = createServingReceipts({ env, now: () => 1000 });
+  const selected = receipts.attach(product);
+  const entry = entryFromFatSecret(selected, "11", 1, "lunch", "receipt-entry-123");
+  for (const patch of [
+    { foodId: "999" },
+    { servingId: "12" },
+    { catalogReceipt: entry.catalogReceipt.slice(0, -1) + "!" },
+  ])
+    assert.throws(() => receipts.resolve({ ...entry, ...patch }), /could not be verified/);
+  assert.throws(
+    () =>
+      createServingReceipts({
+        env: () => ({ ...env(), SETTINGS_SCOPE: "other-account" }),
+        now: () => 1000,
+      }).resolve(entry),
+    /could not be verified/
+  );
+  assert.throws(
+    () =>
+      createServingReceipts({
+        env: () => ({ ...env(), FATSECRET_CLIENT_SECRET: "rotated" }),
+        now: () => 1000,
+      }).resolve(entry),
+    /could not be verified/
+  );
+});
+
+test("expired serving receipts refresh once while changed quantities reuse valid authoritative serving facts", async () => {
+  let clock = 0,
+    lookups = 0;
+  const catalog = createFoodCatalog({
+    env,
+    now: () => clock,
+    fetchImpl: async (url) => {
+      if (url.includes("/connect/token"))
+        return json({ access_token: "dummy", expires_in: 360000 });
+      lookups++;
+      return json({ food });
+    },
+  });
+  const selected = await catalog.product("123");
+  const entry = entryFromFatSecret(selected, "12", 1, "dinner", "expires-entry-123");
+  const changed = await catalog.hydrate({ ...entry, quantity: 0.125 });
+  assert.equal(changed.calories, 16.25);
+  assert.equal(lookups, 1);
+  clock = selected.catalogExpiresAt + 1;
+  const refreshed = await catalog.hydrate(entry);
+  assert.equal(lookups, 2);
+  assert.ok(refreshed.catalogExpiresAt > clock);
+});
 test("available food photos survive hydration and untrusted image hosts are discarded", () => {
   const imageUrl = "https://www.foodimagedb.com/food-images/fixture_72x72.png";
   const withImage = normalizeFatSecret({

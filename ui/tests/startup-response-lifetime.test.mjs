@@ -14,6 +14,7 @@ function startup({
   pathname = "/calendar",
   response,
   metadata = null,
+  storage = {},
   hang = false,
 } = {}) {
   const requests = [],
@@ -49,7 +50,12 @@ function startup({
     window,
     location: { pathname },
     localStorage: {
-      getItem: () => (metadata ? JSON.stringify(metadata) : null),
+      getItem: (key) =>
+        key in storage
+          ? JSON.stringify(storage[key])
+          : key === "training-agent-startup-metadata-v1" && metadata
+            ? JSON.stringify(metadata)
+            : null,
     },
     sessionStorage: { getItem: () => null },
     AbortController: StartupController,
@@ -255,5 +261,60 @@ test("versioned, workspace and nutrition startup shapes preserve paths, credenti
     if (pathname === "/nutrition")
       assert.equal(typeof app.window.__nutritionStartupRequest.date, "string")
     assert.equal(app.timers.size, 0)
+  }
+})
+
+test("fresh account-bound nutrition snapshot prevents speculative provider hydration on reload", async () => {
+  const date = new Date().toLocaleDateString("en-CA", {
+    timeZone: "America/Chicago",
+  })
+  const storage = {
+    "training-agent-startup-v2": { cache_scope: "account-a" },
+    [`nutrition-view-v2:account-a:${date}`]: {
+      scope: "account-a",
+      time: Date.now(),
+      view: { date },
+    },
+  }
+  const app = startup({ pathname: "/nutrition", storage })
+  await flush()
+  assert.equal(
+    app.requests.filter((row) => row.url.includes("__api_route=nutrition&"))
+      .length,
+    0
+  )
+  assert.equal(
+    app.requests.filter((row) => row.url.includes("auth%2Fsession")).length,
+    1,
+    "Authentication must still run before using private cached data"
+  )
+  for (const snapshot of [
+    { ...storage[`nutrition-view-v2:account-a:${date}`], scope: "account-b" },
+    {
+      ...storage[`nutrition-view-v2:account-a:${date}`],
+      time: Date.now() - 24 * 60 * 60_000,
+    },
+    {
+      ...storage[`nutrition-view-v2:account-a:${date}`],
+      time: Date.now() + 60_000,
+    },
+    {
+      ...storage[`nutrition-view-v2:account-a:${date}`],
+      view: { date: "2000-01-01" },
+    },
+  ]) {
+    const app = startup({
+      pathname: "/nutrition",
+      storage: {
+        ...storage,
+        [`nutrition-view-v2:account-a:${date}`]: snapshot,
+      },
+    })
+    await flush()
+    assert.equal(
+      app.requests.filter((row) => row.url.includes("__api_route=nutrition&"))
+        .length,
+      1
+    )
   }
 })

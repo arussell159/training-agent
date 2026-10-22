@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createFatSecretOAuth1 } from "./fatsecret-oauth1.mjs";
 import { fatSecretResponse } from "./fatsecret-response.mjs";
+import { createServingReceipts } from "./fatsecret-serving-receipt.mjs";
 import {
   MEALS,
   NUTRIENTS,
@@ -101,6 +102,8 @@ export function entryFromFatSecret(product, servingId, quantity, meal, id = rand
     source: "fatsecret",
     foodId: product.code,
     servingId,
+    ...(serving.catalogReceipt ? { catalogReceipt: serving.catalogReceipt } : {}),
+    ...(product.catalogExpiresAt ? { catalogExpiresAt: product.catalogExpiresAt } : {}),
     meal,
     quantity,
     unit: serving.label.slice(0, 40),
@@ -124,6 +127,7 @@ export function createFoodCatalog({
   deadlineMs = 12000,
 } = {}) {
   const oauth1 = createFatSecretOAuth1({ env, fetchImpl });
+  const receipts = createServingReceipts({ env, now });
   let token,
     expires = 0,
     tokenPending;
@@ -360,12 +364,12 @@ export function createFoodCatalog({
       const value = normalizeFatSecret(data.food);
       if (!value)
         throw new NutritionError("FatSecret returned incomplete food details. Please retry.", 502);
-      return value;
+      return receipts.attach(value);
     },
     async hydrate(entry, signal) {
       if (entry.source !== "fatsecret") return entry;
       return entryFromFatSecret(
-        await catalog.product(entry.foodId, signal),
+        receipts.resolve(entry) || (await catalog.product(entry.foodId, signal)),
         entry.servingId,
         entry.quantity,
         entry.meal,

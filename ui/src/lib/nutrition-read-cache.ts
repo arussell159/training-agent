@@ -2,12 +2,20 @@ import { apiFetch } from "./api-client"
 import { deviceCacheScope } from "./device-cache"
 import { createSharedRequestCache } from "./shared-request-cache"
 import type { FoodLibrary, FoodProduct } from "./nutrition"
+import { createNutritionCatalogCache } from "./nutrition-catalog-cache"
 
 const reads = createSharedRequestCache<
-  FoodLibrary | { products: FoodProduct[] }
+  FoodLibrary | { products: FoodProduct[] } | { product: FoodProduct }
 >(
   async (key, signal) => {
-    const [, path] = JSON.parse(key) as string[]
+    const [scope, path, retry] = JSON.parse(key) as [string, string, number?]
+    const device =
+      typeof localStorage !== "undefined"
+        ? createNutritionCatalogCache(localStorage)
+        : null
+    const saved = !retry ? device?.get(scope, path) : null
+    if (saved)
+      return saved as { products: FoodProduct[] } | { product: FoodProduct }
     if (typeof navigator !== "undefined" && navigator.onLine === false)
       throw Error(
         "You’re offline. Reconnect to search; recent foods remain available."
@@ -29,9 +37,16 @@ const reads = createSharedRequestCache<
     if (
       path === "/library"
         ? !Number.isFinite(data.revision) || !Array.isArray(data.items)
-        : !Array.isArray(data.products)
+        : path.startsWith("/product?")
+          ? !data.product ||
+            typeof data.product.code !== "string" ||
+            !Array.isArray(data.product.servings)
+          : !Array.isArray(data.products)
     )
       throw Error("Food results are incomplete. Please retry.")
+    if (scope !== deviceCacheScope())
+      throw new DOMException("Aborted", "AbortError")
+    device?.set(scope, path, data, data.product?.catalogExpiresAt)
     return data
   },
   { maxEntries: 20, ttlMs: 30_000, timeoutMs: 15_000 }
@@ -45,8 +60,6 @@ export const searchFoods = (query: string, signal?: AbortSignal, retry = 0) =>
       JSON.stringify([
         deviceCacheScope(),
         `/search?q=${encodeURIComponent(query.trim().replace(/\s+/g, " "))}`,
-        "US",
-        "en",
         retry,
       ]),
       signal
@@ -60,6 +73,26 @@ export const searchFoods = (query: string, signal?: AbortSignal, retry = 0) =>
         throw Error("Food search timed out. Please retry.")
       throw error
     }) as Promise<{ products: FoodProduct[] }>
+export const loadFoodProduct = (id: string, signal?: AbortSignal, retry = 0) =>
+  reads.get(
+    JSON.stringify([
+      deviceCacheScope(),
+      `/product?id=${encodeURIComponent(id)}`,
+      retry,
+    ]),
+    signal
+  ) as Promise<{ product: FoodProduct }>
+export const forgetFoodProduct = (id: string) => {
+  reads.clear()
+  try {
+    createNutritionCatalogCache(localStorage).delete(
+      deviceCacheScope(),
+      `/product?id=${encodeURIComponent(id)}`
+    )
+  } catch {
+    /* Optional cache. */
+  }
+}
 export const clearFoodReads = () => reads.clear()
 if (typeof window !== "undefined")
   for (const event of [
@@ -68,4 +101,14 @@ if (typeof window !== "undefined")
     "device-cache-cleared",
     "food-library-updated",
   ])
-    window.addEventListener(event, clearFoodReads)
+    window.addEventListener(event, () => {
+      clearFoodReads()
+      try {
+        const device = createNutritionCatalogCache(localStorage)
+        if (event === "food-library-updated")
+          device.delete(deviceCacheScope(), "/library")
+        else device.clear()
+      } catch {
+        /* Storage optional. */
+      }
+    })

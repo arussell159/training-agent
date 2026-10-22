@@ -6,9 +6,12 @@ import { newStep, importWorkout, serializeWorkout } from "./workout-editor-model
 import { fixtureEvent, parseTestWorkout } from "./fixtures/workout-editor-fixtures.mjs";
 import { workoutRevision } from "./workout-editor.mjs";
 
+// Fixtures describe an Oct 21 calendar. Keep their injected service clock on
+// that day so planned/history projection does not change with the host date.
+const fixtureTime = Date.parse("2026-10-21T12:00:00Z");
 function setup() {
   let state = { version: 1, workouts: {}, operations: {} },
-    time = Date.now(),
+    time = fixtureTime,
     failure = null,
     gate = null;
   const events = new Map();
@@ -73,6 +76,7 @@ function setup() {
     events,
     calls,
     state: () => structuredClone(state),
+    now: () => time,
     time: (value) => {
       time += value;
     },
@@ -213,7 +217,7 @@ test("rate limiting persists bounded retry with Retry-After and permanent authen
   env.fail(Object.assign(Error("Create limited"), { status: 429, retryAfterMs: 60_000 }));
   await service.drain();
   assert.equal(env.events.size, 0);
-  assert.ok(env.state().workouts[first.workoutId].jobs[0].nextAttemptAt - Date.now() >= 59_000);
+  assert.ok(env.state().workouts[first.workoutId].jobs[0].nextAttemptAt - env.now() >= 59_000);
   env.time(61_000);
   await service.drain();
   await edit(service, first, { ...model("Ride"), name: "Updated" });
@@ -221,7 +225,7 @@ test("rate limiting persists bounded retry with Retry-After and permanent authen
   await service.drain();
   let row = env.state().workouts[first.workoutId];
   assert.equal(row.jobs[0].state, "pending");
-  assert.ok(row.jobs[0].nextAttemptAt - Date.now() >= 59_000);
+  assert.ok(row.jobs[0].nextAttemptAt - env.now() >= 59_000);
   const before = env.calls.length;
   await service.drain();
   assert.equal(env.calls.length, before);
@@ -535,7 +539,7 @@ test("later external edits and deletions retain both versions and cannot be sile
   const stale = await service.project({ history: [], planned: [] });
   assert.equal(stale.planned[0].title, "Disposable Ride");
   const projection = await service.project({
-    synced_at: new Date(Date.now() + 1000).toISOString(),
+    synced_at: new Date(env.now() + 1000).toISOString(),
     history: [],
     planned: [mapped],
   });

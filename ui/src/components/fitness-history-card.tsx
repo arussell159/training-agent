@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useId, useState } from "react"
 import { Bike, Footprints, Waves } from "lucide-react"
-import { Button as F7Button } from "framework7-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -289,11 +288,10 @@ export function FitnessHistoryCard({
                   aria-label="Fitness history sport"
                 >
                   {sports.map(({ type, label, icon: Icon }) => (
-                    <F7Button
+                    <button
                       key={type}
-                      active={sport === type}
-                      round
-                      outline
+                      type="button"
+                      className={`button button-round button-outline ${sport === type ? "button-active" : ""}`}
                       aria-pressed={sport === type}
                       onClick={(event) => {
                         event.preventDefault()
@@ -302,7 +300,7 @@ export function FitnessHistoryCard({
                     >
                       <Icon className="size-4" aria-hidden="true" />
                       <span>{label}</span>
-                    </F7Button>
+                    </button>
                   ))}
                 </div>
               ))}

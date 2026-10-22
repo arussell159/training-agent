@@ -1,0 +1,944 @@
+{
+  "conditions": {
+    "dist": "ui/dist",
+    "n": 5,
+    "providerDelayMs": 7000,
+    "viewport": {
+      "width": 1280,
+      "height": 820
+    },
+    "network": "localhost; synthetic provider writes deliberately delayed; no browser throttling",
+    "backend": "real createDurableWorkoutCommits service with serialized in-memory test record; not production Supabase latency/durability",
+    "browser": "155.0.4283.62"
+  },
+  "samples": [
+    {
+      "title": "Commit benchmark revision 1",
+      "start": 1709.5,
+      "visibleMs": 83.80000000447035,
+      "durableMs": 22.399999998509884
+    },
+    {
+      "title": "Commit benchmark revision 2",
+      "start": 1991.6000000014901,
+      "visibleMs": 56.399999998509884,
+      "durableMs": 15.899999998509884
+    },
+    {
+      "title": "Commit benchmark revision 3",
+      "start": 2207.60000000149,
+      "visibleMs": 57.20000000298023,
+      "durableMs": 16.200000002980232
+    },
+    {
+      "title": "Commit benchmark revision 4",
+      "start": 2443.7000000029802,
+      "visibleMs": 53.100000001490116,
+      "durableMs": 15.199999995529652
+    },
+    {
+      "title": "Commit benchmark revision 5",
+      "start": 2657.7000000029802,
+      "visibleMs": 52.100000001490116,
+      "durableMs": 15.699999995529652
+    }
+  ],
+  "checks": [
+    "Latest accepted revision remains visible in calendar during delayed synchronization",
+    "Reload restores latest accepted model from IDB before provider completion",
+    "Ten delivery-outage save/reload cycles retain full model and local outbox; restoring transport resumes handoff",
+    "Second tab reads shared accepted revision",
+    "Concurrent stale editor Save is rejected across tabs; losing draft stays recoverable and winner remains accepted",
+    "Worker survives first tab close; final native provider row equals latest accepted revision",
+    "Actual offline Save commits full model+operation; failed offline reload retains it; reconnect reopens accepted revision",
+    "After backend acknowledges pending revision, ALL browser tabs close; server-owned worker reaches correct native final revision",
+    "Cancel+Discard unsaved editor changes creates no accepted operation and preserves earlier accepted model",
+    "Injected IndexedDB transaction abort leaves recoverable editor draft visible, creates no operation and changes neither accepted model nor backend record"
+  ],
+  "backendAcceptance": [
+    {
+      "operationId": "a59ac46e-4651-40e4-90e4-b6f2f50cf82d",
+      "revision": "app:1",
+      "responseMs": 26.951900000000023,
+      "accepted": true
+    },
+    {
+      "operationId": "04afa6bb-8ee6-41a0-8818-095689a5bcbb",
+      "revision": "app:2",
+      "responseMs": 16.825500000000375,
+      "accepted": true
+    },
+    {
+      "operationId": "b080dd48-1efc-456f-b296-c7e7df6bbea0",
+      "revision": "app:3",
+      "responseMs": 18.234300000000076,
+      "accepted": true
+    },
+    {
+      "operationId": "c5f749c4-a322-45c7-8075-f7c4f6599dc1",
+      "revision": "app:4",
+      "responseMs": 18.64989999999989,
+      "accepted": true
+    },
+    {
+      "operationId": "1cff922d-641d-40cb-8480-2553b11c63cc",
+      "revision": "app:5",
+      "responseMs": 22.984999999999673,
+      "accepted": true
+    },
+    {
+      "operationId": "642ceeec-9c0c-4898-af4c-0d42a63e32cf",
+      "revision": "app:6",
+      "responseMs": 5.12159999999858,
+      "accepted": true
+    },
+    {
+      "operationId": "626bcf5b-bce5-4bdc-93d3-da3820a1c316",
+      "revision": "app:7",
+      "responseMs": 30.315499999996973,
+      "accepted": true
+    },
+    {
+      "operationId": "7421e6e1-8035-4ab8-9144-4f015d61fa0d",
+      "revision": "app:8",
+      "responseMs": 3.3135999999940395,
+      "accepted": true
+    }
+  ],
+  "recovery": [
+    {
+      "iteration": 1,
+      "title": "Delivery outage revision 1",
+      "retained": true
+    },
+    {
+      "iteration": 2,
+      "title": "Delivery outage revision 2",
+      "retained": true
+    },
+    {
+      "iteration": 3,
+      "title": "Delivery outage revision 3",
+      "retained": true
+    },
+    {
+      "iteration": 4,
+      "title": "Delivery outage revision 4",
+      "retained": true
+    },
+    {
+      "iteration": 5,
+      "title": "Delivery outage revision 5",
+      "retained": true
+    },
+    {
+      "iteration": 6,
+      "title": "Delivery outage revision 6",
+      "retained": true
+    },
+    {
+      "iteration": 7,
+      "title": "Delivery outage revision 7",
+      "retained": true
+    },
+    {
+      "iteration": 8,
+      "title": "Delivery outage revision 8",
+      "retained": true
+    },
+    {
+      "iteration": 9,
+      "title": "Delivery outage revision 9",
+      "retained": true
+    },
+    {
+      "iteration": 10,
+      "title": "Delivery outage revision 10",
+      "retained": true
+    }
+  ],
+  "finalState": {
+    "workouts": [
+      {
+        "accepted": true,
+        "durableBoundary": "backend",
+        "verified": true,
+        "workoutId": "event:9008",
+        "providerWorkoutId": "event:9008",
+        "revision": "app:7",
+        "syncedRevision": 7,
+        "syncedAt": 1792672356160,
+        "syncStatus": "synced",
+        "syncError": null,
+        "deleted": false,
+        "model": {
+          "version": 1,
+          "name": "Two-tab accepted winner",
+          "sport": "Run",
+          "date": "2026-10-23",
+          "notes": "Coach: smooth and controlled.",
+          "poolLength": "",
+          "steps": [
+            {
+              "id": "aa9ee47a-f79c-4bb4-b505-eb35a1aa9f2c",
+              "kind": "step",
+              "label": "Warm Up",
+              "notes": "",
+              "role": "warmup",
+              "end": {
+                "kind": "time",
+                "value": 300,
+                "unit": "s"
+              },
+              "target": {
+                "kind": "pace",
+                "unit": "secs/mi",
+                "mode": "single",
+                "value": 600
+              },
+              "cadence": null
+            },
+            {
+              "id": "29966bbb-7af7-4258-a19e-90653fcc5167",
+              "kind": "repeat",
+              "label": "Repeats",
+              "notes": "",
+              "repetitions": 4,
+              "sets": 1,
+              "steps": [
+                {
+                  "id": "e7b34058-a859-48ad-8649-a1845fc522ee",
+                  "kind": "step",
+                  "label": "Work",
+                  "notes": "",
+                  "role": "active",
+                  "end": {
+                    "kind": "time",
+                    "value": 120,
+                    "unit": "s"
+                  },
+                  "target": {
+                    "kind": "pace",
+                    "unit": "secs/mi",
+                    "mode": "range",
+                    "start": 450,
+                    "end": 480
+                  },
+                  "cadence": null
+                }
+              ],
+              "recovery": {
+                "id": "38d6a715-8e1e-48e6-bc89-65ba80c1d98d",
+                "kind": "step",
+                "label": "Recovery",
+                "notes": "",
+                "role": "recovery",
+                "end": {
+                  "kind": "time",
+                  "value": 60,
+                  "unit": "s"
+                },
+                "target": {
+                  "kind": "pace",
+                  "unit": "secs/mi",
+                  "mode": "single",
+                  "value": 630
+                },
+                "cadence": null
+              },
+              "finalRecovery": true,
+              "setRecovery": null
+            },
+            {
+              "id": "0824a6c4-1692-4ed4-95c5-3fdf20d4508d",
+              "kind": "step",
+              "label": "Cool Down",
+              "notes": "",
+              "role": "cooldown",
+              "end": {
+                "kind": "time",
+                "value": 300,
+                "unit": "s"
+              },
+              "target": {
+                "kind": "pace",
+                "unit": "secs/mi",
+                "mode": "single",
+                "value": 600
+              },
+              "cadence": null
+            }
+          ],
+          "thresholds": {
+            "ftp": 250,
+            "pace": 3.699641379310345
+          }
+        },
+        "event": {
+          "id": 9008,
+          "name": "Two-tab accepted winner",
+          "category": "WORKOUT",
+          "type": "Run",
+          "start_date_local": "2026-10-23T00:00:00",
+          "end_date_local": "2026-10-10T08:00:00",
+          "description": "```\nCoach: smooth and controlled.\n```\n\nIntervals.icu device definition:\n- 300s 10:00/mi Pace intensity=warmup\n\n4x\n- 120s 7:30-8:00/mi Pace intensity=active\n- 60s 10:30/mi Pace intensity=recovery\n\n- 300s 10:00/mi Pace intensity=cooldown\n\n```\nWorkout editor v1\n{\"version\":1,\"name\":\"Two-tab accepted winner\",\"sport\":\"Run\",\"date\":\"2026-10-23\",\"notes\":\"Coach: smooth and controlled.\",\"poolLength\":\"\",\"steps\":[{\"id\":\"aa9ee47a-f79c-4bb4-b505-eb35a1aa9f2c\",\"kind\":\"step\",\"label\":\"Warm Up\",\"notes\":\"\",\"role\":\"warmup\",\"end\":{\"kind\":\"time\",\"value\":300,\"unit\":\"s\"},\"target\":{\"kind\":\"pace\",\"unit\":\"secs/mi\",\"mode\":\"single\",\"value\":600},\"cadence\":null},{\"id\":\"29966bbb-7af7-4258-a19e-90653fcc5167\",\"kind\":\"repeat\",\"label\":\"Repeats\",\"notes\":\"\",\"repetitions\":4,\"sets\":1,\"steps\":[{\"id\":\"e7b34058-a859-48ad-8649-a1845fc522ee\",\"kind\":\"step\",\"label\":\"Work\",\"notes\":\"\",\"role\":\"active\",\"end\":{\"kind\":\"time\",\"value\":120,\"unit\":\"s\"},\"target\":{\"kind\":\"pace\",\"unit\":\"secs/mi\",\"mode\":\"range\",\"start\":450,\"end\":480},\"cadence\":null}],\"recovery\":{\"id\":\"38d6a715-8e1e-48e6-bc89-65ba80c1d98d\",\"kind\":\"step\",\"label\":\"Recovery\",\"notes\":\"\",\"role\":\"recovery\",\"end\":{\"kind\":\"time\",\"value\":60,\"unit\":\"s\"},\"target\":{\"kind\":\"pace\",\"unit\":\"secs/mi\",\"mode\":\"single\",\"value\":630},\"cadence\":null},\"finalRecovery\":true,\"setRecovery\":null},{\"id\":\"0824a6c4-1692-4ed4-95c5-3fdf20d4508d\",\"kind\":\"step\",\"label\":\"Cool Down\",\"notes\":\"\",\"role\":\"cooldown\",\"end\":{\"kind\":\"time\",\"value\":300,\"unit\":\"s\"},\"target\":{\"kind\":\"pace\",\"unit\":\"secs/mi\",\"mode\":\"single\",\"value\":600},\"cadence\":null}]}\n```\n\n```training-agent-manual-description-v1\n{\"text\":\"Coach: smooth and controlled.\"}\n```\n\n```training-agent-planned-values-v1\n{\"duration_seconds\":1320,\"distance_meters\":3878.51904,\"average_speed\":2.942127970749543,\"tss\":25,\"intensity_factor\":0.8}\n```",
+          "workout_doc": {
+            "steps": [
+              {
+                "duration": 300,
+                "pace": {
+                  "units": "secs/mi",
+                  "value": 600
+                },
+                "intensity": "warmup"
+              },
+              {
+                "reps": 4,
+                "steps": [
+                  {
+                    "duration": 120,
+                    "pace": {
+                      "units": "secs/mi",
+                      "start": 450,
+                      "end": 480
+                    },
+                    "intensity": "active"
+                  },
+                  {
+                    "duration": 60,
+                    "pace": {
+                      "units": "secs/mi",
+                      "value": 630
+                    },
+                    "intensity": "recovery"
+                  }
+                ]
+              },
+              {
+                "duration": 300,
+                "pace": {
+                  "units": "secs/mi",
+                  "value": 600
+                },
+                "intensity": "cooldown"
+              }
+            ],
+            "duration": 1320,
+            "distance": 0,
+            "options": {}
+          },
+          "updated": "2026-10-22T12:32:36.159Z",
+          "calendar_id": 7,
+          "uid": "preserved-uid",
+          "external_id": "external-training-plan",
+          "color": "#abc123",
+          "paired_activity_id": null,
+          "icu_ftp": 250,
+          "custom_metadata": {
+            "keep": true
+          },
+          "time_target": 1320,
+          "distance_target": 3878.51904,
+          "load_target": 25,
+          "moving_time": 1320
+        },
+        "workout": {
+          "id": "event:9008",
+          "provider": "intervals",
+          "editable": true,
+          "activity_id": null,
+          "provider_type": "Run",
+          "activity_type": null,
+          "activity_file_type": null,
+          "category": "WORKOUT",
+          "workout_date": "2026-10-23",
+          "planned_workout_date": "2026-10-23",
+          "recorded_start_local": null,
+          "day": "FRI",
+          "date": "Oct 23",
+          "sport": "Run",
+          "title": "Two-tab accepted winner",
+          "duration": "00h 22m",
+          "distance_meters": 3878.51904,
+          "plannedDurationMinutes": 22,
+          "actualDurationMinutes": 0,
+          "goal": "Coach: smooth and controlled.",
+          "manual_description": "Coach: smooth and controlled.",
+          "details": "Warm Up:\n5 mins at 10:00 min/mile\n\nMain Set:\n4 x (2 mins at 7:30–8:00 min/mile + 1 min at 10:30 min/mile recovery)\n\nWarm Down:\n5 mins at 10:00 min/mile",
+          "editable_description": "Coach: smooth and controlled.",
+          "app_description_version": 3,
+          "status": "upcoming",
+          "completed": false,
+          "load": 25,
+          "planned": {
+            "duration_minutes": 22,
+            "tss": 25
+          },
+          "completed_data": {},
+          "scheduled_start_at": null,
+          "structure": "{\"steps\":[{\"duration\":300,\"pace\":{\"units\":\"secs/mi\",\"value\":600},\"intensity\":\"warmup\"},{\"reps\":4,\"steps\":[{\"duration\":120,\"pace\":{\"units\":\"secs/mi\",\"start\":450,\"end\":480},\"intensity\":\"active\"},{\"duration\":60,\"pace\":{\"units\":\"secs/mi\",\"value\":630},\"intensity\":\"recovery\"}]},{\"duration\":300,\"pace\":{\"units\":\"secs/mi\",\"value\":600},\"intensity\":\"cooldown\"}],\"duration\":1320,\"distance\":0,\"options\":{}}",
+          "source_updated_at": "2026-10-22T12:32:36.159Z",
+          "source": "intervals",
+          "measurement_quality": {
+            "power_available": false,
+            "heart_rate_available": false
+          },
+          "workout_summary": {
+            "planned": {
+              "duration_seconds": 1320,
+              "distance_meters": 3878.51904,
+              "average_speed": 2.942127970749543,
+              "max_speed": null,
+              "calories": null,
+              "elevation_gain": null,
+              "elevation_loss": null,
+              "tss": 25,
+              "power_load": null,
+              "hr_load": null,
+              "pace_load": null,
+              "hr_load_type": null,
+              "pace_load_type": null,
+              "heart_rate_zones": null,
+              "power_zone_times": null,
+              "pace_zone_times": null,
+              "intensity_factor": 0.8,
+              "work_kj": null,
+              "average_power": null,
+              "normalized_power": null,
+              "max_power": null,
+              "max_cadence": null,
+              "average_hr": null,
+              "max_hr": null,
+              "average_cadence": null,
+              "temperature_c": null,
+              "humidity_percent": null,
+              "latitude": null,
+              "longitude": null,
+              "elapsed_time_seconds": 1320,
+              "elapsed_speed": 2.938272
+            },
+            "completed": null
+          },
+          "planned_values_edited": true,
+          "editor_model": {
+            "version": 1,
+            "name": "Two-tab accepted winner",
+            "sport": "Run",
+            "date": "2026-10-23",
+            "notes": "Coach: smooth and controlled.",
+            "poolLength": "",
+            "steps": [
+              {
+                "id": "aa9ee47a-f79c-4bb4-b505-eb35a1aa9f2c",
+                "kind": "step",
+                "label": "Warm Up",
+                "notes": "",
+                "role": "warmup",
+                "end": {
+                  "kind": "time",
+                  "value": 300,
+                  "unit": "s"
+                },
+                "target": {
+                  "kind": "pace",
+                  "unit": "secs/mi",
+                  "mode": "single",
+                  "value": 600
+                },
+                "cadence": null
+              },
+              {
+                "id": "29966bbb-7af7-4258-a19e-90653fcc5167",
+                "kind": "repeat",
+                "label": "Repeats",
+                "notes": "",
+                "repetitions": 4,
+                "sets": 1,
+                "steps": [
+                  {
+                    "id": "e7b34058-a859-48ad-8649-a1845fc522ee",
+                    "kind": "step",
+                    "label": "Work",
+                    "notes": "",
+                    "role": "active",
+                    "end": {
+                      "kind": "time",
+                      "value": 120,
+                      "unit": "s"
+                    },
+                    "target": {
+                      "kind": "pace",
+                      "unit": "secs/mi",
+                      "mode": "range",
+                      "start": 450,
+                      "end": 480
+                    },
+                    "cadence": null
+                  }
+                ],
+                "recovery": {
+                  "id": "38d6a715-8e1e-48e6-bc89-65ba80c1d98d",
+                  "kind": "step",
+                  "label": "Recovery",
+                  "notes": "",
+                  "role": "recovery",
+                  "end": {
+                    "kind": "time",
+                    "value": 60,
+                    "unit": "s"
+                  },
+                  "target": {
+                    "kind": "pace",
+                    "unit": "secs/mi",
+                    "mode": "single",
+                    "value": 630
+                  },
+                  "cadence": null
+                },
+                "finalRecovery": true,
+                "setRecovery": null
+              },
+              {
+                "id": "0824a6c4-1692-4ed4-95c5-3fdf20d4508d",
+                "kind": "step",
+                "label": "Cool Down",
+                "notes": "",
+                "role": "cooldown",
+                "end": {
+                  "kind": "time",
+                  "value": 300,
+                  "unit": "s"
+                },
+                "target": {
+                  "kind": "pace",
+                  "unit": "secs/mi",
+                  "mode": "single",
+                  "value": 600
+                },
+                "cadence": null
+              }
+            ],
+            "thresholds": {
+              "ftp": 250,
+              "pace": 3.699641379310345
+            }
+          },
+          "planned_time_label": "22:00",
+          "raw": {
+            "id": 9008,
+            "name": "Two-tab accepted winner",
+            "category": "WORKOUT",
+            "type": "Run",
+            "start_date_local": "2026-10-23T00:00:00",
+            "end_date_local": "2026-10-10T08:00:00",
+            "description": "```\nCoach: smooth and controlled.\n```\n\nIntervals.icu device definition:\n- 300s 10:00/mi Pace intensity=warmup\n\n4x\n- 120s 7:30-8:00/mi Pace intensity=active\n- 60s 10:30/mi Pace intensity=recovery\n\n- 300s 10:00/mi Pace intensity=cooldown\n\n```\nWorkout editor v1\n{\"version\":1,\"name\":\"Two-tab accepted winner\",\"sport\":\"Run\",\"date\":\"2026-10-23\",\"notes\":\"Coach: smooth and controlled.\",\"poolLength\":\"\",\"steps\":[{\"id\":\"aa9ee47a-f79c-4bb4-b505-eb35a1aa9f2c\",\"kind\":\"step\",\"label\":\"Warm Up\",\"notes\":\"\",\"role\":\"warmup\",\"end\":{\"kind\":\"time\",\"value\":300,\"unit\":\"s\"},\"target\":{\"kind\":\"pace\",\"unit\":\"secs/mi\",\"mode\":\"single\",\"value\":600},\"cadence\":null},{\"id\":\"29966bbb-7af7-4258-a19e-90653fcc5167\",\"kind\":\"repeat\",\"label\":\"Repeats\",\"notes\":\"\",\"repetitions\":4,\"sets\":1,\"steps\":[{\"id\":\"e7b34058-a859-48ad-8649-a1845fc522ee\",\"kind\":\"step\",\"label\":\"Work\",\"notes\":\"\",\"role\":\"active\",\"end\":{\"kind\":\"time\",\"value\":120,\"unit\":\"s\"},\"target\":{\"kind\":\"pace\",\"unit\":\"secs/mi\",\"mode\":\"range\",\"start\":450,\"end\":480},\"cadence\":null}],\"recovery\":{\"id\":\"38d6a715-8e1e-48e6-bc89-65ba80c1d98d\",\"kind\":\"step\",\"label\":\"Recovery\",\"notes\":\"\",\"role\":\"recovery\",\"end\":{\"kind\":\"time\",\"value\":60,\"unit\":\"s\"},\"target\":{\"kind\":\"pace\",\"unit\":\"secs/mi\",\"mode\":\"single\",\"value\":630},\"cadence\":null},\"finalRecovery\":true,\"setRecovery\":null},{\"id\":\"0824a6c4-1692-4ed4-95c5-3fdf20d4508d\",\"kind\":\"step\",\"label\":\"Cool Down\",\"notes\":\"\",\"role\":\"cooldown\",\"end\":{\"kind\":\"time\",\"value\":300,\"unit\":\"s\"},\"target\":{\"kind\":\"pace\",\"unit\":\"secs/mi\",\"mode\":\"single\",\"value\":600},\"cadence\":null}]}\n```\n\n```training-agent-manual-description-v1\n{\"text\":\"Coach: smooth and controlled.\"}\n```\n\n```training-agent-planned-values-v1\n{\"duration_seconds\":1320,\"distance_meters\":3878.51904,\"average_speed\":2.942127970749543,\"tss\":25,\"intensity_factor\":0.8}\n```",
+            "workout_doc": {
+              "steps": [
+                {
+                  "duration": 300,
+                  "pace": {
+                    "units": "secs/mi",
+                    "value": 600
+                  },
+                  "intensity": "warmup"
+                },
+                {
+                  "reps": 4,
+                  "steps": [
+                    {
+                      "duration": 120,
+                      "pace": {
+                        "units": "secs/mi",
+                        "start": 450,
+                        "end": 480
+                      },
+                      "intensity": "active"
+                    },
+                    {
+                      "duration": 60,
+                      "pace": {
+                        "units": "secs/mi",
+                        "value": 630
+                      },
+                      "intensity": "recovery"
+                    }
+                  ]
+                },
+                {
+                  "duration": 300,
+                  "pace": {
+                    "units": "secs/mi",
+                    "value": 600
+                  },
+                  "intensity": "cooldown"
+                }
+              ],
+              "duration": 1320,
+              "distance": 0,
+              "options": {}
+            },
+            "updated": "2026-10-22T12:32:36.159Z",
+            "calendar_id": 7,
+            "uid": "preserved-uid",
+            "external_id": "external-training-plan",
+            "color": "#abc123",
+            "paired_activity_id": null,
+            "icu_ftp": 250,
+            "custom_metadata": {
+              "keep": true
+            },
+            "time_target": 1320,
+            "distance_target": 3878.51904,
+            "load_target": 25,
+            "moving_time": 1320
+          },
+          "raw_activity": null,
+          "sync_status": "synced",
+          "app_revision": 7,
+          "provider_workout_id": "event:9008",
+          "app_updated_at": "2026-10-22T12:32:22.878Z"
+        },
+        "acceptedAt": "2026-10-22T12:32:22.878Z",
+        "personal": {
+          "privateNotes": "",
+          "tags": [],
+          "equipment": "",
+          "autoCalculate": true
+        },
+        "recurrence": null,
+        "externalConflict": null
+      }
+    ],
+    "worker": {
+      "ownership": "backend",
+      "resumption": "server timer, authenticated status/retry request, or configured scheduler"
+    },
+    "store": {
+      "version": 1,
+      "workouts": {
+        "event:9008": {
+          "id": "event:9008",
+          "revision": 7,
+          "acceptedAt": "2026-10-22T12:32:22.878Z",
+          "event": {
+            "id": 9008,
+            "name": "Two-tab accepted winner",
+            "category": "WORKOUT",
+            "type": "Run",
+            "start_date_local": "2026-10-23T00:00:00",
+            "end_date_local": "2026-10-10T08:00:00",
+            "description": "```\nCoach: smooth and controlled.\n```\n\nIntervals.icu device definition:\n- 300s 10:00/mi Pace intensity=warmup\n\n4x\n- 120s 7:30-8:00/mi Pace intensity=active\n- 60s 10:30/mi Pace intensity=recovery\n\n- 300s 10:00/mi Pace intensity=cooldown\n\n```\nWorkout editor v1\n{\"version\":1,\"name\":\"Two-tab accepted winner\",\"sport\":\"Run\",\"date\":\"2026-10-23\",\"notes\":\"Coach: smooth and controlled.\",\"poolLength\":\"\",\"steps\":[{\"id\":\"aa9ee47a-f79c-4bb4-b505-eb35a1aa9f2c\",\"kind\":\"step\",\"label\":\"Warm Up\",\"notes\":\"\",\"role\":\"warmup\",\"end\":{\"kind\":\"time\",\"value\":300,\"unit\":\"s\"},\"target\":{\"kind\":\"pace\",\"unit\":\"secs/mi\",\"mode\":\"single\",\"value\":600},\"cadence\":null},{\"id\":\"29966bbb-7af7-4258-a19e-90653fcc5167\",\"kind\":\"repeat\",\"label\":\"Repeats\",\"notes\":\"\",\"repetitions\":4,\"sets\":1,\"steps\":[{\"id\":\"e7b34058-a859-48ad-8649-a1845fc522ee\",\"kind\":\"step\",\"label\":\"Work\",\"notes\":\"\",\"role\":\"active\",\"end\":{\"kind\":\"time\",\"value\":120,\"unit\":\"s\"},\"target\":{\"kind\":\"pace\",\"unit\":\"secs/mi\",\"mode\":\"range\",\"start\":450,\"end\":480},\"cadence\":null}],\"recovery\":{\"id\":\"38d6a715-8e1e-48e6-bc89-65ba80c1d98d\",\"kind\":\"step\",\"label\":\"Recovery\",\"notes\":\"\",\"role\":\"recovery\",\"end\":{\"kind\":\"time\",\"value\":60,\"unit\":\"s\"},\"target\":{\"kind\":\"pace\",\"unit\":\"secs/mi\",\"mode\":\"single\",\"value\":630},\"cadence\":null},\"finalRecovery\":true,\"setRecovery\":null},{\"id\":\"0824a6c4-1692-4ed4-95c5-3fdf20d4508d\",\"kind\":\"step\",\"label\":\"Cool Down\",\"notes\":\"\",\"role\":\"cooldown\",\"end\":{\"kind\":\"time\",\"value\":300,\"unit\":\"s\"},\"target\":{\"kind\":\"pace\",\"unit\":\"secs/mi\",\"mode\":\"single\",\"value\":600},\"cadence\":null}]}\n```\n\n```training-agent-manual-description-v1\n{\"text\":\"Coach: smooth and controlled.\"}\n```\n\n```training-agent-planned-values-v1\n{\"duration_seconds\":1320,\"distance_meters\":3878.51904,\"average_speed\":2.942127970749543,\"tss\":25,\"intensity_factor\":0.8}\n```",
+            "workout_doc": {
+              "steps": [
+                {
+                  "duration": 300,
+                  "pace": {
+                    "units": "secs/mi",
+                    "value": 600
+                  },
+                  "intensity": "warmup"
+                },
+                {
+                  "reps": 4,
+                  "steps": [
+                    {
+                      "duration": 120,
+                      "pace": {
+                        "units": "secs/mi",
+                        "start": 450,
+                        "end": 480
+                      },
+                      "intensity": "active"
+                    },
+                    {
+                      "duration": 60,
+                      "pace": {
+                        "units": "secs/mi",
+                        "value": 630
+                      },
+                      "intensity": "recovery"
+                    }
+                  ]
+                },
+                {
+                  "duration": 300,
+                  "pace": {
+                    "units": "secs/mi",
+                    "value": 600
+                  },
+                  "intensity": "cooldown"
+                }
+              ],
+              "duration": 1320,
+              "distance": 0,
+              "options": {}
+            },
+            "updated": "2026-10-22T12:32:36.159Z",
+            "calendar_id": 7,
+            "uid": "preserved-uid",
+            "external_id": "external-training-plan",
+            "color": "#abc123",
+            "paired_activity_id": null,
+            "icu_ftp": 250,
+            "custom_metadata": {
+              "keep": true
+            },
+            "time_target": 1320,
+            "distance_target": 3878.51904,
+            "load_target": 25,
+            "moving_time": 1320
+          },
+          "input": {
+            "model": {
+              "version": 1,
+              "name": "Two-tab accepted winner",
+              "sport": "Run",
+              "date": "2026-10-23",
+              "notes": "Coach: smooth and controlled.",
+              "poolLength": "",
+              "steps": [
+                {
+                  "id": "aa9ee47a-f79c-4bb4-b505-eb35a1aa9f2c",
+                  "kind": "step",
+                  "label": "Warm Up",
+                  "notes": "",
+                  "role": "warmup",
+                  "end": {
+                    "kind": "time",
+                    "value": 300,
+                    "unit": "s"
+                  },
+                  "target": {
+                    "kind": "pace",
+                    "unit": "secs/mi",
+                    "mode": "single",
+                    "value": 600
+                  },
+                  "cadence": null
+                },
+                {
+                  "id": "29966bbb-7af7-4258-a19e-90653fcc5167",
+                  "kind": "repeat",
+                  "label": "Repeats",
+                  "notes": "",
+                  "repetitions": 4,
+                  "sets": 1,
+                  "steps": [
+                    {
+                      "id": "e7b34058-a859-48ad-8649-a1845fc522ee",
+                      "kind": "step",
+                      "label": "Work",
+                      "notes": "",
+                      "role": "active",
+                      "end": {
+                        "kind": "time",
+                        "value": 120,
+                        "unit": "s"
+                      },
+                      "target": {
+                        "kind": "pace",
+                        "unit": "secs/mi",
+                        "mode": "range",
+                        "start": 450,
+                        "end": 480
+                      },
+                      "cadence": null
+                    }
+                  ],
+                  "recovery": {
+                    "id": "38d6a715-8e1e-48e6-bc89-65ba80c1d98d",
+                    "kind": "step",
+                    "label": "Recovery",
+                    "notes": "",
+                    "role": "recovery",
+                    "end": {
+                      "kind": "time",
+                      "value": 60,
+                      "unit": "s"
+                    },
+                    "target": {
+                      "kind": "pace",
+                      "unit": "secs/mi",
+                      "mode": "single",
+                      "value": 630
+                    },
+                    "cadence": null
+                  },
+                  "finalRecovery": true,
+                  "setRecovery": null
+                },
+                {
+                  "id": "0824a6c4-1692-4ed4-95c5-3fdf20d4508d",
+                  "kind": "step",
+                  "label": "Cool Down",
+                  "notes": "",
+                  "role": "cooldown",
+                  "end": {
+                    "kind": "time",
+                    "value": 300,
+                    "unit": "s"
+                  },
+                  "target": {
+                    "kind": "pace",
+                    "unit": "secs/mi",
+                    "mode": "single",
+                    "value": 600
+                  },
+                  "cadence": null
+                }
+              ],
+              "thresholds": {
+                "ftp": 250,
+                "pace": 3.699641379310345
+              }
+            },
+            "revision": "app:6",
+            "values": {
+              "duration_seconds": 1320,
+              "distance_meters": 3878.51904,
+              "average_speed": 2.942127970749543,
+              "tss": 25,
+              "intensity_factor": 0.8
+            },
+            "time": "00:00",
+            "comment": "",
+            "commentId": "b2268765-ef85-46fb-a82f-b21cb5610904",
+            "description": "Coach: smooth and controlled.",
+            "descriptionMode": "manual",
+            "personal": {
+              "privateNotes": "",
+              "tags": [],
+              "equipment": "",
+              "autoCalculate": true
+            },
+            "personalId": "event:9008",
+            "recurrence": null,
+            "comments": [],
+            "zoneSettings": [
+              {
+                "types": [
+                  "Ride",
+                  "Bike",
+                  "VirtualRide"
+                ],
+                "ftp": 250,
+                "power_zones": [
+                  55,
+                  75,
+                  90,
+                  105,
+                  120,
+                  150,
+                  999
+                ]
+              },
+              {
+                "types": [
+                  "Run"
+                ],
+                "threshold_pace": 3.699641379310345,
+                "pace_zones": [
+                  80,
+                  90,
+                  95,
+                  100,
+                  110,
+                  999
+                ]
+              },
+              {
+                "types": [
+                  "Swim"
+                ],
+                "threshold_pace": 0.8708571428571429,
+                "pace_zones": [
+                  80,
+                  90,
+                  95,
+                  100,
+                  110,
+                  999
+                ]
+              }
+            ],
+            "emptyStartTime": false
+          },
+          "providerId": "event:9008",
+          "providerRevision": "4e3ff3d58b6b2e68b068afd3cf43b22ee1708a6e05be0a32b1984654212794c3",
+          "syncedRevision": 7,
+          "syncStatus": "synced",
+          "error": null,
+          "personalHost": "localhost:5194",
+          "deleted": false,
+          "jobs": [],
+          "syncedAt": 1792672356160,
+          "lastReconciledAt": 1792672315590
+        }
+      },
+      "operations": {
+        "a59ac46e-4651-40e4-90e4-b6f2f50cf82d": {
+          "id": "event:9008",
+          "hash": "e619d1b5f639df7c8ac1504e3d4f217ab81f51ae28e539056cbc8f32979184cf",
+          "revision": 1
+        },
+        "04afa6bb-8ee6-41a0-8818-095689a5bcbb": {
+          "id": "event:9008",
+          "hash": "00a8e15c1ab8a3b98857fc44c1d660bc3c877ae046b23f6b7e7558a6b7b7a25b",
+          "revision": 2
+        },
+        "b080dd48-1efc-456f-b296-c7e7df6bbea0": {
+          "id": "event:9008",
+          "hash": "0062498c605375da4ee96133538232828bb9e6397791ad2317d7bbbd3f741e42",
+          "revision": 3
+        },
+        "c5f749c4-a322-45c7-8075-f7c4f6599dc1": {
+          "id": "event:9008",
+          "hash": "9fafa00f3fbe7d245ea57edc3b6a8d2a89020b7fe91e99bd2cded90c61a10bd5",
+          "revision": 4
+        },
+        "1cff922d-641d-40cb-8480-2553b11c63cc": {
+          "id": "event:9008",
+          "hash": "acde564f72271bac955257a72a33ee43dfd3ee8066caaf29a5a705748186a61f",
+          "revision": 5
+        },
+        "642ceeec-9c0c-4898-af4c-0d42a63e32cf": {
+          "id": "event:9008",
+          "hash": "d5fb1d946b76100c7ea41e438ba707be412dc0a4944032feeb45c92e1b853b94",
+          "revision": 6
+        },
+        "626bcf5b-bce5-4bdc-93d3-da3820a1c316": {
+          "id": "event:9008",
+          "hash": "c6a682adb2051b29849ab80c416beb9f78e31b39571f23aca72ed54d7a28f0f0",
+          "revision": 7
+        }
+      }
+    },
+    "synthetic": true,
+    "durableBoundary": "in-memory-test-double"
+  },
+  "closedTabAccepted": {
+    "workoutId": "event:9008",
+    "revision": "app:8",
+    "status": "pending"
+  },
+  "closedTabCompleted": {
+    "revision": "app:8",
+    "syncedRevision": 8,
+    "acceptedAt": "2026-10-22T12:32:38.510Z",
+    "observedAt": "2026-10-22T12:32:46.182Z"
+  },
+  "summary": {
+    "visible": {
+      "n": 5,
+      "median": 56.399999998509884,
+      "p95": 83.80000000447035,
+      "max": 83.80000000447035
+    },
+    "durableIDB": {
+      "n": 5,
+      "median": 15.899999998509884,
+      "p95": 22.399999998509884,
+      "max": 22.399999998509884
+    }
+  }
+}

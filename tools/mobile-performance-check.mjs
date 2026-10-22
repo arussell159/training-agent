@@ -36,6 +36,7 @@ const result = {
       "Cold useful=populated .home-athlete-name + next frame. Add opening=trusted click to enabled search input + next frame. LCP/CLS lab observers; no field INP measurement.",
   },
   coldUseful: [],
+  criticalJs: [],
   lcp: [],
   cls: [],
   warmAdd: [],
@@ -90,12 +91,16 @@ try {
         () => new Promise((r) => requestAnimationFrame(() => r(performance.now())))
       )
     );
+    result.criticalJs.push(await page.evaluate(() => {
+      const scripts=performance.getEntriesByType("resource").filter(row=>/\.js(?:$|\?)/.test(row.name));
+      return {decodedBytes:scripts.reduce((sum,row)=>sum+row.decodedBodySize,0),frameworkRequests:scripts.filter(row=>row.name.includes("framework7-core")).length,scripts:scripts.length};
+    }));
     await page.waitForLoadState("networkidle");
     const vitals = await page.evaluate(() => window.__vitals);
     result.lcp.push(vitals.lcp);
     result.cls.push(vitals.cls);
     await ctx.close();
-    console.log(`cold ${i + 1}/${n}`);
+    console.log(`cold ${i + 1}/${coldSamples}`);
   }
   const ctx = await browser.newContext({
       viewport: result.conditions.viewport,

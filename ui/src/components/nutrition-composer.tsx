@@ -24,11 +24,16 @@ import { Input } from "@/components/ui/input"
 import { MobileFilterTabs } from "@/components/ui/mobile-filter-tabs"
 import { FoodEditor } from "./nutrition-food-editor"
 import { FoodThumbnail } from "./food-thumbnail"
-import { portionLabel } from "@/lib/nutrition-math"
+import { portionLabel, scaleFood } from "@/lib/nutrition-math"
 import { randomId } from "@/lib/random-id"
 import { NutritionScreen, nutritionSaveClass } from "./nutrition-screen"
 import { useToastManager } from "@/components/ui/toast"
-import { loadFoodLibrary, searchFoods } from "@/lib/nutrition-read-cache"
+import {
+  loadFoodLibrary,
+  searchFoods,
+  loadFoodProduct,
+  forgetFoodProduct,
+} from "@/lib/nutrition-read-cache"
 import { deviceCacheScope } from "@/lib/device-cache"
 import {
   readNutritionComposerDraft,
@@ -254,13 +259,32 @@ export function NutritionComposer({
     if (!detailFatSecretFoodId || product?.code === detailFatSecretFoodId)
       return
     const controller = new AbortController()
-    void nutritionRequest<{ product: FoodProduct }>(
-      `/product?id=${encodeURIComponent(detailFatSecretFoodId)}`,
-      undefined,
-      controller.signal
-    )
+    void loadFoodProduct(detailFatSecretFoodId, controller.signal, detailRetry)
       .then((result) => {
-        if (!controller.signal.aborted) setProduct(result.product)
+        if (!controller.signal.aborted) {
+          setProduct(result.product)
+          setDraft((current) =>
+            current.map((entry) => {
+              if (entry.foodId !== result.product.code) return entry
+              const serving = result.product.servings?.find(
+                (row) => row.id === entry.servingId
+              )
+              if (!serving?.catalogReceipt) return entry
+              return {
+                ...entry,
+                ...scaleFood(
+                  foodFromProduct(
+                    { ...result.product, servingId: entry.servingId },
+                    entry.meal
+                  ),
+                  entry.quantity
+                ),
+                id: entry.id,
+                notes: entry.notes,
+              }
+            })
+          )
+        }
       })
       .catch((e) => {
         if (!controller.signal.aborted && alive.current)
@@ -268,6 +292,19 @@ export function NutritionComposer({
       })
     return () => controller.abort()
   }, [detailFatSecretFoodId, product?.code, detailRetry])
+  function refreshRejectedServing(problem: unknown, entries: FoodEntry[]) {
+    if (
+      !(problem instanceof Error) ||
+      !problem.message.includes("could not be verified")
+    )
+      return
+    for (const entry of entries)
+      if (entry.foodId) forgetFoodProduct(entry.foodId)
+    setDraft(entries)
+    setProduct(null)
+    setPane("detail")
+    setDetailRetry((value) => value + 1)
+  }
   const changeDraft = (next: FoodEntry[]) => {
     operation.current = randomId()
     setDraft(next)
@@ -455,6 +492,7 @@ export function NutritionComposer({
         onClose()
       }
     } catch (e) {
+      refreshRejectedServing(e, draft)
       toast.update(notification, {
         title: "Food wasn’t confirmed",
         description: (e as Error).message,
@@ -521,6 +559,9 @@ export function NutritionComposer({
       quickOperations.current.delete(key)
       setNotice("")
     } catch (e) {
+      if (e instanceof Error && e.message.includes("could not be verified"))
+        quickOperations.current.delete(key)
+      refreshRejectedServing(e, pending.entries)
       toast.update(notification, {
         title: "Food wasn’t confirmed",
         description: (e as Error).message,
@@ -647,15 +688,14 @@ export function NutritionComposer({
           requestAnimationFrame(() => setTimeout(resolve, 0))
         )
         const product =
-          p.complete && p.servingId
+          p.complete &&
+          p.servingId &&
+          (p.source !== "fatsecret" ||
+            Boolean(
+              p.servings?.find((s) => s.id === p.servingId)?.catalogReceipt
+            ))
             ? p
-            : (
-                await nutritionRequest<{ product: FoodProduct }>(
-                  `/product?id=${encodeURIComponent(p.code)}`,
-                  undefined,
-                  controller.signal
-                )
-              ).product
+            : (await loadFoodProduct(p.code, controller.signal)).product
         if (!alive.current || controller.signal.aborted)
           throw new Error("Food entry cancelled.")
         if (!product.complete || !product.servingId)
@@ -687,12 +727,7 @@ export function NutritionComposer({
       return
     }
     await run(
-      (signal) =>
-        nutritionRequest<{ product: FoodProduct }>(
-          `/product?id=${encodeURIComponent(p.code)}`,
-          undefined,
-          signal
-        ),
+      (signal) => loadFoodProduct(p.code, signal),
       (result) => {
         if (!result.product.complete || !result.product.servingId)
           throw Error("This food has no complete serving. Try another match.")
@@ -864,12 +899,7 @@ export function NutritionComposer({
           onClick={() =>
             void (p && !saved
               ? run(
-                  (signal) =>
-                    nutritionRequest<{ product: FoodProduct }>(
-                      `/product?id=${encodeURIComponent(p.code)}`,
-                      undefined,
-                      signal
-                    ),
+                  (signal) => loadFoodProduct(p.code, signal),
                   (result) => {
                     void saveLibrary(productItem(result.product))
                   }

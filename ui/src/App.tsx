@@ -545,14 +545,21 @@ function AppWorkspace() {
         if (item === "Nutrition" && currentItem !== "Nutrition")
           nutritionReturnRoute.current = currentItem
         if (
-          item === "Calendar" &&
-          activeItem === "Calendar" &&
+          (item === "Calendar" || item === "Annual Plan") &&
+          currentItem === item &&
+          activeItem === item &&
           !selectedReport &&
           !selectedWorkout &&
           !pendingWorkoutId &&
           window.matchMedia("(max-width: 767px)").matches
         ) {
-          window.dispatchEvent(new Event("calendar-go-today"))
+          window.dispatchEvent(
+            new Event(
+              item === "Calendar"
+                ? "calendar-go-today"
+                : "annual-plan-go-current-week"
+            )
+          )
           return
         }
         if (

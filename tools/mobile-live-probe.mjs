@@ -26,6 +26,7 @@ try {
     .join("; ");
   const date = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
   for (const [kind, url] of [
+    ...(process.env.MOBILE_LIVE_STARTUP === "1" ? [["home-data", "/api/training-context?scope=full"]] : []),
     ["nutrition", `/api/nutrition?date=${date}`],
     ["food-search", "/api/nutrition/search?q=oats"],
   ].filter(([kind]) => kind !== "nutrition" || process.env.MOBILE_LIVE_SKIP_DIARY !== "1")) {

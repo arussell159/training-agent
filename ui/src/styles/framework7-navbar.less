@@ -54,6 +54,32 @@
     .navbar-inner {
       padding-top: 6px;
       padding-bottom: 6px;
+      display: grid;
+      grid-template-columns: minmax(44px, 1fr) minmax(0, auto) minmax(44px, 1fr);
+      column-gap: 4px;
+    }
+    .navbar-inner > .left {
+      grid-column: 1;
+      grid-row: 1;
+      justify-self: start;
+      min-width: 0;
+      margin: 0;
+    }
+    .navbar-inner > .title {
+      grid-column: 2;
+      grid-row: 1;
+      justify-self: center;
+      min-width: 0;
+      max-width: 100%;
+      margin: 0;
+      left: auto !important;
+    }
+    .navbar-inner > .right {
+      grid-column: 3;
+      grid-row: 1;
+      justify-self: end;
+      min-width: 0;
+      margin: 0;
     }
     .title h1 {
       margin: 0;

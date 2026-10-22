@@ -165,6 +165,7 @@ export function createNutritionHttp({
           day: entries.every((entry) => entry?.name) ? { ...saved, entries } : null,
           committed: true,
           revision: saved.revision,
+          changedEntries: replayed ? null : payload.entries || [],
         });
       } else if (req.method === "POST" && pathname === "/api/nutrition/targets")
         json(200, await (await getStore(req)).setTargets(await bodyJson(req, 10000)));

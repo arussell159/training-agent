@@ -1,9 +1,5 @@
 import { StrictMode, useLayoutEffect } from "react"
 import { createRoot } from "react-dom/client"
-import Framework7 from "framework7/lite"
-import Dialog from "framework7/components/dialog"
-import Sortable from "framework7/components/sortable"
-import Framework7React, { App as Framework7App } from "framework7-react"
 
 import "./index.css"
 import "./styles/framework7-navbar.less"
@@ -27,11 +23,8 @@ const recoveredUrl = cleanAppShellRecoveryUrl(window.location.href)
 if (recoveredUrl)
   window.history.replaceState(window.history.state, "", recoveredUrl)
 
-// Sortable installs its touch handlers during app init. Other feature modules
-// register with their lazy route before its controls render.
-// Framework7's plugin registration method is not a React Hook.
-// eslint-disable-next-line react-hooks/rules-of-hooks
-Framework7.use([Framework7React, Dialog, Sortable])
+// Navigation uses semantic HTML. Feature routes initialize Framework7 on demand.
+document.documentElement.classList.add("ios")
 
 // Keep gestures as scrolling/inspection rather than changing the app scale.
 document.addEventListener("gesturestart", (event) => event.preventDefault(), {
@@ -89,13 +82,7 @@ function BootReady() {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BootReady />
-    <Framework7App
-      name="Training Agent"
-      theme="ios"
-      sortable={{ moveElements: false }}
-      clicks={{ externalLinks: "a" }}
-      touch={{ activeState: false, touchRipple: false, touchHighlight: false }}
-    >
+    <div id="framework7-root" className="framework7-root">
       <AppAuth>
         <ThemeProvider>
           <TooltipProvider>
@@ -108,6 +95,6 @@ createRoot(document.getElementById("root")!).render(
           </TooltipProvider>
         </ThemeProvider>
       </AppAuth>
-    </Framework7App>
+    </div>
   </StrictMode>
 )

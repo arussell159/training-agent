@@ -21,6 +21,10 @@ import {
   rankFoodProducts,
 } from "./nutrition-providers.mjs";
 import { createNutritionHttp } from "./nutrition-http.mjs";
+import {
+  createFoodCatalog as createFatSecretCatalog,
+  entryFromFatSecret,
+} from "./nutrition-fatsecret.mjs";
 
 function memoryRecords() {
   const data = new Map();
@@ -603,4 +607,169 @@ test("food commit returns a durable receipt without post-commit provider work an
   assert.equal(calls, 1);
   assert.equal((await store.receipt(payload.date, payload.operationId)).entries.length, 1);
   assert.match(saved.headers["Server-Timing"], /nutrition;dur=/);
+});
+
+test("a six-food meal uses one detail lookup per food and zero provider calls for six durable saves or replays", async (t) => {
+  let providerCalls = 0,
+    allowProvider = true;
+  const catalog = createFatSecretCatalog({
+    env: () => ({
+      FATSECRET_CONSUMER_KEY: "dummy-account",
+      FATSECRET_CONSUMER_SECRET: "dummy-secret",
+    }),
+    fetchImpl: async (url) => {
+      assert.ok(allowProvider, "Saving an already-verified food must not contact the provider");
+      providerCalls++;
+      const id = new URL(url).searchParams.get("food_id");
+      return new Response(
+        JSON.stringify({
+          food: {
+            food_id: id,
+            food_name: `Test food ${id}`,
+            servings: {
+              serving: {
+                serving_id: `${id}1`,
+                serving_description: "100 g",
+                measurement_description: "g",
+                number_of_units: "100",
+                metric_serving_amount: "100",
+                metric_serving_unit: "g",
+                calories: "100",
+                protein: "10",
+                carbohydrate: "10",
+                fat: "2",
+                fiber: "1",
+              },
+            },
+          },
+        })
+      );
+    },
+  });
+  const store = createNutritionStore(memoryRecords());
+  // Representative existing long history: writes must not hydrate any of it.
+  await store.change(
+    add({
+      date: "2026-10-20",
+      entries: Array.from({ length: 30 }, (_, i) =>
+        food({
+          id: `history-food-${i}`,
+          source: "fatsecret",
+          foodId: String(1000 + i),
+          servingId: `${1000 + i}1`,
+        })
+      ),
+    })
+  );
+  await store.change(
+    add({
+      date: "2026-10-20",
+      revision: 1,
+      operationId: "history-more-123",
+      entries: Array.from({ length: 12 }, (_, i) =>
+        food({
+          id: `history-more-${i}`,
+          source: "fatsecret",
+          foodId: String(3000 + i),
+          servingId: `${3000 + i}1`,
+        })
+      ),
+    })
+  );
+  const selected = [];
+  for (let i = 0; i < 6; i++) {
+    const id = String(5000 + i);
+    selected.push(
+      entryFromFatSecret(await catalog.product(id), `${id}1`, 1, "lunch", `meal-food-${i}`)
+    );
+  }
+  assert.equal(providerCalls, 6);
+  allowProvider = false;
+  const handler = createNutritionHttp({ getStore: async () => store, catalog, env: () => ({}) });
+  const timings = [];
+  for (let i = 0; i < selected.length; i++) {
+    const start = performance.now();
+    const payload = add({
+      date: "2026-10-21",
+      revision: i,
+      operationId: `meal-operation-${i}`,
+      entries: [selected[i]],
+    });
+    const result = await request(handler, {
+      route: "/api/nutrition/entries",
+      method: "POST",
+      payload,
+    });
+    timings.push(performance.now() - start);
+    assert.equal(result.status, 200);
+    assert.equal(result.body.committed, true);
+    assert.equal(result.body.changedEntries[0].calories, 100);
+    assert.equal(result.body.revision, i + 1);
+    const replay = await request(handler, {
+      route: "/api/nutrition/entries",
+      method: "POST",
+      payload,
+    });
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.revision, i + 1);
+    assert.equal(replay.body.changedEntries, null);
+  }
+  assert.equal(providerCalls, 6);
+  assert.equal((await store.receipt("2026-10-21", "meal-operation-5")).entries.length, 6);
+  assert.ok(
+    timings.every((time) => time < 100),
+    "Synthetic in-memory saves should finish immediately"
+  );
+  // Reproduce the old request pattern with the same backend/provider fixture:
+  // details -> unverified write -> whole-week refresh after every food.
+  allowProvider = true;
+  const baseline = createNutritionStore(memoryRecords());
+  const history = (await store.receipt("2026-10-20", "history-more-123")).entries.map((entry) =>
+    food(entry)
+  );
+  for (let offset = 0; offset < history.length; offset += 30)
+    await baseline.change(
+      add({
+        date: "2026-10-20",
+        revision: offset ? 1 : 0,
+        operationId: `baseline-history-${offset}`,
+        entries: history.slice(offset, offset + 30),
+      })
+    );
+  const oldHandler = createNutritionHttp({
+    getStore: async () => baseline,
+    catalog,
+    env: () => ({}),
+  });
+  const before = providerCalls;
+  for (let i = 0; i < selected.length; i++) {
+    const { catalogReceipt: _receipt, catalogExpiresAt: _expiry, ...unverified } = selected[i];
+    const saved = await request(oldHandler, {
+      route: "/api/nutrition/entries",
+      method: "POST",
+      payload: add({
+        date: "2026-10-21",
+        revision: i,
+        operationId: `baseline-meal-${i}`,
+        entries: [unverified],
+      }),
+    });
+    assert.equal(saved.status, 200);
+    const refreshed = await request(oldHandler, { route: "/api/nutrition?date=2026-10-21" });
+    assert.equal(refreshed.status, 200);
+    assert.ok(refreshed.body.week.every((day) => !day.unavailable));
+  }
+  const legacyCalls = providerCalls - before + selected.length;
+  assert.equal(legacyCalls, 285);
+  t.diagnostic(
+    JSON.stringify({
+      scenario: "synthetic six-food meal with 42 previous foods",
+      baselineProviderCalls: legacyCalls,
+      afterProviderCalls: 6,
+      afterSaveProviderCalls: 0,
+      saves: 6,
+      lostResponseReplays: 6,
+      syntheticSaveMs: timings.map((ms) => Math.round(ms * 100) / 100),
+    })
+  );
 });
