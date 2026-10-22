@@ -139,6 +139,7 @@ export interface LibraryWorkout {
 
 export interface TrainingContext {
   athlete: {
+    sport_settings?: import("../../../app-backend/lib/workout-editor-zones.mjs").SportZoneSettings[]
     time_zone?: string
     name?: string
     race?: string
@@ -952,6 +953,8 @@ export async function saveCalendarNote(input: {
 export async function createPlannedWorkout(input: {
   model: import("../../../app-backend/lib/workout-editor-model.mjs").WorkoutModel
   values: Partial<WorkoutSummaryValues>
+  completedValues?: Partial<WorkoutSummaryValues>
+  zoneSettings?: import("../../../app-backend/lib/workout-editor-zones.mjs").SportZoneSettings[]
   time: string
   comment: string
   creationId: string
@@ -962,7 +965,7 @@ export async function createPlannedWorkout(input: {
   recurrence?: import("./workout-recurrence").WorkoutRecurrenceDraft | null
   personalId?: string
 }) {
-  if (/^(Swim|Ride|Run)$/.test(input.model.sport)) {
+  if (/^(Swim|Ride|Run)$/.test(input.model.sport) || input.completedValues) {
     await restoreWorkoutCommits()
     const accepted = localCommittedWorkout(`app:${input.creationId}`)
     // A crash may occur after IDB commits but before the old creation-recovery
@@ -972,7 +975,7 @@ export async function createPlannedWorkout(input: {
       if (accepted.deleted) throw Object.assign(Error("This workout was already deleted. Start a separate workout to create another."), {status:409,code:"DELETED"})
       return {workout:accepted.workout,revision:accepted.revision,accepted:true,verified:accepted.state === "synced",durableBoundary:"local" as const,syncStatus:accepted.state,context:undefined as TrainingContext | undefined,refreshWarning:accepted.state === "synced" ? undefined : "Saved on this device; sync pending."}
     }
-    if (!input.reconcileOnly) return acceptWorkoutCommit(null, input)
+    if (!input.reconcileOnly) return acceptWorkoutCommit(null, {...input,zoneSettings:input.zoneSettings || cachedTrainingContext().athlete.sport_settings})
   }
   const seconds = input.values.duration_seconds || 0
   const description = input.description ?? input.model.notes
@@ -1097,16 +1100,17 @@ async function performCoachScheduling(proposal:import("./coach-client").Calendar
 
 /** Bound the entire editor response, including its body, and never replay it. */
 export async function writeWorkoutEditor(id: string | null, input: {
+  completedEditableFields?: string[]
   model: import("../../../app-backend/lib/workout-editor-model.mjs").WorkoutModel
   revision?: string; creationId?: string; reconcileOnly?: boolean
-  values?: Partial<WorkoutSummaryValues>; time?: string; description?: string; descriptionMode?: "manual"; comment?: string; commentId?: string
+  values?: Partial<WorkoutSummaryValues>; completedValues?: Partial<WorkoutSummaryValues>; time?: string; description?: string; descriptionMode?: "manual"; comment?: string; commentId?: string
   personal?: import("./workout-local-metadata").WorkoutLocalMetadata
   recurrence?: import("./workout-recurrence").WorkoutRecurrenceDraft | null
   comments?: {id:string;body:string}[]; zoneSettings?: import("../../../app-backend/lib/workout-editor-zones.mjs").SportZoneSettings[]; personalId?: string
 }) {
-  if (/^(Swim|Ride|Run)$/.test(input.model.sport) && !input.reconcileOnly) {
-    const previous = [...cachedTrainingContext().planned, ...cachedTrainingContext().history].find(row => "id" in row && row.id === id) as PlannedWorkout | undefined
-    return acceptWorkoutCommit(id, input, previous)
+  if ((/^(Swim|Ride|Run)$/.test(input.model.sport) || id?.startsWith("activity:") || input.completedValues) && !input.reconcileOnly) {
+    const previous = [...cachedTrainingContext().planned, ...cachedTrainingContext().history].find(row => "id" in row && (row.id === id || (id?.startsWith("activity:") && "activity_id" in row && row.activity_id === id.slice(9)))) as PlannedWorkout | undefined
+    return acceptWorkoutCommit(id, {...input,zoneSettings:input.zoneSettings || cachedTrainingContext().athlete.sport_settings}, previous)
   }
   const {response,result}=await readMutationResponse<{
     verified?:boolean;workout?:PlannedWorkout;context?:TrainingContext;revision?:string;error?:string;code?:string;refreshWarning?:string

@@ -137,6 +137,7 @@ function fixture({
     busy,
     saving: { current: false },
     valuesDirty,
+    completedDirty:false, completedDraft:{}, completedSavedRef:{current:{}}, setCompletedSaved:()=>{}, activityId:null,
     editable: true,
     durableSave,
     loading: false,

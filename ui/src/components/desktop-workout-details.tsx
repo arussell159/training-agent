@@ -42,6 +42,7 @@ import "./desktop-workout-details.css"
 import type { DesktopWorkoutMetadata } from "./desktop-workout-header"
 import { workoutPresentationSport } from "@/lib/workout-presentation"
 import { localCommittedWorkout } from "@/lib/workout-commits"
+import { completedValueDraft, changedCompletedValues, editableCompletedValue } from "@/lib/completed-workout-values"
 import { WorkoutSyncAction } from "./workout-sync-action"
 import { yieldForWorkoutFeedback } from "@/lib/workout-feedback-frame"
 import { simpleWorkoutModel } from "../../../app-backend/lib/simple-workout.mjs"
@@ -338,6 +339,21 @@ function PlannedTotals({
     : downloaded?.binding === recordedBinding
       ? downloaded.values
       : workout.workout_summary?.completed || {}
+  const [completedSaved, setCompletedSaved] = useState(() => completedValueDraft(completed, sport))
+  const [completedDraft, setCompletedDraft] = useState(() => completedValueDraft({...completed,...recovered?.completedValues}, sport))
+  const completedSavedRef = useRef(completedSaved)
+  const completedSnapshot = JSON.stringify(completed)
+  useEffect(() => {
+    const next = completedValueDraft(JSON.parse(completedSnapshot), sport)
+    // React may run the state updater after this effect has advanced the ref.
+    // Compare typing against the captured old snapshot, never the new remote.
+    const beforeRead = completedSavedRef.current
+    setCompletedDraft(current => mergeLoadedPlannedDraft(current, beforeRead, next))
+    completedSavedRef.current = next
+    setCompletedSaved(next)
+  }, [completedSnapshot, sport])
+  const completedDirty = hasPlannedValueChanges(completedDraft, completedSaved, sport)
+  const completedEditable = !readOnly && (editable || Boolean(activityId))
   const load = useCallback(
     async (signal?: AbortSignal) => {
       if (!editable) return
@@ -459,7 +475,7 @@ function PlannedTotals({
   const valuesDirty =
     Object.keys(metadataPatch).length > 0 ||
     hasPlannedValueChanges(draft, saved, sport)
-  const dirty = valuesDirty || text.dirty || personal.dirty
+  const dirty = valuesDirty || completedDirty || text.dirty || personal.dirty
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
   const canSave = editable || text.editable || !readOnly
   const save = async (close = false) => {
@@ -471,9 +487,11 @@ function PlannedTotals({
       return
     // Keep the form and its draft visible until every changed field is saved.
     let values: ReturnType<typeof changedPlannedValues>
+    let completedValues: ReturnType<typeof changedCompletedValues> | undefined
     try {
       values =
         valuesDirty && editable ? changedPlannedValues(draft, saved, sport) : {}
+      completedValues = completedDirty ? changedCompletedValues(completedDraft, completedSaved, sport) : undefined
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : "Check the planned values."
@@ -489,11 +507,47 @@ function PlannedTotals({
     try {
       await yieldForWorkoutFeedback()
       requireCurrentAccount()
-      if (durableSave) {
+      if (activityId && !readOnly) {
+        const target = `activity:${activityId}`
+        text.retain()
+        const token = retainWorkoutSaveDraft(scope, workout.id, "totals", {values, completedValues, metadata:metadataPatch})
+        const editor = await loadWorkoutEditor(`/api/workouts/${encodeURIComponent(target)}/editor`)
+        requireCurrentAccount()
+        // Read a current provider revision before accepting the intent. A field
+        // changed since this form opened needs review, never silent overwrite.
+        for (const key of Object.keys(completedValues || {}) as Array<keyof WorkoutSummaryValues>) {
+          if (editor.completedValues?.[key] !== completed[key])
+            throw Error("Completed values changed in Intervals.icu. Your draft is retained; reopen the workout to review them.")
+        }
+        const descriptionChanged = text.description !== text.savedDescription
+        if(descriptionChanged && editor.originalDescription !== text.savedDescription)
+          throw Error("The description changed in Intervals.icu. Your draft is retained; reopen it to review both versions.")
+        const model = {...editor.model,
+          ...(metadata?.name !== undefined && metadata.name !== workout.title ? {name:metadata.name} : {}),
+          ...(metadata?.date !== undefined && metadata.date !== workout.workout_date ? {date:metadata.date} : {})}
+        const result = await writeWorkoutEditor(target, {
+          model, revision:editor.revision, completedValues,
+          completedEditableFields:editor.completedEditableFields,
+          ...(descriptionChanged ? {description:text.description, descriptionMode:"manual" as const} : {}),
+          comment:text.comment, commentId:text.creationId,
+          ...(metadata?.time !== undefined && metadata.time !== (workout.scheduled_start_at?.slice(11,16) || "") ? {time:metadata.time} : {}),
+          comments:text.comments.map(item=>({id:item.id,body:item.body})),
+        })
+        requireCurrentAccount()
+        clearWorkoutSaveDraft(scope, workout.id, "totals", token)
+        setCompletedSaved(completedDraft)
+        completedSavedRef.current = completedDraft
+        text.acceptCommitted()
+        if (personal.dirty) await personal.save()
+        setNotice(result.refreshWarning || "Saved on this device; sync pending.")
+        if (close) onClose?.()
+        return
+      }
+      if (durableSave || completedValues) {
         // Save all visible fields with the complete editor prescription in the
         // same durable transaction. No separate personal/text write precedes it.
         text.retain()
-        const token = retainWorkoutSaveDraft(scope, workout.id, "totals", {values, metadata:metadataPatch})
+        const token = retainWorkoutSaveDraft(scope, workout.id, "totals", {values, completedValues, metadata:metadataPatch})
         const local = localCommittedWorkout(workout.id)
         let model = structuredClone(local?.input.model || editorModel.current || workout.editor_model)
         let currentRevision = local?.revision || revision
@@ -511,7 +565,7 @@ function PlannedTotals({
         else model = {...model,name,date}
         loadGeneration.current++
         const result = await writeWorkoutEditor(workout.id, {
-          model, revision:currentRevision, values, description:text.description,
+          model, revision:currentRevision, values, completedValues, description:text.description,
           descriptionMode:"manual", comment:text.comment, commentId:text.creationId,
           time:metadata?.time ?? workout.scheduled_start_at?.slice(11,16) ?? "",
           personal:personal.value,
@@ -524,6 +578,8 @@ function PlannedTotals({
         setSaved(next)
         setDraft(next)
         setRevision(result.revision)
+        setCompletedSaved(completedDraft)
+        completedSavedRef.current = completedDraft
         setLoading(false)
         clearWorkoutSaveDraft(scope,workout.id,"totals",token)
         clearWorkoutSaveDraft(scope,workout.id,"personal")
@@ -775,9 +831,17 @@ function PlannedTotals({
                     )}
                   </td>
                   <td>
-                    <output
+                    {completedEditable && editableCompletedValue(key) && (!activityId || text.completedEditableFields.includes(key)) ? <input
+                      aria-label={`Completed ${label.toLowerCase()}`}
+                      value={plannedDraftValue(completedDraft, key, sport, presentation)}
+                      disabled={busy || Boolean(activityId && recordedStatus.loading)}
+                      inputMode={key === "duration_seconds" ? "text" : "decimal"}
+                      onFocus={event=>event.currentTarget.select()}
+                      onChange={event=>{setError("");setCompletedDraft(current=>updatePlannedValueDraft(current,key,event.target.value,sport,false,presentation))}}
+                    /> : <output
                       className="desktop-recorded-value"
                       aria-label={`Completed ${label.toLowerCase()}`}
+                      title={activityId && key === "duration_seconds" ? "Intervals.icu does not support changing an existing activity's duration through this integration." : undefined}
                     >
                       {formatPlannedValue(
                         key,
@@ -786,7 +850,7 @@ function PlannedTotals({
                         true,
                         presentation
                       ) || "—"}
-                    </output>
+                    </output>}
                   </td>
                   <td>{unit}</td>
                 </tr>

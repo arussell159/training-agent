@@ -98,6 +98,7 @@ test("actual details save stops before planned values/text when personal fields 
       busy: false,
       saving: { current: false },
       valuesDirty: true,
+      completedDirty:false, activityId:null,
       editable: true,
       durableSave:false,
       loading: false,
@@ -141,7 +142,7 @@ test("durable details acceptance under a revoked account cannot publish saved fi
   const account=guard(),writes=[],state=[],errors=[]
   const model={version:1,name:"Run",sport:"Run",date:"2026-10-21",notes:"",poolLength:"",steps:[{id:"a",kind:"step",label:"Active",notes:"",role:"active",end:{kind:"time",unit:"s",value:600},target:{kind:"none"},cadence:null}]}
   const save=actual("components/desktop-workout-details.tsx",variable("save"),{
-    busy:false,saving:{current:false},valuesDirty:true,editable:true,durableSave:true,
+    busy:false,saving:{current:false},valuesDirty:true,completedDirty:false,activityId:null,editable:true,durableSave:true,
     loading:false,revision:"R1",draft:{},saved:{},sport:"Run",scope:"old-owner",
     workout:{id:"event:11",title:"Run",workout_date:"2026-10-21",editor_model:model},metadata:undefined,metadataPatch:{},
     editorModel:{current:model},editorZones:{current:[]},loadGeneration:{current:0},localCommittedWorkout:()=>null,structuredClone,

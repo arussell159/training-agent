@@ -317,6 +317,7 @@ export function mapIntervalsWorkout(
       "distance_meters" in overrides
         ? overrides.distance_meters
         : ((value === item && !isActivity ? value.distance_target : null) ??
+          (value === actual ? value.icu_distance : null) ??
           (freeformPlan ? null : value.distance) ??
           (freeformPlan ? null : value.workout_doc?.distance) ??
           null);
@@ -407,7 +408,8 @@ export function mapIntervalsWorkout(
     sport: sport(item.type),
     title: item.name || `${sport(item.type)} ${isActivity ? "activity" : "event"}`,
     duration: noDeviceIntervals && plannedSeconds == null ? "" : duration(plannedSeconds),
-    distance_meters: actual?.distance ?? summary(item)?.distance_meters ?? null,
+    distance_meters:
+      actual?.icu_distance ?? actual?.distance ?? summary(item)?.distance_meters ?? null,
     plannedDurationMinutes: isActivity ? 0 : minutes,
     actualDurationMinutes: actualMinutes,
     goal: sourceDescription,
@@ -428,14 +430,16 @@ export function mapIntervalsWorkout(
       ? {
           duration_minutes: actualMinutes,
           tss: actual.icu_training_load ?? 0,
-          distance: actual.distance,
+          distance: actual.icu_distance ?? actual.distance,
           avg_hr: actual.average_heartrate,
           avg_power: actual.icu_average_watts,
           power_watts: actual.icu_average_watts,
           normalized_power: actual.icu_weighted_avg_watts,
           rpe: actual.icu_rpe,
           pace_seconds_per_unit:
-            actual.distance > 0 ? actual.moving_time / actual.distance : undefined,
+            (actual.icu_distance ?? actual.distance) > 0
+              ? actual.moving_time / (actual.icu_distance ?? actual.distance)
+              : undefined,
         }
       : {},
     // Calendar dates are local all-day values, not UTC timestamps.

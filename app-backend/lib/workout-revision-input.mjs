@@ -27,6 +27,7 @@ export function workoutRevisionInput(event) {
     "commute",
     "moving_time",
     "distance",
+    "icu_distance",
     "time_target",
     "distance_target",
     "load_target",
@@ -34,6 +35,11 @@ export function workoutRevisionInput(event) {
     "icu_intensity",
     "joules",
     "athlete_cannot_edit",
+    "paired_event_id",
+    "calories",
+    "total_elevation_gain",
+    "icu_rpe",
+    "feel",
   ];
   const stable = (value) =>
     Array.isArray(value)

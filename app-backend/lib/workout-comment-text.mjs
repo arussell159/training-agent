@@ -2,6 +2,22 @@
 // ignored by the device workout parser. No app-only copy is needed for recovery.
 const marker = "\n\n```training-agent-workout-comments-v1\n";
 const block = /\n\n```training-agent-workout-comments-v1\n[^]*?\n```/g;
+const renderedBlock = /\r?\n\r?\n\[Workout comments\]\r?\n[^]*?\r?\n\[\/Workout comments\]/g;
+export function stripRenderedWorkoutComments(description) {
+  return String(description || "").replace(renderedBlock, "");
+}
+export function renderedWorkoutComments(comments, newline = "\n") {
+  if (!comments.length) return "";
+  // Quote every body line so an athlete's comment can never become a device
+  // interval instruction, even when it contains dashes or code fences.
+  const rows = comments.map((item) =>
+    [
+      `${item.type === "pre" ? "Pre-workout" : "Post-activity"} · ${item.created_at}`,
+      ...item.body.split(/\r?\n/).map((line) => `> ${line.replaceAll("`", "ˋ")}`),
+    ].join(newline)
+  );
+  return `${newline}${newline}[Workout comments]${newline}${rows.join(newline + newline)}${newline}[/Workout comments]`;
+}
 export function readWorkoutCommentText(description, workoutId, strict = false) {
   const text = String(description || ""),
     index = text.indexOf(marker);
@@ -36,7 +52,7 @@ export function readWorkoutCommentText(description, workoutId, strict = false) {
   }
 }
 export function stripWorkoutCommentText(description) {
-  return String(description || "").replace(block, "");
+  return stripRenderedWorkoutComments(String(description || "").replace(block, ""));
 }
 export function withWorkoutCommentText(description, comments) {
   const text = stripWorkoutCommentText(description);

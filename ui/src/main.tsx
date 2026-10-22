@@ -18,6 +18,9 @@ import { InteractionFeedback } from "@/components/interaction-feedback"
 import { WorkoutSyncFeedback } from "@/components/workout-sync-feedback"
 import { NutritionSyncFeedback } from "@/components/nutrition-sync-feedback"
 import { cleanAppShellRecoveryUrl } from "@/lib/app-shell-recovery"
+import { installAssetPreloadRecovery } from "@/lib/asset-preload-recovery"
+
+installAssetPreloadRecovery()
 
 const recoveredUrl = cleanAppShellRecoveryUrl(window.location.href)
 if (recoveredUrl)

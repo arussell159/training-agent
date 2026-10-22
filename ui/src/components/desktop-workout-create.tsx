@@ -33,6 +33,8 @@ import {
   updatePlannedValueDraft,
 } from "@/lib/planned-workout-values"
 import { randomId } from "@/lib/random-id"
+import { completedValueDraft, changedCompletedValues, editableCompletedValue } from "@/lib/completed-workout-values"
+import type { PlannedValueDraft } from "@/lib/planned-workout-values"
 import {
   readPendingWorkoutCreation,
   inspectPendingWorkoutCreation,
@@ -207,6 +209,7 @@ export function DesktopWorkoutCreate(props: DesktopWorkoutCreateProps) {
 
 // A certified rejection is editable local recovery, never a pending provider intent.
 const rejectedCreationSection = "rejected-create"
+type EditorRecovery = {creationId:string;metadata:DesktopWorkoutMetadata;draft:PlannedValueDraft;completedDraft:PlannedValueDraft;description:string;comment:string;sport:string;variant?:WorkoutVariant;structure:WorkoutModel|null;personal?:import("@/lib/workout-local-metadata").WorkoutLocalMetadata;recurrence?:WorkoutRecurrenceDraft|null}
 function readRejectedCreation(scope: string) {
   return readWorkoutSaveDraft<PendingWorkoutCreation>(scope,"new-workout",rejectedCreationSection,input => input?.reconcileOnly === false && Boolean(readPendingWorkoutCreation({getItem:()=>JSON.stringify({version:1,input}),setItem:()=>{},removeItem:()=>{}},scope)))?.value || null
 }
@@ -235,6 +238,7 @@ function LegacyDesktopWorkoutCreate({
     }
   }, [])
   const [scope] = useState(trainingCacheScope)
+  const [editorRecovery] = useState(()=>readWorkoutSaveDraft<EditorRecovery>(scope,"new-workout","editor",value=>Boolean(value?.creationId && value.metadata && value.draft && typeof value.description==="string" && typeof value.comment==="string"))?.value)
   const [recovered] = useState(() => {
     try {
       return readPendingWorkoutCreation(localStorage, scope) || readRejectedCreation(scope)
@@ -242,43 +246,44 @@ function LegacyDesktopWorkoutCreate({
       return null
     }
   })
-  const [creationId] = useState(() => recovered?.creationId || randomId())
+  const [creationId] = useState(() => recovered?.creationId || editorRecovery?.creationId || randomId())
   const [seedModel] = useState(
     () =>
       recovered?.model || (initialModel ? structuredClone(initialModel) : null)
   )
-  const personal = useWorkoutPersonalFields(scope, `draft:${creationId}`)
+  const personal = useWorkoutPersonalFields(scope, `draft:${creationId}`, !recovered ? editorRecovery?.personal : undefined)
   const [recurrence, setRecurrence] = useState<WorkoutRecurrenceDraft | null>(
     () =>
       readWorkoutSaveDraft<WorkoutRecurrenceDraft>(
         scope,
         `draft:${creationId}`,
         "recurrence"
-      )?.value || null
+      )?.value || (!recovered ? editorRecovery?.recurrence : null) || null
   )
   const [selectedSport, setSelectedSport] = useState(
-    seedModel?.sport || initialSport
+    seedModel?.sport || editorRecovery?.sport || initialSport
   )
   const [selectedVariant, setSelectedVariant] = useState(
-    seedModel?.variant || initialVariant
+    seedModel?.variant || editorRecovery?.variant || initialVariant
   )
   const [selectionChanged, setSelectionChanged] = useState(false)
-  const [metadata, setMetadata] = useState<DesktopWorkoutMetadata>({
+  const [metadata, setMetadata] = useState<DesktopWorkoutMetadata>(editorRecovery && !recovered ? editorRecovery.metadata : {
     name: seedModel?.name || "",
     date: seedModel?.date || date,
     time: recovered?.time || "",
   })
   const [draft, setDraft] = useState(() =>
-    plannedValueDraft(
+    editorRecovery && !recovered ? editorRecovery.draft : plannedValueDraft(
       recovered?.values,
       workoutPresentationSport(
         seedModel || { sport: initialSport, variant: initialVariant }
       )
     )
   )
-  const [description, setDescription] = useState(seedModel?.notes || "")
-  const [comment, setComment] = useState(recovered?.comment || "")
-  const [structure, setStructure] = useState<WorkoutModel | null>(seedModel)
+  const [completedDraft, setCompletedDraft] = useState(()=>editorRecovery?.completedDraft || completedValueDraft(recovered?.completedValues,initialSport))
+  const [description, setDescription] = useState(seedModel?.notes || editorRecovery?.description || "")
+  const [comment, setComment] = useState(recovered?.comment || editorRecovery?.comment || "")
+  const [structure, setStructure] = useState<WorkoutModel | null>(seedModel || editorRecovery?.structure || null)
   const nativeSport = structure?.sport || selectedSport
   const variant = structure ? structure.variant : selectedVariant
   const sport = workoutPresentationSport({ sport: nativeSport, variant })
@@ -339,6 +344,7 @@ function LegacyDesktopWorkoutCreate({
     personal.dirty ||
     recurrence ||
     structure ||
+    hasPlannedValueChanges(completedDraft,completedValueDraft(null,sport),sport) ||
     hasPlannedValueChanges(draft, plannedValueDraft(null, sport), sport)
   )
   const navigationResolve = useRef<((allowed:boolean)=>void)|null>(null)
@@ -349,7 +355,18 @@ function LegacyDesktopWorkoutCreate({
     clearRejectedCreation(scope,creationId)
     removeWorkoutLocalMetadata(scope,`draft:${creationId}`)
     clearWorkoutSaveDraft(scope,`draft:${creationId}`,"recurrence")
+    clearWorkoutSaveDraft(scope,"new-workout","editor")
   }
+  const shellRecovery = useRef<()=>void>(()=>{})
+  shellRecovery.current=()=>{
+    if(!account.isCurrent() || saving.current || busy || personal.busy || files.busy)throw Error("Wait for this workout save before reloading.")
+    retainWorkoutSaveDraft(scope,"new-workout","editor",{creationId,metadata,draft,completedDraft,description,comment,sport:nativeSport,variant,structure,personal:personal.value,recurrence} satisfies EditorRecovery,{requirePersistent:true})
+  }
+  useEffect(()=>{
+    const persist=(event:Event)=>{try{shellRecovery.current()}catch{event.preventDefault();setError("This draft could not be stored. Return to the workout before reloading.")}}
+    window.addEventListener("training-prepare-shell-recovery",persist)
+    return()=>window.removeEventListener("training-prepare-shell-recovery",persist)
+  },[])
   const prepareNavigation = async () => {
     navigationCleanup.current=false
     if(saving.current || busy || personal.busy || !account.isCurrent() || discardPending)return false
@@ -507,7 +524,9 @@ function LegacyDesktopWorkoutCreate({
       }
       // The builder shares this draft but owns its own loaded snapshot. Pick up
       // files added there before deciding whether personal data must migrate.
-      const durableSave = /^(Swim|Ride|Run)$/.test(nativeSport) && !uncertain
+      const completedValues = submitted.current?.completedValues || changedCompletedValues(completedDraft,completedValueDraft(null,sport),sport)
+      const hasCompletedValues = Object.keys(completedValues).length > 0
+      const durableSave = (/^(Swim|Ride|Run)$/.test(nativeSport) || hasCompletedValues) && !uncertain
       if (built && !uncertain && !durableSave) await personal.refresh()
       if(!account.ownsAccount())throw Error("The connected account changed. Reopen this workout.")
       const planned = submitted.current?.values || built?.values || changedPlannedValues(draft, blank, sport)
@@ -518,6 +537,7 @@ function LegacyDesktopWorkoutCreate({
         date: built?.model.date || metadata.date,
         description: built?.model.notes ?? description,
         values: planned,
+        ...(hasCompletedValues ? {completedValues} : {}),
       }
       const model =
         submitted.current?.model || built?.model ||
@@ -534,7 +554,9 @@ function LegacyDesktopWorkoutCreate({
         descriptionMode: "manual" as const,
         description: base.description,
         values: planned,
+        ...(hasCompletedValues ? {completedValues} : {}),
         time: built?.time ?? metadata.time,
+        ...(built?.zoneSettings ? {zoneSettings:built.zoneSettings} : {}),
         comment: built?.comment ?? comment,
         creationId,
       }
@@ -560,6 +582,8 @@ function LegacyDesktopWorkoutCreate({
       const result = await createPlannedWorkout({
         model: input.model,
         values: input.values,
+        ...(input.completedValues ? {completedValues:input.completedValues} : {}),
+        ...(input.zoneSettings ? {zoneSettings:input.zoneSettings} : {}),
         time: input.time,
         comment: input.comment,
         creationId: input.creationId,
@@ -612,6 +636,7 @@ function LegacyDesktopWorkoutCreate({
         /* Optional storage. */
       }
       clearRejectedCreation(scope,creationId)
+      clearWorkoutSaveDraft(scope,"new-workout","editor")
       // Dismiss only after provider confirmation. A failed Save & Close keeps
       // the same editor and draft visible; a retired popup cannot affect a new one.
       if (mounted.current && account.isCurrent())
@@ -814,6 +839,13 @@ function LegacyDesktopWorkoutCreate({
             onSportChange={(next) => {
               setError("")
               const selection = workoutSelection(next)
+              try {
+                const nativeValues = changedCompletedValues(completedDraft,completedValueDraft(null,sport),sport)
+                setCompletedDraft(completedValueDraft(nativeValues,workoutPresentationSport(selection)))
+              } catch (reason) {
+                setError(reason instanceof Error ? reason.message : "Check completed values before changing sport.")
+                return
+              }
               setSelectedSport(selection.sport)
               setSelectedVariant(selection.variant)
               setSelectionChanged(true)
@@ -970,10 +1002,17 @@ function LegacyDesktopWorkoutCreate({
                                 )}
                               </td>
                               <td>
-                                <output
+                                {editableCompletedValue(key) ? <input
+                                  aria-label={`Completed ${label.toLowerCase()}`}
+                                  value={plannedDraftValue(completedDraft,key,sport,presentation)}
+                                  disabled={disabled}
+                                  inputMode={key==="duration_seconds" ? "text" : "decimal"}
+                                  onFocus={event=>event.currentTarget.select()}
+                                  onChange={event=>{setError("");setCompletedDraft(current=>updatePlannedValueDraft(current,key,event.target.value,sport,false,presentation))}}
+                                /> : <output
                                   aria-label={`Completed ${label.toLowerCase()}`}
                                   className="desktop-recorded-value"
-                                />
+                                />}
                               </td>
                               <td>{unit}</td>
                             </tr>

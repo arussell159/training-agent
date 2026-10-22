@@ -4,6 +4,11 @@ import fs from "node:fs"
 import { createRequire } from "node:module"
 import { renderToStaticMarkup } from "../node_modules/react-dom/server.node.js"
 import ts from "../node_modules/typescript/lib/typescript.js"
+import {
+  completedValueDraft,
+  changedCompletedValues,
+} from "../src/lib/completed-workout-values.ts"
+import { mergeLoadedPlannedDraft } from "../src/lib/planned-workout-values.ts"
 
 const code = fs.readFileSync(
     new URL("../src/components/desktop-workout-details.tsx", import.meta.url),
@@ -125,6 +130,62 @@ test("actual binding includes workout and activity identity, revision, session, 
     assert.notEqual(
       evaluate(expression("recordedBinding"), { ...values, ...changed }),
       key
+    )
+  }
+})
+
+test("deferred completed snapshot updates preserve typing without turning untouched derived readings into writes", () => {
+  const effect = find(
+    (node) =>
+      ts.isCallExpression(node) &&
+      node.expression.getText(file) === "useEffect" &&
+      node.arguments[0]
+        ?.getText(file)
+        .includes("completedSavedRef.current = next")
+  ).arguments[0].getText(file)
+  const old = completedValueDraft(
+    {
+      duration_seconds: 1080,
+      distance_meters: 1609.344,
+      average_speed: 1609.344 / 1080,
+    },
+    "Run"
+  )
+  const remote = {
+    duration_seconds: 1080,
+    distance_meters: 1609.344,
+    average_speed: null,
+  }
+  for (const typed of [false, true]) {
+    const reference = { current: old },
+      queue = []
+    let saved
+    evaluate(effect, {
+      completedValueDraft,
+      mergeLoadedPlannedDraft,
+      completedSnapshot: JSON.stringify(remote),
+      sport: "Run",
+      completedSavedRef: reference,
+      setCompletedDraft: (updater) => queue.push(updater),
+      setCompletedSaved: (next) => {
+        saved = next
+      },
+    })()
+    assert.equal(reference.current.average_speed, "")
+    assert.equal(queue.length, 1)
+    // WebKit/concurrent React can defer this until after the ref has advanced.
+    const merged = queue[0]({
+      ...old,
+      ...(typed ? { distance_meters: "1.25" } : {}),
+    })
+    assert.equal(
+      merged.average_speed,
+      "",
+      "Untouched old pace is replaced by the authoritative snapshot"
+    )
+    assert.deepEqual(
+      changedCompletedValues(merged, saved, "Run"),
+      typed ? { distance_meters: 2011.68 } : {}
     )
   }
 })

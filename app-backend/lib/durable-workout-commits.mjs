@@ -21,9 +21,23 @@ import {
   hasManualWorkoutDescription,
   readManualWorkoutDescription,
 } from "./workout-manual-description.mjs";
+import {
+  assertActivityEditable,
+  completedActivityPatch,
+  completedActivityPath,
+  completePlannedWorkout,
+  loadCompletedWorkoutEditor,
+  saveCompletedWorkout,
+  validateCompletedValues,
+  completedWorkoutModel,
+  completedValues,
+} from "./completed-workout-edits.mjs";
+import { saveNativeActivityComment } from "./native-workout-comments.mjs";
+import { saveProviderWorkoutComment } from "./provider-workout-comments.mjs";
+import { readWorkoutCommentText, stripWorkoutCommentText } from "./workout-comment-text.mjs";
 
 const uuid = /^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i;
-const idPattern = /^(event:[1-9]\d*|app:[a-f\d-]{36})$/i;
+const idPattern = /^(event:[1-9]\d*|activity:i?[1-9]\d*|app:[a-f\d-]{36})$/i;
 const fresh = () => ({ version: 1, workouts: {}, operations: {} });
 const fail = (message, status = 400, code = "INVALID_COMMIT") => {
   throw Object.assign(Error(message), { status, code });
@@ -69,7 +83,9 @@ export function createDurableWorkoutCommits(config, options = {}) {
         ? {
             ...mapIntervalsWorkout(
               event,
-              athleteLocalDate(new Date(clock()), config.TIME_ZONE || "America/Chicago")
+              athleteLocalDate(new Date(clock()), config.TIME_ZONE || "America/Chicago"),
+              row.completedActivity || event._paired_activity,
+              row.id.startsWith("activity:")
             ),
             id: row.id,
             sync_status: row.syncStatus,
@@ -94,6 +110,7 @@ export function createDurableWorkoutCommits(config, options = {}) {
       deleted: row.deleted,
       model: row.input?.model,
       event,
+      completedActivity: row.completedActivity || null,
       workout,
       acceptedAt: row.acceptedAt,
       personal: row.input?.personal,
@@ -104,7 +121,9 @@ export function createDurableWorkoutCommits(config, options = {}) {
   async function accept(input) {
     if (!input || !uuid.test(input.operationId || "")) fail("A stable operation ID is required.");
     const action = input.action;
-    if (!["create", "edit", "move", "delete"].includes(action))
+    if (
+      !["create", "edit", "move", "delete", "edit-activity", "complete", "comment"].includes(action)
+    )
       fail("Choose a supported committed action.");
     const id =
       input.workoutId ||
@@ -113,6 +132,10 @@ export function createDurableWorkoutCommits(config, options = {}) {
       fail("Invalid workout identity.");
     if (action === "create" && !id.startsWith("app:"))
       fail("A new workout requires a stable app identity.");
+    if (id.startsWith("activity:") && !["edit-activity", "comment"].includes(action))
+      fail("Completed activities support metadata edits and comments.");
+    if (action === "edit-activity" && !id.startsWith("activity:"))
+      fail("Choose a completed activity to edit.");
     const payload = structuredClone(input.input || {});
     // The desktop empty start-time field means an all-day workout. ICU stores
     // that as local midnight; retain the empty UI choice in the app input.
@@ -140,14 +163,26 @@ export function createDurableWorkoutCommits(config, options = {}) {
       if (payload.descriptionMode != null && payload.descriptionMode !== "manual")
         fail("Choose a valid description mode.");
       if (payload.values !== undefined) validatePlannedValues(payload.values);
+      if (payload.completedValues !== undefined) validateCompletedValues(payload.completedValues);
+      if (action === "complete" && !(payload.completedValues?.duration_seconds > 0))
+        fail("Enter a completed duration before completing the workout.");
+      if (action === "comment" && !payload.comment?.trim()) fail("Enter a comment before saving.");
       if (payload.personal != null) payload.personal = validateWorkoutPersonal(payload.personal);
-      if (["create", "edit"].includes(action) || payload.model) {
+      if (["create", "edit"].includes(action) || (payload.model && !id.startsWith("activity:"))) {
         const errors = validateWorkout(payload.model);
         if (errors.length) fail(errors.join(". "));
       }
       if (action === "move") validDate(input.date || payload.date);
     });
     const hash = digest({ ...input, workoutId: id });
+    const commentBase =
+      action === "comment" && !input.baseEvent && !payload.model
+        ? await request(
+            id.startsWith("activity:")
+              ? completedActivityPath(id)
+              : `/athlete/0/events/${id.slice(6)}`
+          )
+        : null;
     return record.update((state) => {
       state.workouts ||= {};
       state.operations ||= {};
@@ -166,19 +201,33 @@ export function createDurableWorkoutCommits(config, options = {}) {
         action !== "create" &&
         !input.baseEvent &&
         action !== "edit" &&
+        !["edit-activity", "comment", "complete"].includes(action) &&
         !(action === "delete" && payload.model)
       )
         fail("Reopen the workout before saving.", 409, "BASE_EVENT_REQUIRED");
       if (old && action === "create")
         fail("This workout already exists. Save an edit instead.", 409);
-      const expected = input.revision || payload.revision;
+      const expected =
+        input.revision ||
+        payload.revision ||
+        (action === "comment"
+          ? old
+            ? `app:${old.revision}`
+            : commentBase
+              ? workoutRevision(commentBase)
+              : null
+          : null);
       const base =
         old?.event ||
         input.baseEvent ||
-        (["edit", "delete"].includes(action) && payload.model
+        commentBase ||
+        (["edit", "delete", "edit-activity", "comment", "complete"].includes(action) &&
+        payload.model
           ? {
-              id: id.slice(6),
-              category: "WORKOUT",
+              id: id.startsWith("activity:") ? id.slice(9) : id.slice(6),
+              ...(id.startsWith("activity:") ? {} : { category: "WORKOUT" }),
+              type: payload.model.sport,
+              name: payload.model.name,
               description: "",
               start_date_local: `${payload.model.date}T${payload.time || "00:00"}:00`,
             }
@@ -190,7 +239,8 @@ export function createDurableWorkoutCommits(config, options = {}) {
           "CONFLICT"
         );
       if (!old && action !== "create") {
-        assertEditable(base);
+        if (id.startsWith("activity:")) assertActivityEditable(base);
+        else assertEditable(base);
         if (
           typeof expected !== "string" ||
           !/^[a-f\d]{64}$/i.test(expected) ||
@@ -200,9 +250,15 @@ export function createDurableWorkoutCommits(config, options = {}) {
       }
       if (old?.deleted)
         fail("This workout was deleted. Create a separate workout to restore it.", 409, "DELETED");
-      let modelInput = ["create", "edit"].includes(action)
+      let modelInput = ["create", "edit", "edit-activity", "comment", "complete"].includes(action)
         ? {
             ...(old?.input || {}),
+            // Comment text and completed-value patches belong to one Save.
+            // Carrying them into a later metadata edit would repost a native
+            // message or overwrite actual values the user did not edit.
+            comment: undefined,
+            commentId: undefined,
+            completedValues: undefined,
             ...payload,
             ...(old?.input?.values && payload.values
               ? { values: { ...old.input.values, ...payload.values } }
@@ -223,7 +279,13 @@ export function createDurableWorkoutCommits(config, options = {}) {
         const patchSeed = /^[1-9]\d*$/.test(String(seed.id)) ? seed : { ...seed, id: 1 };
         event = {
           ...seed,
-          ...validatedInput(() => expectedPatch(patchSeed, payload.model, payload)),
+          ...validatedInput(() =>
+            expectedPatch(
+              patchSeed,
+              payload.model,
+              payload.completedValues ? { ...payload, comment: undefined } : payload
+            )
+          ),
         };
         const totals = workoutTotals(payload.model);
         event.moving_time = totals.seconds;
@@ -232,6 +294,11 @@ export function createDurableWorkoutCommits(config, options = {}) {
         // mapIntervalsWorkout reads the complete embedded app model instead.
         delete event.workout_doc;
         if (action === "create") event.external_id = `training-agent:editor:${id.slice(4)}`;
+      } else if (action === "edit-activity") {
+        event = {
+          ...base,
+          ...validatedInput(() => completedActivityPatch(base, payload)),
+        };
       } else if (action === "move") {
         const date = input.date || payload.date;
         const priorDate = event.start_date_local.slice(0, 10);
@@ -266,7 +333,7 @@ export function createDurableWorkoutCommits(config, options = {}) {
         acceptedAt,
         event,
         input: modelInput,
-        providerId: old?.providerId || (id.startsWith("event:") ? id : null),
+        providerId: old?.providerId || (/^(event|activity):/.test(id) ? id : null),
         providerRevision: old?.providerRevision || (action !== "create" ? expected : null),
         syncedRevision: old?.syncedRevision || 0,
         syncStatus: "pending",
@@ -288,7 +355,13 @@ export function createDurableWorkoutCommits(config, options = {}) {
         if (
           ["pending", "failed"].includes(older.state) &&
           older.action !== "create" &&
-          action !== "create"
+          action !== "create" &&
+          !["comment", "complete"].includes(older.action) &&
+          !["comment", "complete"].includes(action) &&
+          !older.commentIntent &&
+          !older.uncertain &&
+          !older.input.comment?.trim() &&
+          !older.input.completedValues
         )
           older.state = "superseded";
       const failedCreate = row.jobs.find(
@@ -320,7 +393,8 @@ export function createDurableWorkoutCommits(config, options = {}) {
       ),
       worker: {
         ownership: "backend",
-        resumption: "server timer, authenticated status/retry request, or configured scheduler",
+        resumption:
+          "bounded server timer, authenticated visit/retry request, or incoming webhook; no scheduled polling",
       },
     };
   }
@@ -334,6 +408,43 @@ export function createDurableWorkoutCommits(config, options = {}) {
       ])
     );
     for (const row of Object.values(state.workouts)) {
+      const activityId = row.id.startsWith("activity:") ? row.id.slice(9) : null;
+      const paired = activityId
+        ? [...all.values()].find(
+            (workout) => workout.id !== row.id && String(workout.activity_id || "") === activityId
+          )
+        : null;
+      if (paired && !row.deleted) {
+        const snapshotStartedAt = Date.parse(context.sync_started_at || context.synced_at || "");
+        if (
+          row.syncedRevision !== row.revision ||
+          row.externalConflict ||
+          !Number.isFinite(snapshotStartedAt) ||
+          snapshotStartedAt < (row.syncedAt || 0)
+        ) {
+          const actual = receipt(row).workout;
+          all.set(paired.id, {
+            ...paired,
+            status: "completed",
+            completed: true,
+            title: actual.title,
+            workout_date: actual.workout_date,
+            recorded_start_local: row.event.start_date_local,
+            editable_description: actual.editable_description,
+            actualDurationMinutes: actual.actualDurationMinutes,
+            completed_data: actual.completed_data,
+            workout_summary: {
+              planned: paired.workout_summary?.planned || null,
+              completed: actual.workout_summary.completed,
+            },
+            sync_status: row.syncStatus,
+            app_revision: row.revision,
+            completed_commit_id: row.id,
+          });
+        }
+        all.delete(row.id);
+        continue;
+      }
       // A committed deletion is a tombstone, including while the provider
       // snapshot still contains the old event. Deleted receipts have no workout.
       if (row.deleted) {
@@ -388,7 +499,8 @@ export function createDurableWorkoutCommits(config, options = {}) {
     if (!row || row.deleted) fail("Workout not found.", 404);
     let zones = row.input.zoneSettings;
     if (!Array.isArray(zones) && options.loadZoneSettings) zones = await options.loadZoneSettings();
-    const value = await loadWorkoutEditor(async (path) => {
+    const load = id.startsWith("activity:") ? loadCompletedWorkoutEditor : loadWorkoutEditor;
+    const value = await load(async (path) => {
       if (path !== "/athlete/0") return row.event;
       if (!Array.isArray(zones))
         throw Error("Training zones are not cached. Refresh the connected account to load them.");
@@ -403,6 +515,8 @@ export function createDurableWorkoutCommits(config, options = {}) {
       syncStatus: row.syncStatus,
       providerWorkoutId: row.providerId,
       event: row.event,
+      completedActivity: row.completedActivity,
+      comments: row.comments || value.comments,
       personal: row.input.personal,
       recurrence: row.input.recurrence,
       externalConflict: row.externalConflict || null,
@@ -443,7 +557,11 @@ export function createDurableWorkoutCommits(config, options = {}) {
         "CONFLICT_IDENTITY_REQUIRED"
       );
     try {
-      return await request(`/athlete/0/events/${row.providerId.slice(6)}`);
+      return await request(
+        row.providerId.startsWith("activity:")
+          ? completedActivityPath(row.providerId)
+          : `/athlete/0/events/${row.providerId.slice(6)}`
+      );
     } catch (error) {
       if (error.status === 404) return { deleted: true };
       throw error;
@@ -458,8 +576,13 @@ export function createDurableWorkoutCommits(config, options = {}) {
       );
   }
   function comparison(row, external) {
-    const imported = external.deleted ? null : importWorkout(external);
-    if (imported)
+    const activity = row.providerId?.startsWith("activity:");
+    const imported = external.deleted
+      ? null
+      : activity
+        ? { model: completedWorkoutModel(external), issues: [], warnings: [] }
+        : importWorkout(external);
+    if (imported && !activity)
       for (const key of Object.keys(external.workout_doc?.options || {}))
         if (
           key !== "pool_length" &&
@@ -469,7 +592,8 @@ export function createDurableWorkoutCommits(config, options = {}) {
     let editable = true;
     if (!external.deleted) {
       try {
-        assertEditable(external);
+        if (activity) assertActivityEditable(external);
+        else assertEditable(external);
       } catch {
         editable = false;
       }
@@ -483,8 +607,11 @@ export function createDurableWorkoutCommits(config, options = {}) {
           issues: imported.issues,
           warnings: imported.warnings,
           plannedValues: readPlannedValues(external.description),
+          ...(activity ? { completedValues: completedValues(external) } : {}),
           description:
-            editorDescriptionOverride(external, imported.model) ??
+            (activity
+              ? stripWorkoutCommentText(external.description)
+              : editorDescriptionOverride(external, imported.model)) ??
             readManualWorkoutDescription(external),
         };
     return {
@@ -496,6 +623,7 @@ export function createDurableWorkoutCommits(config, options = {}) {
         model: row.input.model,
         event: row.event,
         plannedValues: row.input.values || readPlannedValues(row.event?.description),
+        ...(activity ? { completedValues: row.input.completedValues } : {}),
         description: row.input.description,
         personal: row.input.personal,
         recurrence: row.input.recurrence,
@@ -643,15 +771,19 @@ export function createDurableWorkoutCommits(config, options = {}) {
         row.deleted = external.deleted === true;
         if (!external.deleted) {
           const manual = hasManualWorkoutDescription(external.description);
+          const activity = id.startsWith("activity:");
           row.input = {
             ...row.input,
             model: compared.provider.model,
             values: compared.provider.plannedValues,
+            ...(activity ? { completedValues: compared.provider.completedValues } : {}),
             time: String(external.start_date_local).slice(11, 16),
             emptyStartTime: String(external.start_date_local).slice(11) === "00:00:00",
-            description: manual
-              ? readManualWorkoutDescription(external)
-              : editorDescriptionOverride(external, compared.provider.model),
+            description: activity
+              ? compared.provider.description
+              : manual
+                ? readManualWorkoutDescription(external)
+                : editorDescriptionOverride(external, compared.provider.model),
             descriptionMode: manual ? "manual" : undefined,
             comment: undefined,
             commentId: undefined,
@@ -679,15 +811,19 @@ export function createDurableWorkoutCommits(config, options = {}) {
         }
       } else {
         if (!row.deleted) {
-          const errors = validateWorkout(row.input.model);
-          if (errors.length) fail(errors.join(". "));
-          row.event = { ...external, ...expectedPatch(external, row.input.model, row.input) };
-          delete row.event.workout_doc;
+          if (id.startsWith("activity:"))
+            row.event = { ...external, ...completedActivityPatch(external, row.input) };
+          else {
+            const errors = validateWorkout(row.input.model);
+            if (errors.length) fail(errors.join(". "));
+            row.event = { ...external, ...expectedPatch(external, row.input.model, row.input) };
+            delete row.event.workout_doc;
+          }
         }
         row.syncStatus = "pending";
         row.jobs.push({
           operationId: input.operationId,
-          action: row.deleted ? "delete" : "edit",
+          action: row.deleted ? "delete" : id.startsWith("activity:") ? "edit-activity" : "edit",
           revision: row.revision,
           input: structuredClone(row.input),
           event: structuredClone(row.event),
@@ -734,7 +870,99 @@ export function createDurableWorkoutCommits(config, options = {}) {
         const { row, job } = claimed;
         try {
           let result;
-          if (job.action === "create") {
+          const persistCommentIntent = async (intent) => {
+            await record.update((state) => {
+              const active = state.workouts[id].jobs.find(
+                (item) => item.operationId === job.operationId
+              );
+              if (active?.token !== token)
+                fail("This comment is being checked by another worker.", 409, "WORKOUT_WRITE_BUSY");
+              active.commentIntent = intent;
+            });
+          };
+          const nativeComment = async (workoutId) => {
+            const creationId = job.input.commentId || job.operationId;
+            const previous = row.commentReceipts?.[creationId];
+            if (
+              previous &&
+              (previous.activityId !== workoutId ||
+                previous.hash !== digest(job.input.comment.trim()))
+            )
+              fail("This comment identity was already used for different text.", 409, "CONFLICT");
+            const intent =
+              job.commentIntent ||
+              (previous
+                ? {
+                    content: job.input.comment.trim(),
+                    creationId,
+                    beforeIds: [],
+                    providerId: previous.providerId,
+                  }
+                : null);
+            return saveNativeActivityComment(
+              request,
+              { workoutId, body: job.input.comment, creationId },
+              { intent, persistIntent: persistCommentIntent, now: new Date(job.createdAt) }
+            );
+          };
+          if (job.action === "edit-activity") {
+            result = await write(row.providerId, (claimedRequest) =>
+              saveCompletedWorkout(claimedRequest, row.providerId, {
+                ...job.input,
+                revision: row.providerRevision,
+              })
+            );
+          } else if (job.action === "complete") {
+            const event = await readExternal(row);
+            if (!event.paired_activity_id && workoutRevision(event) !== row.providerRevision)
+              fail(
+                "This workout changed outside the app. Reopen it before completing it.",
+                409,
+                "CONFLICT"
+              );
+            result = await completePlannedWorkout(request, row.providerId, event, job.input);
+          } else if (job.action === "comment") {
+            if (row.providerId.startsWith("activity:")) {
+              const comment = await nativeComment(row.providerId);
+              const event = await readExternal(row);
+              result = {
+                workoutId: row.providerId,
+                event,
+                revision: workoutRevision(event),
+                comment,
+              };
+            } else {
+              result = await write(row.providerId, async (claimedRequest) => {
+                const event = await claimedRequest(`/athlete/0/events/${row.providerId.slice(6)}`);
+                const comments = readWorkoutCommentText(event.description, row.providerId, true);
+                if (
+                  workoutRevision(event) !== row.providerRevision &&
+                  !comments.some(
+                    (item) => item.id === `comment-${job.input.commentId || job.operationId}`
+                  )
+                )
+                  fail(
+                    "This workout changed outside the app. Reopen it before commenting.",
+                    409,
+                    "CONFLICT"
+                  );
+                await saveProviderWorkoutComment(claimedRequest, {
+                  workoutId: row.providerId,
+                  body: job.input.comment,
+                  type: "pre",
+                  creationId: job.input.commentId || job.operationId,
+                });
+                const verified = await claimedRequest(
+                  `/athlete/0/events/${row.providerId.slice(6)}`
+                );
+                return {
+                  workoutId: row.providerId,
+                  event: verified,
+                  revision: workoutRevision(verified),
+                };
+              });
+            }
+          } else if (job.action === "create") {
             // Official bulk upsert matches external_id within the application's
             // ownership. It makes an unknown create retry safe without changing
             // existing/imported event identities or integration permissions.
@@ -750,7 +978,12 @@ export function createDurableWorkoutCommits(config, options = {}) {
             };
             result = await createWorkoutEditor(
               upsert,
-              { ...job.input, creationId: id.slice(4), reconcileOnly: false },
+              {
+                ...job.input,
+                ...(job.input.completedValues ? { comment: undefined } : {}),
+                creationId: id.slice(4),
+                reconcileOnly: false,
+              },
               providerConnection(config)
             );
           } else if (job.action === "adopt") {
@@ -804,10 +1037,27 @@ export function createDurableWorkoutCommits(config, options = {}) {
               saveWorkoutEditor(
                 claimedRequest,
                 row.providerId,
-                { ...editorInput, revision: row.providerRevision },
+                {
+                  ...editorInput,
+                  ...(editorInput.completedValues ? { comment: undefined } : {}),
+                  revision: row.providerRevision,
+                },
                 providerConnection(config)
               )
             );
+          }
+          if (["create", "edit"].includes(job.action) && job.input.completedValues) {
+            result = {
+              ...result,
+              ...(await completePlannedWorkout(request, result.workoutId, result.event, job.input)),
+            };
+          }
+          if (
+            job.action !== "comment" &&
+            job.input.comment?.trim() &&
+            (row.providerId?.startsWith("activity:") || result.activityId)
+          ) {
+            result.comment = await nativeComment(result.activityId || row.providerId);
           }
           if (job.action !== "delete" && job.input.personal) {
             const personal =
@@ -846,7 +1096,7 @@ export function createDurableWorkoutCommits(config, options = {}) {
                 "RECURRENCE_PENDING"
               );
           }
-          await record.update((state) => {
+          const hasMore = await record.update((state) => {
             const current = state.workouts[id];
             const active = current.jobs.find((item) => item.operationId === job.operationId);
             if (active?.token !== token) return;
@@ -855,8 +1105,19 @@ export function createDurableWorkoutCommits(config, options = {}) {
             active.token = null;
             current.providerId = result.workoutId || current.providerId;
             current.providerRevision = result.revision;
+            if (result.activity) current.completedActivity = result.activity;
+            if (result.comment?.comments) current.comments = result.comment.comments;
+            if (result.comment?.provider_id) {
+              current.commentReceipts ||= {};
+              current.commentReceipts[job.input.commentId || job.operationId] = {
+                providerId: result.comment.provider_id,
+                activityId: result.comment.workout_id,
+                hash: digest(job.input.comment.trim()),
+              };
+            }
             current.syncedRevision = job.revision;
             current.syncedAt = clock();
+            current.lastReconciledAt = clock();
             current.syncStatus = current.revision === job.revision ? "synced" : "pending";
             current.error = null;
             if (current.revision === job.revision && result.event) current.event = result.event;
@@ -865,13 +1126,15 @@ export function createDurableWorkoutCommits(config, options = {}) {
             current.jobs = current.jobs.filter(
               (item) => !["synced", "superseded"].includes(item.state)
             );
+            return current.jobs.some((item) => item.state === "pending");
           });
           completed++;
+          if (!hasMore) return;
         } catch (error) {
           let externalConflict;
           if (error.status === 409 && row.providerId) {
             try {
-              externalConflict = await request(`/athlete/0/events/${row.providerId.slice(6)}`);
+              externalConflict = await readExternal(row);
             } catch (readError) {
               if (readError.status === 404) externalConflict = { deleted: true };
             }
@@ -884,6 +1147,8 @@ export function createDurableWorkoutCommits(config, options = {}) {
             active.lastError = error.message;
             const permanent = [400, 401, 403, 404, 409, 422].includes(error.status);
             active.state = permanent ? "failed" : "pending";
+            if (error.code === "COMMENT_UNCONFIRMED" && active.attempts >= 3)
+              active.state = "failed";
             active.uncertain = !permanent;
             active.token = null;
             active.nextAttemptAt =
@@ -893,8 +1158,9 @@ export function createDurableWorkoutCommits(config, options = {}) {
                 Math.min(300_000, 1000 * 2 ** Math.min(active.attempts, 8)) *
                   (0.75 + random() * 0.5)
               );
-            current.syncStatus = permanent ? "failed" : "pending";
-            current.error = permanent ? error.message : null;
+            current.syncStatus = active.state === "failed" ? "failed" : "pending";
+            current.error =
+              permanent || error.code === "COMMENT_UNCONFIRMED" ? error.message : null;
             if (externalConflict) current.externalConflict = externalConflict;
           });
           return;
@@ -906,7 +1172,17 @@ export function createDurableWorkoutCommits(config, options = {}) {
     let cursor = 0;
     await Promise.all(
       Array.from({ length: Math.min(4, ids.length) }, async () => {
-        while (cursor < ids.length) await run(ids[cursor++]);
+        while (cursor < ids.length) {
+          const id = ids[cursor++];
+          if (
+            state.workouts[id].jobs.some(
+              (job) =>
+                !["synced", "superseded", "failed"].includes(job.state) &&
+                !(job.nextAttemptAt > clock())
+            )
+          )
+            await run(id);
+        }
       })
     );
     // Periodic read-only reconciliation notices external edits/deletions even
@@ -927,7 +1203,7 @@ export function createDurableWorkoutCommits(config, options = {}) {
       try {
         let external;
         try {
-          external = await request(`/athlete/0/events/${row.providerId.slice(6)}`);
+          external = await readExternal(row);
         } catch (error) {
           if (error.status !== 404) throw error;
           external = { deleted: true };

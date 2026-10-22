@@ -3,7 +3,17 @@ import assert from "node:assert/strict"
 import vm from "node:vm"
 import fs from "node:fs/promises"
 import { createShellManifest } from "../shell-manifest-plugin.mjs"
-import { appShellRecoveryUrl, cleanAppShellRecoveryUrl } from "../src/lib/app-shell-recovery.ts"
+import {
+  appShellRecoveryUrl,
+  cleanAppShellRecoveryUrl,
+  requestAppShellRecovery,
+  shellRecoveryPrepareEvent,
+} from "../src/lib/app-shell-recovery.ts"
+import {
+  failedPreloadStylesheet,
+  installAssetPreloadRecovery,
+  retryFailedPreloadStyles,
+} from "../src/lib/asset-preload-recovery.ts"
 const source = await fs.readFile(
   new URL("../public/sw.js", import.meta.url),
   "utf8"
@@ -216,18 +226,24 @@ test("a complete cached shell returns while network revalidation remains unresol
 
 test("explicit refresh and recovery bypass old HTML with one no-store navigation fetch", async () => {
   for (const mode of ["reload", "no-cache", "no-store", "recovery"]) {
-    const cache = memoryCache(), requests = []
+    const cache = memoryCache(),
+      requests = []
     await seed(cache)
-    const app = fixture(async (input, options) => {
-      requests.push({ url: urlOf(input), options })
-      return network()(input)
-    }, { cache })
+    const app = fixture(
+      async (input, options) => {
+        requests.push({ url: urlOf(input), options })
+        return network()(input)
+      },
+      { cache }
+    )
     const path = mode === "recovery" ? "/calendar?__app_reload=1" : "/calendar"
     const result = await app.request(path, "navigate", "GET", {
       cache: mode === "recovery" ? "default" : mode,
     })
     assert.match(await result.text(), /two/, mode)
-    const navigation = requests.filter(item => new URL(item.url).pathname === "/calendar")
+    const navigation = requests.filter(
+      (item) => new URL(item.url).pathname === "/calendar"
+    )
     assert.equal(navigation.length, 1)
     assert.equal(navigation[0].options.cache, "no-store")
     await app.flush()
@@ -238,21 +254,31 @@ test("explicit refresh and recovery bypass old HTML with one no-store navigation
 test("retired lazy chunks recover after a worker restart without replaying the cached shell", async () => {
   const cache = memoryCache()
   await seed(cache)
-  const oldWorker = fixture(async input => {
-    if (urlOf(input).endsWith("/assets/editor-one.js"))
-      return response("retired", 404, "text/plain", urlOf(input))
-    return network()(input)
-  }, { cache })
-  assert.equal((await oldWorker.request("/assets/editor-one.js", "cors")).status, 404)
+  const oldWorker = fixture(
+    async (input) => {
+      if (urlOf(input).endsWith("/assets/editor-one.js"))
+        return response("retired", 404, "text/plain", urlOf(input))
+      return network()(input)
+    },
+    { cache }
+  )
+  assert.equal(
+    (await oldWorker.request("/assets/editor-one.js", "cors")).status,
+    404
+  )
   await oldWorker.flush()
   assert.match(await (await cache.match("/__app_shell__")).text(), /one/)
   // A new worker has lost the in-memory failed-asset flag; the explicit marker
   // must still override its otherwise valid cached shell.
   const restarted = fixture(network(), { cache })
-  const target = appShellRecoveryUrl(origin + "/calendar?workout=event%3A42#details")
+  const target = appShellRecoveryUrl(
+    origin + "/calendar?workout=event%3A42#details"
+  )
   assert.match(await (await restarted.request(target)).text(), /two/)
   await restarted.flush()
-  assert.ok(restarted.calls.some(url => url.endsWith("/assets/detail-two.js")))
+  assert.ok(
+    restarted.calls.some((url) => url.endsWith("/assets/detail-two.js"))
+  )
   const clean = cleanAppShellRecoveryUrl(target)
   assert.equal(clean, "/calendar?workout=event%3A42#details")
   assert.match(await (await restarted.request(clean)).text(), /two/)
@@ -263,14 +289,25 @@ test("explicit refresh remains usable offline or during a server outage without 
   for (const fail of ["offline", "timeout", "server"]) {
     const cache = memoryCache()
     await seed(cache)
-    const app = fixture(async () => {
-      if (fail === "server") return response("Unavailable", 503)
-      if (fail === "timeout") throw new DOMException("Timed out", "TimeoutError")
-      throw Error("Offline")
-    }, { cache })
-    assert.match(await (await app.request("/calendar?__app_reload=1")).text(), /one/)
+    const app = fixture(
+      async () => {
+        if (fail === "server") return response("Unavailable", 503)
+        if (fail === "timeout")
+          throw new DOMException("Timed out", "TimeoutError")
+        throw Error("Offline")
+      },
+      { cache }
+    )
+    assert.match(
+      await (await app.request("/calendar?__app_reload=1")).text(),
+      /one/
+    )
     await app.flush()
-    assert.equal(app.calls.length, 1, "Offline recovery must not start repeated background attempts")
+    assert.equal(
+      app.calls.length,
+      1,
+      "Offline recovery must not start repeated background attempts"
+    )
     assert.match(await (await cache.match("/__app_shell__")).text(), /one/)
   }
 })
@@ -279,17 +316,24 @@ test("fresh reload HTML returns before staging, while an unavailable new chunk p
   const cache = memoryCache()
   await seed(cache)
   let release
-  const app = fixture(async input => {
-    if (urlOf(input).endsWith("/assets/main-two.js"))
-      return new Promise(resolve => { release = () => resolve(response("Missing", 404)) })
-    return network()(input)
-  }, { cache })
+  const app = fixture(
+    async (input) => {
+      if (urlOf(input).endsWith("/assets/main-two.js"))
+        return new Promise((resolve) => {
+          release = () => resolve(response("Missing", 404))
+        })
+      return network()(input)
+    },
+    { cache }
+  )
   const result = await Promise.race([
     app.request("/calendar", "navigate", "GET", { cache: "reload" }),
-    new Promise((_, reject) => setTimeout(() => reject(Error("Waited for asset staging")), 100)),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(Error("Waited for asset staging")), 100)
+    ),
   ])
   assert.match(await result.text(), /two/)
-  while (!release) await new Promise(resolve => setImmediate(resolve))
+  while (!release) await new Promise((resolve) => setImmediate(resolve))
   assert.match(await (await cache.match("/__app_shell__")).text(), /one/)
   release()
   await app.flush()
@@ -297,11 +341,15 @@ test("fresh reload HTML returns before staging, while an unavailable new chunk p
 })
 
 test("recovery URLs preserve route context and cleanup is one-shot without a navigation", () => {
-  const original = origin + "/workout-reports?report=abc%3A123&range=90#section-2"
+  const original =
+    origin + "/workout-reports?report=abc%3A123&range=90#section-2"
   const recovery = appShellRecoveryUrl(original)
   assert.equal(new URL(recovery).searchParams.get("__app_reload"), "1")
   assert.equal(appShellRecoveryUrl(recovery), recovery)
-  assert.equal(cleanAppShellRecoveryUrl(recovery), "/workout-reports?report=abc%3A123&range=90#section-2")
+  assert.equal(
+    cleanAppShellRecoveryUrl(recovery),
+    "/workout-reports?report=abc%3A123&range=90#section-2"
+  )
   assert.equal(cleanAppShellRecoveryUrl(original), null)
 })
 
@@ -384,7 +432,10 @@ test("an HTML quota failure rolls the commit marker back to the previous complet
   await seed(cache)
   const put = cache.put.bind(cache)
   cache.put = async (key, value) => {
-    if (key === "/__app_shell__" && (await value.clone().text()).includes("two"))
+    if (
+      key === "/__app_shell__" &&
+      (await value.clone().text()).includes("two")
+    )
       throw Error("HTML quota exceeded")
     return put(key, value)
   }
@@ -392,24 +443,30 @@ test("an HTML quota failure rolls the commit marker back to the previous complet
   await app.request("/calendar")
   await app.flush()
   assert.match(await (await cache.match("/__app_shell__")).text(), /one/)
-  assert.equal((await (await cache.match("/__app_shell_assets__")).json()).manifestUrl, "/assets/shell-manifest-one.json")
+  assert.equal(
+    (await (await cache.match("/__app_shell_assets__")).json()).manifestUrl,
+    "/assets/shell-manifest-one.json"
+  )
 })
 
 test("a concurrent navigation never reuses HTML whose commit marker is changing", async () => {
   const cache = memoryCache()
   await seed(cache)
   const put = cache.put.bind(cache)
-  let release, paused = false
+  let release,
+    paused = false
   cache.put = async (key, value) => {
     await put(key, value)
     if (key === "/__app_shell_assets__" && !paused) {
       paused = true
-      await new Promise(resolve => { release = resolve })
+      await new Promise((resolve) => {
+        release = resolve
+      })
     }
   }
   const app = fixture(network(), { cache })
   assert.match(await (await app.request("/calendar")).text(), /one/)
-  while (!release) await new Promise(resolve => setImmediate(resolve))
+  while (!release) await new Promise((resolve) => setImmediate(resolve))
   assert.match(await (await cache.match("/__app_shell__")).text(), /one/)
   assert.match(await (await app.request("/")).text(), /two/)
   release()
@@ -524,4 +581,196 @@ test("build manifest follows static dependencies and CSS without pulling dynamic
     () => createShellManifest(bundle, { "/": "missing" }, {}),
     /route entry is missing/
   )
+})
+
+test("Calendar shell pins its nested editor styles without fetching another route's lazy features", () => {
+  const chunk = (name, options = {}) => ({
+    type: "chunk",
+    fileName: `assets/${name}.js`,
+    imports: [],
+    ...options,
+  })
+  const bundle = {
+    "assets/main.js": chunk("main", {
+      isEntry: true,
+      dynamicImports: ["assets/calendar.js", "assets/nutrition.js"],
+    }),
+    "assets/calendar.js": chunk("calendar", {
+      facadeModuleId: "/src/components/training-calendar.tsx",
+      dynamicImports: ["assets/editor.js"],
+    }),
+    "assets/editor.js": chunk("editor", {
+      facadeModuleId: "/src/components/workout-editor.tsx",
+      dynamicImports: ["assets/builder.js", "assets/map.js"],
+      viteMetadata: { importedCss: new Set(["assets/editor.css"]) },
+    }),
+    "assets/builder.js": chunk("builder", {
+      facadeModuleId: "/src/components/desktop-workout-builder.tsx",
+      viteMetadata: { importedCss: new Set(["assets/builder.css"]) },
+    }),
+    "assets/map.js": chunk("map"),
+    "assets/editor.css": { type: "asset" },
+    "assets/builder.css": { type: "asset" },
+    "assets/nutrition.js": chunk("nutrition", {
+      facadeModuleId: "/src/components/nutrition-page.tsx",
+      dynamicImports: ["assets/food-search.js"],
+    }),
+    "assets/food-search.js": chunk("food-search"),
+  }
+  const result = createShellManifest(
+    bundle,
+    {
+      "/calendar": "training-calendar",
+      "/week": "training-calendar",
+      "/nutrition": "nutrition-page",
+    },
+    {}
+  )
+  assert.deepEqual(result.base, ["/assets/main.js"])
+  assert.deepEqual(result.routes["/calendar"], [
+    "/assets/builder.css",
+    "/assets/builder.js",
+    "/assets/calendar.js",
+    "/assets/editor.css",
+    "/assets/editor.js",
+  ])
+  assert.deepEqual(result.routes["/week"], result.routes["/calendar"])
+  assert.deepEqual(result.routes["/nutrition"], ["/assets/nutrition.js"])
+  assert.ok(!JSON.stringify(result).includes("food-search"))
+  assert.ok(!JSON.stringify(result).includes("map.js"))
+})
+
+test("recovery reload first retains all mounted drafts, and one failed retention vetoes navigation", () => {
+  const target = new EventTarget(),
+    navigations = [],
+    retained = []
+  target.location = {
+    href: origin + "/calendar?workout=event%3A42#details",
+    replace: (url) => navigations.push(url),
+  }
+  target.addEventListener(shellRecoveryPrepareEvent, () =>
+    retained.push("create-draft")
+  )
+  const veto = (event) => {
+    retained.push("builder-storage-failed")
+    event.preventDefault()
+  }
+  target.addEventListener(shellRecoveryPrepareEvent, veto)
+  assert.equal(requestAppShellRecovery(target), false)
+  assert.deepEqual(retained, ["create-draft", "builder-storage-failed"])
+  assert.equal(navigations.length, 0)
+  target.removeEventListener(shellRecoveryPrepareEvent, veto)
+  assert.equal(requestAppShellRecovery(target), true)
+  assert.equal(navigations.length, 1)
+  assert.equal(new URL(navigations[0]).searchParams.get("workout"), "event:42")
+  assert.equal(new URL(navigations[0]).searchParams.get("__app_reload"), "1")
+  assert.equal(new URL(navigations[0]).hash, "#details")
+})
+
+test("CSS recovery accepts only same-origin immutable build stylesheets", () => {
+  assert.equal(
+    failedPreloadStylesheet(
+      Error(`Unable to preload CSS for ${origin}/assets/editor-one.css`),
+      origin
+    ),
+    origin + "/assets/editor-one.css"
+  )
+  for (const message of [
+    "ordinary render failure",
+    `Unable to preload CSS for https://external.test/assets/x.css`,
+    `Unable to preload CSS for ${origin}/api/private.css`,
+    `Unable to preload CSS for ${origin}/assets/x.js`,
+    `Unable to preload CSS for ${origin}/assets/x.css?token=secret`,
+  ])
+    assert.equal(failedPreloadStylesheet(Error(message), origin), null, message)
+})
+
+test("a failed CSS preload is explicitly restored before module retry, without duplicate styles or automatic reload", async () => {
+  const target = new EventTarget()
+  target.location = { origin }
+  const stop = installAssetPreloadRecovery(target)
+  const failure = new Event("vite:preloadError", { cancelable: true })
+  failure.payload = Error(
+    `Unable to preload CSS for ${origin}/assets/editor-recover.css`
+  )
+  target.dispatchEvent(failure)
+  assert.equal(
+    failure.defaultPrevented,
+    false,
+    "The local error boundary must still receive the original error"
+  )
+  const removed = [],
+    added = [],
+    old = {
+      href: origin + "/assets/editor-recover.css",
+      remove: () => removed.push("old"),
+    }
+  let fail = true
+  const page = {
+    createElement: () => ({
+      remove() {
+        removed.push("new")
+      },
+    }),
+    querySelectorAll: () => [old, ...added],
+    head: {
+      append(link) {
+        added.push(link)
+        queueMicrotask(() => (fail ? link.onerror() : link.onload()))
+      },
+    },
+  }
+  await assert.rejects(
+    retryFailedPreloadStyles(page),
+    /styles are still unavailable/
+  )
+  assert.deepEqual(
+    removed,
+    ["new"],
+    "A failed retry cannot retire the original stylesheet"
+  )
+  fail = false
+  await retryFailedPreloadStyles(page)
+  assert.equal(added.at(-1).rel, "stylesheet")
+  assert.equal(added.at(-1).href, old.href)
+  assert.ok(removed.includes("old"))
+  const completed = added.length
+  await retryFailedPreloadStyles(page)
+  assert.equal(
+    added.length,
+    completed,
+    "Successful recovery must not keep making requests"
+  )
+  stop()
+})
+
+test("an unrelated route's failed stylesheet cannot block recovery of the workout editor", async () => {
+  const target = new EventTarget()
+  target.location = { origin }
+  const stop = installAssetPreloadRecovery(target)
+  for (const name of ["nutrition-page-retired", "workout-editor-current"]) {
+    const error = new Event("vite:preloadError")
+    error.payload = Error(
+      `Unable to preload CSS for ${origin}/assets/${name}.css`
+    )
+    target.dispatchEvent(error)
+  }
+  const requests = []
+  const page = {
+    createElement: () => ({ remove() {} }),
+    querySelectorAll: () => [],
+    head: {
+      append(link) {
+        requests.push(link.href)
+        queueMicrotask(() => link.onload())
+      },
+    },
+  }
+  await retryFailedPreloadStyles(page, (url) =>
+    url.includes("/workout-editor-")
+  )
+  assert.deepEqual(requests, [origin + "/assets/workout-editor-current.css"])
+  await retryFailedPreloadStyles(page)
+  assert.equal(requests.at(-1), origin + "/assets/nutrition-page-retired.css")
+  stop()
 })

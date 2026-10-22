@@ -5,6 +5,7 @@ import { runInNewContext } from "node:vm"
 import ts from "typescript"
 import {simpleWorkoutModel as actualSimpleWorkoutModel} from "../../app-backend/lib/simple-workout.mjs"
 import {rememberPendingWorkoutCreation as actualRemember,clearPendingWorkoutCreation as actualClear,readPendingWorkoutCreation as actualRead,inspectPendingWorkoutCreation as actualInspect} from "../src/lib/pending-workout-creation.ts"
+import {completedValueDraft,changedCompletedValues} from "../src/lib/completed-workout-values.ts"
 
 // Execute the component's real save callback with in-memory dependencies. This
 // exercises its promise contract without mounting dialogs or contacting a provider.
@@ -99,6 +100,9 @@ function fixture({
     comment: "",
     recurrence: null,
     draft: {},
+    completedDraft: completedValueDraft(null,sport),
+    completedValueDraft,
+    changedCompletedValues,
     blank: {},
     scope: "test",
     creationId: "creation",

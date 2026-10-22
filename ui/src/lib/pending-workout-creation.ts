@@ -8,6 +8,8 @@ import type { WorkoutSummaryValues } from "./training-context"
 export type PendingWorkoutCreation = {
   model: WorkoutModel
   values: Partial<WorkoutSummaryValues>
+  completedValues?: Partial<WorkoutSummaryValues>
+  zoneSettings?: import("../../../app-backend/lib/workout-editor-zones.mjs").SportZoneSettings[]
   time: string
   comment: string
   creationId: string
@@ -21,6 +23,7 @@ function immutableCreationBody(input: PendingWorkoutCreation) {
     {
       model: input.model,
       values: input.values,
+      completedValues: input.completedValues,
       time: input.time,
       comment: input.comment,
       descriptionMode: input.descriptionMode,

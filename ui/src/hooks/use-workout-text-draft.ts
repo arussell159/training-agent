@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useWorkoutAccountBoundary } from "./use-workout-account-boundary"
 import {
   loadWorkoutComments,
+  loadWorkoutEditor,
   clearWorkoutReads,
   type WorkoutComment,
 } from "@/lib/workout-read-cache"
@@ -11,6 +12,7 @@ import {
   queueWorkoutMutation,
   beginWorkoutSaveFeedback,
   saveWorkoutComment,
+  writeWorkoutEditor,
   type PlannedWorkout,
 } from "@/lib/training-context"
 import { desktopWorkoutDescription } from "@/lib/desktop-workout-description"
@@ -46,6 +48,8 @@ export function useWorkoutTextDraft(
   const editable =
     !readOnly && /^(event:[1-9]\d*|app:[a-f0-9-]+|activity:i?\d+)$/.test(workout.id)
   const type = workout.status === "completed" ? "post" : "pre"
+  const commentTargetId = workout.status === "completed" && workout.activity_id ? `activity:${workout.activity_id}` : workout.id
+  const activityText = commentTargetId.startsWith("activity:")
   const original = desktopWorkoutDescription(workout)
   const [savedDescription, setSavedDescription] = useState(original)
   const [description, setDescription] = useState(
@@ -55,12 +59,12 @@ export function useWorkoutTextDraft(
   useEffect(() => {
     // A provisional calendar projection is not a saved text baseline. Adopting
     // it would make a rejected write's rollback replace the user's dirty draft.
-    if (workout.app_pending_operation || baseline.current === original) return
+    if (activityText || workout.app_pending_operation || baseline.current === original) return
     const previous = baseline.current
     baseline.current = original
     setDescription((draft) => (draft === previous ? original : draft))
     setSavedDescription(original)
-  }, [original, workout.app_pending_operation])
+  }, [original, workout.app_pending_operation, activityText])
   const [comment, setComment] = useState(recovered?.comment || "")
   const [comments, setComments] = useState<WorkoutComment[]>([])
   const [creationId, setCreationId] = useState(
@@ -70,26 +74,39 @@ export function useWorkoutTextDraft(
   const [commentsLoading, setCommentsLoading] = useState(editable)
   const [commentsNeedSync, setCommentsNeedSync] = useState(false)
   const [commentsVersion, setCommentsVersion] = useState(0)
+  const [completedEditableFields, setCompletedEditableFields] = useState<string[]>([])
   useEffect(() => {
     const saved = (event: Event) => {
-      if ((event as CustomEvent<{ id?: string }>).detail?.id === workout.id)
+      if ([workout.id,commentTargetId].includes((event as CustomEvent<{ id?: string }>).detail?.id || ""))
         setCommentsVersion((value) => value + 1)
     }
     window.addEventListener("workout-editor-saved", saved)
     return () => window.removeEventListener("workout-editor-saved", saved)
-  }, [workout.id])
+  }, [workout.id, commentTargetId])
   useEffect(() => {
     if (!editable) return
     const controller = new AbortController()
     setCommentsLoading(true)
     setCommentsError("")
-    void loadWorkoutComments(workout.id, controller.signal)
+    const read = activityText
+      ? loadWorkoutEditor(`/api/workouts/${encodeURIComponent(commentTargetId)}/editor`,controller.signal).then(editor=>{
+          if(!controller.signal.aborted){
+            const nativeDescription=editor.manualDescription ?? editor.originalDescription
+            setDescription(current=>current===baseline.current && !recovered ? nativeDescription : current)
+            baseline.current=nativeDescription
+            setSavedDescription(nativeDescription)
+            setCompletedEditableFields(editor.completedEditableFields || [])
+          }
+          return {comments:(editor.comments || []).map(item=>({...item,workout_id:workout.id,type:"post",created_at:"created_at" in item ? String(item.created_at || "") : ""})),needsSync:false}
+        })
+      : loadWorkoutComments(commentTargetId, controller.signal)
+    void read
       .then((data) => {
         if (!controller.signal.aborted) {
           setCommentsNeedSync(Boolean(data.needsSync))
           setComments((previous) => [
             ...new Map<string, WorkoutComment>(
-              [...data.comments, ...previous].map((item) => [item.id, item])
+              [...data.comments.map(item=>({...item,workout_id:workout.id})), ...previous].map((item) => [item.id, item])
             ).values(),
           ])
         }
@@ -101,7 +118,7 @@ export function useWorkoutTextDraft(
         if (!controller.signal.aborted) setCommentsLoading(false)
       })
     return () => controller.abort()
-  }, [editable, workout.id, commentsVersion])
+  }, [editable, workout.id, commentTargetId, commentsVersion, activityText, recovered])
   const dirty =
     editable &&
     (description !== savedDescription ||
@@ -129,6 +146,22 @@ export function useWorkoutTextDraft(
       workout.id
     )
     try {
+      if (workout.id.startsWith("activity:") || workout.activity_id && workout.status === "completed") {
+        const target = workout.activity_id ? `activity:${workout.activity_id}` : workout.id
+        const editor = await loadWorkoutEditor(`/api/workouts/${encodeURIComponent(target)}/editor`)
+        requireCurrentAccount()
+        if(description !== savedDescription && editor.originalDescription !== savedDescription)
+          throw Error("The description changed in Intervals.icu. Your draft is retained; reopen it to review both versions.")
+        await writeWorkoutEditor(target, {model:editor.model,revision:editor.revision,completedEditableFields:editor.completedEditableFields,...(description!==savedDescription ? {description,descriptionMode:"manual" as const} : {}),comment,commentId:creationId})
+        requireCurrentAccount()
+        clearWorkoutSaveDraft(scope,workout.id,"text",token)
+        setSavedDescription(description)
+        if(comment.trim())setComments(previous=>[...previous,{id:creationId,body:comment.trim(),type,workout_id:workout.id,created_at:new Date().toISOString()}])
+        setCommentsNeedSync(false)
+        setComment("")
+        setCreationId(randomId())
+        return
+      }
       if (description !== savedDescription) {
         await queueWorkoutMutation(
           {
@@ -195,6 +228,8 @@ export function useWorkoutTextDraft(
     editable,
     type,
     description,
+    savedDescription,
+    completedEditableFields,
     setDescription,
     comment,
     setComment,

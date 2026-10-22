@@ -49,6 +49,7 @@ import { serializeWorkout } from "../app-backend/lib/workout-editor-model.mjs";
 import { withPlannedValues } from "../app-backend/lib/planned-workout-values.mjs";
 import { newStrengthExercise, newStrengthBlock, addStrengthParameter, setStrengthValue } from "../app-backend/lib/workout-strength-model.mjs";
 import { downloadActivityBundle } from "../app-backend/lib/activity-bundle.mjs";
+import { loadCompletedWorkoutEditor } from "../app-backend/lib/completed-workout-edits.mjs";
 
 export function createDesktopCalendarPreview(fixture, {loseCreateResponseOnce = false, loseCopyResponseOnce = false, rejectMoveOnce = false, staleWorkoutClaims = false,loseLibraryScheduleResponseOnce=false,loseCoachScheduleResponseOnce=false,loseMetricsResponseOnce=false,loseAnnotationResponseOnce=false} = {}) {
   const previewConfig = { INTERVALS_API_KEY: "synthetic-only", CALENDAR_SUMMARY_OPEN: "true" };
@@ -80,6 +81,8 @@ export function createDesktopCalendarPreview(fixture, {loseCreateResponseOnce = 
   let nextId = 9000,
     revision = 1;
   let comments = [];
+  const activityMessages = new Map();
+  let commentCommitService = null;
   let creationResponseLost = false;
   let libraryScheduleResponseLost=false,coachScheduleResponseLost=false;
   let copyResponseLost = false, moveRejected = false;
@@ -249,6 +252,28 @@ export function createDesktopCalendarPreview(fixture, {loseCreateResponseOnce = 
         })
         .map((event) => structuredClone(event));
     const body = options.body ? JSON.parse(options.body) : {};
+    if (url.pathname === "/athlete/0/activities" && !options.method) return [...activities.values()].filter(activity => String(activity.start_date_local).slice(0,10) >= url.searchParams.get("oldest").slice(0,10) && String(activity.start_date_local).slice(0,10) <= url.searchParams.get("newest").slice(0,10)).map(({id, paired_event_id, external_id}) => ({id, paired_event_id, external_id}));
+    if (url.pathname === "/athlete/0/activities/manual/bulk" && options.method === "POST") {
+      return body.map(value => {
+        const existing = [...activities.values()].find(activity => activity.external_id === value.external_id);
+        const activity = { ...existing, ...value, id: existing?.id || `i${nextId++}`, source: "MANUAL" };
+        activities.set(activity.id, activity);
+        if (events.has(activity.paired_event_id)) events.set(activity.paired_event_id, { ...events.get(activity.paired_event_id), paired_activity_id: activity.id });
+        revision++;
+        return structuredClone(activity);
+      });
+    }
+    const messagesActivity = url.pathname.match(/^\/activity\/(i?[1-9]\d*)\/messages$/)?.[1];
+    if (messagesActivity) {
+      const rows = activityMessages.get(messagesActivity) || [];
+      if (options.method === "POST") {
+        const message = { id: nextId++, content: body.content, created: new Date().toISOString(), athlete_id: "synthetic" };
+        activityMessages.set(messagesActivity, [...rows, message]);
+        revision++;
+        return { id: message.id };
+      }
+      return structuredClone(rows);
+    }
     const wellnessDate=url.pathname.match(/^\/athlete\/0\/wellness\/(\d{4}-\d{2}-\d{2})$/)?.[1];
     if(wellnessDate){
       if(options.method==="PUT"){
@@ -268,7 +293,7 @@ export function createDesktopCalendarPreview(fixture, {loseCreateResponseOnce = 
       revision++;
       return structuredClone(event);
     }
-    const activityId = url.pathname.match(/^\/activity\/(i\d+)$/)?.[1];
+    const activityId = url.pathname.match(/^\/activity\/(i?[1-9]\d*)$/)?.[1];
     const isolatedActivity=activityId && fixture.nativeActivity?.(activityId);
     if(isolatedActivity){
       if(options.method && options.method!=='GET')throw Object.assign(Error('This isolated synthetic recording is read-only.'),{status:403});
@@ -598,6 +623,18 @@ export function createDesktopCalendarPreview(fixture, {loseCreateResponseOnce = 
     }
     if (api === "comments") {
       if (method === "GET") return loadProviderWorkoutComments(request,url.searchParams.get("workoutId"),comments);
+      if (input.workoutId?.startsWith("activity:")) {
+        if (!commentCommitService) throw Object.assign(Error("Synthetic durable comments are not configured."), { status: 503 });
+        if (!input.syncOnly) {
+          await commentCommitService.accept({ operationId: input.creationId, workoutId: input.workoutId, action: "comment", input: { comment: input.body, commentId: input.creationId } });
+          await commentCommitService.drain();
+          const row = (await commentCommitService.status()).workouts.find(row => row.workoutId === input.workoutId);
+          if (!row?.verified) throw Object.assign(Error(row?.syncError || "Comment verification pending."), { status: 503 });
+        }
+        const loaded = await loadProviderWorkoutComments(request, input.workoutId, comments);
+        const comment = loaded.comments.find(comment => comment.body === input.body?.trim() && comment.type === "post");
+        return { ...comment, ...loaded, workout_id: input.workoutId, verified: input.syncOnly || Boolean(comment) };
+      }
       const result=await saveProviderWorkoutComment(request,input,comments);
       comments=[...comments.filter(item=>item.workout_id!==input.workoutId),...result.comments];
       return result;
@@ -627,6 +664,8 @@ export function createDesktopCalendarPreview(fixture, {loseCreateResponseOnce = 
       }
       return result;
     }
+    const activityEditor = api.match(/^workouts\/(activity(?::|%3A)i?[1-9]\d*)\/editor$/);
+    if (activityEditor && method === "GET") return loadCompletedWorkoutEditor(request, decodeURIComponent(activityEditor[1]));
     const editor = api.match(/^workouts\/(event(?::|%3A)\d+)\/editor$/);
     if (editor) {
       const id = decodeURIComponent(editor[1]);
@@ -683,6 +722,7 @@ export function createDesktopCalendarPreview(fixture, {loseCreateResponseOnce = 
     analysis,
     templateService,
     request,
+    setCommentCommitService: service => { commentCommitService = service; },
     get version() {
       return `synthetic-calendar-${fixture.version}-${revision}`;
     },

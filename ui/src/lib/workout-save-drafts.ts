@@ -21,10 +21,10 @@ export function readWorkoutSaveDraft<T>(scope: string, id: string, section: stri
   return undefined
 }
 
-export function retainWorkoutSaveDraft<T>(scope: string, id: string, section: string, value: T) {
+export function retainWorkoutSaveDraft<T>(scope: string, id: string, section: string, value: T, options?: {requirePersistent?:boolean}) {
   const name = key(scope, id, section), record = { token: randomId(), value }
   memory.set(name, record)
-  try { localStorage.setItem(name, JSON.stringify(record)) } catch { /* Retained in memory. */ }
+  try { localStorage.setItem(name, JSON.stringify(record)) } catch (error) { if(options?.requirePersistent) throw error /* Otherwise retained in memory. */ }
   return record.token
 }
 
@@ -37,6 +37,7 @@ export function clearWorkoutSaveDraft(scope: string, id: string, section: string
 
 export type PlannedSaveDraft = {
   values: Partial<import("./training-context").WorkoutSummaryValues>
+  completedValues?: Partial<import("./training-context").WorkoutSummaryValues>
   metadata: { name?: string; date?: string; time?: string }
 }
 

@@ -1,18 +1,11 @@
 import { useRef } from "react"
 import {
-  Activity,
-  Bike,
-  Dumbbell,
   FileText,
-  Flame,
-  Footprints,
-  Goal,
+  SquareCheck,
   HeartPulse,
-  PersonStanding,
   CalendarOff,
   Trophy,
-  Waves,
-  Sparkles,
+  Upload,
 } from "lucide-react"
 import {
   Dialog,
@@ -22,42 +15,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { DesktopSportIcon } from "@/components/desktop-sport-icon"
 import { calendarAddTypes } from "@/lib/calendar-events"
-
-const icons = {
-  Swim: Waves,
-  Brick: Activity,
-  Custom: Activity,
-  "Day off": CalendarOff,
-  Bike,
-  Run: Footprints,
-  Crosstrain: Activity,
-  "Mtn Bike": Bike,
-  "XC-Ski": PersonStanding,
-  Rowing: Waves,
-  Walk: Footprints,
-  Other: Activity,
-  Sauna: Flame,
-  Strength: Dumbbell,
-  Note: FileText,
-}
-const colors = {
-  Swim: "text-cyan-600",
-  Brick: "text-purple-600",
-  Custom: "text-purple-600",
-  "Day off": "text-slate-500",
-  Bike: "text-violet-600",
-  Run: "text-lime-600",
-  Crosstrain: "text-purple-600",
-  "Mtn Bike": "text-violet-600",
-  "XC-Ski": "text-purple-600",
-  Rowing: "text-purple-600",
-  Walk: "text-lime-600",
-  Other: "text-purple-600",
-  Sauna: "text-orange-600",
-  Strength: "text-amber-700",
-  Note: "text-slate-500",
-}
 
 export function CalendarAddDialog({
   date,
@@ -68,6 +27,7 @@ export function CalendarAddDialog({
   onGoals,
   onAvailability,
   onGenerator,
+  onUpload,
 }: {
   date: string
   onClose: () => void
@@ -77,13 +37,15 @@ export function CalendarAddDialog({
   onGoals: () => void
   onAvailability: () => void
   onGenerator: () => void
+  onUpload: () => void
 }) {
   const selecting = useRef(false)
   const options = (note: boolean) =>
     calendarAddTypes
-      .filter((type) => (type.sport === "Note") === note)
+      .filter(
+        (type) => (type.sport === "Note") === note && type.label !== "Sauna"
+      )
       .map((type) => {
-        const Icon = icons[type.label]
         return (
           <Button
             key={type.label}
@@ -93,7 +55,11 @@ export function CalendarAddDialog({
               onSelect(type)
             }}
           >
-            <Icon aria-hidden="true" className={colors[type.label]} />
+            {note ? (
+              <FileText aria-hidden="true" className="text-slate-500" />
+            ) : (
+              <DesktopSportIcon sport={type.label} />
+            )}
             {type.label}
           </Button>
         )
@@ -107,10 +73,11 @@ export function CalendarAddDialog({
     >
       <DialogContent
         className="calendar-add-dialog"
+        overlayClassName="calendar-add-overlay"
         finalFocus={() => !selecting.current}
       >
         <DialogHeader>
-          <DialogTitle className="pr-6 text-[28px] leading-tight font-normal">
+          <DialogTitle className="pr-6 text-[28px] leading-tight font-semibold">
             {new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", {
               weekday: "long",
               month: "long",
@@ -123,62 +90,90 @@ export function CalendarAddDialog({
             Choose a workout or note for this day.
           </DialogDescription>
         </DialogHeader>
-        <p className="mt-1 text-primary">Add a Workout</p>
-        <div className="calendar-add-options">{options(false)}</div>
-        <Button
-          variant="outline"
-          onClick={() => {
-            selecting.current = true
-            onGenerator()
-          }}
+        <section className="calendar-add-section">
+          <p className="calendar-add-section-heading">Add a Workout</p>
+          <div className="calendar-add-options">
+            {options(false)}
+            <Button
+              className="calendar-add-generator"
+              onClick={() => {
+                selecting.current = true
+                onGenerator()
+              }}
+            >
+              Workout Generator
+            </Button>
+          </div>
+        </section>
+        <section className="calendar-add-section">
+          <p className="calendar-add-section-heading">Add Other</p>
+          <div className="calendar-add-options">
+            <Button
+              variant="outline"
+              onClick={() => {
+                selecting.current = true
+                onEvent()
+              }}
+            >
+              <Trophy aria-hidden="true" className="text-purple-600" />
+              Event
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                selecting.current = true
+                onGoals()
+              }}
+            >
+              <SquareCheck aria-hidden="true" className="text-purple-600" />
+              Goals
+            </Button>
+            {options(true)}
+            <Button
+              variant="outline"
+              onClick={() => {
+                selecting.current = true
+                onMetrics()
+              }}
+            >
+              <HeartPulse aria-hidden="true" className="text-purple-600" />
+              Metrics
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                selecting.current = true
+                onAvailability()
+              }}
+            >
+              <CalendarOff aria-hidden="true" className="text-purple-600" />
+              Availability
+            </Button>
+          </div>
+        </section>
+        <section className="calendar-add-section">
+          <p className="calendar-add-section-heading">Upload Device Files</p>
+          <div className="calendar-add-options">
+            <Button
+              variant="outline"
+              onClick={() => {
+                selecting.current = true
+                onUpload()
+              }}
+            >
+              <Upload aria-hidden="true" />
+              Upload File
+            </Button>
+          </div>
+        </section>
+        <a
+          className="calendar-add-sync-help"
+          href="https://intervals.icu/settings"
+          target="_blank"
+          rel="noopener noreferrer"
         >
-          <Sparkles aria-hidden="true" className="text-primary" />
-          Workout Generator
-        </Button>
-        <p className="mt-3 text-primary">Add Other</p>
-        <div className="calendar-add-options">
-          <Button
-            variant="outline"
-            onClick={() => {
-              selecting.current = true
-              onEvent()
-            }}
-          >
-            <Trophy aria-hidden="true" className="text-purple-600" />
-            Event
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => {
-              selecting.current = true
-              onGoals()
-            }}
-          >
-            <Goal aria-hidden="true" className="text-purple-600" />
-            Goals
-          </Button>
-          {options(true)}
-          <Button
-            variant="outline"
-            onClick={() => {
-              selecting.current = true
-              onMetrics()
-            }}
-          >
-            <HeartPulse aria-hidden="true" className="text-purple-600" />
-            Metrics
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => {
-              selecting.current = true
-              onAvailability()
-            }}
-          >
-            <CalendarOff aria-hidden="true" className="text-purple-600" />
-            Availability
-          </Button>
-        </div>
+          Learn about the many ways to AutoSync your activity data.
+        </a>
       </DialogContent>
     </Dialog>
   )

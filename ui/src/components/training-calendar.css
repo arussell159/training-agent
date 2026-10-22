@@ -30,6 +30,71 @@
   .calendar-desktop-navigation {
     flex: 0 0 auto;
   }
+  .calendar-desktop-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .calendar-desktop-tools > button,
+  .calendar-desktop-tools > [data-slot="popover-trigger"],
+  .calendar-desktop-tools > [data-slot="dropdown-menu-trigger"] {
+    width: 32px;
+    height: 32px;
+    padding: 5px;
+    border-radius: 4px;
+    color: #7a8495;
+  }
+  .calendar-desktop-tools svg {
+    width: 22px;
+    height: 22px;
+    stroke-width: 1.5;
+  }
+  .training-calendar[data-calendar-profiles="hidden"] .calendar-workout-profile,
+  .training-calendar[data-calendar-metrics="hidden"] .calendar-daily-metrics {
+    display: none;
+  }
+  .calendar-workout-search {
+    width: min(340px, calc(100vw - 32px));
+    padding: 16px;
+    gap: 8px;
+    border-radius: 4px;
+    font: 400 13px/18px var(--font-sans);
+  }
+  .calendar-workout-search input {
+    width: 100%;
+    height: 32px;
+    padding: 4px 8px;
+    border: 1px solid #cfd8e3;
+    border-radius: 4px;
+    font: inherit;
+    outline-color: #2340e5;
+  }
+  .calendar-search-results {
+    max-height: min(360px, 50vh);
+    overflow-y: auto;
+  }
+  .calendar-search-results > button {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    padding: 8px;
+    border-radius: 4px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .calendar-search-results > button:hover,
+  .calendar-search-results > button:focus-visible {
+    background: #e9ebf2;
+    outline: 1px solid #2340e5;
+  }
+  .calendar-search-results small {
+    color: #5b667b;
+    font-size: 11px;
+  }
+  .calendar-search-results > p {
+    padding: 8px 0;
+    color: #5b667b;
+  }
   .calendar-weekday-header {
     top: var(--calendar-toolbar-height);
     background: var(--background);
@@ -290,14 +355,41 @@
     display: none !important;
   }
   .calendar-add-dialog {
-    width: min(695px, calc(100vw - 48px));
+    width: min(768px, calc(100vw - 48px));
     max-width: none;
-    padding: 28px 32px;
+    max-height: calc(100dvh - 64px);
+    overflow-y: auto;
+    padding: 16px 36px 36px;
+    gap: 32px;
+    border-radius: 8px;
+    color: #1a202e;
+    background: #fff;
+    font: 400 14px/21px var(--font-sans);
+  }
+  .calendar-add-dialog [data-slot="dialog-title"] {
+    margin: 0;
+    font: 600 28px/42px var(--font-sans);
+  }
+  .calendar-add-dialog > [data-slot="dialog-close"] {
+    top: 12px;
+    right: 24px;
+    width: 32px;
+    height: 32px;
+    padding: 8px;
+  }
+  .calendar-add-section {
+    display: grid;
+    gap: 8px;
+  }
+  .calendar-add-section-heading {
+    margin: 0;
+    font-weight: 600;
   }
   .calendar-add-options {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(4, 140px);
     gap: 16px;
+    padding-inline: 8px;
   }
   .calendar-add-options button {
     position: relative;
@@ -315,7 +407,31 @@
     width: 20px;
     height: 20px;
   }
+  .calendar-add-options button {
+    justify-content: flex-start;
+    padding-inline: 40px 8px;
+  }
+  .calendar-add-options .calendar-add-generator {
+    justify-content: center;
+    width: 164px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 18px;
+    background: #1840ec;
+    color: #fff;
+    box-shadow: 0 2px 3px rgb(26 32 46 / 20%);
+  }
+  .calendar-add-options .calendar-add-generator:hover {
+    background: #1233c9;
+  }
+  .calendar-add-sync-help {
+    color: #2340e5;
+    font-size: 16px;
+    line-height: 24px;
+    text-decoration: underline;
+  }
   body:has(.calendar-add-dialog) [data-slot="dialog-overlay"] {
+    background: rgb(0 0 0 / 50%);
     backdrop-filter: none;
   }
 }
@@ -384,7 +500,7 @@
     color: #364152;
   }
   .calendar-weekday-header {
-    height: 30px;
+    height: 28px;
     border-color: #d8dbe3;
   }
   .calendar-weekday-label {
@@ -448,6 +564,7 @@
     border-radius: 4px;
     overflow: hidden;
     color: #1a202e;
+    background-color: #fff;
     background-image: linear-gradient(
       to bottom,
       var(--calendar-status-accent) 0 12px,
@@ -533,6 +650,8 @@
     padding: 0;
     margin: 0;
   }
+  .calendar-workout-card[data-calendar-completed="true"]
+    .calendar-workout-profile,
   .calendar-workout-profile:empty {
     display: none;
   }

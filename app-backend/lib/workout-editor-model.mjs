@@ -1045,7 +1045,7 @@ export function importWorkout(event) {
         );
       if (
         model.strength &&
-        !providerWorkoutDescription(originalDescription).endsWith(
+        !providerWorkoutDescription(stripWorkoutCommentText(originalDescription)).endsWith(
           providerWorkoutDescription(serializeWorkout(model))
         )
       )

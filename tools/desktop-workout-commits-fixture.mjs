@@ -47,6 +47,7 @@ export function createDesktopWorkoutCommits({ calendar, personal, providerDelayM
       loadZoneSettings: async () => calendar.context().athlete.sport_settings,
     }
   );
+  calendar.setCommentCommitService?.(service);
   let scheduled = false;
   const schedule = () => {
     if (scheduled) return;

@@ -10,7 +10,7 @@ import type { SportZoneSettings } from "../../../app-backend/lib/workout-editor-
 import type { WorkoutSummaryValues } from "./training-context"
 import { committedEditorRead, localCommittedWorkout, restoreWorkoutCommits } from "./workout-commits"
 
-export type WorkoutEditorRead = ImportResult & { revision: string; scheduledTime: string; zoneSettings?: SportZoneSettings[]; zoneError?: string; isNew?: boolean; plannedValues?: Partial<WorkoutSummaryValues>; initialComment?: string; comments?: { id: string; body: string }[]; descriptionOverride?: string; manualDescription?: string }
+export type WorkoutEditorRead = ImportResult & { completedEditableFields?: string[]; revision: string; scheduledTime: string; zoneSettings?: SportZoneSettings[]; zoneError?: string; isNew?: boolean; plannedValues?: Partial<WorkoutSummaryValues>; completedValues?: Partial<WorkoutSummaryValues>; initialComment?: string; comments?: { id: string; body: string }[]; descriptionOverride?: string; manualDescription?: string }
 
 export type WorkoutComment = { id: string; body: string; workout_id: string; type?: string; comment_type?: string; created_at: string }
 type PlannedValues = { revision: string; workout: PlannedWorkout }

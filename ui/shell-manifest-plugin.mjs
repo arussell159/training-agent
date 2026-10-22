@@ -42,22 +42,44 @@ export function createShellManifest(
   for (const chunk of chunks.filter((item) => item.isEntry))
     for (const file of dependencies(chunk.fileName)) base.add(file)
   if (!base.size) throw Error("The shell build has no entry assets.")
-  const moduleFiles = (name) => {
-    const chunk = chunks.find((item) =>
-      String(item.facadeModuleId || "")
-        .replaceAll("\\", "/")
-        .endsWith(`/components/${name}.tsx`)
-    )
+  const isModule = (chunk, name) =>
+    String(chunk.facadeModuleId || "")
+      .replaceAll("\\", "/")
+      .endsWith(`/components/${name}.tsx`)
+  // Calendar opens these forms/builders in place. Protect their lazy CSS along
+  // with the route, without recursively downloading maps, reports or Nutrition.
+  const calendarModules = [
+    "workout-editor",
+    "desktop-workout-builder",
+    "desktop-strength-date-time",
+    "desktop-strength-completed",
+    "daily-metrics",
+    "desktop-event-dialog",
+  ]
+  const calendarAssets = () =>
+    chunks
+      .filter((chunk) => calendarModules.some((name) => isModule(chunk, name)))
+      .flatMap((chunk) => [...dependencies(chunk.fileName)])
+  const moduleFiles = (name, calendar = false) => {
+    const chunk = chunks.find((item) => isModule(item, name))
     if (!chunk) throw Error(`The shell route entry is missing: ${name}`)
     return urls(
-      [...dependencies(chunk.fileName)].filter((file) => !base.has(file))
+      [
+        ...new Set([
+          ...dependencies(chunk.fileName),
+          ...(calendar ? calendarAssets() : []),
+        ]),
+      ].filter((file) => !base.has(file))
     )
   }
   return {
     format: 1,
     base: urls(base),
     routes: Object.fromEntries(
-      Object.entries(routes).map(([route, name]) => [route, moduleFiles(name)])
+      Object.entries(routes).map(([route, name]) => [
+        route,
+        moduleFiles(name, ["/calendar", "/week"].includes(route)),
+      ])
     ),
     details: Object.fromEntries(
       Object.entries(details).map(([query, name]) => [query, moduleFiles(name)])

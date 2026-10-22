@@ -37,7 +37,9 @@ function projected(id: string, input: CommitInput, previous?: PlannedWorkout): P
   const model = input.model, totals = workoutTotals(model), description = input.description ?? model.notes
   const priorValues = previous?.workout_summary?.planned
   const planned = { ...priorValues, ...(input.values || {}), ...(input.values?.duration_seconds === undefined && (input.values === undefined || priorValues?.duration_seconds == null) && !totals.unknownTime ? { duration_seconds: totals.seconds } : {}), ...(input.values?.distance_meters === undefined && priorValues?.distance_meters == null && !totals.unknownDistance && totals.distance > 0 ? {distance_meters:/swim/i.test(model.sport) ? totals.distance / .9144 : totals.distance} : {}) }
-  return { ...previous, id, sport: model.sport, title: model.name, workout_date: model.date, date: model.date, day: "", duration: "", status: previous?.status || "upcoming", goal: description, details: description, editable_description: description, editor_model: structuredClone(model), workout_summary: { planned, completed: previous?.workout_summary?.completed || null }, plannedDurationMinutes: (planned.duration_seconds || 0) / 60 }
+  const actual = input.completedValues ? {...previous?.workout_summary?.completed,...input.completedValues} : previous?.workout_summary?.completed || null
+  const paired = id.startsWith("activity:") && previous?.activity_id === id.slice(9) && !previous.id.startsWith("activity:")
+  return { ...previous, id:paired ? previous.id : id, sport: model.sport, title: model.name, workout_date: model.date, date: model.date, day: "", duration: "", status: actual || id.startsWith("activity:") ? "completed" : previous?.status || "upcoming", ...(id.startsWith("activity:") ? {activity_id:id.slice(9)} : {}), goal: description, details: description, editable_description: description, editor_model: paired ? previous.editor_model : structuredClone(model), workout_summary: { planned: id.startsWith("activity:") ? previous?.workout_summary?.planned || null : planned, completed: actual }, plannedDurationMinutes: (planned.duration_seconds || 0) / 60 }
 }
 export async function restoreWorkoutCommits() {
   if (!active()) return
@@ -60,9 +62,9 @@ export async function acceptWorkoutCommit(id: string | null, input: CommitInput,
     for (const older of priorOperations) {
       // Unsent edits and definite handoff rejections can be replaced. Keep an
       // attempted ambiguous delivery and the create that establishes identity.
-      if ((older.action === "edit" && older.state === "local" && !older.delivery) || (older.state === "failed" && !older.backendRevision)) older.state = "superseded"
+      if ((["edit", "edit-activity"].includes(older.action) && !older.input.comment?.trim() && !older.input.completedValues && older.state === "local" && !older.delivery) || (older.state === "failed" && !older.backendRevision)) older.state = "superseded"
     }
-    const operation: LocalCommit = { operationId, workoutId, action: action || (id && (!neverAccepted || !id.startsWith("app:")) ? "edit" : "create"), input: structuredClone(input), ...(baseEvent ? {baseEvent:structuredClone(baseEvent)} : {}), sequence, state: "local", attempts: 0, nextAttempt: 0, acceptedAt: Date.now() }
+    const operation: LocalCommit = { operationId, workoutId, action: action || (id?.startsWith("activity:") ? "edit-activity" : id && (!neverAccepted || !id.startsWith("app:")) ? "edit" : "create"), input: structuredClone(input), ...(baseEvent ? {baseEvent:structuredClone(baseEvent)} : {}), sequence, state: "local", attempts: 0, nextAttempt: 0, acceptedAt: Date.now() }
     const workout = projected(workoutId, input, current?.workout || previous)
     const row: LocalWorkout = { workoutId, workout, input: structuredClone(input), sequence, revision: `local:${sequence}`, state: "local", deleted: action === "delete", providerWorkoutId: current?.providerWorkoutId }
     // Never remove an intent that might have reached the backend. Idempotency
@@ -90,9 +92,9 @@ export function overlayWorkoutCommits<T extends TrainingContext>(context: T): T 
     const snapshot = context as T & {sync_started_at?:string;synced_at?:string}
     const snapshotTime = Date.parse(snapshot.sync_started_at || snapshot.synced_at || "")
     if (row.state === "synced" && (!row.syncedAt || (Number.isFinite(snapshotTime) ? snapshotTime >= row.syncedAt : Date.now() - row.syncedAt > 30000))) continue
-    const ids = new Set([row.workoutId, row.providerWorkoutId].filter(Boolean))
-    history = history.filter(w => !("id" in w && ids.has(w.id as string)))
-    planned = planned.filter(w => !ids.has(w.id))
+    const ids = new Set([row.workoutId, row.providerWorkoutId, row.workout.id].filter(Boolean))
+    history = history.filter(w => !("id" in w && ids.has(w.id as string)) && !("activity_id" in w && w.activity_id && ids.has(`activity:${w.activity_id}`)))
+    planned = planned.filter(w => !ids.has(w.id) && !(w.activity_id && ids.has(`activity:${w.activity_id}`)))
     if (!row.deleted) {
       const workout = { ...row.workout, app_sync_status: row.state } as PlannedWorkout
       if (workout.workout_date! <= today) history = [...history, {...workout,workout_date:workout.workout_date!}]
@@ -106,7 +108,7 @@ export function committedEditorRead(id: string) {
   if (!row || row.deleted) return null
   const latestComment = row.input.comment?.trim() ? [{id:row.input.commentId || `local:${row.sequence}`,body:row.input.comment.trim()}] : []
   const comments = [...new Map([...latestComment,...(row.input.comments || [])].map(comment=>[comment.id,comment])).values()]
-  return { model: structuredClone(row.input.model), revision: row.revision, issues: [], warnings: row.externalConflict ? ["This workout changed in Intervals.icu. The app version is retained; review both versions before retrying."] : [], originalDescription: row.input.description ?? row.input.model.notes, reviewRequired: false, ambiguousSwim: false, scheduledTime: row.input.time || "", plannedValues: {...row.workout.workout_summary?.planned,...row.input.values}, manualDescription: row.input.description ?? row.input.model.notes, comments, zoneSettings: row.input.zoneSettings }
+  return { model: structuredClone(row.input.model), revision: row.revision, issues: [], warnings: row.externalConflict ? ["This workout changed in Intervals.icu. The app version is retained; review both versions before retrying."] : [], originalDescription: row.input.description ?? row.input.model.notes, reviewRequired: false, ambiguousSwim: false, scheduledTime: row.input.time || "", plannedValues: {...row.workout.workout_summary?.planned,...row.input.values}, completedEditableFields: row.input.completedEditableFields, completedValues: {...row.workout.workout_summary?.completed,...row.input.completedValues}, manualDescription: row.input.description ?? row.input.model.notes, comments, zoneSettings: row.input.zoneSettings }
 }
 const semanticModel = (model: CommitInput["model"]) => {
   const stable = (value: unknown): unknown => Array.isArray(value) ? value.map(stable) : value && typeof value==="object" ? Object.fromEntries(Object.entries(value as Record<string,unknown>).filter(([key])=>key!=="id"&&key!=="thresholds").sort(([a],[b])=>a.localeCompare(b)).map(([key,item])=>[key,stable(item)])) : value
@@ -305,7 +307,8 @@ async function processScope() {
         if (remote.syncStatus === "failed") for (const op of state.operations) if (op.workoutId === row.workoutId && op.state === "pending") op.state = "failed"
         if (remote.syncStatus === "synced") {
           row.syncedAt = (typeof remote.syncedAt === "number" ? remote.syncedAt : Date.parse(remote.syncedAt || "")) || Date.now()
-          row.workout = { ...remote.workout, editor_model: row.input.model }
+          const paired = row.workoutId.startsWith("activity:") && !row.workout.id.startsWith("activity:")
+          row.workout = { ...remote.workout, ...(paired ? {id:row.workout.id,editor_model:row.workout.editor_model,workout_summary:{completed:remote.workout.workout_summary?.completed || null,planned:row.workout.workout_summary?.planned || null}} : {editor_model:row.input.model}) }
           for (const op of state.operations) if (op.workoutId === row.workoutId && op.backendRevision && op.state!=="superseded") op.state = "synced"
         }
       }

@@ -1,6 +1,7 @@
 import { appendWorkoutComment } from "./workout-comments.mjs";
 import { providerWorkoutDescription } from "./workout-provider-description.mjs";
 import { readWorkoutCommentText, withWorkoutCommentText } from "./workout-comment-text.mjs";
+import { loadNativeActivityComments } from "./native-workout-comments.mjs";
 
 export function commentWorkoutPath(id) {
   const match = String(id).match(/^(event:[1-9]\d*|activity:i?[1-9]\d*)$/);
@@ -13,6 +14,13 @@ export async function loadProviderWorkoutComments(request, id, legacy = []) {
   const provider = readWorkoutCommentText(workout.description, id, true);
   const old = legacy.filter((item) => item.workout_id === id);
   const comments = [...new Map([...old, ...provider].map((item) => [item.id, item])).values()];
+  if (id.startsWith("activity:")) {
+    const native = await loadNativeActivityComments(request, id);
+    return {
+      comments: [...new Map([...native, ...comments].map((item) => [item.id, item])).values()],
+      needsSync: false,
+    };
+  }
   return {
     comments,
     needsSync: old.some(
@@ -27,6 +35,11 @@ export async function loadProviderWorkoutComments(request, id, legacy = []) {
   };
 }
 export async function saveProviderWorkoutComment(request, input, legacy = [], now = new Date()) {
+  if (input.workoutId?.startsWith("activity:"))
+    throw Object.assign(Error("Activity comments must use the durable workout save path."), {
+      status: 409,
+      code: "DURABLE_COMMENT_REQUIRED",
+    });
   const path = commentWorkoutPath(input.workoutId),
     workout = await request(path);
   const provider = readWorkoutCommentText(workout.description, input.workoutId, true);

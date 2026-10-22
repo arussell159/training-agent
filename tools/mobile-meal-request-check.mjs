@@ -50,6 +50,11 @@ try {
   await page.getByRole("button", { name: "Add lunch", exact: true }).click();
   const search = page.getByPlaceholder("Search foods or brands");
   await search.waitFor();
+  assert.equal(
+    await search.evaluate((input) => document.activeElement === input),
+    true,
+    "Opening mobile Add Food must focus its search input without a second tap"
+  );
   const baseline = calls.filter((call) => call.api === "nutrition" && call.method === "GET").length;
   const foods = [
     ["rolled oats", "Rolled oats"],
@@ -115,6 +120,7 @@ try {
   checks.push({
     width: 390,
     foods: 6,
+    searchAutofocus: true,
     normalSaveRequests: 6,
     searchRequests: 6,
     detailRequests: 6,

@@ -14,6 +14,8 @@ const hash = (text) => createHash("sha256").update(text).digest("hex");
 
 function resource(pathname) {
   const path = pathname.split("?")[0];
+  if (/^\/athlete\/[^/]+\/activities\/manual\/bulk$/.test(path))
+    return { kind: "activity", id: null };
   const match = path.match(/^\/athlete\/[^/]+\/(events|workouts|activities)(?:\/([^/]+))?$/);
   if (match) {
     if (["bulk-delete"].includes(match[2])) return null;

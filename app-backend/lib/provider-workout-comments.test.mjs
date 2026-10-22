@@ -57,7 +57,7 @@ test("lost provider replies reconcile by readback and a retry never duplicates a
   let current = { description: "Original", workout_doc: { steps: [{ duration: 300 }] } },
     writes = 0;
   const request = async (path, options) => {
-    assert.equal(path, "/activity/i123");
+    assert.equal(path, "/athlete/0/events/123");
     if (options) {
       writes++;
       current = { ...current, ...JSON.parse(options.body) };
@@ -65,7 +65,7 @@ test("lost provider replies reconcile by readback and a retry never duplicates a
     }
     return structuredClone(current);
   };
-  const payload = { ...input, workoutId: "activity:i123", type: "post" };
+  const payload = { ...input, workoutId: "event:123", type: "post" };
   assert.equal((await saveProviderWorkoutComment(request, payload, [], now)).verified, true);
   assert.equal((await saveProviderWorkoutComment(request, payload, [], new Date())).verified, true);
   assert.equal(writes, 1);

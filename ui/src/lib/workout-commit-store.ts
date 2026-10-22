@@ -1,9 +1,9 @@
 import type { PlannedWorkout, WorkoutSummaryValues } from "./training-context"
 import type { WorkoutModel } from "../../../app-backend/lib/workout-editor-model.mjs"
 
-export type CommitInput = { model: WorkoutModel; revision?: string; creationId?: string; reconcileOnly?: boolean; values?: Partial<WorkoutSummaryValues>; time?: string; description?: string; descriptionMode?: "manual"; comment?: string; commentId?: string; personal?: import("./workout-local-metadata").WorkoutLocalMetadata; recurrence?: import("./workout-recurrence").WorkoutRecurrenceDraft | null; comments?: {id:string;body:string}[]; zoneSettings?: import("../../../app-backend/lib/workout-editor-zones.mjs").SportZoneSettings[]; personalId?: string }
+export type CommitInput = { completedEditableFields?: string[] } & { model: WorkoutModel; revision?: string; creationId?: string; reconcileOnly?: boolean; values?: Partial<WorkoutSummaryValues>; completedValues?: Partial<WorkoutSummaryValues>; time?: string; description?: string; descriptionMode?: "manual"; comment?: string; commentId?: string; personal?: import("./workout-local-metadata").WorkoutLocalMetadata; recurrence?: import("./workout-recurrence").WorkoutRecurrenceDraft | null; comments?: {id:string;body:string}[]; zoneSettings?: import("../../../app-backend/lib/workout-editor-zones.mjs").SportZoneSettings[]; personalId?: string }
 export type LocalCommit = {
-  operationId: string; workoutId: string; action: "create" | "edit" | "delete" | "move"
+  operationId: string; workoutId: string; action: "create" | "edit" | "delete" | "move" | "edit-activity" | "complete" | "comment"
   input: CommitInput; baseEvent?: Record<string, unknown>; sequence: number
   backendRevision?: string; state: "local" | "pending" | "synced" | "failed" | "superseded"
   error?: string; attempts: number; nextAttempt: number; acceptedAt: number

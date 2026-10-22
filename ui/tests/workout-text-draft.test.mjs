@@ -19,7 +19,7 @@ function visit(node) {
   if (
     ts.isCallExpression(node) &&
     node.expression.getText(file) === "useEffect" &&
-    node.arguments[0]?.getText(file).includes("baseline.current")
+    node.arguments[0]?.getText(file).includes("baseline.current === original")
   ) {
     assert.equal(effect, undefined)
     effect = node
@@ -35,9 +35,10 @@ function draft(original, description = original) {
   return {
     baseline,
     state,
-    render(original, pending) {
+    render(original, pending, activityText = false) {
       const context = {
         original,
+        activityText,
         workout: { app_pending_operation: pending },
         baseline,
         setDescription: (change) => {
@@ -101,4 +102,11 @@ test("an independent confirmed source update refreshes the baseline without repl
   input.render("New verified source")
   assert.equal(input.state.description, "Different unsaved typing")
   assert.equal(input.state.saved, "New verified source")
+})
+
+test("a paired activity description is not replaced by the planned event's context text",()=>{
+  const input=draft("Actual activity feedback")
+  input.render("Different planned prescription",undefined,true)
+  assert.equal(input.state.description,"Actual activity feedback")
+  assert.equal(input.state.saved,"Actual activity feedback")
 })

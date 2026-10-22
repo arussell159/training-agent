@@ -77,6 +77,7 @@ import {contentFingerprint} from './lib/content-fingerprint.mjs';
 import {updateWorkoutDescription,DEFINITION_MARKER} from './lib/workout-description.mjs';
 import {readManualWorkoutDescription} from './lib/workout-manual-description.mjs';
 import {loadWorkoutEditor,saveWorkoutEditor,loadNewWorkoutEditor,createWorkoutEditor,workoutRevision} from './lib/workout-editor.mjs';
+import {loadCompletedWorkoutEditor} from './lib/completed-workout-edits.mjs';
 import {loadCalendarNote,saveCalendarNote,createCalendarNote} from './lib/calendar-notes.mjs';
 import {calendarAnnotationsService} from './lib/calendar-annotations.mjs';
 import {calendarEntryTransferService} from './lib/calendar-entry-transfer.mjs';
@@ -249,7 +250,7 @@ function scheduleWorkoutCommits(config){
  const work=workoutCommits(config).drain().catch(error=>updateLogs('Workout background synchronization pending: '+error.message)).finally(()=>workoutCommitWorkers.delete(key));
  workoutCommitWorkers.set(key,work);
  // The durable ledger survives function termination. waitUntil only speeds the
- // first attempt; cron/local server timers own subsequent independent wakeups.
+ // first attempt; a later visit or incoming webhook resumes pending work.
  waitUntil(work);
 }
 function sendWebhookJson(res,status,value) {
@@ -289,7 +290,10 @@ async function handleIntervalsWebhook(req,res) {
   const athleteId=view?.athlete?.id || (await createIntervalsClient(config)('/athlete/0')).id;
   const sync=webhookSync(config);
   const accepted=await sync.accept(payload.events,athleteId);
-  if(accepted.accepted || accepted.duplicate)scheduleTrainingReconciliation(config);
+  if(accepted.accepted || accepted.duplicate){
+   scheduleTrainingReconciliation(config);
+   scheduleWorkoutCommits(config);
+  }
   sendWebhookJson(res,202,{ok:true,...accepted});
  } catch(error) {
   updateLogs(`Intervals.icu webhook refresh failed: ${error.message}`);
@@ -1936,6 +1940,11 @@ export async function handleRequest(req, res) {
       return;
     }
 
+    const activityEditorRoute=pathname.match(/^\/api\/workouts\/(activity(?:%3A|:)i?[1-9]\d*)\/editor$/i);
+    if(activityEditorRoute && req.method==='GET') {
+      const config=await readConfig();
+      sendJson(req,res,await loadCompletedWorkoutEditor(intervalsClient(config),decodeURIComponent(activityEditorRoute[1])));return;
+    }
     const editorRoute=pathname.match(/^\/api\/workouts\/(event%3A\d+|event:\d+)\/editor$/i);
     if(editorRoute && (req.method==='GET'||req.method==='PUT')) {
       const id=decodeURIComponent(editorRoute[1]);
@@ -2210,6 +2219,17 @@ export async function handleRequest(req, res) {
       const payload=await readBody(req);
       commentWorkoutPath(payload.workoutId);
       const config=await readConfig(),local=await readLocalContext();
+      if(payload.workoutId.startsWith('activity:')) {
+        if(payload.syncOnly){sendJson(req,res,{...await loadProviderWorkoutComments(intervalsClient(config),payload.workoutId,local.comments||[]),workout_id:payload.workoutId,verified:true});return;}
+        const service=workoutCommits(config,req.headers.host);
+        await service.accept({operationId:payload.creationId,workoutId:payload.workoutId,action:'comment',input:{comment:payload.body,commentId:payload.creationId}});
+        await service.drain();
+        const row=(await service.status()).workouts.find(row=>row.workoutId===payload.workoutId);
+        if(!row?.verified){scheduleWorkoutCommits(config);sendWebhookJson(res,503,{error:row?.syncError || 'Your comment is retained and awaiting Intervals.icu verification.',code:'COMMENT_UNCONFIRMED',accepted:true});return;}
+        const loaded=await loadProviderWorkoutComments(intervalsClient(config),payload.workoutId,local.comments||[]);
+        const matches=loaded.comments.filter(comment=>comment.body===payload.body.trim() && comment.type==='post');
+        sendJson(req,res,{...matches[0],...loaded,workout_id:payload.workoutId,verified:matches.length>0});return;
+      }
       const result=await withDirectWorkoutWrite(config,payload.workoutId,request=>saveProviderWorkoutComment(request,payload,local.comments||[]));
       intervalsMemoryCache=null;
       if(result.id){
@@ -2315,11 +2335,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   server.listen(port, () => {
     console.log(`Application service listening on http://localhost:${port}`);
   });
-  // This process owns retries while all browser tabs are closed. Hosted
-  // serverless deployments use the authenticated cron endpoint instead.
-  const workoutCommitTimer=setInterval(()=>{void readConfig().then(config=>{
-    if(config.SUPABASE_URL && config.SUPABASE_SECRET_KEY && config.INTERVALS_API_KEY)scheduleWorkoutCommits(config);
-  }).catch(()=>{});},30_000);
-  workoutCommitTimer.unref();
-  server.on('close',()=>clearInterval(workoutCommitTimer));
 }

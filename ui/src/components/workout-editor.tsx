@@ -181,7 +181,7 @@ function DesktopBuilderSkeleton() {
 const ZoneSettingsContext = createContext<SportZoneSettings[]>([])
 type Loaded = WorkoutEditorRead
 
-export type DesktopBuilderSubmission = { close: boolean; values: Partial<WorkoutSummaryValues>; time: string; comment: string; personal?: WorkoutLocalMetadata; personalId?: string; recurrence?: WorkoutRecurrenceDraft | null }
+export type DesktopBuilderSubmission = { close: boolean; values: Partial<WorkoutSummaryValues>; time: string; comment: string; personal?: WorkoutLocalMetadata; personalId?: string; recurrence?: WorkoutRecurrenceDraft | null; zoneSettings?: SportZoneSettings[] }
 type SavedBlock = {
   id: string
   name?: string
@@ -3664,6 +3664,15 @@ function EditorWorkspace({
       return false
     }
   }
+  const shellRecovery = useRef<() => boolean>(() => false)
+  shellRecovery.current = () => !saveInFlight.current && !deleteInFlight.current && editorAccount.isCurrent() && storeDraft()
+  useEffect(() => {
+    const retain = (event: Event) => {
+      if (!shellRecovery.current()) event.preventDefault()
+    }
+    window.addEventListener("training-prepare-shell-recovery", retain)
+    return () => window.removeEventListener("training-prepare-shell-recovery", retain)
+  }, [])
   useEffect(() => {
     if (dirty && !recovered) {
       try {
@@ -3841,7 +3850,7 @@ function EditorWorkspace({
       try {
         assertEditorOwner()
         const values = changedPlannedValues(desktopPlanned, plannedValueDraft(null, presentationSport), presentationSport)
-        await onApplyDraft({...clone(model),notes:nativeDescription}, {close, values, time: desktopTime, comment: desktopComment, personal:{...personal.value,autoCalculate}, personalId:personal.id, recurrence})
+        await onApplyDraft({...clone(model),notes:nativeDescription}, {close, values, time: desktopTime, comment: desktopComment, personal:{...personal.value,autoCalculate}, personalId:personal.id, recurrence, zoneSettings:loaded.zoneSettings})
         assertEditorOwner()
         try { localStorage.removeItem(draftKey) } catch { /* Optional local draft. */ }
         if (editorAccount.isCurrent()) bypassWorkoutNavigationGuard(onClose)

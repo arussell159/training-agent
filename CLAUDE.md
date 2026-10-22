@@ -7,7 +7,7 @@ See README.md for setup. The retired TrainingPeaks MCP transport/source has been
 - Official provider transport: app-backend/lib/intervals.mjs. Personal API key uses Basic authentication with username API_KEY, kept in backend configuration/environment only.
 - Never print, commit, or include user credentials in chat or test fixtures. Tests use dummy keys and mocked responses.
 - Athlete-scoped calls use /athlete/0.
-- Calendar IDs are event:<numeric id>; completed activity IDs are activity:<id>. Only calendar events are editable.
+- Calendar IDs are event:<numeric id>; completed activity IDs are activity:<id>. Planned prescriptions use calendar-event writes. Completed descriptions and supported summary fields use durable activity edits; existing activity duration is read-only. Never rewrite device streams/laps to change a summary. Completed comments use native activity messages through the durable journal; uncertain message POSTs reconcile without blind reposting.
 - Intervals.icu source moving_time is seconds, distance is metres, threshold_pace is speed in m/s. Do not import old decimal-hour provider assumptions.
 - Date moves patch start/end local dates only, preserving time and multiday span. Read back mutations before reporting success; never blindly retry uncertain writes.
 - npm test runs backend tests; npm run build checks/builds the UI.

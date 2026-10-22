@@ -28,9 +28,11 @@ const results = {
     viewport: { width: 1280, height: 820 },
     network:
       "40ms latency;40Mbps down;10Mbps up;no CPU throttle; synthetic numeric-ID editor fixtures",
-    readiness: "Trusted Edit click to enabled title, interval cards, profile SVG, actual title focus, then next animation frame (paint proxy)",
+    readiness:
+      "Trusted Edit click to enabled title, interval cards, profile SVG, actual title focus, then next animation frame (paint proxy)",
   },
   sports: {},
+  errors: [],
 };
 try {
   await new Promise((resolve, reject) => {
@@ -47,6 +49,21 @@ try {
       }),
       page = await context.newPage();
     page.setDefaultTimeout(10000);
+    page.on("pageerror", (error) =>
+      results.errors.push({ sport, type: "pageerror", message: error.message })
+    );
+    page.on("console", (message) => {
+      if (message.type() === "error")
+        results.errors.push({ sport, type: "console", message: message.text() });
+    });
+    page.on("requestfailed", (request) =>
+      results.errors.push({
+        sport,
+        type: "requestfailed",
+        url: request.url(),
+        failure: request.failure(),
+      })
+    );
     if (process.env.PERF_DIAGNOSTICS)
       await context.addInitScript(() => {
         window.__editorFrames = [];
@@ -133,8 +150,32 @@ try {
         .locator(".desktop-workout-toolbar-popover")
         .getByRole("button", { name: /Edit workout/i })
         .click();
-      await page.locator('.dtb-workspace input[aria-label="Workout title"]:enabled').waitFor();
-      await page.locator(".dtb-step-card").first().waitFor();
+      try {
+        await page.locator('.dtb-workspace input[aria-label="Workout title"]:enabled').waitFor();
+        await page.locator(".dtb-step-card").first().waitFor();
+      } catch (error) {
+        results.failure = {
+          sport,
+          message: error.message,
+          body: await page.locator("body").innerText(),
+          inputs: await page
+            .locator("input")
+            .evaluateAll((inputs) =>
+              inputs.map((input) => ({
+                label: input.getAttribute("aria-label"),
+                value: input.value,
+                disabled: input.disabled,
+              }))
+            ),
+          workspaces: await page.locator(".dtb-workspace").count(),
+        };
+        await fs.mkdir(path.dirname(output), { recursive: true });
+        await page.screenshot({
+          path: path.join(path.dirname(output), `editor-performance-failure-${sport}.png`),
+          animations: "disabled",
+        });
+        throw error;
+      }
     };
     await open();
     await page.getByRole("button", { name: "Close workout builder", exact: true }).click();
@@ -174,7 +215,16 @@ try {
         .locator(".desktop-workout-toolbar-popover")
         .getByRole("button", { name: /Edit workout/i })
         .click();
-      await page.waitForFunction(() => window.__editorPerf !== null).catch(async error=>{results.failure=await page.evaluate(()=>({active:document.activeElement?.outerHTML,layouts:window.__editorLayouts,workspaces:document.querySelectorAll('.dtb-workspace').length}));throw error;});
+      await page
+        .waitForFunction(() => window.__editorPerf !== null)
+        .catch(async (error) => {
+          results.failure = await page.evaluate(() => ({
+            active: document.activeElement?.outerHTML,
+            layouts: window.__editorLayouts,
+            workspaces: document.querySelectorAll(".dtb-workspace").length,
+          }));
+          throw error;
+        });
       values.push(await page.evaluate(() => window.__editorPerf));
       if (process.env.PERF_DIAGNOSTICS)
         diagnostics.push(
