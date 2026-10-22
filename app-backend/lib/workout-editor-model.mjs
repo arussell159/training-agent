@@ -394,7 +394,11 @@ export function convertTarget(target, unit, ftp) {
 export function targetLabel(t) {
   if (t.kind === "none") return "No target";
   const fmt = (v) =>
-    t.unit.includes("zone") ? `Z${v}` : paceFactors[t.unit] ? clock(v) : `${round(v, 1)}`;
+    t.unit.includes("zone")
+      ? `Z${v}`
+      : paceFactors[t.unit]
+        ? clock(v)
+        : `${t.unit.startsWith("%") ? Math.round(v) : round(v, 1)}`;
   const unit = paceFactors[t.unit]
     ? t.unit.replace("secs", "min")
     : t.unit.includes("zone")

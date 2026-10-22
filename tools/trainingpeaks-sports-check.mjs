@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { createRequire } from "node:module";
-import { browserNetworkEvidence } from "./browser-network-evidence.mjs";
+import {browserNetworkEvidence} from "./browser-network-evidence.mjs";
 const require = createRequire(import.meta.url);
 let playwright;
 try {
@@ -33,8 +33,7 @@ const context = await browser.newContext({
   colorScheme: "light",
 });
 const page = await context.newPage();
-const network = browserNetworkEvidence();
-network.attach(context);
+const network=browserNetworkEvidence();network.attach(context);
 page.setDefaultTimeout(12000);
 const errors = [];
 const checks = [];
@@ -71,29 +70,16 @@ try {
       "Synthetic preview marker is mandatory before mutation."
     );
     const day = new Date();
-    if (label !== "Sauna") day.setDate(day.getDate() + 4);
+    day.setDate(day.getDate() + 4);
     const dayLabel = `Add workout for ${day.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
     await page.getByRole("button", { name: dayLabel, exact: true }).press("Enter");
     const chooser = page.locator(".calendar-add-dialog");
     const choices = await chooser.locator(".calendar-add-options button").allTextContents();
     assert.deepEqual(
       choices.map((name) => name.trim()),
-      [
-        ...sports.map(([name]) => name).filter((name) => name !== "Sauna"),
-        "Workout Generator",
-        "Event",
-        "Goals",
-        "Note",
-        "Metrics",
-        "Availability",
-        "Upload File",
-      ]
+      [...sports.map(([name]) => name), "Event", "Goals", "Note", "Metrics", "Availability"]
     );
-    if (label === "Sauna") {
-      await chooser.getByRole("button", { name: "Close", exact: true }).click();
-      await page.getByRole("button", { name: "Calendar settings", exact: true }).click();
-      await page.getByRole("menuitem", { name: "Add Sauna (Other)", exact: true }).click();
-    } else await chooser.getByRole("button", { name: label, exact: true }).click();
+    await chooser.getByRole("button", { name: label, exact: true }).click();
     await page.waitForFunction(
       () => document.activeElement?.getAttribute("aria-label") === "Workout title"
     );
@@ -105,20 +91,11 @@ try {
       variant ? `variant:${variant}` : type,
       `${label}: selected canonical sport`
     );
-    await page
-      .getByLabel("Planned duration", { exact: true })
-      .fill(variant === "day-off" ? "" : "0:20:00");
+    await page.getByLabel("Planned duration", { exact: true }).fill(variant === "day-off" ? "" : "0:20:00");
     const dualSpeed = type === "MountainBikeRide" || variant === "brick";
-    const durationSeconds =
-      variant === "day-off" ? null : type === "Rowing" ? 120 : dualSpeed ? 420 : 1200;
+    const durationSeconds = variant === "day-off" ? null : type === "Rowing" ? 120 : dualSpeed ? 420 : 1200;
     const durationText =
-      variant === "day-off"
-        ? ""
-        : type === "Rowing"
-          ? "0:02:00"
-          : dualSpeed
-            ? "0:07:00"
-            : "0:20:00";
+      variant === "day-off" ? "" : type === "Rowing" ? "0:02:00" : dualSpeed ? "0:07:00" : "0:20:00";
     if (dualSpeed) {
       await page.getByLabel("Planned duration", { exact: true }).fill("");
       await page.getByLabel("Planned distance", { exact: true }).fill("1");
@@ -172,10 +149,7 @@ try {
           nodes.map((node) => node.id).filter((id, index, ids) => ids.indexOf(id) !== index)
         );
       assert.deepEqual(duplicates, [], "Speed and pace must have independent DOM identities");
-      assert.equal(
-        await page.getByLabel("Recorded minimum pace", { exact: true }).count(),
-        variant === "brick" ? 1 : 0
-      );
+      assert.equal(await page.getByLabel("Recorded minimum pace", { exact: true }).count(), variant === "brick" ? 1 : 0);
       assert.equal(await page.getByLabel("Recorded minimum power", { exact: true }).count(), 1);
       assert.equal(
         await page.getByLabel("Recorded minimum heart rate", { exact: true }).count(),
@@ -183,19 +157,16 @@ try {
       );
     }
     if (variant === "brick") {
-      assert.equal(await page.getByLabel("Planned normalized power", { exact: true }).count(), 0);
-      assert.equal(await page.locator('input[aria-label="Planned elevation loss"]').count(), 0);
-      assert.equal(
-        await page.getByLabel("Planned elevation loss", { exact: true }).textContent(),
-        "—"
-      );
-      assert.equal(await page.getByLabel("Completed elevation loss", { exact: true }).count(), 1);
-      await page.getByLabel("Workout bike", { exact: true }).fill("Synthetic brick bike");
-      await page.getByLabel("Workout shoes", { exact: true }).fill("Synthetic brick shoes");
+      assert.equal(await page.getByLabel("Planned normalized power", { exact: true }).count(),0);
+      assert.equal(await page.locator('input[aria-label="Planned elevation loss"]').count(),0);
+      assert.equal(await page.getByLabel("Planned elevation loss", { exact: true }).textContent(), "—");
+      assert.equal(await page.getByLabel("Completed elevation loss", { exact: true }).count(),1);
+      await page.getByLabel("Workout bike",{exact:true}).fill("Synthetic brick bike");
+      await page.getByLabel("Workout shoes",{exact:true}).fill("Synthetic brick shoes");
     }
     if (variant === "day-off") {
-      assert.equal(await page.getByLabel("Planned distance", { exact: true }).count(), 0);
-      assert.equal(await page.getByLabel("Planned calories", { exact: true }).count(), 0);
+      assert.equal(await page.getByLabel("Planned distance",{exact:true}).count(),0);
+      assert.equal(await page.getByLabel("Planned calories",{exact:true}).count(),0);
     }
     if (type === "Rowing") {
       await page.getByLabel("Planned duration", { exact: true }).fill("");
@@ -235,17 +206,10 @@ try {
         const pool = page.getByRole("combobox", { name: "Workout pool", exact: true });
         assert.equal(await pool.isDisabled(), true);
         assert.equal(await pool.inputValue(), "");
-        assert.deepEqual(
-          await pool
-            .locator("option")
-            .evaluateAll((options) => options.map((option) => [option.value, option.textContent])),
-          [
-            ["", "Default"],
-            ["DEFAULT-25Y", "25 Yards Pool"],
-            ["DEFAULT-25M", "25 Meters Pool"],
-            ["DEFAULT-50M", "50 Meters Pool"],
-          ]
-        );
+        assert.deepEqual(await pool.locator("option").evaluateAll(options => options.map(option => [option.value, option.textContent])), [
+          ["", "Default"], ["DEFAULT-25Y", "25 Yards Pool"],
+          ["DEFAULT-25M", "25 Meters Pool"], ["DEFAULT-50M", "50 Meters Pool"],
+        ]);
       };
       await assertPoolSummary();
       assert.equal(await page.getByLabel("Workout equipment", { exact: true }).isDisabled(), true);
@@ -255,18 +219,9 @@ try {
       assert.equal(await page.getByLabel("Workout equipment", { exact: true }).isDisabled(), true);
       await page.getByRole("button", { name: "Close workout builder", exact: true }).click();
       await page.locator(".desktop-workout-preview").waitFor();
-      assert.equal(
-        await page.getByLabel("Planned duration", { exact: true }).inputValue(),
-        durationText
-      );
-      const untouched = await (
-        await page.request.get(`${origin}/api/preview/provider-records`)
-      ).json();
-      assert.equal(
-        untouched.events.some((entry) => entry.name === title),
-        false,
-        "Inspecting disabled pool equipment must not write a workout"
-      );
+      assert.equal(await page.getByLabel("Planned duration", { exact: true }).inputValue(), durationText);
+      const untouched = await (await page.request.get(`${origin}/api/preview/provider-records`)).json();
+      assert.equal(untouched.events.some(entry => entry.name === title), false, "Inspecting disabled pool equipment must not write a workout");
     }
     await page.getByRole("textbox", { name: "Workout description", exact: true }).fill(description);
     await page.screenshot({
@@ -280,18 +235,9 @@ try {
     assert.ok(event, `${label}: a real synthetic provider event was created`);
     assert.equal(event.type, type, `${label}: provider sport was preserved`);
     if (variant === "day-off") {
-      assert.equal(
-        (event.workout_doc?.steps || []).length,
-        0,
-        "Title-only Day off must never fabricate a device interval"
-      );
-      assert.ok(event.time_target == null, "Blank Day off duration must remain blank");
-    } else
-      assert.equal(
-        event.workout_doc.steps[0].duration,
-        durationSeconds,
-        `${label}: saved duration`
-      );
+      assert.equal((event.workout_doc?.steps || []).length,0,"Title-only Day off must never fabricate a device interval");
+      assert.ok(event.time_target == null,"Blank Day off duration must remain blank");
+    } else assert.equal(event.workout_doc.steps[0].duration, durationSeconds, `${label}: saved duration`);
     if (type === "Swim") assert.equal(event.workout_doc.options.pool_length, "25y");
     if (type === "Rowing")
       assert.equal(
@@ -332,51 +278,19 @@ try {
       const pool = page.getByRole("combobox", { name: "Workout pool", exact: true });
       assert.equal(await pool.isDisabled(), true);
       assert.equal(await pool.inputValue(), "");
-      const editor = await (
-        await page.request.get(
-          `${origin}/api/workouts/${encodeURIComponent(`event:${event.id}`)}/editor`
-        )
-      ).json();
-      assert.equal(
-        editor.model.poolLength,
-        "25y",
-        "Disabled equipment Default must not overwrite native pool length"
-      );
+      const editor = await (await page.request.get(`${origin}/api/workouts/${encodeURIComponent(`event:${event.id}`)}/editor`)).json();
+      assert.equal(editor.model.poolLength, "25y", "Disabled equipment Default must not overwrite native pool length");
     }
     if (variant) {
-      const loaded = (
-        await (
-          await page.request.get(
-            `${origin}/api/workouts/${encodeURIComponent(`event:${event.id}`)}/editor`
-          )
-        ).json()
-      ).model;
-      assert.equal(loaded.sport, "Other");
-      assert.equal(loaded.variant, variant);
-      if (variant === "day-off") assert.equal(loaded.unstructured, true);
-      assert.equal(
-        await page.locator(".desktop-workout-context").getByText(label, { exact: true }).count(),
-        1
-      );
-      if (variant === "brick") {
-        await page.waitForFunction(
-          () =>
-            document.querySelector('input[aria-label="Workout bike"]')?.value ===
-            "Synthetic brick bike"
-        );
-        assert.equal(
-          await page.getByLabel("Workout shoes", { exact: true }).inputValue(),
-          "Synthetic brick shoes"
-        );
-        const personal = (
-          await (
-            await page.request.get(
-              `${origin}/api/workouts/${encodeURIComponent(`event:${event.id}`)}/personal`
-            )
-          ).json()
-        ).value;
-        assert.equal(personal.bikeEquipment, "Synthetic brick bike");
-        assert.equal(personal.shoeEquipment, "Synthetic brick shoes");
+      const loaded=(await (await page.request.get(`${origin}/api/workouts/${encodeURIComponent(`event:${event.id}`)}/editor`)).json()).model;
+      assert.equal(loaded.sport,"Other");assert.equal(loaded.variant,variant);
+      if(variant==="day-off")assert.equal(loaded.unstructured,true);
+      assert.equal(await page.locator(".desktop-workout-context").getByText(label,{exact:true}).count(),1);
+      if(variant==="brick"){
+        await page.waitForFunction(()=>document.querySelector('input[aria-label="Workout bike"]')?.value==="Synthetic brick bike");
+        assert.equal(await page.getByLabel("Workout shoes",{exact:true}).inputValue(),"Synthetic brick shoes");
+        const personal=(await (await page.request.get(`${origin}/api/workouts/${encodeURIComponent(`event:${event.id}`)}/personal`)).json()).value;
+        assert.equal(personal.bikeEquipment,"Synthetic brick bike");assert.equal(personal.shoeEquipment,"Synthetic brick shoes");
       }
     }
     if (type === "Rowing") {
@@ -446,14 +360,8 @@ try {
       name: "chooser-create-provider-save-and-reload",
       providerId: event.id,
       durationSeconds,
-      ...(variant ? { variant, nativeSport: "Other", privateVariantReadback: true } : {}),
-      ...(type === "Swim"
-        ? {
-            disabledPoolEquipmentVerified: true,
-            nativePoolLength: "25y",
-            unchangedThroughBuilder: true,
-          }
-        : {}),
+      ...(variant ? {variant,nativeSport:"Other",privateVariantReadback:true} : {}),
+      ...(type === "Swim" ? { disabledPoolEquipmentVerified: true, nativePoolLength: "25y", unchangedThroughBuilder: true } : {}),
       ...(type === "Rowing"
         ? { distanceMeters: 500, displayed500mSplit: "2:00", nativeMetresVerified: true }
         : {}),
@@ -476,7 +384,7 @@ try {
     .catch(() => {});
   console.error(error.message);
 } finally {
-  await fs.writeFile(path.join(output, "network.json"), JSON.stringify(network.entries, null, 2));
+  await fs.writeFile(path.join(output,"network.json"),JSON.stringify(network.entries,null,2));
   await fs.writeFile(
     path.join(output, "results.json"),
     JSON.stringify({ synthetic: true, referenceParityClaim: false, checks, errors }, null, 2)

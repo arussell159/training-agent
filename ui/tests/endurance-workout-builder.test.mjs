@@ -1,5 +1,10 @@
 import test from "node:test"
 import assert from "node:assert/strict"
+import fs from "node:fs"
+import { createRequire } from "node:module"
+import * as React from "../node_modules/react/index.js"
+import { renderToStaticMarkup } from "../node_modules/react-dom/server.node.js"
+import ts from "../node_modules/typescript/lib/typescript.js"
 import {
   builderBlock,
   changeDesktopStepLength,
@@ -11,6 +16,9 @@ import {
   changeDesktopTargetUnit,
   desktopBuilderTotals,
   desktopDistanceTicks,
+  desktopTargetPresentation,
+  desktopTargetUnits,
+  targetKind,
 } from "../src/lib/desktop-workout-builder.ts"
 import {
   expandSteps,
@@ -19,6 +27,8 @@ import {
   serializeWorkout,
   verifyParsedWorkout,
   workoutTotals,
+  paceFactors,
+  targetLabel,
 } from "../../app-backend/lib/workout-editor-model.mjs"
 import { parseTestWorkout } from "../../app-backend/lib/fixtures/workout-editor-fixtures.mjs"
 
@@ -32,6 +42,31 @@ const model = (sport) => ({
   ...(sport === "Swim" ? { swimUnitMode: "explicit" } : {}),
   steps: [],
   thresholds: { ftp: 250, pace: sport === "Swim" ? 1 : 3 },
+})
+
+test("actual builder fields and labels round imported percentages without altering the prescription", () => {
+  const source=fs.readFileSync(new URL("../src/components/desktop-workout-builder.tsx",import.meta.url),"utf8")
+  const file=ts.createSourceFile("builder.tsx",source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX)
+  const functions=file.statements.filter(node=>ts.isFunctionDeclaration(node) && ["TargetNumber","StepTarget"].includes(node.name?.text)).map(node=>node.getText(file)).join("\n")
+  assert.ok(functions.includes("function StepTarget"))
+  const js=ts.transpileModule(functions,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText
+  const scope={useCallback:React.useCallback,useState:React.useState,useRef:React.useRef,useEffect:React.useEffect,
+    displayTarget,desktopWorkoutZoneOptions,desktopTargetPresentation,desktopTargetUnits,paceFactors,targetKind,builderBlock,
+    useWorkoutFieldValidity:()=>({invalid:false,markInvalid(){}}),X:()=>null}
+  const StepTarget=new Function("require","exports",...Object.keys(scope),js+";return StepTarget;")(
+    createRequire(new URL("../package.json",import.meta.url)),{},...Object.values(scope))
+  for(const [sport,kind,unit] of [["Run","pace","%pace"],["Swim","pace","%pace"],["Ride","power","%ftp"],["Run","hr","%lthr"],["Run","hr","%hr"]]) {
+    for(const mode of ["single","range","ramp"]) {
+      const target={kind,unit,mode,...(mode==="single"?{value:79.97}:{start:79.97,end:89.97})}
+      const before=structuredClone(target)
+      const html=renderToStaticMarkup(React.createElement(StepTarget,{step:{target},unit,model:model(sport),zones:[],change(){},selectZone(){}}))
+      assert.match(html,/value="80"/)
+      if(mode!=="single")assert.match(html,/value="90"/)
+      assert.doesNotMatch(html,/value="(?:79\.97|89\.97)"/)
+      assert.equal(targetLabel(target),`${mode==="single"?"80":mode==="ramp"?"80 → 90":"80–90"} ${unit}`)
+      assert.deepEqual(target,before,"display rounding must never rewrite imported provider values")
+    }
+  }
 })
 
 test("run and swim range conversions retain physical estimates and editable ordered pace bounds", () => {

@@ -2898,7 +2898,7 @@ function IntervalChart({
     const numbers = target.mode === "single" ? [target.value!] : [target.start!, target.end!]
     const targetText = paceFactors[target.unit] || target.unit.endsWith("_zone")
       ? targetLabel(target)
-      : `${numbers.map(value => round(value)).join(target.mode === "ramp" ? " → " : "-")} ${unitLabel}`
+      : `${numbers.map(value => target.unit.startsWith("%") ? Math.round(value) : round(value)).join(target.mode === "ramp" ? " → " : "-")} ${unitLabel}`
     return {
       summary: `${ending} @ ${targetText}`,
       physical: desktopTargetPresentation(target, model, zones).physical,

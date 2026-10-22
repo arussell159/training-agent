@@ -1,15 +1,4 @@
 import {
-  calendarScrollSurface,
-  calendarScrollTarget,
-  calendarScrollTop,
-  scrollCalendarTo,
-} from "@/lib/calendar-scroll-surface"
-import {
-  readCalendarViewPreferences,
-  saveCalendarViewPreferences,
-  type CalendarViewPreferences,
-} from "@/lib/calendar-view-preferences"
-import {
   WorkoutCard,
   SportIcon,
   completionGrade,
@@ -96,7 +85,7 @@ import {
 } from "@/lib/calendar-annotations"
 import { mergeVerifiedWorkout } from "@/lib/workout-save-state"
 import type { CalendarMetricsResult } from "@/lib/calendar-metrics"
-import { canEditActivity, canEditWorkout } from "@/lib/workout-permissions"
+import { canEditWorkout } from "@/lib/workout-permissions"
 import { plannedDistanceLabel } from "@/lib/workout-distance"
 import {
   formatWorkoutTss,
@@ -141,9 +130,6 @@ import {
   Menu,
   X,
   RefreshCw,
-  Upload,
-  Search,
-  Settings,
   Trash2,
   ChevronLeft,
   ChevronRight,
@@ -165,10 +151,6 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuCheckboxItem,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import {
   WorkoutEditor,
@@ -778,11 +760,7 @@ function calendarStickyBoundary(root: HTMLElement | null) {
   )
   if (!header) return mobile ? 56 : 83
   const top = Number.parseFloat(getComputedStyle(header).top) || 0
-  return (
-    (calendarScrollSurface(root)?.getBoundingClientRect().top ?? 0) +
-    top +
-    header.getBoundingClientRect().height
-  )
+  return top + header.getBoundingClientRect().height
 }
 
 // Keep the last calendar visit in memory for a workout-detail round trip.
@@ -884,16 +862,11 @@ function CalendarWeekViewport({
         nearViewportRef.current = next
         setNearViewport(next)
       },
-      {
-        root: mobile
-          ? null
-          : element.closest<HTMLElement>(".training-calendar"),
-        rootMargin: "900px 0px",
-      }
+      { rootMargin: "900px 0px" }
     )
     observer.observe(element)
     return () => observer.disconnect()
-  }, [captureAnchor, heightKey, mobile])
+  }, [captureAnchor, heightKey])
 
   return (
     <section
@@ -1910,28 +1883,10 @@ function TrustedTrainingCalendar({
       releaseCalendarMutation()
     }
   }
-  const [viewPreferences, setViewPreferences] = useState(() =>
-    readCalendarViewPreferences(clipboardScope)
-  )
-  const summaryOpen = viewPreferences.summaryOpen
-  const summarySaving = false
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState("")
-  const calendarFiles = useWorkoutFiles({})
-  useEffect(() => {
-    setViewPreferences(readCalendarViewPreferences(clipboardScope))
-  }, [clipboardScope])
-  const changeViewPreference = (
-    name: keyof CalendarViewPreferences,
-    value: boolean
-  ) => {
-    anchorOperations.current.capture()
-    setViewPreferences((current) => {
-      const next = { ...current, [name]: value }
-      saveCalendarViewPreferences(clipboardScope, next)
-      return next
-    })
-  }
+  const [summaryOpen, setSummaryOpen] = useState(true)
+  const [summarySaving, setSummarySaving] = useState(false)
+  const summaryPreferenceLock = useRef(false)
+  const summaryPreferenceTouched = useRef(false)
   const [metricsDate, setMetricsDate] = useState<string | null>(null)
   const metricsSaved = async (result: CalendarMetricsResult) => {
     try {
@@ -2016,8 +1971,47 @@ function TrustedTrainingCalendar({
     return () =>
       window.removeEventListener("workout-description-updated", update)
   }, [setContext])
-  function saveSummary(open: boolean) {
-    changeViewPreference("summaryOpen", open)
+  useEffect(() => {
+    let active = true
+    void apiFetch("/api/config")
+      .then((r) => r.json())
+      .then((c) => {
+        if (active && !summaryPreferenceTouched.current) {
+          anchorOperations.current.capture()
+          setSummaryOpen(c.calendarSummaryOpen !== false)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [])
+  async function saveSummary(open: boolean) {
+    if (summaryPreferenceLock.current) return
+    summaryPreferenceLock.current = true
+    summaryPreferenceTouched.current = true
+    const previous = summaryOpen
+    setSummarySaving(true)
+    anchorOperations.current.capture()
+    setSummaryOpen(open)
+    try {
+      const r = await apiFetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ CALENDAR_SUMMARY_OPEN: String(open) }),
+      })
+      const c = await r.json()
+      if (!r.ok) throw new Error(c.error || "Could not save preference")
+    } catch (e) {
+      anchorOperations.current.capture()
+      setSummaryOpen(previous)
+      setMoveNotice(
+        e instanceof Error ? e.message : "Could not save preference"
+      )
+    } finally {
+      summaryPreferenceLock.current = false
+      setSummarySaving(false)
+    }
   }
   const weekRefs = useRef(new Map<string, HTMLElement>())
   const calendarRef = useRef<HTMLDivElement>(null)
@@ -2138,24 +2132,11 @@ function TrustedTrainingCalendar({
       (heading || element).getBoundingClientRect().top -
       calendarStickyBoundary(root)
     if (Math.abs(adjustment) > 0.5)
-      scrollCalendarTo(calendarRef.current, {
-        top: Math.max(0, calendarScrollTop(calendarRef.current) + adjustment),
+      window.scrollTo({
+        top: Math.max(0, window.scrollY + adjustment),
         behavior: "instant",
       })
   }, [])
-  const previousMobileLayout = useRef(isMobile)
-  useLayoutEffect(() => {
-    if (previousMobileLayout.current === isMobile) return
-    previousMobileLayout.current = isMobile
-    if (!calendarReady) return
-    if (!isMobile) window.scrollTo({ top: 0, left: 0, behavior: "instant" })
-    const today = dateKey(new Date())
-    navigationTarget.current =
-      activeWeekKey === dateKey(startOfMonday(new Date()))
-        ? today
-        : activeWeekKey || today
-    alignNavigationTarget()
-  }, [isMobile, calendarReady, activeWeekKey, alignNavigationTarget])
   const captureViewportAnchor = useCallback(() => {
     // Refresh the capture even when a previous no-op state update did not commit.
     if (!initialAlignmentDone.current) return
@@ -2181,7 +2162,7 @@ function TrustedTrainingCalendar({
       viewportAnchor.current = {
         element: anchor.element,
         top: anchor.bounds.top,
-        scrollY: calendarScrollTop(calendarRef.current),
+        scrollY: window.scrollY,
       }
   }, [])
   const restoreViewportAnchor = useCallback(() => {
@@ -2195,19 +2176,16 @@ function TrustedTrainingCalendar({
     const adjustment = calendarAnchorAdjustment(
       anchor,
       anchor.element.getBoundingClientRect().top,
-      calendarScrollTop(calendarRef.current)
+      window.scrollY
     )
     if (Math.abs(adjustment) > 0.5) {
       performanceProbe("calendar-anchor-adjust", {
         before: anchor.element.getBoundingClientRect().top,
         expected: anchor.top,
         adjustment,
-        scrollY: calendarScrollTop(calendarRef.current),
+        scrollY: window.scrollY,
       })
-      scrollCalendarTo(calendarRef.current, {
-        top: calendarScrollTop(calendarRef.current) + adjustment,
-        behavior: "instant",
-      })
+      window.scrollTo({ top: window.scrollY + adjustment, behavior: "instant" })
     }
   }, [alignNavigationTarget])
   useLayoutEffect(() => {
@@ -2292,23 +2270,18 @@ function TrustedTrainingCalendar({
         : null
       const top =
         position && element
-          ? calendarScrollTop(calendarRef.current) +
-            element.getBoundingClientRect().top -
-            position.top
+          ? window.scrollY + element.getBoundingClientRect().top - position.top
           : restoreScrollTop
       viewportAnchor.current = null
       performanceProbe("calendar-position-restore", {
         found: !!element,
         savedTop: position?.top ?? -1,
         topBefore: element?.getBoundingClientRect().top ?? -1,
-        scrollY: calendarScrollTop(calendarRef.current),
+        scrollY: window.scrollY,
         target: top,
         fallback: restoreScrollTop,
       })
-      scrollCalendarTo(calendarRef.current, {
-        top: Math.max(0, top),
-        behavior: "instant",
-      })
+      window.scrollTo({ top: Math.max(0, top), behavior: "instant" })
       initialAlignmentDone.current = true
       calendarUserScrolled.current = true
       if (position)
@@ -2318,7 +2291,7 @@ function TrustedTrainingCalendar({
       const frame = requestAnimationFrame(() => {
         performanceProbe("calendar-position-settled", {
           top: element?.getBoundingClientRect().top ?? -1,
-          scrollY: calendarScrollTop(calendarRef.current),
+          scrollY: window.scrollY,
         })
         onScrollRestored?.()
       })
@@ -2360,7 +2333,6 @@ function TrustedTrainingCalendar({
   useLayoutEffect(restoreViewportAnchor, [
     context,
     dateRange,
-    viewPreferences,
     restoreViewportAnchor,
   ])
 
@@ -2499,7 +2471,6 @@ function TrustedTrainingCalendar({
     }
     const loadVisible = () => {
       if (!scrolled) return
-      const viewportTop = calendarStickyBoundary(calendarRef.current)
       const first = weekRefs.current
         .get(dateRange.start)
         ?.getBoundingClientRect()
@@ -2523,7 +2494,7 @@ function TrustedTrainingCalendar({
       for (const [key, element] of weekRefs.current) {
         const bounds = element.getBoundingClientRect()
         if (
-          bounds.bottom > viewportTop &&
+          bounds.bottom > 56 &&
           bounds.top < window.innerHeight &&
           !loadedWeeks.current.has(key) &&
           !pendingWeeks.has(key)
@@ -2542,7 +2513,6 @@ function TrustedTrainingCalendar({
         })
     }
     const observer = new IntersectionObserver(loadVisible, {
-      root: calendarScrollSurface(calendarRef.current),
       rootMargin: "0px",
       threshold: 0,
     })
@@ -2551,20 +2521,18 @@ function TrustedTrainingCalendar({
     if (weekRefs.current.has(todayKey)) queue.add(todayKey)
     void pump()
     loadVisible()
-    const scrollTarget = calendarScrollTarget(calendarRef.current)
-    scrollTarget.addEventListener("scroll", onScroll, { passive: true })
+    window.addEventListener("scroll", onScroll, { passive: true })
     return () => {
       active = false
       cancelAnimationFrame(scrollFrame)
       controller.abort()
       observer.disconnect()
-      scrollTarget.removeEventListener("scroll", onScroll)
+      window.removeEventListener("scroll", onScroll)
       pendingWeeks.clear()
     }
   }, [
     weekKeys,
     historyReady,
-    isMobile,
     dateRange,
     contextVersion,
     captureViewportAnchor,
@@ -2616,11 +2584,10 @@ function TrustedTrainingCalendar({
           trackVisibleWeek()
         })
     }
-    const scrollTarget = calendarScrollTarget(calendarRef.current)
-    scrollTarget.addEventListener("scroll", onScroll, { passive: true })
+    window.addEventListener("scroll", onScroll, { passive: true })
     return () => {
       cancelAnimationFrame(frame)
-      scrollTarget.removeEventListener("scroll", onScroll)
+      window.removeEventListener("scroll", onScroll)
     }
   }, [activeWeekKey, weeks, isMobile])
 
@@ -2707,13 +2674,13 @@ function TrustedTrainingCalendar({
     navigationTarget.current = dateKey(pendingDateJump)
     performanceProbe("calendar-date-jump", {
       before: element.getBoundingClientRect().top,
-      scrollY: calendarScrollTop(calendarRef.current),
+      scrollY: window.scrollY,
       expected: calendarStickyBoundary(calendarRef.current),
     })
     alignNavigationTarget()
     performanceProbe("calendar-date-aligned", {
       top: element.getBoundingClientRect().top,
-      scrollY: calendarScrollTop(calendarRef.current),
+      scrollY: window.scrollY,
     })
     initialAlignmentDone.current = true
     setActiveWeekKey(key)
@@ -2876,7 +2843,7 @@ function TrustedTrainingCalendar({
         performanceProbe("calendar-position-save", {
           found: !!date,
           top: anchor?.top ?? -1,
-          scrollY: calendarScrollTop(calendarRef.current),
+          scrollY: window.scrollY,
         })
         viewportAnchor.current = null
         onWorkoutOpen(workout)
@@ -2885,6 +2852,7 @@ function TrustedTrainingCalendar({
       rememberOpenWorkout(workout)
       setSelectedWorkout(workout)
     })
+
 
   if (!calendarReady) return <CalendarSkeleton />
 
@@ -2912,12 +2880,6 @@ function TrustedTrainingCalendar({
       <div
         ref={calendarRef}
         style={{ overflowAnchor: "none" }}
-        data-calendar-profiles={
-          viewPreferences.showProfiles ? "visible" : "hidden"
-        }
-        data-calendar-metrics={
-          viewPreferences.showMetrics ? "visible" : "hidden"
-        }
         className="training-calendar flex w-full min-w-0 flex-1 flex-col max-md:max-w-full max-md:overflow-x-clip"
       >
         <MobileSiteNavbar
@@ -3135,15 +3097,6 @@ function TrustedTrainingCalendar({
               <Button
                 size="icon-sm"
                 variant="ghost"
-                aria-label="Upload activity"
-                title="Upload activity"
-                onClick={calendarFiles.upload}
-              >
-                <Upload />
-              </Button>
-              <Button
-                size="icon-sm"
-                variant="ghost"
                 aria-label="Refresh Intervals.icu"
                 title="Refresh Intervals.icu"
                 disabled={moving}
@@ -3172,124 +3125,6 @@ function TrustedTrainingCalendar({
               >
                 <RefreshCw className={moving ? "animate-spin" : ""} />
               </Button>
-              <Popover open={searchOpen} onOpenChange={setSearchOpen}>
-                <PopoverTrigger
-                  render={
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label="Search workouts"
-                      title="Search workouts"
-                    />
-                  }
-                >
-                  <Search />
-                </PopoverTrigger>
-                <PopoverContent align="end" className="calendar-workout-search">
-                  <label htmlFor="calendar-workout-search">
-                    Search loaded workouts
-                  </label>
-                  <input
-                    id="calendar-workout-search"
-                    type="search"
-                    placeholder="Workout title, sport or description"
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    autoFocus
-                  />
-                  <div className="calendar-search-results">
-                    {workouts
-                      .filter((workout) => {
-                        const query = searchQuery.trim().toLocaleLowerCase()
-                        return (
-                          query &&
-                          `${workout.title} ${workout.sport} ${workout.details || workout.goal || ""}`
-                            .toLocaleLowerCase()
-                            .includes(query)
-                        )
-                      })
-                      .slice(0, 50)
-                      .map((workout) => (
-                        <button
-                          key={workout.id}
-                          type="button"
-                          onClick={() => {
-                            setSearchOpen(false)
-                            openWorkout(workout)
-                          }}
-                        >
-                          <span>{workout.title}</span>
-                          <small>
-                            {workout.workout_date} · {workout.sport}
-                          </small>
-                        </button>
-                      ))}
-                    {searchQuery.trim() &&
-                      !workouts.some((workout) =>
-                        `${workout.title} ${workout.sport} ${workout.details || workout.goal || ""}`
-                          .toLocaleLowerCase()
-                          .includes(searchQuery.trim().toLocaleLowerCase())
-                      ) && <p>No matching loaded workouts.</p>}
-                    {!searchQuery.trim() && (
-                      <p>Search the workouts already loaded on this device.</p>
-                    )}
-                  </div>
-                </PopoverContent>
-              </Popover>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label="Calendar settings"
-                      title="Calendar settings"
-                    />
-                  }
-                >
-                  <Settings />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  className="calendar-context-menu"
-                >
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel>Calendar display</DropdownMenuLabel>
-                    <DropdownMenuCheckboxItem
-                      checked={summaryOpen}
-                      onCheckedChange={(value) => saveSummary(value)}
-                    >
-                      Weekly summary
-                    </DropdownMenuCheckboxItem>
-                    <DropdownMenuCheckboxItem
-                      checked={viewPreferences.showProfiles}
-                      onCheckedChange={(value) =>
-                        changeViewPreference("showProfiles", value)
-                      }
-                    >
-                      Workout profiles
-                    </DropdownMenuCheckboxItem>
-                    <DropdownMenuCheckboxItem
-                      checked={viewPreferences.showMetrics}
-                      onCheckedChange={(value) =>
-                        changeViewPreference("showMetrics", value)
-                      }
-                    >
-                      Daily metrics
-                    </DropdownMenuCheckboxItem>
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setGeneratedWorkout(null)
-                      setNewWorkoutType({ sport: "Other", name: "Sauna" })
-                      setNewWorkoutDate(dateKey(new Date()))
-                    }}
-                  >
-                    Add Sauna (Other)
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
             </div>
           </header>
         )}
@@ -3849,10 +3684,6 @@ function TrustedTrainingCalendar({
           <CalendarAddDialog
             date={addDialogDate}
             onClose={() => setAddDialogDate(null)}
-            onUpload={() => {
-              setAddDialogDate(null)
-              calendarFiles.upload()
-            }}
             onGenerator={() => {
               setGeneratorDate(addDialogDate)
               setAddDialogDate(null)
@@ -3972,7 +3803,6 @@ function TrustedTrainingCalendar({
             />
           </Suspense>
         )}
-        {calendarFiles.dialogs}
         <WorkoutDialog
           workout={selectedWorkout}
           onOpenChange={(open) => {
@@ -4567,11 +4397,7 @@ function TrustedWorkoutDialog({
                 onToggleExpanded={() => setExpanded((value) => !value)}
                 busy={previewSaving || previewDeleting}
                 onClose={() => void requestStrengthExit("close")}
-                metadata={
-                  canEditWorkout(workout) || canEditActivity(workout)
-                    ? metadata
-                    : undefined
-                }
+                metadata={canEditWorkout(workout) ? metadata : undefined}
                 onMetadataChange={setMetadata}
                 onAnalyze={
                   desktopCompleted && !analysisOpen
@@ -4757,11 +4583,7 @@ function TrustedWorkoutDialog({
           {!isMobile ? (
             <DesktopWorkoutDetails
               workout={workout}
-              metadata={
-                canEditWorkout(workout) || canEditActivity(workout)
-                  ? metadata
-                  : undefined
-              }
+              metadata={canEditWorkout(workout) ? metadata : undefined}
               onClose={() => {
                 if (isAccountCurrent())
                   bypassWorkoutNavigationGuard(() => onOpenChange(false))

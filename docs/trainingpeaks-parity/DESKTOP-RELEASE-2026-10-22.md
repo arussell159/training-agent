@@ -1,5 +1,7 @@
 # Desktop Calendar release evidence — 22 October 2026
 
+The desktop Calendar appearance described here was subsequently rolled back at the user's request: the original sidebar, document scrolling, cards, toolbar and add-workout chooser are restored. Sync compatibility, draft recovery, hover request savings and earlier mobile fixes remain. Percentage targets now display whole numbers in fields, labels and chart prescriptions while preserving imported values. The release results below are historical evidence for the original implementation, not a description of the current Calendar shell.
+
 This release adds the Calendar-specific desktop workspace, durable native completed-workout editing and comments, and contained recovery for missing editor assets. Intervals.icu remains authoritative. Dashboard, Nutrition and the mobile navigation retain their existing shell.
 
 This is evidence for the implemented workflows, **not a certificate of complete TrainingPeaks pixel or behavioral identity**. The remaining limits below supersede broad parity language in earlier release notes.

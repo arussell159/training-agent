@@ -24,7 +24,6 @@ import { prefetchWorkoutRecording } from "@/lib/activity-analysis"
 import { prefetchNutrition } from "@/lib/nutrition"
 import { prefetchWorkspacePage } from "@/lib/workspace-reads"
 import { flushSync } from "react-dom"
-import { DesktopCalendarWorkspaceNavigation } from "@/components/desktop-calendar-workspace"
 import { SidebarNavigationSlim } from "@/components/application/app-navigation/sidebar-navigation/sidebar-slim"
 import {
   lazy,
@@ -266,13 +265,6 @@ function AppWorkspace() {
     workoutRouteId() ? null : restoreReportReader()
   )
   const [activeItem, setActiveItem] = useState<string>(routeItem)
-  useLayoutEffect(() => {
-    if (activeItem !== "Calendar") return
-    document.documentElement.dataset.calendarWorkspace = "true"
-    return () => {
-      delete document.documentElement.dataset.calendarWorkspace
-    }
-  }, [activeItem])
   useEffect(() => {
     if (activeItem !== "Home") return
     let idle: number | undefined
@@ -767,47 +759,41 @@ function AppWorkspace() {
           </AlertDialogContent>
         </AlertDialog>
 
-        {activeItem === "Calendar" && !mobileTerms ? (
-          <DesktopCalendarWorkspaceNavigation onNavigate={selectItem} />
-        ) : (
-          <SidebarNavigationSlim
-            items={navigation}
-            activeItem={navigationItem}
-            onNavigate={selectItem}
-            onPrefetch={preloadPage}
-          />
-        )}
+        <SidebarNavigationSlim
+          items={navigation}
+          activeItem={navigationItem}
+          onNavigate={selectItem}
+          onPrefetch={preloadPage}
+        />
 
         <SidebarInset
           inert={mobileTerms && termsOpen}
           aria-hidden={mobileTerms && termsOpen ? true : undefined}
           className={
-            activeItem === "Calendar" && !mobileTerms
-              ? "desktop-calendar-workspace-shell"
-              : selectedWorkout && selectedWorkout.status !== "completed"
-                ? "planned-workout-nav-shell"
-                : (activeItem === "Home" || activeItem === "Nutrition") &&
+            selectedWorkout && selectedWorkout.status !== "completed"
+              ? "planned-workout-nav-shell"
+              : (activeItem === "Home" || activeItem === "Nutrition") &&
+                  !selectedWorkout &&
+                  !pendingWorkoutId &&
+                  !selectedReport
+                ? cn(
+                    "home-dashboard-shell",
+                    activeItem === "Home" &&
+                      mobileHomeLayout === "redesign" &&
+                      "home-redesign-shell"
+                  )
+                : (isCoachPage || activeItem === "Library") &&
                     !selectedWorkout &&
                     !pendingWorkoutId &&
                     !selectedReport
-                  ? cn(
-                      "home-dashboard-shell",
-                      activeItem === "Home" &&
-                        mobileHomeLayout === "redesign" &&
-                        "home-redesign-shell"
-                    )
-                  : (isCoachPage || activeItem === "Library") &&
+                  ? "coach-app-shell h-dvh min-h-0 overflow-hidden"
+                  : (activeItem === "Settings" ||
+                        activeItem === "Annual Plan") &&
                       !selectedWorkout &&
                       !pendingWorkoutId &&
                       !selectedReport
-                    ? "coach-app-shell h-dvh min-h-0 overflow-hidden"
-                    : (activeItem === "Settings" ||
-                          activeItem === "Annual Plan") &&
-                        !selectedWorkout &&
-                        !pendingWorkoutId &&
-                        !selectedReport
-                      ? "mobile-content-under-nav-shell h-svh min-h-0 overflow-hidden"
-                      : undefined
+                    ? "mobile-content-under-nav-shell h-svh min-h-0 overflow-hidden"
+                    : undefined
           }
         >
           {!selectedReport &&

@@ -194,6 +194,7 @@ function TargetNumber({
   onChange,
   allowZero = false,
   precision = 2,
+  displayPrecision = precision,
   minimum,
   maximum,
 }: {
@@ -202,10 +203,11 @@ function TargetNumber({
   onChange: (value: number) => void
   allowZero?: boolean
   precision?: number
+  displayPrecision?: number
   minimum?: number
   maximum?: number
 }) {
-  const format = useCallback((number: number) => String(Number(number.toFixed(precision))), [precision])
+  const format = useCallback((number: number) => String(Number(number.toFixed(displayPrecision))), [displayPrecision])
   const [draft, setDraft] = useState(() => format(value))
   const focused = useRef(false)
   const focusValue = useRef(value)
@@ -329,6 +331,7 @@ function StepTarget({
     ) : (
       <TargetNumber
         allowZero={target.kind === "power"}
+        displayPrecision={target.unit.startsWith("%") ? 0 : undefined}
         label={
           key === "value"
             ? "Target"

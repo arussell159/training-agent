@@ -35,8 +35,8 @@ import {
   workoutTime,
   workoutPlannedMinutes,
 } from "@/lib/workout-metrics"
-import { canEditActivity, canEditWorkout } from "@/lib/workout-permissions"
-import { prepareWorkout, workoutDetailRoute } from "@/lib/workout-preload"
+import { canEditWorkout } from "@/lib/workout-permissions"
+import { workoutDetailRoute } from "@/lib/workout-preload"
 import { workoutPresentationSport } from "@/lib/workout-presentation"
 import { calendarSportLabel } from "@/lib/calendar-events"
 const dateKey = (date: Date) =>
@@ -174,7 +174,6 @@ export function WorkoutCard({
   const openAfterMenu = useRef(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
   const completed = workout.status === "completed"
-  const canOpenMetadata = calendarPresentation && canEditActivity(workout)
   const tss = formatWorkoutTss(workout)
   const time = workoutTime(workout)
   const distance = estimatedDistance(workout)
@@ -214,7 +213,7 @@ export function WorkoutCard({
         if (!disabled) onClick()
       }}
       onContextMenu={
-        calendarPresentation && (canEditWorkout(workout) || canOpenMetadata)
+        calendarPresentation && canEditWorkout(workout) && onAction
           ? (event) => {
               event.preventDefault()
               if (!disabled) setOptionsOpen(true)
@@ -247,19 +246,10 @@ export function WorkoutCard({
       aria-busy={Boolean(workout.app_pending_operation) || undefined}
       data-completion-grade={calendarPresentation ? grade : undefined}
       data-workout-id={workout.id}
-      onPointerEnter={() => {
-        if (calendarPresentation)
-          void workoutDetailRoute.preload().catch(() => {})
-        else prepareWorkout(workout, true)
-      }}
-      onFocus={() => {
-        if (calendarPresentation)
-          void workoutDetailRoute.preload().catch(() => {})
-        else prepareWorkout(workout, true)
-      }}
+      onPointerEnter={() => { void workoutDetailRoute.preload().catch(() => {}) }}
+      onFocus={() => { void workoutDetailRoute.preload().catch(() => {}) }}
       onTouchStart={() => {
         void workoutDetailRoute.preload().catch(() => {})
-        if (!calendarPresentation) prepareWorkout(workout, true)
       }}
       data-calendar-completed={
         calendarPresentation && completed ? "true" : undefined
@@ -292,7 +282,7 @@ export function WorkoutCard({
               Syncing…
             </span>
           )}
-          {(canEditWorkout(workout) || canOpenMetadata) && (
+          {canEditWorkout(workout) && (
             <div
               onClick={(event) => event.stopPropagation()}
               onMouseDown={(event) => event.stopPropagation()}
@@ -373,9 +363,7 @@ export function WorkoutCard({
                     )}
                     {!onAction && (
                       <p className="max-w-48 px-2 py-1.5 text-xs text-muted-foreground">
-                        {canOpenMetadata
-                          ? "Recorded data is preserved. Edit opens workout details."
-                          : "Recorded history is read-only."}
+                        Recorded history is read-only.
                       </p>
                     )}
                     <DropdownMenuItem
