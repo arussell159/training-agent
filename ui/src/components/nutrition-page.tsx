@@ -5,6 +5,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react"
+import { flushSync } from "react-dom"
 import { loadFullTrainingContext } from "@/lib/training-context"
 import "./nutrition.css"
 import { LoaderCircle, Pencil, Plus } from "lucide-react"
@@ -321,9 +322,9 @@ export function NutritionPage({
   const resolvedTargets = data ? dailyTargets(data.targets, exercise) : null
   const add = (mode: EntryMode, meal?: Meal) => {
     setMutationError("")
-    setComposer({
-      mode,
-      meal: meal || suggestedMeal(),
+    // Mount and focus within the Add tap, preserving mobile keyboard activation.
+    flushSync(() => {
+      setComposer({ mode, meal: meal || suggestedMeal() })
     })
   }
   async function change(

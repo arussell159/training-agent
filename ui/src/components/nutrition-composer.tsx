@@ -177,6 +177,13 @@ export function NutritionComposer({
     ingredients,
   ])
   const searchHost = useRef<HTMLDivElement>(null)
+  const focusSearchOnOpen = useCallback((host: HTMLDivElement | null) => {
+    searchHost.current = host
+    if (window.matchMedia("(max-width: 767px), (pointer: coarse)").matches)
+      host
+        ?.querySelector<HTMLInputElement>('input[type="search"]')
+        ?.focus({ preventScroll: true })
+  }, [])
   const clearSearch = () => {
     setQuery("")
     // Refocus during the original tap so iOS keeps/reopens the keyboard.
@@ -947,7 +954,7 @@ export function NutritionComposer({
       {pane === "browse" && (
         <>
           <div className="nutrition-search-controls">
-            <div ref={searchHost} className="nutrition-search-host">
+            <div ref={focusSearchOnOpen} className="nutrition-search-host">
               <Searchbar
                 className="nutrition-searchbar"
                 form={false}

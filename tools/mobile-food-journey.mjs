@@ -79,6 +79,16 @@ try {
       return route.continue();
     });
     const page = await context.newPage();
+    await page.addInitScript(() => {
+      window.addEventListener("click", (event) => {
+        const button = event.target.closest?.("button");
+        if (!/^Add (breakfast|lunch|dinner|snacks)$/.test(button?.getAttribute("aria-label") || "")) return;
+        window.__foodAddFocus = {
+          trusted: event.isTrusted,
+          searchActive: document.activeElement?.matches('input[placeholder="Search foods or brands"]'),
+        };
+      });
+    });
     currentPage = page;
     currentWrites = writes;
     page.on("pageerror", (e) => errors.push(e.message));
@@ -89,6 +99,10 @@ try {
     await page.getByRole("button", { name: "Add breakfast", exact: true }).click();
     const search = page.getByPlaceholder("Search foods or brands");
     await search.waitFor();
+    if (width !== 1440) {
+      assert.equal(await search.evaluate(input => document.activeElement === input), true);
+      assert.deepEqual(await page.evaluate(() => window.__foodAddFocus), {trusted:true,searchActive:true}, "Search focuses within the original mobile Add tap");
+    }
     assert.equal(
       await page.getByRole("tab", { name: "All", exact: true }).getAttribute("aria-selected"),
       "true"
@@ -97,6 +111,11 @@ try {
     await page.keyboard.press("Escape");
     await page.locator(".nutrition-screen").waitFor({ state: "detached" });
     await page.getByRole("button", { name: "Add breakfast", exact: true }).click();
+    if (width !== 1440) {
+      assert.equal(await search.evaluate(input => document.activeElement === input), true);
+      await page.keyboard.type("oats");
+      assert.equal(await search.inputValue(), "oats", "Typing works immediately without tapping Search");
+    }
     assert.equal(
       await page.getByRole("tab", { name: "All", exact: true }).getAttribute("aria-selected"),
       "true"
@@ -181,12 +200,14 @@ try {
     await page.goBack();
     await page.locator(".nutrition-screen").waitFor({ state: "detached" });
     assert.equal(await page.evaluate(() => document.getElementById("root").inert), false);
+    assert.equal(await page.getByRole("button", {name:"Add breakfast",exact:true}).evaluate(button=>document.activeElement===button), true, "Back returns focus to the Add button");
     assert.deepEqual(errors, []);
     checks.push({
       width,
       passed: true,
       writes: writes.length,
       checks: [
+        ...(width !== 1440 ? ["Mobile Add focuses search within trusted tap; keyboard typing needs no second tap"] : []),
         "All on fresh open after Type",
         "debounce/stale search",
         "429 explicit retry",

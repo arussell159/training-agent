@@ -25,7 +25,13 @@ export function NutritionScreen({
     back = useRef(onBack),
     mounted = useRef(false),
     markerRef = useRef(randomId()),
-    screen = useRef<HTMLElement>(null)
+    screen = useRef<HTMLElement>(null),
+    // Capture the opener before a child focuses its input during mounting.
+    opener = useRef(
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null
+    )
   exit.current = onExit || onBack
   back.current = onBack
   useEffect(() => {
@@ -33,10 +39,7 @@ export function NutritionScreen({
     const root = document.getElementById("root"),
       wasInert = root?.inert
     const overflow = document.body.style.overflow
-    const focused =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null
+    const focused = opener.current
     const marker = markerRef.current,
       url = new URL(location.href)
     url.searchParams.set("nutritionView", "food")
@@ -53,14 +56,18 @@ export function NutritionScreen({
         const controls = overlay?.querySelector(".nutrition-search-controls")
         const header = overlay?.querySelector(".nutrition-flow-navbar")
         const bottom = (controls || header)?.getBoundingClientRect().bottom
-        if (bottom != null) document.body.style.setProperty("--app-toast-reserved-top", `${Math.ceil(bottom + 8)}px`)
+        if (bottom != null)
+          document.body.style.setProperty(
+            "--app-toast-reserved-top",
+            `${Math.ceil(bottom + 8)}px`
+          )
         else document.body.style.removeProperty("--app-toast-reserved-top")
       })
     }
     const resize = new ResizeObserver(positionToast)
     if (overlay) resize.observe(overlay)
     const changes = new MutationObserver(positionToast)
-    if (overlay) changes.observe(overlay, {childList: true, subtree: true})
+    if (overlay) changes.observe(overlay, { childList: true, subtree: true })
     window.addEventListener("resize", positionToast)
     window.visualViewport?.addEventListener("resize", positionToast)
     overlay?.addEventListener("scroll", positionToast, true)
