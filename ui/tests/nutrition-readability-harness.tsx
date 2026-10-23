@@ -107,6 +107,7 @@ const context = {
   planned: [],
   history: [],
   source: "intervals.icu",
+  cache_scope: "nutrition-readability-fixture",
   version: "nutrition-readability-fixture",
   context_scope: "full" as const,
 }
@@ -121,6 +122,22 @@ const products: FoodProduct[] = Array.from({ length: 12 }, (_, index) => ({
   servingId: "bowl",
   servingSize: "1 bowl",
   servingQuantity: 1,
+  servings: [
+    {
+      id: "bowl",
+      catalogReceipt: "fixture-serving-receipt",
+      label: "1 bowl",
+      unit: "bowl",
+      units: 1,
+      metricAmount: 100,
+      metricUnit: "g",
+      calories: 200,
+      protein: 8,
+      carbs: 30,
+      fat: 5,
+      fiber: 4,
+    },
+  ],
   nutrients: { calories: 200, protein: 8, carbs: 30, fat: 5, fiber: 4 },
   complete: true,
   url: "",
@@ -230,6 +247,7 @@ window.fetch = async (input, init) => {
   )
 }
 setApiAuthenticated(true)
+localStorage.setItem("training-agent-startup-v2", JSON.stringify(context))
 rememberTrainingContext(context, "full")
 createRoot(document.getElementById("root")!).render(
   <Framework7App name="Nutrition readability" theme="ios">

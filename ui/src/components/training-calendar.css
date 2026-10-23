@@ -238,38 +238,25 @@
     border-color: var(--border);
     transition: none;
   }
-  .calendar-summary-metrics,
   .calendar-summary-sports {
     width: 100%;
     border-collapse: collapse;
     color: var(--foreground);
     font-variant-numeric: tabular-nums;
   }
-  .calendar-summary-metrics th,
-  .calendar-summary-metrics td,
   .calendar-summary-sports th,
   .calendar-summary-sports td {
     border: 0;
     text-align: right;
   }
-  .calendar-summary-metrics th:first-child,
   .calendar-summary-sports th:first-child {
     text-align: left;
-    white-space: nowrap;
   }
-  .calendar-summary-metrics thead th {
+  .calendar-summary-sports thead th {
     color: var(--muted-foreground);
     font-weight: 400;
     white-space: nowrap;
   }
-  .calendar-summary-sports thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-  }
-  .calendar-sport-key,
   .calendar-week-summary > .flex.flex-wrap {
     display: none;
   }
@@ -278,12 +265,12 @@
   }
   .calendar-summary-distances > div {
     display: flex;
-    justify-content: center;
+    justify-content: space-between;
     align-items: baseline;
     gap: 5px;
   }
   .calendar-summary-atp p {
-    text-align: center;
+    text-align: left;
     font-weight: 400;
   }
   .calendar-week-summary .calendar-summary-atp .calendar-summary-plan-notes {
@@ -331,11 +318,6 @@
 /* Desktop calendar measurements: 28px day headers, 12px compliance strips,
    28px sport rows, 15px title lines and flush 20px workout profiles. */
 @media (min-width: 768px) {
-  .calendar-navigation-rail,
-  .calendar-navigation-rail > aside,
-  .calendar-navigation-rail > aside > nav {
-    width: 64px;
-  }
   .training-calendar {
     color: #1a202e;
   }
@@ -636,7 +618,7 @@
   }
   .calendar-summary-content {
     border-left: 1px solid var(--border);
-    padding: 16px 10px 16px 6px;
+    padding: 12px 10px 16px 6px;
   }
   .calendar-week-summary {
     display: flex;
@@ -650,86 +632,117 @@
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     text-align: center;
-    padding: 0 0 8px;
+    padding: 0 0 12px;
     gap: 2px;
     font-size: 12px;
     line-height: 19px;
   }
   .calendar-summary-fitness strong {
     font-size: 14px;
-    font-weight: 400;
+    font-weight: 600;
   }
-  .calendar-summary-fitness [data-metric="fitness"] {
+  .calendar-summary-fitness [data-metric] > span {
+    color: var(--muted-foreground);
+  }
+  .calendar-summary-fitness [data-metric="fitness"] > div {
     color: #2444db;
   }
-  .calendar-summary-fitness [data-metric="fatigue"] {
+  .calendar-summary-fitness [data-metric="fatigue"] > div {
     color: #d73682;
   }
-  .calendar-summary-fitness [data-metric="form"] {
+  .calendar-summary-fitness [data-metric="form"] > div {
     color: #ec7306;
   }
   .calendar-summary-fitness [data-metric] > div {
     font-size: 11px;
   }
-  .calendar-summary-metrics,
   .calendar-summary-sports {
     table-layout: fixed;
     font-size: 12px;
   }
-  .calendar-summary-metrics thead th {
-    padding: 0 0 4px;
-    font-size: 10px;
-    line-height: 14px;
-  }
-  .calendar-summary-metrics tbody tr,
-  .calendar-summary-sports tbody tr {
-    border: 0;
-    background-image: linear-gradient(
-      to right,
-      var(--calendar-summary-color) 0 var(--calendar-completed-share),
-      color-mix(in srgb, var(--calendar-summary-color) 45%, white)
-        var(--calendar-completed-share) 100%
-    );
-    background-size: 100% 4px;
-    background-position: bottom;
-    background-repeat: no-repeat;
-  }
-  .calendar-summary-metrics tbody th,
-  .calendar-summary-sports tbody th {
+  .calendar-summary-sports thead th {
     padding: 0 0 6px;
     font-size: 11px;
     line-height: 16px;
     font-weight: 400;
   }
-  .calendar-summary-metrics tbody td,
-  .calendar-summary-sports tbody td {
-    padding: 0 0 6px;
-    font-size: 13px;
-    line-height: 16px;
-    font-weight: 400;
+  .calendar-summary-sport-column { width: 36%; }
+  .calendar-summary-sports tbody th,
+  .calendar-summary-sports tbody td,
+  .calendar-summary-sports tfoot th,
+  .calendar-summary-sports tfoot td {
+    padding: 5px 0;
+    font-size: 12px;
+    line-height: 18px;
+    font-weight: 500;
+    vertical-align: baseline;
+  }
+  .calendar-summary-sports td {
     white-space: nowrap;
   }
-  .calendar-summary-metrics tbody td:last-child,
-  .calendar-summary-sports tbody td:last-child {
-    font-weight: 600;
+  .calendar-summary-sport-name {
+    overflow-wrap: anywhere;
+    padding-right: 4px !important;
+  }
+  .calendar-sport-key {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin-right: 5px;
+    border-radius: 50%;
+    vertical-align: 2px;
   }
   .calendar-summary-distances {
-    margin-top: 40px;
-    gap: 7px;
-    font-size: 11px;
-    line-height: 19px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    gap: 5px;
+    font-size: 12px;
+    line-height: 18px;
+    font-variant-numeric: tabular-nums;
+  }
+  .calendar-summary-distances dt {
+    color: var(--muted-foreground);
+  }
+  .calendar-summary-distances dd {
+    white-space: nowrap;
   }
   .calendar-summary-distances strong {
-    font-size: 16px;
-    font-weight: 400;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .calendar-summary-sports tfoot th,
+  .calendar-summary-sports tfoot td {
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    font-weight: 600;
+  }
+  .calendar-summary-duration-note {
+    padding-top: 5px;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    line-height: 16px;
   }
   .calendar-summary-atp {
-    padding-top: 12px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
   }
   .calendar-summary-atp p {
-    display: block !important;
-    font-size: 11px !important;
-    line-height: 20px !important;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    line-height: 18px;
+  }
+  .calendar-summary-atp p > span {
+    flex-shrink: 0;
+    color: var(--muted-foreground);
+  }
+  .calendar-summary-atp strong {
+    text-align: right;
+    font-weight: 500;
   }
   .calendar-summary-atp p + p {
     margin-top: 4px;

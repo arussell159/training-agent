@@ -57,7 +57,7 @@ async function paste(date,{status=200}={}) {
   const saved=await response;assert.equal(saved.status(),status);return saved.json();
 }
 async function reload() {await page.reload({waitUntil:"domcontentloaded"});await page.locator(".calendar-desktop-toolbar").waitFor();}
-async function clearClipboard() {if(await page.getByRole("button",{name:"Clear clipboard",exact:true}).count()){const pending=await page.getByRole("button",{name:"Resume paste",exact:true}).count()>0;await page.getByRole("button",{name:"Clear clipboard",exact:true}).click();if(pending)await page.getByRole("alertdialog").getByRole("button",{name:"Confirm",exact:true}).click();}}
+async function clearClipboard() {if(await page.getByRole("button",{name:"Clear clipboard",exact:true}).count()){const pending=await page.getByRole("button",{name:"Resume paste",exact:true}).count()>0;await page.getByRole("button",{name:"Clear clipboard",exact:true}).click();if(pending)await page.getByRole("alertdialog").getByRole("button",{name:"Clear pending paste",exact:true}).click();}}
 const noMachineText=value=>assert.doesNotMatch(value||"",/Workout editor v1|training-agent-.*-v1|"goals"\s*:|"eventType"\s*:|"sports"\s*:/);
 try {
   await page.goto(`${origin}/calendar?theme=light`,{waitUntil:"domcontentloaded"});

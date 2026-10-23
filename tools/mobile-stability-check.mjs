@@ -109,7 +109,7 @@ try {
       });
       const row = { width, route, ...data, errors: [...errors] };
       results.push(row);
-      if (phase === "after") {
+      if (phase === "after" || phase.startsWith("premium-final")) {
         assert.ok(
           data.documentWidth <= data.viewport,
           `Document overflow at ${width}px on ${route}`

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { apiSessionRevision } from "@/lib/api-client"
 import { deviceCacheScope } from "@/lib/device-cache"
@@ -41,6 +41,7 @@ import {
 import "./desktop-workout-details.css"
 import type { DesktopWorkoutMetadata } from "./desktop-workout-header"
 import { workoutPresentationSport } from "@/lib/workout-presentation"
+import { hasWorkoutProfile } from "@/lib/workout-profile-visibility"
 import { localCommittedWorkout } from "@/lib/workout-commits"
 import { completedValueDraft, changedCompletedValues, editableCompletedValue } from "@/lib/completed-workout-values"
 import { WorkoutSyncAction } from "./workout-sync-action"
@@ -476,7 +477,9 @@ function PlannedTotals({
     Object.keys(metadataPatch).length > 0 ||
     hasPlannedValueChanges(draft, saved, sport)
   const dirty = valuesDirty || completedDirty || text.dirty || personal.dirty
-  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
+  // A second input event (Escape, Back, or close) can arrive before passive
+  // effects. Publish the committed draft state before another event can exit.
+  useLayoutEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
   const canSave = editable || text.editable || !readOnly
   const save = async (close = false) => {
     if (
@@ -642,7 +645,7 @@ function PlannedTotals({
     }
   }
   const footer = onClose ? (
-    <footer className="desktop-workout-dialog-footer">
+    <footer className="desktop-workout-dialog-footer" data-workout-dirty={dirty}>
       {editable && (
         <label className="desktop-workout-auto-calculate">
           <input
@@ -665,13 +668,14 @@ function PlannedTotals({
         </p>
       )}
       {onDelete && (
-        <button type="button" disabled={busy || loading} onClick={onDelete}>
+        <button className="desktop-workout-delete-action" type="button" disabled={busy || loading} onClick={onDelete}>
           Delete
         </button>
       )}
       {canSave && (
         <button
           type="button"
+          className="desktop-workout-cancel-action"
           disabled={busy}
           onClick={() => {
             clearWorkoutSaveDraft(scope, workout.id, "totals")
@@ -687,6 +691,7 @@ function PlannedTotals({
         <>
           <button
             type="submit"
+            className="desktop-workout-save-action"
             form={`desktop-totals-${workout.id}`}
             disabled={
               busy ||
@@ -704,7 +709,8 @@ function PlannedTotals({
             }
             onClick={() => (dirty ? void save(true) : onClose())}
           >
-            Save &amp; Close
+            <span className="desktop-workout-save-close-label">Save &amp; Close</span>
+            <span className="desktop-workout-clean-close-label">Close</span>
           </button>
         </>
       )}
@@ -885,7 +891,7 @@ function PlannedTotals({
           <p className="desktop-workout-detail-hint">
             {workout.status === "completed"
               ? "Planned totals are separate from the recorded workout."
-              : workout.unstructured || workout.editor_model?.unstructured
+              : !hasWorkoutProfile(workout)
                 ? "Planned totals. Build Workout to add intervals."
                 : "Planned totals. Select the profile to edit intervals."}
           </p>

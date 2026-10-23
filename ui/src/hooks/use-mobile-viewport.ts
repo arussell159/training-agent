@@ -7,8 +7,11 @@ export function useMobileViewport() {
     const mobile = window.matchMedia("(max-width: 767px)")
     let frame = 0
     const update = () => {
-      const height = viewport?.height ?? window.innerHeight
-      const top = viewport?.offsetTop ?? 0
+      // Pinch zoom should magnify the existing layout, not shrink/recenter its
+      // sheets as if a keyboard had opened. Browser panning owns the offset.
+      const zoomed = (viewport?.scale ?? 1) > 1.05
+      const height = zoomed ? window.innerHeight : (viewport?.height ?? window.innerHeight)
+      const top = zoomed ? 0 : (viewport?.offsetTop ?? 0)
       const focused = document.activeElement
       const editing =
         focused instanceof HTMLElement &&

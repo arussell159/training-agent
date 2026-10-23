@@ -1,4 +1,7 @@
 /* Desktop dialogs have a fixed header and footer surrounding a scrollable body. */
+.desktop-workout-clean-close-label {
+  display: none;
+}
 @media (min-width: 768px) {
   :root:not(.dark) .desktop-workout-preview {
     --foreground: #1a202e;
@@ -1426,5 +1429,113 @@
   .dark .desktop-workout-detail-navigation button:hover {
     background: var(--muted);
     color: var(--foreground);
+  }
+}
+
+/* Analysis gives the recording the space; Summary retains its compact TP form. */
+@media (min-width: 768px) {
+  .desktop-workout-analysis-dialog .desktop-workout-header {
+    padding: 10px 16px 12px;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-repeat {
+    display: none;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-header-main {
+    max-width: none;
+    align-items: center;
+    gap: 16px;
+    margin-top: 10px;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-overview {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 4px 16px;
+    min-height: 0;
+    padding: 8px 12px;
+  }
+  .desktop-workout-analysis-dialog :is(.desktop-workout-title-input, .desktop-workout-overview h2) {
+    width: 100%;
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-title-input:focus {
+    border-color: var(--ring);
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-key-values {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    flex-wrap: nowrap;
+    gap: 10px;
+    margin: 0 22px 0 0;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-key-values > strong {
+    font-size: 18px;
+    line-height: 24px;
+    font-variant-numeric: tabular-nums;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-key-values > svg {
+    width: 20px;
+    height: 20px;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-context {
+    grid-column: 1;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 0;
+    color: var(--muted-foreground);
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-context > span:last-child {
+    display: inline;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-context > span:last-child::before {
+    content: "·";
+    margin-right: 8px;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-export {
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-view-actions {
+    width: auto;
+    flex: 0 0 auto;
+    flex-direction: row;
+    gap: 6px;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-view-actions button {
+    min-width: 82px;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-view-actions button[data-workout-view="360"] {
+    border-color: #8c9bff;
+    color: #2444df;
+    background: var(--background);
+  }
+  :is(.desktop-workout-analysis-dialog, .desktop-workout-360-dialog) .desktop-workout-footer-slot {
+    min-height: 0;
+  }
+  :is(.desktop-workout-analysis-dialog, .desktop-workout-360-dialog) .desktop-workout-dialog-footer {
+    min-height: 48px;
+    gap: 16px;
+    padding: 8px 16px;
+  }
+  :is(.desktop-workout-analysis-dialog, .desktop-workout-360-dialog) .desktop-workout-auto-calculate,
+  :is(.desktop-workout-analysis-dialog, .desktop-workout-360-dialog) .desktop-workout-delete-action,
+  :is(.desktop-workout-analysis-dialog, .desktop-workout-360-dialog) .desktop-workout-dialog-footer[data-workout-dirty="false"] :is(.desktop-workout-save-action, .desktop-workout-cancel-action, .desktop-workout-save-close-label) {
+    display: none;
+  }
+  :is(.desktop-workout-analysis-dialog, .desktop-workout-360-dialog) .desktop-workout-dialog-footer[data-workout-dirty="false"] .desktop-workout-clean-close-label {
+    display: inline;
+  }
+}
+@media (768px <= width < 1100px) {
+  .desktop-workout-analysis-dialog .desktop-workout-overview {
+    display: block;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-key-values {
+    margin: 3px 22px 3px 0;
+  }
+  .desktop-workout-analysis-dialog .desktop-workout-view-actions {
+    flex-direction: column;
   }
 }

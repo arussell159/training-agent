@@ -9,10 +9,13 @@ const reads = createSharedRequestCache<
 >(
   async (key, signal) => {
     const [scope, path, retry] = JSON.parse(key) as [string, string, number?]
-    const device =
-      typeof localStorage !== "undefined"
-        ? createNutritionCatalogCache(localStorage)
-        : null
+    let device: ReturnType<typeof createNutritionCatalogCache> | null = null
+    try {
+      if (typeof localStorage !== "undefined")
+        device = createNutritionCatalogCache(localStorage)
+    } catch {
+      // Optional catalog caching must not prevent search when storage is denied.
+    }
     const saved = !retry ? device?.get(scope, path) : null
     if (saved)
       return saved as { products: FoodProduct[] } | { product: FoodProduct }

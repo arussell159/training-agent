@@ -227,7 +227,7 @@ async function creationLifecycleChecks(addLabel) {
   await page.getByText(disposableTitle, { exact: true }).click();
   assert.equal(await page.getByLabel("Planned duration", { exact: true }).inputValue(), "0:10:00");
   await page.locator(".desktop-workout-preview").getByRole("button", { name: "Delete", exact: true }).click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Delete", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete workout", exact: true }).click();
   await page.locator(".desktop-workout-preview").waitFor({ state: "hidden" });
   await page.getByText(disposableTitle, { exact: true }).waitFor({ state: "hidden" });
   results.push({ name: "creation-save-close-waits-for-confirmation-blocks-dismissal-and-reopens", verified: true });
@@ -599,7 +599,7 @@ try {
     assert.equal(await page.getByRole("button", { name: "Workout recurrence", exact: true }).innerText(), "Does not repeat");
     results.push({ name: "recurrence-schedule-edit-cancel", initial: firstSeries.series, edited: editedSeries.series, cancelled: cancelled.series.status });
     await page.locator(".desktop-workout-preview").getByRole("button", { name: "Delete", exact: true }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Delete", exact: true }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Delete workout", exact: true }).click();
     await page.locator(".desktop-workout-preview").waitFor({ state: "hidden" });
     await page.getByText(title, { exact: true }).waitFor({ state: "hidden" });
     await page.getByText("Editable swim workout", { exact: true }).click();

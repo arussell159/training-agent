@@ -774,7 +774,7 @@ export async function queueWorkoutMutation(input: {
   if (direct && input.type === "move") return changeWorkout(input.id,"move",input.date,undefined,options)
   const revision = beginMutation()
   const descriptionPatch = { goal: input.description ?? "", details: input.description ?? "", editable_description: input.description ?? "", ...(input.descriptionMode === "manual" ? {manual_description:input.description ?? ""} : {}) }
-  const optimistic = optimisticWorkout({ id: input.id, patch: input.type === "description" ? descriptionPatch : { workout_date: input.date } }, "Saving workout…", options.feedback ?? "complete")
+  const optimistic = optimisticWorkout({ id: input.id, patch: input.type === "description" ? descriptionPatch : { workout_date: input.date, planned_workout_date: input.date } }, "Saving workout…", options.feedback ?? "complete")
   try {
     const { response, result } = await readMutationResponse<{
       queued?: boolean
@@ -840,7 +840,7 @@ export async function changeWorkout(
   }
   const revision = beginMutation()
   const deferredDelete = action === "delete" && options.optimistic === false
-  const optimistic = action === "copy" || deferredDelete ? null : optimisticWorkout({ id, ...(action === "delete" ? { remove: true } : { patch: { workout_date: date } }) }, action === "delete" ? "Removing workout…" : "Moving workout…", options.feedback ?? "complete")
+  const optimistic = action === "copy" || deferredDelete ? null : optimisticWorkout({ id, ...(action === "delete" ? { remove: true } : { patch: { workout_date: date, planned_workout_date: date } }) }, action === "delete" ? "Removing workout…" : "Moving workout…", options.feedback ?? "complete")
   try {
     const { response, result } = await readMutationResponse<{
       verified?: boolean

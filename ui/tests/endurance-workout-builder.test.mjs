@@ -18,6 +18,8 @@ import {
   desktopDistanceTicks,
   desktopTargetPresentation,
   desktopTargetUnits,
+  desktopPaceUnitLabel,
+  initialDesktopTargetUnit,
   targetKind,
 } from "../src/lib/desktop-workout-builder.ts"
 import {
@@ -44,6 +46,47 @@ const model = (sport) => ({
   thresholds: { ftp: 250, pace: sport === "Swim" ? 1 : 3 },
 })
 
+test("fresh run and swim builders use physical pace defaults instead of automatically remembered percentages", () => {
+  const previous = {length:{kind:"time",unit:"s"},unit:"%pace",mode:"range"}
+  for (const [sport, unit, label] of [["Swim","secs/100y","m:ss/100yds"],["Run","secs/mi","min/mile"],["TrailRun","secs/mi","min/mile"]]) {
+    assert.equal(initialDesktopTargetUnit(undefined, model(sport)), unit)
+    assert.equal(initialDesktopTargetUnit(undefined, model(sport), [], previous), unit)
+    assert.equal(desktopPaceUnitLabel(unit), label)
+    const workout = model(sport)
+    workout.steps = builderBlock("Active", workout, unit, "range")
+    assert.equal(workout.steps[0].target.unit, unit)
+    assert.deepEqual(validateWorkout(workout), [])
+    assert.deepEqual(verifyParsedWorkout(workout, {workout_doc:parseTestWorkout(serializeWorkout(workout))}), [])
+  }
+})
+
+test("reopening a workout preserves deliberate metric, imperial and percentage prescriptions before general preferences", () => {
+  for (const [sport, units] of [["Swim",["secs/100m","secs/100y","%pace"]],["Run",["secs/km","secs/mi","%pace"]]]) {
+    for (const unit of units) {
+      const target = Object.freeze({kind:"pace",unit,mode:"range",start:100,end:120})
+      const preference = {length:{kind:"time",unit:"s"},unit:"%pace",mode:"range",unitExplicit:true}
+      assert.equal(initialDesktopTargetUnit(target, model(sport), [], preference), unit)
+      assert.deepEqual(target, {kind:"pace",unit,mode:"range",start:100,end:120})
+    }
+    const selected = {length:{kind:"time",unit:"s"},unit:units[0],mode:"range",unitExplicit:true}
+    assert.equal(initialDesktopTargetUnit(undefined, model(sport), [], selected), units[0])
+  }
+})
+
+test("zone labels and targets use the explicitly selected pace scale without changing physical intensity", () => {
+  for (const [sport, preferred, expectedLabel] of [["Swim","secs/100y","m:ss/100yds"],["Swim","secs/100m","m:ss/100m"],["Run","secs/mi","min/mile"],["Run","secs/km","min/km"]]) {
+    const workout = model(sport)
+    const zones = [{types:[sport],threshold_pace:workout.thresholds.pace,pace_zones:[80,90,100,999]}]
+    const option = desktopWorkoutZoneOptions(workout, zones, preferred).find(option => option.id === "2")
+    assert.ok(option.label.includes(expectedLabel), option.label)
+    assert.equal(option.target.unit, preferred)
+    const expected = [paceFactors[preferred] / (workout.thresholds.pace * .9), paceFactors[preferred] / (workout.thresholds.pace * .8)].map(Math.round)
+    assert.deepEqual([option.target.start, option.target.end], expected)
+    const clock = value => `${String(Math.floor(value/60)).padStart(2,"0")}:${String(value%60).padStart(2,"0")}`
+    assert.ok(option.label.includes(`${clock(expected[0])} - ${clock(expected[1])}`), option.label)
+  }
+})
+
 test("actual builder fields and labels round imported percentages without altering the prescription", () => {
   const source=fs.readFileSync(new URL("../src/components/desktop-workout-builder.tsx",import.meta.url),"utf8")
   const file=ts.createSourceFile("builder.tsx",source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX)
@@ -51,7 +94,7 @@ test("actual builder fields and labels round imported percentages without alteri
   assert.ok(functions.includes("function StepTarget"))
   const js=ts.transpileModule(functions,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText
   const scope={useCallback:React.useCallback,useState:React.useState,useRef:React.useRef,useEffect:React.useEffect,
-    displayTarget,desktopWorkoutZoneOptions,desktopTargetPresentation,desktopTargetUnits,paceFactors,targetKind,builderBlock,
+    displayTarget,desktopWorkoutZoneOptions,desktopTargetPresentation,desktopTargetUnits,desktopPaceUnitLabel,paceFactors,targetKind,builderBlock,
     useWorkoutFieldValidity:()=>({invalid:false,markInvalid(){}}),X:()=>null}
   const StepTarget=new Function("require","exports",...Object.keys(scope),js+";return StepTarget;")(
     createRequire(new URL("../package.json",import.meta.url)),{},...Object.values(scope))

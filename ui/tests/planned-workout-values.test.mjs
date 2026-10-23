@@ -88,6 +88,10 @@ test("duration plus pace derives distance, duration plus distance derives pace, 
 test("planned swim yards and cycling mph calculate in their own displayed units",()=>{
   const swim=updatePlannedValueDraft({...plannedValueDraft(null,"Swim"),distance_meters:"1000"},"average_speed","1:40","Swim");
   assert.equal(swim.duration_seconds,"0:16:40");
+  const planned=changedPlannedValues(swim,plannedValueDraft(null,"Swim"),"Swim");
+  assert.equal(planned.average_speed,1,"planned swim speed retains the existing yards/second storage contract");
+  assert.equal(formatPlannedValue("average_speed",planned.average_speed,"Swim"),"1:40");
+  assert.equal(formatPlannedValue("average_speed",.9144,"Swim",true),"1:40","recorded SI speed yields the same100-yard pace");
   const bike=updatePlannedValueDraft({...plannedValueDraft(null,"Ride"),distance_meters:"20"},"average_speed","20","Ride");
   assert.equal(bike.duration_seconds,"1:00:00");
 });
@@ -139,7 +143,7 @@ test("observed sport summaries expose only their actual editable metrics and uni
     assert.equal(new Set(plannedValueRows(sport).map(row => row.rowKey || row.key)).size, plannedValueRows(sport).length);
   }
   assert.equal(plannedValueRows("Swim").find(row => row.key === "distance_meters").unit, "yds");
-  assert.equal(plannedValueRows("Swim").find(row => row.key === "average_speed").unit, "sec/100y");
+  assert.equal(plannedValueRows("Swim").find(row => row.key === "average_speed").unit, "m:ss/100yds");
   assert.equal(plannedValueRows("Rowing").find(row => row.key === "distance_meters").unit, "m");
   assert.equal(plannedValueRows("Rowing").find(row => row.key === "average_speed").unit, "sec/500m");
   assert.equal(plannedValueRows("Rowing").find(row => row.key === "elevation_gain").unit, "m");
@@ -700,7 +704,7 @@ test("desktop target presentation displays reciprocal pace bounds and the config
   const target = Object.freeze({kind:"pace",unit:"%pace",mode:"range",start:105,end:115});
   const model = {sport:"Run",thresholds:{pace:1609.344/530}};
   const zones = [{types:["Run"],threshold_pace:1609.344/530,pace_zones:[75,85,95,105,999]}];
-  assert.deepEqual(desktopTargetPresentation(target,model,zones),{zoneId:"5",physical:"07:41-08:25 min/mi"});
+  assert.deepEqual(desktopTargetPresentation(target,model,zones),{zoneId:"5",physical:"07:41-08:25 min/mile"});
   assert.deepEqual(target,{kind:"pace",unit:"%pace",mode:"range",start:105,end:115});
   assert.deepEqual(desktopTargetPresentation({kind:"pace",unit:"secs/mi",mode:"single",value:600},model,zones),{zoneId:"3",physical:""});
   assert.deepEqual(desktopTargetPresentation({kind:"pace",unit:"pace_zone",mode:"single",value:5},model,zones),{zoneId:"5",physical:""});
@@ -713,7 +717,7 @@ test("desktop target presentation uses sport thresholds and keeps missing physic
   );
   assert.deepEqual(
     desktopTargetPresentation({kind:"pace",unit:"%pace",mode:"single",value:80},{sport:"Swim"},[{types:["Swim"],threshold_pace:.9144,pace_zones:[70,85,95,105,999]}]),
-    {zoneId:"2",physical:"02:05 sec/100y"}
+    {zoneId:"2",physical:"02:05 m:ss/100yds"}
   );
   assert.deepEqual(
     desktopTargetPresentation({kind:"pace",unit:"%pace",mode:"single",value:96.4},{sport:"Run"}),
@@ -736,7 +740,7 @@ test("native automatic presentation retains two-digit pace and IF without alteri
 
 test("native finite zone captions retain999 pace bound and inclusive watt labels",()=>{
   const run={sport:"Run",thresholds:{pace:1609.344/530}},runZones=[{types:["Run"],threshold_pace:1609.344/530,pace_zones:[80,90,95,100,999]}];
-  assert.equal(desktopWorkoutZoneOptions(run,runZones,"%pace").at(-1).label,"Zone 5 | 00:53 - 08:50 min/mi");
+  assert.equal(desktopWorkoutZoneOptions(run,runZones,"%pace").at(-1).label,"Zone 5 | 00:53 - 08:50 min/mile");
   const bike={sport:"Ride",thresholds:{ftp:197}},bikeZones=[{types:["Ride"],ftp:197,power_zones:[55,75,90,105,1015.2284]}];
   assert.deepEqual(desktopWorkoutZoneOptions(bike,bikeZones,"%ftp").map(option=>option.label),["Zone 1 | 0 - 108 W","Zone 2 | 109 - 148 W","Zone 3 | 149 - 177 W","Zone 4 | 178 - 207 W","Zone 5 | 208 - 2000 W"]);
   assert.equal(desktopTargetPresentation({kind:"power",unit:"%ftp",mode:"range",start:85,end:95},bike,bikeZones).zoneId,"4");

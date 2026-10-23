@@ -64,6 +64,20 @@ test("Fitness Summary newer authoritative clears win stale duplicates without mu
   assert.deepEqual(rows,before);
 });
 
+test("an existing workout keeps its updated contribution while its optimistic edit awaits acknowledgement", () => {
+  const planned = {...record("same", "2026-10-20", {}), id:"event:1", category:"WORKOUT", status:"upcoming", app_pending_operation:"edit-1", workout_summary:{planned:{duration_seconds:1800},completed:null}};
+  const result = aggregateFitnessSummary([planned],{start:"2026-10-19",end:"2026-10-25",reportType:"Planned Duration"});
+  assert.deepEqual(result.total,{value:1800,observed:1,missing:0});
+});
+
+test("recorded analysis and Fitness Summary both preserve a cleared modern recording instead of reviving stale actual minutes", () => {
+  const cleared = {...record("cleared", "2026-10-20", {}), actualDurationMinutes:90, distance_meters:12000, workout_summary:{planned:null,completed:null}};
+  const analysis = aggregateActivityHistory([cleared],{start:"2026-10-20",end:"2026-10-20",period:"day"});
+  assert.deepEqual(analysis.periods[0].metrics.duration_seconds,{value:null,observed:0,missing:1});
+  assert.deepEqual(analysis.periods[0].metrics.distance_meters,{value:null,observed:0,missing:1});
+  assert.deepEqual(analysis.periods[0].metrics.duration_seconds,aggregateFitnessSummary([cleared],{start:"2026-10-20",end:"2026-10-20",reportType:"Completed Duration"}).total);
+});
+
 test("inclusive daily and partial weekly ranges use exact recorded seconds across year boundaries", () => {
   const rows = [record("i1", "2026-12-30", { duration_seconds: 90, distance_meters: 1000, tss: 2 }), record("i2", "2027-01-04", { duration_seconds: 120, distance_meters: 500, tss: 3 })];
   const daily = aggregateActivityHistory(rows, { start: "2026-12-30", end: "2027-01-04", period: "day" });

@@ -750,6 +750,7 @@
     min-width: 0;
     flex-direction: column;
     text-align: center;
+    white-space: nowrap;
   }
   .analysis-overlay-axes > div > div {
     display: flex;
@@ -855,7 +856,7 @@
     color: var(--foreground);
   }
 }
-@media (768px <= width < 1100px) {
+@media (768px <= width < 1200px) {
   .workout-analysis-desktop.analysis-combined {
     grid-template-columns: minmax(0, 1fr) 260px;
     gap: 10px;
@@ -1007,11 +1008,42 @@
   }
 }
 @media (768px <= width < 1100px) {
+  /* Leave an extra gutter for concurrent numeric scales at laptop/tablet
+     widths. The SVG keeps its own measured rectangle, so pointer selection
+     continues to use the same coordinate transform as its plotted paths. */
+  .analysis-combined .analysis-signal-plot {
+    padding-right: 76px;
+  }
+  .analysis-combined .analysis-overlay-axes-left {
+    width: calc(12.6% - 9.576px);
+  }
+  .analysis-combined .analysis-overlay-axes-right {
+    width: calc(12.2% + 66.728px);
+  }
+  .analysis-combined .analysis-time-axis {
+    margin-left: calc(12.6% - 9.576px);
+    margin-right: calc(12.2% + 66.728px);
+  }
   .analysis-overlay-axes-right {
-    font-size: 9px;
+    font-size: 10px;
   }
   .analysis-overlay-axes-right .analysis-axis-unit {
     font-size: 8px;
+  }
+  /* Run recordings can expose power, pace and DFA scales together. Reserve
+     space for those labels without changing the SVG's pointer coordinates. */
+  .analysis-combined:has(.analysis-overlay-axes-left > div:nth-child(2)) .analysis-signal-plot {
+    padding-left: 54px;
+  }
+  .analysis-combined:has(.analysis-overlay-axes-left > div:nth-child(2)) .analysis-overlay-axes-left {
+    width: calc(12.6% + 37.62px);
+  }
+  .analysis-combined:has(.analysis-overlay-axes-left > div:nth-child(2)) .analysis-overlay-axes-right {
+    width: calc(12.2% + 60.14px);
+  }
+  .analysis-combined:has(.analysis-overlay-axes-left > div:nth-child(2)) .analysis-time-axis {
+    margin-left: calc(12.6% + 37.62px);
+    margin-right: calc(12.2% + 60.14px);
   }
 }
 @media (min-width: 768px) {
@@ -1091,10 +1123,15 @@
     font-weight: 300;
   }
   .analysis-inspector-primary {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
     text-align: center;
     margin: 0 4px 16px;
+  }
+  .analysis-inspector-primary > div {
+    /* Keep each value and its unit together; long durations may use a new row. */
+    flex: 1 0 max-content;
   }
   .analysis-inspector-primary dt {
     font-size: 11px;

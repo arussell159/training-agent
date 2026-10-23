@@ -23,6 +23,7 @@ import { WorkoutDescription } from "@/components/workout-description"
 import { METERS_PER_100_YARDS } from "../../../app-backend/lib/swim-units.mjs"
 import {
   WorkoutEditor,
+  prepareWorkoutEditor,
   useEditedWorkout,
 } from "@/components/workout-editor-launcher"
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
@@ -32,6 +33,7 @@ import { WorkoutDetailSurface } from "@/components/workout-detail-surface"
 import { LibraryWorkoutSchedule } from "@/components/library-workout-schedule"
 const WorkoutAnalysis = workoutAnalysisRoute.Component
 import { WorkoutProfile } from "@/components/workout-profile"
+import { hasWorkoutProfile } from "@/lib/workout-profile-visibility"
 import { WorkoutSummary } from "@/components/workout-summary"
 import { DesktopWorkoutDetails } from "@/components/desktop-workout-details"
 import { WorkoutRouteMap } from "@/components/workout-route-map"
@@ -476,6 +478,17 @@ function TrustedWorkoutDetailPage({
   const discardDetails = useRef<(() => void) | null>(null)
   const exitInFlight = useRef(false)
   const completedStrength = !mobile && isCompletedStrengthWorkout(workout)
+  useEffect(() => {
+    if (!editable || workout.app_pending_operation) return
+    // Opening an editable workout is an editing intent. Let its useful details
+    // paint before preparing the existing editor code and canonical model.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        if (isAccountCurrent()) prepareWorkoutEditor(workout)
+      })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [editable, workout, isAccountCurrent])
   useEffect(() => {
     setStrengthView("summary")
     setDetailsDirty(false)
@@ -1003,7 +1016,7 @@ function TrustedWorkoutDetailPage({
                   </section>
                 ) : (
                   <>
-                    {(workout.structure || workout.editor_model) && (
+                    {hasWorkoutProfile(workout) && (
                       <section className="rounded-xl border bg-card p-4 shadow-sm">
                         <div className="mb-3 flex items-center justify-between gap-3">
                           <div>
@@ -1141,7 +1154,7 @@ function TrustedWorkoutDetailPage({
                 ) : undefined
               }
             />
-            {(workout.structure || workout.editor_model) && (
+            {hasWorkoutProfile(workout) && (
               <div className="mt-2 overflow-hidden">
                 <WorkoutProfile
                   workout={workout}
@@ -1253,7 +1266,7 @@ function TrustedWorkoutDetailPage({
                   </div>
                 </div>
 
-                <section
+                {hasWorkoutProfile(workout) && <section
                   data-slot="card"
                   className="overflow-hidden p-0"
                   aria-label="Workout profile"
@@ -1263,7 +1276,7 @@ function TrustedWorkoutDetailPage({
                     mobilePlanned
                     enableEditOnClick
                   />
-                </section>
+                </section>}
 
                 <section className="w-full" aria-label="Workout details">
                   <div className="space-y-3">

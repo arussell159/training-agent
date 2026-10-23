@@ -1,4 +1,3 @@
-import "@/lib/framework7-sheet"
 import {
   useCallback,
   useEffect,
@@ -8,9 +7,9 @@ import {
   type ReactNode,
 } from "react"
 import { useSheetDismiss } from "@/hooks/use-sheet-dismiss"
-import { createPortal } from "react-dom"
-import { Sheet } from "framework7-react"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { ChevronRight, X } from "lucide-react"
+import "./detail-sheet-row.css"
 
 export function DetailSheetRow({
   title,
@@ -29,6 +28,8 @@ export function DetailSheetRow({
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
+  const closeButton = useRef<HTMLButtonElement>(null)
+  const [sheetElement, setSheetElement] = useState<HTMLDivElement | null>(null)
   const closing = useRef(false)
   const close = useCallback(() => {
     if (closing.current) return
@@ -38,7 +39,7 @@ export function DetailSheetRow({
     if (window.history.state?.detailSheet === id) window.history.back()
   }, [id])
   const expand = useCallback(() => setExpanded(true), [])
-  useSheetDismiss(id, open, close, {
+  useSheetDismiss(id, open && Boolean(sheetElement), close, {
     expanded,
     onExpand: fullHeight ? expand : undefined,
   })
@@ -72,29 +73,18 @@ export function DetailSheetRow({
         {title}
         <ChevronRight className="size-[18px] text-muted-foreground" />
       </button>
-      {createPortal(
-        <div id={id}>
-          <div
-            className={[
-              "terms-metric-backdrop sheet-backdrop",
-              open ? "backdrop-in" : "",
-            ].join(" ")}
-            aria-hidden="true"
-            onClick={close}
-          />
-          <Sheet
-            containerEl={`#${id}`}
-            className={`terms-metric-sheet ${fullHeight ? `detail-sheet-expandable ${expanded ? "detail-sheet-expanded" : ""}` : ""}`}
-            opened={open}
-            backdropEl={`#${id} .sheet-backdrop`}
-            backdrop
-            closeByBackdropClick
-            closeOnEscape
-            onSheetClose={close}
-            onSheetClosed={() =>
-              trigger.current?.focus({ preventScroll: true })
-            }
-            {...{ role: "dialog", "aria-modal": true, "aria-label": title }}
+      <Dialog open={open} onOpenChange={(value) => { if (!value) close() }}>
+          <DialogContent
+            ref={setSheetElement}
+            id={id}
+            fullscreen
+            data-app-dialog-layout="sheet"
+            className={`terms-metric-sheet sheet-modal detail-row-sheet ${fullHeight ? `detail-sheet-expandable ${expanded ? "detail-sheet-expanded" : ""}` : ""}`}
+            overlayClassName="detail-row-sheet-backdrop"
+            showCloseButton={false}
+            initialFocus={closeButton}
+            finalFocus={trigger}
+            aria-label={title}
           >
             <div
               className="terms-metric-sheet-handle detail-sheet-handle"
@@ -103,9 +93,13 @@ export function DetailSheetRow({
               <span />
             </div>
             <div className="terms-metric-sheet-heading">
-              <h2>{date || title}</h2>
+              <DialogTitle render={<h2 />}>
+                <span className={date ? "sr-only" : undefined}>{title}</span>
+                {date && <span aria-hidden="true">{date}</span>}
+              </DialogTitle>
               <div className="flex items-center">
                 <button
+                  ref={closeButton}
                   type="button"
                   className="terms-metric-sheet-close"
                   aria-label={`Close ${title}`}
@@ -121,10 +115,8 @@ export function DetailSheetRow({
             >
               {open && children}
             </div>
-          </Sheet>
-        </div>,
-        document.body
-      )}
+          </DialogContent>
+      </Dialog>
     </div>
   )
 }

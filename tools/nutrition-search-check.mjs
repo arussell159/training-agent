@@ -18,15 +18,26 @@ try {
   );
 }
 const origin = process.env.APP_TEST_ORIGIN || "http://127.0.0.1:5193";
-const output = path.resolve("artifacts/reliability");
+const engine = process.env.APP_TEST_ENGINE || "chromium";
+const output = path.resolve(
+  process.env.APP_TEST_OUTPUT ||
+    (engine === "chromium" ? "artifacts/reliability" : `artifacts/reliability-${engine}`)
+);
 await fs.mkdir(output, { recursive: true });
-const browser = await playwright.chromium.launch({
+const browser = await playwright[engine].launch({
   headless: true,
-  channel: process.env.APP_TEST_BROWSER || "msedge",
+  ...(engine === "chromium" ? { channel: process.env.APP_TEST_BROWSER || "msedge" } : {}),
+  ...(process.env.APP_TEST_EXECUTABLE ? { executablePath: process.env.APP_TEST_EXECUTABLE } : {}),
 });
+let currentPage;
 try {
-  for (const width of [320, 390, 1440]) {
-    const context = await browser.newContext({ viewport: { width, height: 844 } });
+  for (const width of [320, 390, 430, 844, 1440]) {
+    const context = await browser.newContext({
+      viewport: { width, height: width === 844 ? 390 : 844 },
+      hasTouch: width !== 1440,
+      isMobile: width !== 1440,
+      timezoneId: "America/Chicago",
+    });
     const blocked = [],
       errors = [];
     await context.route("**/*", (route) => {
@@ -36,6 +47,7 @@ try {
       return route.abort();
     });
     const page = await context.newPage();
+    currentPage = page;
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(`${origin}/tests/nutrition-readability.html?flow=1`, {
       waitUntil: "networkidle",
@@ -59,7 +71,10 @@ try {
     await search.fill("oats");
     const add = page.getByRole("button", { name: "Add one serving of Oats 1", exact: true });
     await add.click();
-    await page.getByRole("status").filter({ hasText: "Added Oats 1" }).waitFor();
+    await page
+      .getByRole("region", { name: "Notifications" })
+      .getByText("Added Oats 1 to Breakfast.", { exact: true })
+      .waitFor();
     assert.equal(await search.inputValue(), "oats");
     assert.equal(await page.locator(".nutrition-result").count(), 12);
     await add.click();
@@ -78,10 +93,24 @@ try {
       .locator(".nutrition-screen-scroll")
       .evaluate((node) => node.scrollTop);
     await details.click();
+    await page.getByLabel("Portion amount", { exact: true }).fill("0");
+    await page.getByLabel("Portion amount", { exact: true }).blur();
+    assert.equal(await page.getByLabel("Portion amount", { exact: true }).inputValue(), "0");
+    assert.equal(
+      await page.getByRole("button", { name: "Add to Breakfast", exact: true }).isDisabled(),
+      true
+    );
+    await page
+      .getByRole("alert")
+      .filter({ hasText: "Enter an amount greater than zero" })
+      .waitFor();
     await page.getByLabel("Portion amount", { exact: true }).fill("2");
     await page.getByRole("button", { name: "Add to Breakfast", exact: true }).click();
     await search.waitFor();
-    await page.getByRole("status").filter({ hasText: "Added Oats 9" }).waitFor();
+    await page
+      .getByRole("region", { name: "Notifications" })
+      .getByText("Added Oats 9 to Breakfast.", { exact: true })
+      .waitFor();
     assert.equal(await search.inputValue(), "oats");
     assert.equal(
       await page.getByRole("tab", { name: "All", exact: true }).getAttribute("aria-selected"),
@@ -132,7 +161,10 @@ try {
       "true"
     );
     await page.getByRole("button", { name: "Add one serving of Saved oats", exact: true }).click();
-    await page.getByRole("status").filter({ hasText: "Added Saved oats" }).waitFor();
+    await page
+      .getByRole("region", { name: "Notifications" })
+      .getByText("Added Saved oats to Breakfast.", { exact: true })
+      .waitFor();
     await page.waitForFunction(
       () => !document.querySelector('[aria-label="Add one serving of Saved oats"]').disabled
     );
@@ -153,6 +185,13 @@ try {
     );
     await context.close();
   }
+} catch (error) {
+  if (currentPage) {
+    console.error(await currentPage.locator("body").innerText());
+    console.error(await currentPage.evaluate(() => window.__nutritionFixture));
+    await currentPage.screenshot({ path: path.join(output, "nutrition-search-failure.png") });
+  }
+  throw error;
 } finally {
   await browser.close();
 }

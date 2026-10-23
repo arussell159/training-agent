@@ -24,7 +24,7 @@ export function durationClock(value) {
 
 export function editorUnits(sport) {
   return /swim/i.test(sport)
-    ? { kind: "pace", target: "secs/100y", label: "min/100y", distance: "yd", distanceLabel: "yds" }
+    ? { kind: "pace", target: "secs/100y", label: "m:ss/100yds", distance: "yd", distanceLabel: "yds" }
     : /run/i.test(sport)
       ? { kind: "pace", target: "secs/mi", label: "min/mile", distance: "mi", distanceLabel: "mi" }
       : { kind: "power", target: "w", label: "W", distance: "mi", distanceLabel: "mi" };

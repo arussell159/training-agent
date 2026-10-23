@@ -53,6 +53,8 @@ test("fixed sport units and new targets use absolute pace or watts", () => {
     assert.equal(editorUnits(sport).distance, distance);
     assert.equal(defaultTarget(sport).unit, unit);
   }
+  assert.equal(editorUnits("Swim").label, "m:ss/100yds");
+  assert.equal(editorUnits("Run").label, "min/mile");
 });
 test("pace conversions preserve the prescription and do not mutate imported targets", () => {
   const target = { kind: "pace", unit: "secs/km", mode: "range", start: 300, end: 330 };

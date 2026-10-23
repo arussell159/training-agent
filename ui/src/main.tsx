@@ -29,27 +29,8 @@ if (recoveredUrl)
 // Navigation uses semantic HTML. Feature routes initialize Framework7 on demand.
 document.documentElement.classList.add("ios")
 
-// Keep gestures as scrolling/inspection rather than changing the app scale.
-document.addEventListener("gesturestart", (event) => event.preventDefault(), {
-  passive: false,
-})
-document.addEventListener("gesturechange", (event) => event.preventDefault(), {
-  passive: false,
-})
-document.addEventListener(
-  "touchmove",
-  (event) => {
-    if (event.touches.length > 1) event.preventDefault()
-  },
-  { passive: false }
-)
-document.addEventListener(
-  "wheel",
-  (event) => {
-    if (event.ctrlKey) event.preventDefault()
-  },
-  { passive: false }
-)
+// Browser zoom is an accessibility control. Individual charts/drag handles own
+// their gestures; the app shell must not cancel pinch or Ctrl+wheel zoom.
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("controllerchange", () => {

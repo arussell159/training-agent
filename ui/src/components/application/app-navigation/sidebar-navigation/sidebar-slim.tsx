@@ -36,14 +36,14 @@ export function SidebarNavigationSlim({
     </Button>
   )
   return (
-    <div className={cn("relative hidden w-[72px] shrink-0 md:block", activeItem === "Calendar" && "calendar-navigation-rail")}>
+    <div className={cn("desktop-navigation-shell relative hidden shrink-0 md:block", activeItem === "Calendar" && "calendar-navigation-rail")}>
       <aside
         aria-label="Desktop sidebar"
-        className="desktop-navigation-rail fixed inset-y-0 left-0 z-40 flex w-[72px] border-r bg-background"
+        className="desktop-navigation-rail fixed inset-y-0 left-0 z-40 flex border-r bg-background"
       >
         <nav
           aria-label="Primary navigation"
-          className="flex w-[72px] shrink-0 flex-col items-center gap-2 border-r py-5"
+          className="flex w-full shrink-0 flex-col items-center gap-2 py-5"
         >
           <Button
             variant="ghost"

@@ -24,6 +24,7 @@ import {
 import { DesktopSportIcon } from "@/components/desktop-sport-icon"
 import { WorkoutProfile } from "@/components/workout-profile"
 import { CalendarWorkoutProfile } from "@/components/calendar-workout-profile"
+import { hasWorkoutProfile } from "@/lib/workout-profile-visibility"
 import {
   workoutCompletionGrade,
   type CompletionGrade,
@@ -91,6 +92,7 @@ function WorkoutPreview({
   calendarPresentation?: boolean
   onOpen?: () => void
 }) {
+  if (!hasWorkoutProfile(workout)) return null
   return (
     <div
       onClickCapture={

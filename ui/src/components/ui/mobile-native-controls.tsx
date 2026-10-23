@@ -71,8 +71,8 @@ export function MobileActionMenu({
     <span
       className={cn(
         plain
-          ? "relative inline-flex size-9 shrink-0 items-center justify-center"
-          : "mobile-glass-action relative inline-flex size-9 shrink-0 items-center justify-center rounded-full",
+          ? "relative inline-flex size-11 shrink-0 items-center justify-center"
+          : "mobile-glass-action relative inline-flex size-11 shrink-0 items-center justify-center rounded-full",
         disabled && "opacity-50",
         liquidGlass && "liquid-glass-button",
         className

@@ -263,7 +263,7 @@ async function details() {
   );
 }
 async function confirmDiscard() {
-  await discardDialog().getByRole("button", { name: "Confirm", exact: true }).click();
+  await discardDialog().getByRole("button", { name: "Discard changes", exact: true }).click();
   await modal().waitFor();
 }
 async function realDescriptionSave(text) {
@@ -802,7 +802,7 @@ try {
     await noAdditionalWrites();
     await trigger().click();
     await discardDialog().waitFor();
-    await discardDialog().getByRole("button", { name: "Confirm", exact: true }).click();
+    await discardDialog().getByRole("button", { name: "Discard changes", exact: true }).click();
     if (action === "app-back") {
       const base = new URL(draft.url);
       base.searchParams.delete("workout");
@@ -847,7 +847,7 @@ try {
   await noAdditionalWrites();
   await page.goBack({ waitUntil: "commit" });
   await discardDialog().waitFor();
-  await discardDialog().getByRole("button", { name: "Confirm", exact: true }).click();
+  await discardDialog().getByRole("button", { name: "Discard changes", exact: true }).click();
   await page.waitForURL(historySetup.base);
   assert.equal(await descriptionInput().count(), 0);
   await noAdditionalWrites();

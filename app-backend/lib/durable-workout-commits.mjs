@@ -496,7 +496,15 @@ export function createDurableWorkoutCommits(config, options = {}) {
   }
   async function editor(id) {
     const row = (await record.read()).workouts[id];
-    if (!row || row.deleted) fail("Workout not found.", 404);
+    // The authoritative revision may have been accepted on another device.
+    // Only a genuinely absent app record may fall back to a provider read;
+    // deleted records and unavailable durable storage must remain failures.
+    if (!row) {
+      if (/^event:[1-9]\d*$/.test(id)) return loadWorkoutEditor(request, id);
+      if (/^activity:i?[1-9]\d*$/.test(id)) return loadCompletedWorkoutEditor(request, id);
+      fail("Workout not found.", 404);
+    }
+    if (row.deleted) fail("Workout not found.", 404);
     let zones = row.input.zoneSettings;
     if (!Array.isArray(zones) && options.loadZoneSettings) zones = await options.loadZoneSettings();
     const load = id.startsWith("activity:") ? loadCompletedWorkoutEditor : loadWorkoutEditor;

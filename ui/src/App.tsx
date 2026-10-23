@@ -21,7 +21,6 @@ import { BackgroundSync } from "@/components/background-sync"
 import { preloadable } from "@/lib/preloadable"
 import { workoutDetailRoute, prepareWorkout } from "@/lib/workout-preload"
 import { prefetchWorkoutRecording } from "@/lib/activity-analysis"
-import { prefetchNutrition } from "@/lib/nutrition"
 import { prefetchWorkspacePage } from "@/lib/workspace-reads"
 import { flushSync } from "react-dom"
 import { SidebarNavigationSlim } from "@/components/application/app-navigation/sidebar-navigation/sidebar-slim"
@@ -34,6 +33,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ComponentProps,
 } from "react"
 import {
   ArrowLeft,
@@ -71,6 +71,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { MobileNavbar, MobilePageTabs } from "@/components/ui/navbars"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import {
@@ -110,7 +117,10 @@ const pageImports = {
 function preloadPage(item: string) {
   const load = routeLoaders[item as keyof typeof routeLoaders]?.preload
   if (load) void load().catch(() => {})
-  if (item === "Nutrition") void prefetchNutrition().catch(() => {})
+  if (item === "Nutrition")
+    void import("@/lib/nutrition")
+      .then(({ prefetchNutrition }) => prefetchNutrition())
+      .catch(() => {})
   prefetchWorkspacePage(item)
 }
 const TermsReferenceDialog = lazy(() =>
@@ -185,6 +195,11 @@ const reportsRoute = preloadable(
     })),
   () => <PageSkeleton page="Workout Reports" />
 )
+const reportWorkoutDialog = preloadable(
+  () => pageImports.Calendar().then((module) => ({ default: module.WorkoutDialog })),
+  ({ onOpenChange, finalFocus }) => <ReportWorkoutStatus onClose={() => onOpenChange(false)} finalFocus={finalFocus} />
+)
+const ReportWorkoutDialog = reportWorkoutDialog.Component
 const WorkoutDetailPage = workoutDetailRoute.Component
 const routeLoaders = {
   Home: homeRoute,
@@ -234,7 +249,12 @@ function itemPath(item: string) {
 }
 
 // Fetch the current view's code while the server verifies the session.
-if (workoutRouteId()) void workoutDetailRoute.preload().catch(() => {})
+if (workoutRouteId()) {
+  if (routeItem() === "Workout Reports" && window.matchMedia("(min-width: 768px)").matches) {
+    void reportsRoute.preload().catch(() => {})
+    void reportWorkoutDialog.preload().catch(() => {})
+  } else void workoutDetailRoute.preload().catch(() => {})
+}
 else if (restoreReportReader())
   void import("@/components/report-reader-page").catch(() => {})
 else
@@ -255,6 +275,39 @@ function RouteScrollReset({
   return null
 }
 
+function ReportWorkoutStatus({
+  error,
+  onClose,
+  onRetry,
+  retryLabel = "Try again",
+  retrying = false,
+  finalFocus,
+}: {
+  error?: string | null
+  onClose: () => void
+  onRetry?: () => void
+  retryLabel?: string
+  retrying?: boolean
+  finalFocus?: ComponentProps<typeof DialogContent>["finalFocus"]
+}) {
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent finalFocus={finalFocus}>
+        <DialogHeader>
+          <DialogTitle>{error ? "Workout unavailable" : "Loading workout"}</DialogTitle>
+          <DialogDescription role={error ? "alert" : "status"}>
+            {error || "Your workout is opening. Your report stays in place."}
+          </DialogDescription>
+        </DialogHeader>
+        {error && <div className="flex gap-3">
+          {onRetry && <Button disabled={retrying} onClick={onRetry}>{retrying ? "Trying again…" : retryLabel}</Button>}
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </div>}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function AppWorkspace() {
   useMobileViewport()
   const mobileTerms = useIsMobile()
@@ -265,6 +318,7 @@ function AppWorkspace() {
     workoutRouteId() ? null : restoreReportReader()
   )
   const [activeItem, setActiveItem] = useState<string>(routeItem)
+  const desktopReports = activeItem === "Workout Reports" && !mobileTerms && !selectedReport
   useEffect(() => {
     if (activeItem !== "Home") return
     let idle: number | undefined
@@ -365,6 +419,10 @@ function AppWorkspace() {
       )
   }, [])
   const workoutReturnScroll = useRef(0)
+  const reportWorkoutOpener = useRef<HTMLElement | null>(null)
+  // Loading and loaded popups share one return target. Do not restore focus
+  // between their handoff while the workout route is still open.
+  const reportWorkoutFinalFocus = () => workoutRouteId() ? false : reportWorkoutOpener.current || true
   const routeScrollTarget = useRef(0)
   const [routeScrollVersion, setRouteScrollVersion] = useState(0)
   const workoutReturnRoute = useRef<string | null>(null)
@@ -619,14 +677,19 @@ function AppWorkspace() {
     if ((selectedWorkout || pendingWorkoutId) && !workoutAccountIsCurrent())
       return
     runWithWorkoutNavigationGuard(() => {
+      if (desktopReports) {
+        reportWorkoutOpener.current = document.querySelector<HTMLElement>(
+          `[aria-label="Workout report table"] a[href="/workout-reports?workout=${encodeURIComponent(workout.id)}"]`
+        ) || (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+      }
       workoutReturnRoute.current = activeItem
       workoutReturnScroll.current = window.scrollY
-      routeScrollTarget.current = 0
+      routeScrollTarget.current = desktopReports ? window.scrollY : 0
       setCalendarReturnScroll(null)
       setPendingWorkoutId(null)
       setSelectedWorkout(workout)
       rememberOpenWorkout(workout)
-      void workoutDetailRoute.preload().catch(() => {})
+      void (desktopReports ? reportWorkoutDialog : workoutDetailRoute).preload().catch(() => {})
       prepareWorkout(workout)
       prefetchWorkoutRecording(workout)
     })
@@ -770,7 +833,7 @@ function AppWorkspace() {
           inert={mobileTerms && termsOpen}
           aria-hidden={mobileTerms && termsOpen ? true : undefined}
           className={
-            selectedWorkout && selectedWorkout.status !== "completed"
+            !desktopReports && selectedWorkout && selectedWorkout.status !== "completed"
               ? "planned-workout-nav-shell"
               : (activeItem === "Home" || activeItem === "Nutrition") &&
                   !selectedWorkout &&
@@ -837,7 +900,7 @@ function AppWorkspace() {
             )}
           {activeItem !== "Calendar" && (
             <header className="desktop-app-header sticky top-0 z-50 hidden h-14 w-full shrink-0 items-center border-b bg-background/95 px-4 shadow-sm backdrop-blur md:flex">
-              {selectedWorkout?.status === "completed" && (
+              {!desktopReports && selectedWorkout?.status === "completed" && (
                 <Button
                   type="button"
                   size="sm"
@@ -851,7 +914,7 @@ function AppWorkspace() {
                 </Button>
               )}
               <h1 className="min-w-0 truncate text-sm font-semibold">
-                {selectedReport
+                {desktopReports ? "Workout Reports" : selectedReport
                   ? selectedReport.kind === "weekly"
                     ? "Weekly Report"
                     : "Training Block"
@@ -958,7 +1021,7 @@ function AppWorkspace() {
                   }
                 >
                   <RouteScrollReset
-                    route={`${activeItem}:${selectedWorkout?.id ?? ""}:${selectedReport ? JSON.stringify(selectedReport) : ""}:${routeScrollVersion}`}
+                    route={`${activeItem}:${desktopReports ? "" : selectedWorkout?.id ?? ""}:${selectedReport ? JSON.stringify(selectedReport) : ""}:${routeScrollVersion}`}
                     target={routeScrollTarget}
                   />
                   {activeItem === "Settings" && !selectedReport && (
@@ -972,7 +1035,47 @@ function AppWorkspace() {
                       <SettingsWorkspace onWorkoutOpen={openWorkout} />
                     </div>
                   )}
-                  {pendingWorkoutId ? (
+                  {desktopReports ? (
+                    <>
+                      <WorkoutReportsPage onWorkoutOpen={openWorkout} />
+                      <PageErrorBoundary
+                        resetKey={`${selectedWorkout?.id || pendingWorkoutId || ""}:${workoutLoadAttempt}`}
+                        onRetry={() => reportWorkoutDialog.preload().then(() => {})}
+                        fallback={(recovery) => (
+                          <ReportWorkoutStatus
+                            error={recovery.reloadBlocked
+                              ? "Your draft could not be retained safely. Keep this view open and try again."
+                              : "The workout view could not load. Your report is still available."}
+                            onClose={closeWorkout}
+                            finalFocus={reportWorkoutFinalFocus}
+                            onRetry={recovery.retryAvailable ? recovery.retry : recovery.reload}
+                            retryLabel={recovery.retryAvailable ? "Try again" : "Reload app"}
+                            retrying={recovery.retrying}
+                          />
+                        )}
+                      >
+                        {pendingWorkoutId ? (
+                          <ReportWorkoutStatus
+                            error={workoutLoadError}
+                            onClose={closeWorkout}
+                            finalFocus={reportWorkoutFinalFocus}
+                            onRetry={() => setWorkoutLoadAttempt((value) => value + 1)}
+                          />
+                        ) : selectedWorkout ? (
+                          <Suspense fallback={<ReportWorkoutStatus onClose={closeWorkout} finalFocus={reportWorkoutFinalFocus} />}>
+                            <ReportWorkoutDialog
+                              key={selectedWorkout.id}
+                              workout={selectedWorkout}
+                              focusOnOpen
+                              finalFocus={reportWorkoutFinalFocus}
+                              initialAnalysisOpen
+                              onOpenChange={(open) => { if (!open) closeWorkout() }}
+                            />
+                          </Suspense>
+                        ) : null}
+                      </PageErrorBoundary>
+                    </>
+                  ) : pendingWorkoutId ? (
                     <div className="relative w-full">
                       <div aria-hidden={workoutLoadError ? true : undefined}>
                         <PageSkeleton page="Workout" />

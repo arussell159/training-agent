@@ -1,9 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { recordedSignalStatistics, recordedSignalValue, formatRecordedSignal } from "../src/lib/workout-signal-statistics.ts";
+import { recordedSignalStatistics, recordedSignalValue, formatRecordedSignal, recordedSignalInfo } from "../src/lib/workout-signal-statistics.ts";
 
 const point = (time, values = {}) => ({ time, power: null, heartRate: null, speed: null, distance: null, ...values });
 const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-8, `${actual} differs from ${expected}`);
+
+test("recorded pace defaults show minutes and seconds per100 yards or mile using SI activity speed", () => {
+  for (const [sport, speed, seconds, label] of [["Swim", .9144, 100, "m:ss/100yds"], ["Run", 1609.344 / 480, 480, "min/mile"], ["TrailRun", 1609.344 / 480, 480, "min/mile"]]) {
+    const value = recordedSignalValue(point(0, {speed}), "pace", sport);
+    close(value, seconds);
+    assert.equal(recordedSignalInfo("pace", sport).unit, label);
+    assert.equal(formatRecordedSignal(value, "pace", sport), sport === "Swim" ? "1:40" : "8:00");
+  }
+});
 
 test("signal statistics weight recorded time and preserve zeros without filling missing values", () => {
   const points = [point(0, { power: 0, heartRate: 100 }), point(2, { power: 200 }), point(10, { power: null, heartRate: 140 }), point(12, { power: 300 })];

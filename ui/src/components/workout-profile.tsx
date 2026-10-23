@@ -3,6 +3,7 @@ import {Fragment,useRef,useState,type PointerEvent as ReactPointerEvent} from 'r
 import {workoutProfileSegments,workoutStepLabel} from '@/lib/workout-structure'
 import type {PlannedWorkout} from '@/lib/training-context'
 import {canEditWorkout} from '@/lib/workout-permissions'
+import {hasWorkoutProfile} from '@/lib/workout-profile-visibility'
 import {Tooltip,TooltipTrigger,TooltipContent,TooltipProvider} from '@/components/ui/tooltip'
 import {chartSegments,stepLabel,stepMetrics} from '../../../app-backend/lib/workout-editor-model.mjs'
 
@@ -11,7 +12,7 @@ export function WorkoutProfile(props:ProfileProps){
  const workout=useEditedWorkout(props.workout),[editing,setEditing]=useState<string|null>(null)
  const passive=Boolean(props.home||props.passive)
  const editable=!passive&&Boolean(props.enableEditOnClick)&&canEditWorkout(workout)
- if(workout.unstructured || workout.editor_model?.unstructured)return null
+ if(!hasWorkoutProfile(workout))return null
  const edit=(id='')=>{if(!editable)return;props.onEditNode?.(id);if(!props.onEditNode)setEditing(id)}
  return <><div data-workout-profile={workout.id} inert={passive||undefined} aria-hidden={passive||undefined} role={editable?'button':undefined} tabIndex={editable?0:undefined} aria-label={editable?`Edit ${workout.title}`:undefined} title={editable?'Click an interval to edit it':undefined} className={passive?'pointer-events-none':editable?'cursor-pointer':undefined} onPointerDown={event=>{if(editable)event.stopPropagation()}} onKeyDown={event=>{if(editable&&(event.key==='Enter'||event.key===' ')){event.preventDefault();event.stopPropagation();edit()}}} onClick={event=>{if(editable){event.stopPropagation();edit()}}}>
   <WorkoutProfileChart {...props} workout={workout} onEditNode={editable&&!props.mobilePlanned?edit:undefined}/>

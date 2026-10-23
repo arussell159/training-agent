@@ -1,10 +1,12 @@
 import { chartSegments } from "../../../app-backend/lib/workout-editor-model.mjs"
 import { workoutProfileSegments } from "./workout-structure.ts"
 import type { PlannedWorkout } from "./training-context"
+import { hasWorkoutProfile } from "./workout-profile-visibility.ts"
 
 // A calendar card needs a silhouette. Detailed interval interactions stay in the
 // workout editor, without hundreds of interactive controls in every day cell.
 export function calendarProfilePath(workout: PlannedWorkout) {
+  if (!hasWorkoutProfile(workout)) return null
   try {
     const segments = workout.editor_model
       ? chartSegments(workout.editor_model).segments.map((segment) => ({

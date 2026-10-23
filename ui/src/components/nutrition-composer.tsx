@@ -110,6 +110,10 @@ export function NutritionComposer({
   const [detailRetry, setDetailRetry] = useState(0)
   const [tab, setTab] = useState<Tab>("all")
   const [searching, setSearching] = useState(false)
+  const [searchSlow, setSearchSlow] = useState(false)
+  const [invalidPortions, setInvalidPortions] = useState<Set<string>>(
+    () => new Set()
+  )
   const [composing, setComposing] = useState(false)
   const [pane, setPane] = useState<Pane>(
     existing ? "detail" : mode === "manual" ? "custom" : "browse"
@@ -177,8 +181,11 @@ export function NutritionComposer({
     ingredients,
   ])
   const searchHost = useRef<HTMLDivElement>(null)
+  const focusedSearchOnOpen = useRef(false)
   const focusSearchOnOpen = useCallback((host: HTMLDivElement | null) => {
     searchHost.current = host
+    if (!host || focusedSearchOnOpen.current) return
+    focusedSearchOnOpen.current = true
     if (window.matchMedia("(max-width: 767px), (pointer: coarse)").matches)
       host
         ?.querySelector<HTMLInputElement>('input[type="search"]')
@@ -354,6 +361,12 @@ export function NutritionComposer({
     }
   }
   useEffect(() => {
+    setSearchSlow(false)
+    if (!searching) return
+    const timer = setTimeout(() => setSearchSlow(true), 2000)
+    return () => clearTimeout(timer)
+  }, [searching])
+  useEffect(() => {
     if (pane !== "browse") return
     if (tab !== "all" || query.trim().length < 2 || composing) {
       setProducts(null)
@@ -441,6 +454,7 @@ export function NutritionComposer({
   const valid = () =>
     !draft.some(
       (e) =>
+        invalidPortions.has(e.id) ||
         !e.name.trim() ||
         !e.unit.trim() ||
         e.quantity <= 0 ||
@@ -487,7 +501,8 @@ export function NutritionComposer({
       if (!existing) recordRecentFoods(draft)
       if (!existing && mode !== "manual" && tab !== "type") {
         setNotice("")
-        setQuery("")
+        // Keep the query, selected library and scroll anchor so adding another
+        // food returns to the same results, including after a serving edit.
         setText("")
         changeDraft([])
         setProduct(null)
@@ -519,6 +534,10 @@ export function NutritionComposer({
     activeNotification?: string
   ) {
     if (saveLock.current) return
+    if (draftScope !== deviceCacheScope()) {
+      setError("Your account changed. Reopen Add food in the intended account.")
+      return
+    }
     if (ingredients) {
       addIngredients(entries)
       if (activeNotification)
@@ -583,6 +602,10 @@ export function NutritionComposer({
   }
   async function saveLibrary(item: SavedFood) {
     if (saveLock.current) return
+    if (draftScope !== deviceCacheScope()) {
+      setError("Your account changed. Reopen Add food in the intended account.")
+      return
+    }
     if (!library) {
       setError("Your food library is still loading.")
       return
@@ -772,6 +795,9 @@ export function NutritionComposer({
     }
     if (pane !== "browse") {
       cancel()
+      // The editor owns incomplete numeric text. Returning to results cancels
+      // that text; a retained valid food draft must be editable when reopened.
+      setInvalidPortions(new Set())
       setPane("browse")
       return
     }
@@ -1108,7 +1134,9 @@ export function NutritionComposer({
                       role="status"
                       className="mb-3 text-sm text-muted-foreground"
                     >
-                      Searching…
+                      {searchSlow
+                        ? "Food search is taking longer than usual…"
+                        : "Searching…"}
                       {products?.length
                         ? " Previous results remain available below."
                         : ""}
@@ -1207,6 +1235,15 @@ export function NutritionComposer({
                 disabled={saving}
                 entry={entry}
                 product={index === 0 ? product : undefined}
+                onValidityChange={(valid) =>
+                  setInvalidPortions((current) => {
+                    if (current.has(entry.id) === !valid) return current
+                    const next = new Set(current)
+                    if (valid) next.delete(entry.id)
+                    else next.add(entry.id)
+                    return next
+                  })
+                }
                 onChange={(next) =>
                   changeDraft(draft.map((old, i) => (i === index ? next : old)))
                 }
@@ -1307,7 +1344,11 @@ export function NutritionComposer({
           <div className="nutrition-save-bar">
             <Button
               className={nutritionSaveClass}
-              disabled={saving || !draft.length}
+              disabled={
+                saving ||
+                !draft.length ||
+                draft.some((entry) => invalidPortions.has(entry.id))
+              }
               onClick={() => void (pane === "custom" ? saveCustom() : save())}
             >
               {saving && <LoaderCircle className="size-4 animate-spin" />}

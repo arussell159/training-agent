@@ -273,6 +273,9 @@ export function installWorkoutNavigationBarrier(onPop: () => void): () => void {
     window.history.go(delta)
   }
   const pop = (event: Event) => {
+    // A shared confirmation may be awaiting an earlier navigation decision.
+    // Let that top surface cancel before handling the next Back/Forward event.
+    window.dispatchEvent(new Event("workout-navigation-traversal"))
     const arrived = entry()
     if (bypass) {
       accept()

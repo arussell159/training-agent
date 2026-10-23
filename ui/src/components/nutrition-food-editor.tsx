@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useId, useState } from "react"
 import { Trash2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,7 @@ export function FoodEditor({
   product,
   editable = false,
   disabled = false,
+  onValidityChange,
 }: {
   entry: FoodEntry
   onChange: (entry: FoodEntry) => void
@@ -26,7 +27,9 @@ export function FoodEditor({
   product?: FoodProduct | null
   editable?: boolean
   disabled?: boolean
+  onValidityChange?: (valid: boolean) => void
 }) {
+  const amountErrorId = useId()
   // Scale from the original values so repeated unit changes never accumulate rounding.
   const fatSecretServings =
     product?.source === "fatsecret" ? product.servings || [] : []
@@ -54,8 +57,8 @@ export function FoodEditor({
       ? entry.servingId!
       : product.servingId || product.servings[0].id
     setUnit(selected)
-    setAmount(String(entry.quantity))
-  }, [product, entry.servingId, entry.quantity])
+    // Hydrating serving facts must not erase a quantity the user is typing.
+  }, [product, entry.servingId])
   const selectedBaseline =
     fatSecretServings.length && product
       ? foodFromProduct({ ...product, servingId: unit }, entry.meal)
@@ -64,6 +67,11 @@ export function FoodEditor({
     ? 1
     : options.find((option) => option.value === unit)?.factor || 1
   const [amount, setAmount] = useState(String(entry.quantity / factor))
+  const validAmount =
+    amount.trim() !== "" &&
+    Number.isFinite(Number(amount)) &&
+    Number(amount) * factor > 0 &&
+    Number(amount) * factor <= 100000
   const update = (patch: Partial<FoodEntry>) =>
     onChange({
       ...entry,
@@ -81,6 +89,9 @@ export function FoodEditor({
   const changeAmount = (value: string) => {
     setAmount(value)
     const q = Number(value) * factor
+    onValidityChange?.(
+      value.trim() !== "" && Number.isFinite(q) && q > 0 && q <= 100000
+    )
     if (q > 0 && q <= 100000) {
       const scaled = scaleFood(editable ? entry : selectedBaseline, q)
       onChange({ ...entry, ...scaled, id: entry.id, meal: entry.meal })
@@ -149,6 +160,7 @@ export function FoodEditor({
               setUnit(next.value)
               const quantity = Number((entry.quantity / next.factor).toFixed(4))
               setAmount(String(quantity))
+              onValidityChange?.(true)
               if (fatSecretServings.length && product) {
                 const nextEntry = foodFromProduct(
                   { ...product, servingId: next.value },
@@ -175,19 +187,26 @@ export function FoodEditor({
         Amount
         <Input
           aria-label="Portion amount"
+          aria-invalid={!validAmount}
+          aria-describedby={!validAmount ? amountErrorId : undefined}
           type="number"
-          min="0.01"
+          min="0.0001"
           max="100000"
           step="any"
           inputMode="decimal"
           value={amount}
           onFocus={(event) => event.currentTarget.select()}
           onChange={(e) => changeAmount(e.target.value)}
-          onBlur={() => {
-            if (!(Number(amount) > 0 && Number(amount) * factor <= 100000))
-              setAmount(String(Number((entry.quantity / factor).toFixed(4))))
-          }}
         />
+        {!validAmount && (
+          <span
+            id={amountErrorId}
+            role="alert"
+            className="text-sm text-destructive"
+          >
+            Enter an amount greater than zero, up to {100000 / factor}.
+          </span>
+        )}
       </label>
       <div className="grid grid-cols-2 gap-3">
         {nutrientKeys

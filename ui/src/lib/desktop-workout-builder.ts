@@ -154,12 +154,18 @@ export const desktopTargetUnits = [
   ["%lthr", "% Threshold Heart Rate"],
   ["bpm", "Heart rate (bpm)"],
   ["%pace", "% Threshold Pace"],
-  ["secs/mi", "Pace (min/mi)"],
+  ["secs/mi", "Pace (min/mile)"],
   ["secs/km", "Pace (min/km)"],
-  ["secs/100y", "Pace (min/100yd)"],
-  ["secs/100m", "Pace (min/100m)"],
+  ["secs/100y", "Pace (m:ss/100yds)"],
+  ["secs/100m", "Pace (m:ss/100m)"],
   ["rpe", "RPE"],
 ] as const
+export function desktopPaceUnitLabel(unit: string) {
+  if (unit === "secs/100y") return "m:ss/100yds"
+  if (unit === "secs/100m") return "m:ss/100m"
+  if (unit === "secs/mi") return "min/mile"
+  return unit.replace("secs", "min")
+}
 export const targetKind = (unit: string): "power" | "pace" | "hr" | "rpe" =>
   unit === "rpe"
     ? "rpe"
@@ -334,8 +340,8 @@ export function desktopTargetPresentation(
       absoluteUnit === "w"
         ? "W"
         : absoluteUnit === "secs/100y"
-          ? "sec/100y"
-          : "min/mi"
+          ? "m:ss/100yds"
+          : "min/mile"
     return { zoneId, physical: `${amounts.map(format).join("-")} ${suffix}` }
   } catch {
     return { zoneId, physical: "" }
@@ -349,6 +355,40 @@ type DesktopBuilderPreferences = {
   length: DesktopBlockLength
   unit: string
   mode: "single" | "range"
+  unitExplicit?: boolean
+}
+
+/** Existing prescriptions keep their basis; new workouts use the sport default.
+ * Older preferences were written merely by opening a workout, so only an
+ * intentional unit selection may override the new run/swim defaults. */
+export function initialDesktopTargetUnit(
+  firstTarget: Target | undefined,
+  model: WorkoutModel,
+  zones: SportZoneSettings[] = [],
+  preferences: DesktopBuilderPreferences | null = null
+) {
+  const endurance = /run|swim/i.test(model.sport)
+  const supported = (unit: string | undefined) =>
+    desktopTargetUnits.some(([value]) => value === unit)
+  const preferred =
+    !firstTarget && preferences && (!endurance || preferences.unitExplicit === true)
+      ? preferences.unit
+      : firstTarget?.kind === "rpe" ? "rpe"
+        : firstTarget?.kind === "hr"
+          ? supported(firstTarget.unit) ? firstTarget.unit! : "bpm"
+          : firstTarget?.kind === "power" ? "%ftp"
+            : firstTarget?.kind === "pace" && supported(firstTarget.unit)
+              ? firstTarget.unit!
+              : /swim/i.test(model.sport) ? "secs/100y"
+                : /run/i.test(model.sport) ? "secs/mi" : "%ftp"
+  if (firstTarget) {
+    try {
+      displayTarget(firstTarget, preferred, model, zones)
+    } catch {
+      return supported(firstTarget.unit) ? firstTarget.unit! : preferred
+    }
+  }
+  return preferred
 }
 const preferencesKey = (scope: string, sport: string) =>
   `desktop-workout-builder:${scope}:${sport}`
@@ -813,14 +853,15 @@ export function desktopWorkoutZoneOptions(
   const setting=sportZoneSettings(zones,model.sport)
   const power=/ride|bike/i.test(model.sport),threshold=power?setting?.ftp:setting?.threshold_pace
   const boundaries=power?setting?.power_zones:setting?.pace_zones
-  const distance=/swim/i.test(model.sport)?91.44:1609.344
+  const paceUnit=paceFactors[preferredUnit]?preferredUnit:/swim/i.test(model.sport)?"secs/100y":"secs/mi"
+  const distance=paceFactors[paceUnit]
   const pace=(seconds:number)=>`${String(Math.floor(seconds/60)).padStart(2,"0")}:${String(seconds%60).padStart(2,"0")}`
   return workoutZoneOptions(zones, model.sport, preferredUnit).map(option => {
     const index=Number(option.id)-1,low=index?boundaries?.[index-1]:0,high=boundaries?.[index]
     let label=option.label
     if(threshold && low != null && high != null) {
       if(power)label=`Zone ${index+1} | ${index?Math.round(threshold*low/100)+1:0} - ${Math.round(threshold*high/100)} W`
-      else if(low>0)label=`Zone ${index+1} | ${pace(Math.round(distance/(threshold*high/100)))} - ${pace(Math.round(distance/(threshold*low/100)))} ${/swim/i.test(model.sport)?"sec/100y":"min/mi"}`
+      else if(low>0)label=`Zone ${index+1} | ${pace(Math.round(distance/(threshold*high/100)))} - ${pace(Math.round(distance/(threshold*low/100)))} ${desktopPaceUnitLabel(paceUnit)}`
       const name=(power?setting?.power_zone_names:setting?.pace_zone_names)?.[index]
       if(name)label+=` · ${name}`
     }

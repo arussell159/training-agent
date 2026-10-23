@@ -44,6 +44,19 @@ export const cachedWorkoutValues = (id: string) => {
 export const loadWorkoutValues = (id: string, signal?: AbortSignal) => Promise.resolve(cachedWorkoutValues(id) || planned.get(key(id), signal))
 export const loadWorkoutComments = (id: string, signal?: AbortSignal): Promise<Comments> => {
   const local = localCommittedWorkout(id)
+  // App-created workouts can arrive from another tab/device without a local
+  // journal. Their canonical editor owns the comments and provider identity;
+  // the provider-only /comments route cannot accept an app UUID.
+  if (id.startsWith("app:") && (!local || local.deleted)) {
+    return loadWorkoutEditor(`/api/workouts/${encodeURIComponent(id)}/editor`, signal).then(editor => ({
+      comments: (editor.comments || []).map(comment => ({
+        ...comment,
+        workout_id: id,
+        type: "type" in comment ? String(comment.type) : "post",
+        created_at: "created_at" in comment ? String(comment.created_at || "") : "",
+      })),
+    }))
+  }
   if (id.startsWith("app:") && local) {
     const pending = local.input.comment?.trim() ? [{id:local.input.commentId || `local:${local.sequence}`,body:local.input.comment.trim(),workout_id:id,type:"pre",created_at:""}] : []
     if (!local.providerWorkoutId) return Promise.resolve({comments:[...pending,...(local.input.comments || []).map(c=>({...c,workout_id:id,created_at:""}))]})
@@ -58,14 +71,28 @@ const editors = createSharedRequestCache<WorkoutEditorRead>(async (cacheKey, sig
   if (!response.ok || !data.revision || !data.model || !Array.isArray(data.model.steps)) throw Error(data.error || "Could not load the workout")
   return data as WorkoutEditorRead
 }, { maxEntries: 8, ttlMs: 15_000 })
+function canonicalEditorUrl(url: string): string {
+  const match = /^\/api\/workouts\/([^/?]+)\/editor$/.exec(url)
+  if (!match) return url
+  const id = decodeURIComponent(match[1])
+  // A different device may already have a durable app revision. Resolve that
+  // server-side even when this device has never journaled the workout.
+  return /^(event:[1-9]\d*|activity:i?[1-9]\d*|app:[a-f\d-]{36})$/i.test(id)
+    ? `/api/workout-commits/${encodeURIComponent(id)}/editor`
+    : url
+}
 export async function loadWorkoutEditor(url: string, signal?: AbortSignal, force = false): Promise<WorkoutEditorRead> {
   const match = /^\/api\/workouts\/([^/?]+)\/editor$/.exec(url)
   if (match) {
     const id = decodeURIComponent(match[1])
     await restoreWorkoutCommits()
+    // A durable local deletion is authoritative even before its server handoff.
+    // Neither a cached editor nor an explicit refresh may revive the old model.
+    if (localCommittedWorkout(id)?.deleted)
+      throw Object.assign(Error("This workout was deleted. Create a separate workout to restore it."), { status: 404, code: "DELETED" })
     const local = committedEditorRead(id)
     if (local && !force) return local
-    if (id.startsWith("app:") || localCommittedWorkout(id)) url = `/api/workout-commits/${encodeURIComponent(id)}/editor`
+    url = canonicalEditorUrl(url)
   }
   if (force) editors.invalidate()
   return editors.get(key(url), signal)
@@ -73,10 +100,12 @@ export async function loadWorkoutEditor(url: string, signal?: AbortSignal, force
 export function cachedWorkoutEditor(url: string): WorkoutEditorRead | undefined {
   const match = /^\/api\/workouts\/([^/?]+)\/editor$/.exec(url)
   if (match) {
-    const local = committedEditorRead(decodeURIComponent(match[1]))
+    const id = decodeURIComponent(match[1])
+    if (localCommittedWorkout(id)?.deleted) return undefined
+    const local = committedEditorRead(id)
     if (local) return local
   }
-  return editors.peek(key(url))
+  return editors.peek(key(canonicalEditorUrl(url)))
 }
 export function clearWorkoutReads() { planned.invalidate(); comments.invalidate(); editors.invalidate() }
 export async function loadLibraryWorkout(id:string,signal?:AbortSignal,force=false) {

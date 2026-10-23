@@ -1,5 +1,9 @@
 /* Calendar and shell readability stay scoped away from other card surfaces. */
 @media (width >= 48rem) {
+  :root {
+    --desktop-rail-width: 64px;
+  }
+
   .training-calendar,
   .calendar-workout-card,
   .calendar-race-card,
@@ -58,6 +62,11 @@
     font-weight: 600;
   }
 
+  .desktop-navigation-shell,
+  .desktop-navigation-rail {
+    width: var(--desktop-rail-width);
+  }
+
   .desktop-navigation-rail {
     background: var(--card);
     border-color: var(--border);
@@ -88,8 +97,9 @@
     position: absolute;
     top: 10px;
     bottom: 10px;
-    left: -14px;
+    left: -8px;
     width: 3px;
+    border-radius: 2px;
     background: var(--primary);
     content: "";
   }

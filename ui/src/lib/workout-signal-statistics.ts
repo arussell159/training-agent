@@ -64,7 +64,7 @@ export function recordedSignalInfo(key: RecordedSignal, sport: string) {
     speed: { label: "Speed", unit: "mph", color: "#009800", digits: 2 },
     pace: {
       label: "Pace",
-      unit: swim ? "min/100 yd" : "min/mi",
+      unit: swim ? "m:ss/100yds" : "min/mile",
       color: "#0284c7",
       digits: 0,
     },

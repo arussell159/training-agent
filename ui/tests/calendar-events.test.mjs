@@ -7,7 +7,40 @@ import {createCalendarEntryTransferAttempt} from "../src/lib/calendar-entry-tran
 import { calendarProfilePath } from "../src/lib/calendar-profile.ts"
 import { builderBlock } from "../src/lib/desktop-workout-builder.ts"
 import { projectOptimisticWorkout, rollbackOptimisticWorkout, clearOptimisticWorkout } from "../src/lib/optimistic-workout.ts"
-import { desktopCalendarRecordedTotal, sameDesktopCalendarSport } from "../src/lib/desktop-calendar-summary.ts"
+import { calendarDurationSummary, calendarDurationLabel, calendarDurationDescription, desktopCalendarRecordedTotal, sameDesktopCalendarSport } from "../src/lib/desktop-calendar-summary.ts"
+
+test("weekly duration summary keeps scheduled targets and recorded moving seconds across separate weeks without double counting links", () => {
+  const recording = { id: "activity:i1", activity_id: "i1", sport: "Run", activity_type: "Run", workout_date: "2026-10-26", status: "completed", workout_summary: { planned: null, completed: { duration_seconds: 3601 } } }
+  const paired = { ...recording, id: "event:1", provider_type: "Ride", category: "WORKOUT", planned_workout_date: "2026-10-25", workout_summary: { planned: { duration_seconds: 5401 }, completed: recording.workout_summary.completed } }
+  const missed = { id: "event:2", category: "WORKOUT", sport: "Swim", workout_date: "2026-10-20", status: "missed", workout_summary: { planned: { duration_seconds: 1200 }, completed: null } }
+  const first = calendarDurationSummary([recording, paired, paired, missed], { start: "2026-10-19", end: "2026-10-25" })
+  assert.deepEqual(first.planned, { value: 6601, observed: 2, missing: 0 })
+  assert.deepEqual(first.completed, { value: 0, observed: 0, missing: 0 })
+  assert.deepEqual(first.rows.map(row => row.sport), ["Swim", "Bike"])
+  const next = calendarDurationSummary([recording, paired, paired, missed], { start: "2026-10-26", end: "2026-11-01" })
+  assert.deepEqual(next.planned, { value: 0, observed: 0, missing: 0 })
+  assert.deepEqual(next.completed, { value: 3601, observed: 1, missing: 0 })
+  assert.deepEqual(next.rows.map(row => row.sport), ["Run"])
+})
+
+test("weekly duration presentation exposes every applicable sport, missing values and genuine zeros, rounding only after summation", () => {
+  const row = (id, sport, seconds) => ({ id: `event:${id}`, category: "WORKOUT", sport, workout_date: "2026-10-20", status: "upcoming", plannedDurationMinutes: 99, workout_summary: { planned: { duration_seconds: seconds }, completed: null } })
+  const summary = calendarDurationSummary([row(1, "Swim", 29), row(2, "Swim", 29), row(3, "Rowing", 0), row(4, "Walk", null), row(5, "Swim", null)], { start: "2026-10-19", end: "2026-10-25" })
+  assert.equal(calendarDurationLabel(summary.planned), "0:01+")
+  assert.equal(calendarDurationLabel(summary.completed), "0:00")
+  assert.equal(calendarDurationLabel(summary.rows.find(row => row.sport === "Rowing").planned), "0:00")
+  assert.equal(calendarDurationLabel(summary.rows.find(row => row.sport === "Walk").planned), "—")
+  assert.match(calendarDurationDescription("Total planned", summary.planned), /partial total.*2 workouts/)
+})
+
+test("week summaries move an optimistic scheduled target immediately and restore its original week on failure", () => {
+  const original = { id: "event:1", category: "WORKOUT", sport: "Bike", workout_date: "2026-10-25", planned_workout_date: "2026-10-25", status: "upcoming", workout_summary: { planned: { duration_seconds: 1800 }, completed: null } }
+  const before = { planned: [original], history: [] }
+  const moved = projectCalendarMove(before, original.id, "2026-10-26", "2026-10-23")
+  const range = { start: "2026-10-26", end: "2026-11-01" }
+  assert.equal(calendarDurationSummary(moved.planned, range).planned.value, 1800)
+  assert.equal(calendarDurationSummary(rollbackCalendarMove(moved, before, original.id, "2026-10-26").planned, range).planned.value, 0)
+})
 
 test("desktop week totals use recorded seconds before rounded fields and exclude planned-only prescriptions", () => {
   const workouts = [

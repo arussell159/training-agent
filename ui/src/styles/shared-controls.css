@@ -1,0 +1,63 @@
+/* Base UI owns modal focus/scroll locking. Framework7 owns its feature sheets.
+   These tokens give both surfaces the same input and motion conventions. */
+:root {
+  --app-touch-target: 2.75rem;
+  --app-surface-gutter: 1rem;
+}
+
+[data-app-dialog-layout="centered"] {
+  max-height: calc(var(--app-viewport-height, 100dvh) - 2 * var(--app-surface-gutter));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+}
+
+@media (width < 48rem) {
+  [data-app-dialog-layout="centered"] {
+    top: calc(var(--app-viewport-top, 0px) + var(--app-viewport-height, 100dvh) / 2);
+    max-width: calc(100% - 2 * var(--app-surface-gutter));
+  }
+
+  button[data-size],
+  [data-slot="input"],
+  [data-slot="select-trigger"],
+  [data-native-control="select"] {
+    min-height: var(--app-touch-target);
+  }
+
+  button[data-size^="icon"] {
+    min-width: var(--app-touch-target);
+  }
+
+  [data-slot="input"],
+  [data-slot="textarea"],
+  [data-native-control="select"] {
+    font-size: max(1rem, 16px);
+    scroll-margin-block: 5rem;
+  }
+
+  [data-slot="dialog-footer"],
+  [data-slot="alert-dialog-footer"] {
+    /* Visual order matches focus order: cancel, then the explicit action. */
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  [data-slot="dialog-footer"] > button,
+  [data-slot="alert-dialog-footer"] > button {
+    flex: 1 1 7rem;
+    white-space: normal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="dialog-content"],
+  [data-slot="dialog-overlay"],
+  [data-slot="alert-dialog-content"],
+  [data-slot="alert-dialog-overlay"],
+  [data-slot="sheet-content"],
+  [data-slot="sheet-overlay"] {
+    animation: none;
+    transition: none;
+  }
+}

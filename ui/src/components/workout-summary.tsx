@@ -28,10 +28,10 @@ export function WorkoutSummary({workout,showElapsed=true,embedded=false,section=
   {label:'Duration',unit:'',value:v=>clock(v?.duration_seconds)},
   ...(showElapsed && /swim|run/i.test(workout.sport)?[
     {label:'Elapsed time',unit:'',value:(v:WorkoutSummaryValues|undefined|null)=>v?.elapsed_time_seconds==null?'':formatDuration(v.elapsed_time_seconds/60)},
-    {label:'Elapsed pace',unit:swim?'min:sec/100y':'min/mi',value:(v:WorkoutSummaryValues|undefined|null,recorded=false)=>pace(v?.elapsed_speed,recorded)},
+    {label:'Elapsed pace',unit:swim?'m:ss/100yds':'min/mile',value:(v:WorkoutSummaryValues|undefined|null,recorded=false)=>pace(v?.elapsed_speed,recorded)},
   ]:[]),
   {label:'Distance',unit:swim?'yds':'mi',value:(v,recorded=false)=>number(v?.distance_meters==null||v.distance_meters<=0?null:v.distance_meters/(swim?(recorded?METERS_PER_YARD:1):1609.344),swim?0:2)},
-  {label:bike?'Avg power':'Avg moving pace',unit:bike?'watts':swim?'/100 yd':'/mi',value:(v,recorded=false)=>bike?number(v?.average_power):pace(v?.average_speed,recorded)},
+  {label:bike?'Avg power':'Avg moving pace',unit:bike?'watts':swim?'m:ss/100yds':'min/mile',value:(v,recorded=false)=>bike?number(v?.average_power):pace(v?.average_speed,recorded)},
   {label:'Calories',unit:'kcal',value:v=>number(v?.calories)},
   {label:'Gain',unit:'ft',value:v=>number(v?.elevation_gain==null?null:v.elevation_gain/.3048)},
   {label:'TSS',unit:'TSS',value:v=>number(v?.tss)},
@@ -42,7 +42,7 @@ export function WorkoutSummary({workout,showElapsed=true,embedded=false,section=
 
  const visible=rows.filter(row=>row.value(planned)!=='' || row.value(completed,true)!=='')
  const recordedRows=[
-  {label:bike?'Power':'Pace',unit:bike?'W':swim?'min:sec/100y':'min/mi',values:bike?[number(completed?.min_power),number(completed?.average_power),number(completed?.max_power)]:[pace(completed?.max_speed),pace(completed?.average_speed),pace(completed?.min_speed)]},
+  {label:bike?'Power':'Pace',unit:bike?'W':swim?'m:ss/100yds':'min/mile',values:bike?[number(completed?.min_power),number(completed?.average_power),number(completed?.max_power)]:[pace(completed?.max_speed),pace(completed?.average_speed),pace(completed?.min_speed)]},
   {label:'Heart rate',unit:'bpm',values:[number(completed?.min_hr),number(completed?.average_hr),number(completed?.max_hr)]},
   {label:'Cadence',unit:/run/i.test(workout.sport)?'spm':swim?'strokes/min':'rpm',values:[number(completed?.min_cadence),number(completed?.average_cadence),number(completed?.max_cadence)]}
  ].filter(row=>row.values.some(Boolean))

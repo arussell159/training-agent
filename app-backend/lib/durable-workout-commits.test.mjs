@@ -113,6 +113,46 @@ const edit = (service, row, m) =>
     input: { model: m },
   });
 
+test("a fresh device resolves native then app revisions and can save repeatedly without a local journal", async () => {
+  for (const sport of ["Swim", "Ride", "Run"]) {
+    const env = setup(), event = fixtureEvent(sport), id = `event:${event.id}`;
+    env.events.set(event.id, event);
+    const first = env.make(), native = await first.editor(id);
+    assert.equal(native.revision, workoutRevision(event));
+    const accepted = await first.accept({operationId:randomUUID(),workoutId:id,action:"edit",revision:native.revision,input:{model:{...native.model,name:"First device edit"}}});
+    await first.drain();
+    assert.equal((await first.status()).workouts[0].syncStatus,"synced");
+
+    // A newly constructed reader has no client cache or journal. It must use
+    // the app revision rather than the provider hash for the next acceptance.
+    const second = env.make(), calls = env.calls.length, reopened = await second.editor(id);
+    assert.equal(reopened.revision,accepted.revision);
+    assert.equal(reopened.model.name,"First device edit");
+    assert.equal(env.calls.length,calls);
+    const next = await second.accept({operationId:randomUUID(),workoutId:id,action:"edit",revision:reopened.revision,input:{model:{...reopened.model,name:"Second device edit"}}});
+    assert.equal(next.revision,"app:2");
+    await second.drain();
+    assert.equal((await second.status()).workouts[0].syncStatus,"synced");
+    assert.equal(env.events.size,1);
+    assert.equal(env.events.get(event.id).name,"Second device edit");
+  }
+});
+
+test("canonical editor never falls back around durable deletion, storage failure, or provider permissions", async () => {
+  const env=setup(), event=fixtureEvent(), id=`event:${event.id}`;
+  env.events.set(event.id,{...event,read_only:true});
+  await assert.rejects(env.make().editor(id),error=>error.status===403);
+  env.events.set(event.id,event);
+  const reader=env.make(),native=await reader.editor(id);
+  const accepted=await reader.accept({operationId:randomUUID(),workoutId:id,action:"edit",revision:native.revision,input:{model:native.model}});
+  await reader.accept({operationId:randomUUID(),workoutId:id,action:"delete",revision:accepted.revision,input:{}});
+  const calls=env.calls.length;
+  await assert.rejects(env.make().editor(id),error=>error.status===404);
+  await assert.rejects(env.make({record:{read:async()=>{throw Object.assign(Error("Store unavailable"),{status:503});}}}).editor(id),/Store unavailable/);
+  await assert.rejects(env.make().editor(`app:${randomUUID()}`),error=>error.status===404);
+  assert.equal(env.calls.length,calls);
+});
+
 test("all three sports atomically retain full model and pending operation without provider requests", async () => {
   for (const sport of ["Swim", "Ride", "Run"]) {
     const env = setup(),

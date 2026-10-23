@@ -142,8 +142,7 @@ export function aggregateFitnessSummary(
       !row.id ||
       row.id.startsWith("pending:") ||
       row.calendar_annotation_key ||
-      row.calendar_annotation ||
-      row.app_pending_operation
+      row.calendar_annotation
     )
       continue
     const recording = Boolean(
@@ -329,7 +328,7 @@ export function aggregateMetricValue(
   metric: AggregateMetric
 ): number | null {
   const summary = workout.workout_summary?.completed
-  if (summary) return finite(summary[metric]) ? summary[metric] : null
+  if (workout.workout_summary != null) return finite(summary?.[metric]) ? summary[metric] : null
   // Older compact records may have no completed summary. Positive actual time
   // remains usable, but a fallback calendar zero cannot establish a measured zero.
   if (

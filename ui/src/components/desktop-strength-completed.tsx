@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react"
 import { Dumbbell, History, Paperclip, X } from "lucide-react"
 import {
   Dialog,
@@ -35,6 +35,7 @@ export type DesktopStrengthCompletedProps = {
   onDetails?: () => void
   /** Existing real comments/personal fields, mounted inside this modal tree. */
   details?: ReactNode
+  finalFocus?: ComponentProps<typeof DialogContent>["finalFocus"]
 }
 
 export function StrengthCompletedSummaryContent({
@@ -184,6 +185,7 @@ export function DesktopStrengthCompleted({
   onAnalyze,
   onDetails,
   details,
+  finalFocus,
 }: DesktopStrengthCompletedProps) {
   const { trusted: accountTrusted, ownsAccount } =
     useWorkoutAccountBoundary(true)
@@ -336,6 +338,7 @@ export function DesktopStrengthCompleted({
       >
         <DialogContent
           fullscreen
+          finalFocus={finalFocus}
           showCloseButton={false}
           className="dsc-dialog"
           overlayClassName="dsc-backdrop"
@@ -382,6 +385,7 @@ export function DesktopStrengthCompleted({
     >
       <DialogContent
         fullscreen
+        finalFocus={finalFocus}
         showCloseButton={false}
         className="dsc-dialog"
         overlayClassName="dsc-backdrop"

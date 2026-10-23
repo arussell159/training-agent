@@ -19,7 +19,6 @@ import {
   type PlannedSaveDraft,
 } from "@/lib/workout-save-drafts"
 import "./training-calendar.css"
-import "@/lib/framework7-calendar"
 import {
   adjacentCalendarWeek,
   calendarAnchorAdjustment,
@@ -28,11 +27,15 @@ import {
   indexCalendarWorkouts,
 } from "@/lib/calendar-viewport"
 import {
+  calendarDurationSummary,
+  calendarDurationLabel,
+  calendarDurationDescription,
   desktopCalendarRecordedTotal,
   sameDesktopCalendarSport,
   type RecordedCalendarTotal,
 } from "@/lib/desktop-calendar-summary"
 import { loadTrainingHistoryRange } from "@/lib/training-history-range"
+import { calendarDisplayWorkouts } from "@/lib/calendar-workout-display"
 import { performanceProbe } from "@/lib/performance-probe"
 import { CalendarSkeleton, ChartSkeleton } from "@/components/loading-layouts"
 import {
@@ -48,6 +51,7 @@ import { type CompletionGrade } from "@/lib/workout-completion"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { LiquidGlassLayer } from "@/components/ui/liquid-glass-layer"
 import { WorkoutProfile } from "@/components/workout-profile"
+import { hasWorkoutProfile } from "@/lib/workout-profile-visibility"
 import {
   DesktopCalendarWeekActions,
   DesktopCalendarShiftDialog,
@@ -91,7 +95,6 @@ import {
   formatWorkoutTss,
   workoutTime,
   workoutTssTotal,
-  workoutPlannedMinutes,
 } from "@/lib/workout-metrics"
 import {
   forgetOpenWorkout,
@@ -136,7 +139,6 @@ import {
   ChevronDown,
   Plus,
 } from "lucide-react"
-import { f7ready } from "framework7-react"
 import type { Calendar as Framework7Calendar } from "framework7/types"
 
 import { Button } from "@/components/ui/button"
@@ -410,6 +412,7 @@ function MobileWorkoutRow({
               compact
               mobilePlanned
               mobileCalendar
+              passive
             />
           </span>
         )}
@@ -2020,6 +2023,8 @@ function TrustedTrainingCalendar({
   const mobilePickerTriggerRef = useRef<HTMLButtonElement>(null)
   const pickerSwipeStartRef = useRef<{ x: number; y: number } | null>(null)
   const mobilePickerRef = useRef<Framework7Calendar.Calendar | null>(null)
+  const [pickerLoadState, setPickerLoadState] = useState<"loading" | "ready" | "error">("loading")
+  const [pickerLoadAttempt, setPickerLoadAttempt] = useState(0)
   const desktopPickerTriggerRef = useRef<HTMLButtonElement>(null)
   const desktopPickerContentRef = useRef<HTMLDivElement>(null)
   const queuedDateJump = useRef<Date | null>(null)
@@ -2234,7 +2239,12 @@ function TrustedTrainingCalendar({
     let frame = 0
     const observer = new ResizeObserver(() => {
       cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(alignNavigationTarget)
+      // Desktop summaries can grow as the annual plan or nearby weeks arrive.
+      // Keep the selected week aligned in this layout pass; deferring to the
+      // next frame exposes the intermediate displaced calendar to the user.
+      if (window.matchMedia("(min-width: 768px)").matches)
+        alignNavigationTarget()
+      else frame = requestAnimationFrame(alignNavigationTarget)
     })
     const list = calendarRef.current.querySelector(".calendar-week-list")
     const header = calendarRef.current.querySelector(".calendar-weekday-header")
@@ -2335,6 +2345,9 @@ function TrustedTrainingCalendar({
     dateRange,
     restoreViewportAnchor,
   ])
+  useLayoutEffect(() => {
+    if (!isMobile) restoreViewportAnchor()
+  }, [annualPlan, isMobile, restoreViewportAnchor])
 
   useEffect(() => {
     // Wait until initial date alignment finishes before observing the actual viewport.
@@ -2362,7 +2375,7 @@ function TrustedTrainingCalendar({
     const first = new Date(`${dateRange.start}T12:00:00`)
     const last = new Date(`${dateRange.end}T12:00:00`)
     const workoutsByWeek = indexCalendarWorkouts(
-      workouts.filter(
+      calendarDisplayWorkouts(workouts).filter(
         (workout) =>
           !workout.calendar_annotation && !workout.calendar_annotation_key
       )
@@ -2708,7 +2721,15 @@ function TrustedTrainingCalendar({
     let picker: Framework7Calendar.Calendar | null = null
     const container = mobilePickerContainerRef.current
     const selected = activeWeek?.start ?? new Date()
-    f7ready((app) => {
+    setPickerLoadState("loading")
+    // Calendar cards do not need the interactive date-picker runtime. Load it
+    // on opening the picker, keeping the initial calendar render independent.
+    void Promise.all([
+      import("@/lib/framework7-calendar"),
+      import("@/lib/framework7-ready"),
+    ]).then(([, { f7ready }]) => {
+      if (destroyed || !container.isConnected) return
+      f7ready((app) => {
       if (destroyed || !container.isConnected) return
       container.replaceChildren()
       const updatePickerMonth = (calendar: {
@@ -2747,6 +2768,10 @@ function TrustedTrainingCalendar({
         },
       })
       mobilePickerRef.current = picker
+      setPickerLoadState("ready")
+      })
+    }).catch(() => {
+      if (!destroyed) setPickerLoadState("error")
     })
     return () => {
       destroyed = true
@@ -2754,7 +2779,7 @@ function TrustedTrainingCalendar({
       picker?.destroy()
       container.replaceChildren()
     }
-  }, [activeWeek?.start, datePickerOpen, isMobile, jumpToDate, weeks])
+  }, [activeWeek?.start, datePickerOpen, isMobile, jumpToDate, weeks, pickerLoadAttempt])
 
   useEffect(() => {
     if (!isMobile || !datePickerOpen) return
@@ -2923,6 +2948,7 @@ function TrustedTrainingCalendar({
                   type="button"
                   className="mobile-navbar-action liquid-glass-button"
                   aria-label="Previous month"
+                  disabled={pickerLoadState !== "ready"}
                   onClick={() => mobilePickerRef.current?.prevMonth(250)}
                 >
                   <LiquidGlassLayer />
@@ -2932,6 +2958,7 @@ function TrustedTrainingCalendar({
                   type="button"
                   className="mobile-navbar-action liquid-glass-button"
                   aria-label="Next month"
+                  disabled={pickerLoadState !== "ready"}
                   onClick={() => mobilePickerRef.current?.nextMonth(250)}
                 >
                   <LiquidGlassLayer />
@@ -2972,6 +2999,7 @@ function TrustedTrainingCalendar({
               <div className="flex justify-center gap-3 px-4 pt-3">
                 <select
                   aria-label="Calendar month"
+                  disabled={pickerLoadState !== "ready"}
                   className="min-h-10 rounded-md bg-background px-3 text-sm"
                   value={pickerMonth.month}
                   onChange={(event) =>
@@ -2992,6 +3020,7 @@ function TrustedTrainingCalendar({
                 </select>
                 <select
                   aria-label="Calendar year"
+                  disabled={pickerLoadState !== "ready"}
                   className="min-h-10 rounded-md bg-background px-3 text-sm"
                   value={pickerMonth.year}
                   onChange={(event) =>
@@ -3012,7 +3041,17 @@ function TrustedTrainingCalendar({
                   ))}
                 </select>
               </div>
-              <div ref={mobilePickerContainerRef} />
+              {pickerLoadState === "loading" && (
+                <p role="status" className="p-4 text-center text-sm text-muted-foreground">Loading calendar…</p>
+              )}
+              {pickerLoadState === "error" && (
+                <div role="alert" className="p-4 text-center text-sm">
+                  <p>The date picker could not load. Your calendar is still available.</p>
+                  <Button variant="outline" onClick={() => setPickerLoadAttempt(value => value + 1)}>Try again</Button>
+                  <Button variant="ghost" onClick={() => runWithWorkoutNavigationGuard(() => window.location.reload())}>Reload latest app</Button>
+                </div>
+              )}
+              <div ref={mobilePickerContainerRef} aria-busy={pickerLoadState === "loading" || undefined} />
             </div>
           </div>
         )}
@@ -3261,7 +3300,15 @@ function TrustedTrainingCalendar({
                     forceMounted={
                       week.key === todayWeekKey ||
                       week.key === jumpWeekKey ||
-                      week.key === restoredWeekKey
+                      week.key === restoredWeekKey ||
+                      // Fill the desktop observer's 900px overscan before the
+                      // first paint. Empty weeks can be only 240px tall, so
+                      // four neighbors cover it without replacing visible
+                      // 300px placeholders with taller summaries afterward.
+                      (!isMobile && !historyReady &&
+                        Math.abs(Date.parse(week.key) - Date.parse(
+                          restoredWeekKey || jumpWeekKey || todayWeekKey
+                        )) <= 28 * 86400000)
                     }
                     register={registerWeek}
                     captureAnchor={captureViewportAnchor}
@@ -3590,7 +3637,7 @@ function TrustedTrainingCalendar({
                             )
                           })}
                         </div>
-                        <aside
+                        {!isMobile && <aside
                           data-summary-open={summaryOpen}
                           className={`calendar-week-sidebar hidden shrink-0 self-stretch border-l bg-muted/20 transition-[width] xl:block ${summaryOpen ? "w-72" : "w-10"}`}
                         >
@@ -3624,6 +3671,7 @@ function TrustedTrainingCalendar({
                           >
                             <CollapsibleContent className="calendar-summary-content p-3">
                               <WeekSummary
+                                durationWorkouts={workouts}
                                 workouts={week.workouts.filter(
                                   (workout) => !isCalendarNote(workout)
                                 )}
@@ -3638,7 +3686,7 @@ function TrustedTrainingCalendar({
                               />
                             </CollapsibleContent>
                           </Collapsible>
-                        </aside>
+                        </aside>}
                       </div>
                     )}
                   </CalendarWeekViewport>
@@ -3846,53 +3894,34 @@ const disciplineSummaryConfig = {
 
 function WeekSummary({
   workouts,
+  durationWorkouts,
   planWeek,
   startDate,
   blockStart,
   context,
 }: {
   workouts: PlannedWorkout[]
+  durationWorkouts: PlannedWorkout[]
   planWeek: AnnualPlanWeek | null
   startDate: string
   blockStart?: string
   context: TrainingContext
 }) {
-  const completedDuration = desktopCalendarRecordedTotal(
-    workouts,
-    "duration_seconds"
-  )
   const completedDistance = desktopCalendarRecordedTotal(
     workouts,
     "distance_meters"
   )
-  const totals = workouts.reduce<
-    Record<string, { planned: number; completed: number }>
-  >((result, workout) => {
-    const discipline = calendarDiscipline(workout.sport)
-    const current = result[discipline] ?? { planned: 0, completed: 0 }
-    result[discipline] = {
-      planned: current.planned + workoutPlannedMinutes(workout),
-      completed:
-        current.completed +
-        (desktopCalendarRecordedTotal([workout], "duration_seconds").value ??
-          0) /
-          60,
-    }
-    return result
-  }, {})
-  const sportData = Object.entries(disciplineSummaryConfig)
-    .map(([discipline, config]) => ({
-      discipline,
-      label: config.label,
-      planned: totals[discipline]?.planned ?? 0,
-      completed: totals[discipline]?.completed ?? 0,
-      fill: config.color,
-    }))
-    .filter((item) => item.planned > 0 || item.completed > 0)
   const completedTss = workoutTssTotal(workouts, "completed")
   const endDay = new Date(Date.parse(`${startDate}T12:00:00Z`) + 6 * 86400000)
     .toISOString()
     .slice(0, 10)
+  const durationSummary = calendarDurationSummary(durationWorkouts, { start: startDate, end: endDay })
+  const sportData = durationSummary.rows.map(row => ({
+    ...row,
+    discipline: calendarDiscipline(row.sport),
+    label: row.sport,
+    fill: disciplineSummaryConfig[calendarDiscipline(row.sport)].color,
+  }))
   const today = dateKey(new Date())
   const metrics =
     startDate <= today && today <= endDay
@@ -3909,18 +3938,13 @@ function WeekSummary({
             form: planWeek.projectedTsb ?? undefined,
           }
         : null
-  const summaryClock = (minutes: number) => {
-    const roundedMinutes = Math.round(minutes)
-    if (!roundedMinutes) return "00:00"
-    return `${Math.floor(roundedMinutes / 60)}:${String(roundedMinutes % 60).padStart(2, "0")}`
-  }
-  const totalsDistance = sportData
-    .map((item) => ({
+  const totalsDistance = Object.entries(disciplineSummaryConfig)
+    .map(([discipline, item]) => ({
       label: item.label,
-      swim: item.discipline === "swim",
+      swim: discipline === "swim",
       total: desktopCalendarRecordedTotal(
         workouts.filter(
-          (workout) => calendarDiscipline(workout.sport) === item.discipline
+          (workout) => calendarDiscipline(workout.sport) === discipline
         ),
         "distance_meters"
       ),
@@ -3930,14 +3954,8 @@ function WeekSummary({
   const work = desktopCalendarRecordedTotal(workouts, "work_kj")
   const actualTitle = (label: string, total: RecordedCalendarTotal) =>
     `${label}: ${!total.expected ? "no completed workouts" : total.value == null ? "recorded measurement unavailable" : `recorded values from ${total.known} of ${total.expected} completed workouts`}`
-  const summaryBar = (planned: number, completed: number, color: string) =>
-    ({
-      "--calendar-summary-color": color,
-      "--calendar-completed-share": `${planned > 0 ? Math.min(100, (completed / planned) * 100) : completed > 0 ? 100 : 0}%`,
-    }) as React.CSSProperties
-
   return (
-    <div className="calendar-week-summary space-y-3">
+    <div className="calendar-week-summary space-y-3" data-summary-start={startDate}>
       {metrics && (
         <div className="calendar-summary-fitness">
           {(
@@ -3965,56 +3983,42 @@ function WeekSummary({
           <SavedReportButton kind="block" startDate={blockStart} />
         )}
       </div>
-      {sportData.length > 0 && (
-        <table
-          className="calendar-summary-sports"
-          aria-label="Weekly duration by sport"
-        >
-          <colgroup>
-            <col style={{ width: "44%" }} />
-            <col />
-            <col />
-          </colgroup>
-          <thead>
-            <tr>
-              <th scope="col">Sport</th>
-              <th scope="col">Planned</th>
-              <th scope="col">Completed</th>
-            </tr>
-          </thead>
-          <tbody>
+      <table className="calendar-summary-sports" aria-label="Weekly duration by sport, hours and minutes">
+        <colgroup><col className="calendar-summary-sport-column" /><col /><col /></colgroup>
+        <thead>
+          <tr><th scope="col">Sport</th><th scope="col">Planned</th><th scope="col">Completed</th></tr>
+        </thead>
+        <tbody>
             {sportData.map((item) => (
               <tr
-                key={item.discipline}
-                style={summaryBar(item.planned, item.completed, item.fill)}
+                className="calendar-summary-sport-row"
+                key={item.sport}
               >
-                <th scope="row">
+                <th scope="row" className="calendar-summary-sport-name">
                   <span
                     className="calendar-sport-key"
                     style={{ backgroundColor: item.fill }}
                     aria-hidden="true"
                   />
-                  {item.label} Duration
+                  {item.label}
                 </th>
-                <td>{summaryClock(item.planned)}</td>
-                <td>{summaryClock(item.completed)}</td>
+                <td title={calendarDurationDescription(`${item.label} planned`, item.planned)}>{calendarDurationLabel(item.planned)}</td>
+                <td title={calendarDurationDescription(`${item.label} completed`, item.completed)}>{calendarDurationLabel(item.completed)}</td>
               </tr>
             ))}
-          </tbody>
-        </table>
+        </tbody>
+        <tfoot className="calendar-summary-duration-totals">
+          <tr>
+            <th scope="row">Total</th>
+            <td aria-label={`Total planned: ${calendarDurationLabel(durationSummary.planned)}`} title={calendarDurationDescription("Total planned", durationSummary.planned)}>{calendarDurationLabel(durationSummary.planned)}</td>
+            <td aria-label={`Total completed: ${calendarDurationLabel(durationSummary.completed)}`} title={calendarDurationDescription("Total completed", durationSummary.completed)}>{calendarDurationLabel(durationSummary.completed)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      {(durationSummary.planned.missing > 0 || durationSummary.completed.missing > 0) && (
+        <p className="calendar-summary-duration-note">— Unavailable · + Partial total</p>
       )}
       <dl className="calendar-summary-distances">
-        <div title={actualTitle("Duration", completedDuration)}>
-          <dt>Duration</dt>
-          <dd>
-            <strong>
-              {completedDuration.value == null
-                ? "—"
-                : summaryClock(completedDuration.value / 60)}
-            </strong>{" "}
-            hms
-          </dd>
-        </div>
         <div title={actualTitle("Distance", completedDistance)}>
           <dt>Distance</dt>
           <dd>
@@ -4075,12 +4079,11 @@ function WeekSummary({
         <div className="calendar-summary-atp space-y-1.5 pt-3">
           {planWeek.targetHours != null && (
             <p>
-              ATP {summaryClock(planWeek.targetHours * 60)}:00{" "}
-              <small>h:m:s</small>
+              <span>ATP target</span><strong>{calendarDurationLabel({value: planWeek.targetHours * 3600, observed: 1, missing: 0})}</strong>
             </p>
           )}
           <p className="text-base leading-snug font-bold">
-            ATP Period {phaseLabel(planWeek)}
+            <span>ATP period</span><strong>{phaseLabel(planWeek)}</strong>
           </p>
           {planWeek.notes && (
             <p className="calendar-summary-plan-notes text-sm leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
@@ -4097,10 +4100,16 @@ export function WorkoutDialog({
   workout,
   onOpenChange,
   showWorkoutProfile = true,
+  focusOnOpen = false,
+  finalFocus,
+  initialAnalysisOpen = false,
 }: {
   workout: PlannedWorkout | null
   onOpenChange: (open: boolean) => void
   showWorkoutProfile?: boolean
+  focusOnOpen?: boolean
+  finalFocus?: React.ComponentProps<typeof DialogContent>["finalFocus"]
+  initialAnalysisOpen?: boolean
 }) {
   if (!workout) return null
   return (
@@ -4114,6 +4123,9 @@ export function WorkoutDialog({
           onOpenChange={onOpenChange}
           showWorkoutProfile={showWorkoutProfile}
           isAccountCurrent={isAccountCurrent}
+          focusOnOpen={focusOnOpen}
+          finalFocus={finalFocus}
+          initialAnalysisOpen={initialAnalysisOpen}
         />
       )}
     </WorkoutAccountBoundary>
@@ -4125,17 +4137,23 @@ function TrustedWorkoutDialog({
   onOpenChange,
   showWorkoutProfile = true,
   isAccountCurrent,
+  focusOnOpen = false,
+  finalFocus,
+  initialAnalysisOpen = false,
 }: {
   workout: PlannedWorkout
   onOpenChange: (open: boolean) => void
   showWorkoutProfile?: boolean
   isAccountCurrent: () => boolean
+  focusOnOpen?: boolean
+  finalFocus?: React.ComponentProps<typeof DialogContent>["finalFocus"]
+  initialAnalysisOpen?: boolean
 }) {
   const isMobile = useIsMobile()
   const workout = useEditedWorkout(initialWorkout)
   const workoutFiles = useWorkoutFiles({ workout: workout || undefined })
   const desktopDialog = useRef<HTMLDivElement>(null)
-  const [analysisOpen, setAnalysisOpen] = useState(false)
+  const [analysisOpen, setAnalysisOpen] = useState(initialAnalysisOpen && initialWorkout.status === "completed")
   const [analysis360Open, setAnalysis360Open] = useState(false)
   const [strengthDetailsOpen, setStrengthDetailsOpen] = useState(false)
   const [detailsDirty, setDetailsDirty] = useState(false)
@@ -4164,13 +4182,13 @@ function TrustedWorkoutDialog({
     else prepareWorkoutEditor(workout)
   }, [workout])
   useEffect(() => {
-    setAnalysisOpen(false)
+    setAnalysisOpen(initialAnalysisOpen && workout?.status === "completed")
     setAnalysis360Open(false)
     setStrengthDetailsOpen(false)
     setDetailsDirty(false)
     setDetailsExitError("")
     setIntervalEditorOpen(false)
-  }, [workout?.id])
+  }, [workout?.id, workout?.status, initialAnalysisOpen])
   const metadataId = workout?.id,
     metadataTitle = workout?.title,
     metadataDate = workout?.workout_date,
@@ -4250,7 +4268,7 @@ function TrustedWorkoutDialog({
       throw reason
     }
   }, [detailsDirty, isAccountCurrent])
-  useEffect(
+  useLayoutEffect(
     () =>
       registerWorkoutNavigationGuard(
         confirmDetailsExit,
@@ -4261,6 +4279,16 @@ function TrustedWorkoutDialog({
     [confirmDetailsExit, detailsDirty, discardDetailsChanges]
   )
   const requestStrengthExit = async (destination: "close" | "summary") => {
+    // Endurance Summary and Analysis share the mounted details draft. Returning
+    // to Summary must preserve it; only Strength replaces that editor surface.
+    if (destination === "summary" && !completedStrength) {
+      if (!isAccountCurrent()) return
+      setAnalysisOpen(false)
+      setAnalysis360Open(false)
+      setStrengthDetailsOpen(false)
+      setDetailsExitError("")
+      return
+    }
     if (!(await confirmDetailsExit())) return
     try {
       discardDetailsChanges()
@@ -4361,6 +4389,7 @@ function TrustedWorkoutDialog({
         <DesktopStrengthCompleted
           key={workout.id}
           workout={workout}
+          finalFocus={finalFocus}
           onClose={() => onOpenChange(false)}
           onAnalyze={() => setAnalysisOpen(true)}
           onDetails={() => setStrengthDetailsOpen(true)}
@@ -4377,7 +4406,10 @@ function TrustedWorkoutDialog({
     >
       <DialogContent
         ref={desktopDialog}
-        initialFocus={isMobile ? undefined : false}
+        initialFocus={focusOnOpen
+          ? () => desktopDialog.current?.querySelector<HTMLElement>('[aria-label="Close workout details"]') || true
+          : isMobile ? undefined : false}
+        finalFocus={finalFocus}
         showCloseButton={isMobile}
         className={`no-scrollbar max-h-[94vh] gap-3 overflow-y-auto p-0 sm:max-w-5xl ${expanded && !isMobile ? "desktop-workout-dialog-expanded" : ""} ${isMobile ? "" : desktopCompleted && analysis360Open ? "desktop-workout-360-dialog" : desktopCompleted && analysisOpen ? "desktop-workout-completed desktop-workout-analysis-dialog" : "desktop-workout-preview rounded-md"}`}
       >
@@ -4567,7 +4599,7 @@ function TrustedWorkoutDialog({
             )}
             {showWorkoutProfile &&
               workout.status !== "completed" &&
-              (workout.structure || workout.editor_model) && (
+              hasWorkoutProfile(workout) && (
                 <div className="mt-3 overflow-hidden">
                   <WorkoutProfile
                     workout={workout}

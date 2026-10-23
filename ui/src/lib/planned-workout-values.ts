@@ -127,7 +127,7 @@ export function plannedValueRows(sport: string) {
             unit: bike
               ? "mph"
               : swim
-                ? "sec/100y"
+                ? "m:ss/100yds"
                 : rowing
                   ? "sec/500m"
                   : "min/mi",

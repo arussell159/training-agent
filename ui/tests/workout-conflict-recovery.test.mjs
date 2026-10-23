@@ -11,11 +11,11 @@ function fixture() {
   const id = "event:201", model = { version: 1, name: "Retained app", sport: "Ride", date: "2026-10-21", notes: "App notes", steps: [newStep("Ride")] }
   const workout = { id, title: model.name, sport: "Bike", workout_date: model.date, details: "Prescription", editor_model: model, workout_summary: { planned: {} } }
   let disk = { sequence: 1, workouts: { [id]: { workoutId: id, workout, input: { model }, sequence: 1, revision: "app:1", state: "failed", externalConflict: { name: "External" }, providerWorkoutId: id } }, operations: [{ operationId: randomUUID(), workoutId: id, action: "edit", sequence: 1, input: { model }, backendRevision: "app:1", state: "failed", acceptedAt: Date.now() }] }
-  let tail = Promise.resolve(), transactions = 0, loseReply = false, limit = false, nativeChanges = 0
+  let tail = Promise.resolve(), transactions = 0, loseReply = false, limit = false, nativeChanges = 0, scope = "account", session = "session", afterRead = null, storageFailure = false
   const requests = [], receipts = new Map()
   let server = { workoutId: id, revision: "app:1", syncStatus: "failed", model, workout, externalConflict: { name: "External" }, providerWorkoutId: id }
   const transact = (_scope, change) => {
-    const result = tail.then(() => { const next = structuredClone(disk), value = change(next); transactions++; disk = next; return { value, ledger: next } })
+    const result = tail.then(() => { if (storageFailure) throw Error("Storage unavailable"); const next = structuredClone(disk), value = change(next); transactions++; disk = next; return { value, ledger: next } })
     tail = result.catch(() => {})
     return result
   }
@@ -43,10 +43,10 @@ function fixture() {
       navigator: { onLine: true, locks: { request: async (_key, _options, use) => use({}) } },
       setTimeout: () => 1, clearTimeout: () => {},
       require: name => {
-        if (name === "./api-client") return { apiFetch, apiSessionRevision: () => "session" }
-        if (name === "./device-cache") return { deviceCacheScope: () => "account" }
+        if (name === "./api-client") return { apiFetch, apiSessionRevision: () => session }
+        if (name === "./device-cache") return { deviceCacheScope: () => scope }
         if (name === "./random-id") return { randomId: randomUUID }
-        if (name === "./workout-commit-store") return { readWorkoutCommits: async () => structuredClone(disk), transactWorkoutCommits: transact }
+        if (name === "./workout-commit-store") return { readWorkoutCommits: async () => { const result = structuredClone(disk); afterRead?.(); afterRead = null; return result }, transactWorkoutCommits: transact }
         if (name.endsWith("workout-editor-model.mjs")) return { workoutTotals }
         throw Error(`Unexpected import ${name}`)
       },
@@ -54,8 +54,73 @@ function fixture() {
     return module.exports
   }
   const body = () => ({ operationId: randomUUID(), expectedRevision: "app:1", candidateRevision: "a".repeat(64), choice: "provider" })
-  return { id, model, workout, load, body, requests, state: () => structuredClone(disk), change: fn => fn(disk), transactions: () => transactions, lose: () => { loseReply = true }, limit: () => { limit = true }, nativeChanges: () => nativeChanges }
+  return { id, model, workout, load, body, requests, state: () => structuredClone(disk), change: fn => fn(disk), transactions: () => transactions, lose: () => { loseReply = true }, limit: () => { limit = true }, nativeChanges: () => nativeChanges, switchOnRead: () => { afterRead = () => { scope = "other-account"; session = "other-session" } }, failStorage: () => { storageFailure = true } }
 }
+
+test("retry cannot submit an old account's workout after the account changes during durable storage read", async () => {
+  const env = fixture(), client = env.load()
+  await client.restoreWorkoutCommits()
+  env.switchOnRead()
+  await assert.rejects(client.retryWorkoutSynchronization(env.id), /account changed/)
+  assert.equal(env.requests.length, 0)
+  assert.equal(env.state().workouts[env.id].state, "failed")
+})
+
+test("concurrent tabs reject a stale revision and a reopened client retains the latest accepted edit above old snapshots", async () => {
+  const env = fixture(), first = env.load(), second = env.load()
+  await first.restoreWorkoutCommits(); await second.restoreWorkoutCommits()
+  const accepted = await first.acceptWorkoutCommit(env.id, { model: { ...env.model, name: "Latest accepted", date: "2026-10-26" }, revision: "app:1" })
+  assert.equal(accepted.durableBoundary, "local")
+  assert.equal(accepted.workout.planned_workout_date, "2026-10-26")
+  await assert.rejects(second.acceptWorkoutCommit(env.id, { model: { ...env.model, name: "Stale tab" }, revision: "app:1" }), /another tab/)
+  const reopened = env.load(); await reopened.restoreWorkoutCommits()
+  const context = reopened.overlayWorkoutCommits({ athlete: { time_zone: "America/Chicago" }, history: [env.workout], planned: [] })
+  const visible = [...context.history, ...context.planned].filter(row => row.id === env.id)
+  assert.equal(visible.length, 1)
+  assert.equal(visible[0].title, "Latest accepted")
+  assert.equal(visible[0].planned_workout_date, "2026-10-26")
+  assert.equal(env.requests.length, 0)
+})
+
+test("a failed durable transaction never acknowledges or publishes a draft as saved", async () => {
+  const env = fixture(), client = env.load()
+  await client.restoreWorkoutCommits(); env.failStorage()
+  await assert.rejects(client.acceptWorkoutCommit(env.id, { model: { ...env.model, name: "Retained editor draft" }, revision: "app:1" }), /Storage unavailable/)
+  assert.equal(client.localCommittedWorkout(env.id).workout.title, env.model.name)
+  assert.equal(env.state().workouts[env.id].input.model.name, env.model.name)
+  assert.equal(env.requests.length, 0)
+})
+
+test("editing a linked plan moves its planned week and sport without moving or relabeling the actual recording", async () => {
+  const env = fixture()
+  env.change(state => {
+    state.workouts[env.id].workout = {...env.workout, status:"completed", activity_id:"recording", activity_type:"Run", provider_type:"Ride", workout_date:"2026-10-22", planned_workout_date:"2026-10-21", workout_summary:{planned:{duration_seconds:1800},completed:{duration_seconds:900}}}
+  })
+  const client = env.load(); await client.restoreWorkoutCommits()
+  const result = await client.acceptWorkoutCommit(env.id, {model:{...env.model,date:"2026-10-26"},revision:"app:1"})
+  assert.equal(result.workout.planned_workout_date,"2026-10-26")
+  assert.equal(result.workout.workout_date,"2026-10-22")
+  assert.equal(result.workout.provider_type,"Ride")
+  assert.equal(result.workout.activity_type,"Run")
+  assert.equal(result.workout.workout_summary.completed.duration_seconds,900)
+})
+
+test("linked recordings retain their actual date and sport when completed measurements are null or missing", async () => {
+  for (const summary of [{planned:{duration_seconds:1800},completed:null}, undefined]) {
+    const env = fixture()
+    env.change(state => {
+      state.workouts[env.id].workout = {...env.workout, status:"completed", activity_id:"recording", provider_type:"Ride", workout_date:"2026-10-22", planned_workout_date:"2026-10-21", workout_summary:summary}
+    })
+    const client = env.load(); await client.restoreWorkoutCommits()
+    const result = await client.acceptWorkoutCommit(env.id, {model:{...env.model,sport:"Run",date:"2026-10-26"},revision:"app:1"})
+    assert.equal(result.workout.planned_workout_date,"2026-10-26")
+    assert.equal(result.workout.workout_date,"2026-10-22")
+    assert.equal(result.workout.provider_type,"Run")
+    assert.equal(result.workout.activity_type,"Ride")
+    assert.equal(result.workout.activity_id,"recording")
+    assert.equal(result.workout.workout_summary.completed,null)
+  }
+})
 
 test("a conflict choice is durable before HTTP and blocks simultaneous ordinary saves and competing choices", async () => {
   const env = fixture(), client = env.load(), body = env.body()

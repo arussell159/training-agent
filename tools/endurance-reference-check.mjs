@@ -54,8 +54,23 @@ try {
     await setup.getByLabel("Build workout by",{exact:true}).selectOption(sport==="Swim"?"distance":"time");
     if(sport==="Swim")await setup.getByLabel("Builder distance units",{exact:true}).selectOption("yd");
     await setup.getByRole("button",{name:"Continue",exact:true}).click();
+    await page.getByRole("button",{name:"Expand workout",exact:true}).click();
     await page.getByRole("button",{name:sport==="Bike"?"Add Two Step Repeats":"Add Active",exact:true}).click();
     await page.locator(".dtb-details-heading").click();
+    await page.getByRole("button",{name:"Restore workout size",exact:true}).click();
+    await page.waitForFunction(()=>{
+      const dialog=document.querySelector(".we-tp-desktop.dtb-compact");
+      return dialog && Math.abs(dialog.getBoundingClientRect().width-1120)<1;
+    });
+    const compact=await page.evaluate(()=>{
+      const summary=document.querySelector(".dtb-summary"),field=document.querySelector("#builder-duration_seconds"),dialog=document.querySelector(".we-tp-desktop");
+      return {durationFieldWidth:field.getBoundingClientRect().width,summaryWidth:summary.clientWidth,summaryScrollWidth:summary.scrollWidth,dialogWidth:dialog.clientWidth,dialogScrollWidth:dialog.scrollWidth};
+    });
+    assert.ok(compact.durationFieldWidth>=55,`${sport}: the compact duration field must show its hours:minutes:seconds value`);
+    assert.ok(compact.summaryScrollWidth<=compact.summaryWidth+1,`${sport}: compact metrics and notes must fit their own pane`);
+    assert.ok(compact.dialogScrollWidth<=compact.dialogWidth+1,`${sport}: compact builder must not overflow`);
+    await page.screenshot({path:path.join(output,`${sport.toLowerCase()}-compact.png`)});
+    await page.getByRole("button",{name:"Expand workout",exact:true}).click();
     await page.setViewportSize({width:1280,height:720});
     await page.waitForFunction(()=>innerHeight===720&&Math.abs(document.querySelector(".we-tp-desktop").getBoundingClientRect().height-innerHeight*.92)<.1);
     await page.evaluate(async()=>{await document.fonts.ready});
@@ -70,7 +85,7 @@ try {
     assert.equal(Number(state.planned.if.text),sport==="Bike"?.82:sport==="Swim"?1.15:1.10);
     if(sport==="Bike")assert.equal(state.planned.work.text,"333");
     if(sport==="Run")assert.equal(state.planned.distance.text,"1.25");
-    states.push({sport,thresholds:{ftp:197,runThresholdSecondsPerMile:530,swimThresholdSecondsPer100Yards:Number(process.env.REFERENCE_SWIM_PACE||93)},...state});
+    states.push({sport,compact,thresholds:{ftp:197,runThresholdSecondsPerMile:530,swimThresholdSecondsPer100Yards:Number(process.env.REFERENCE_SWIM_PACE||93)},...state});
     await context.close();
   }
   await fs.writeFile(path.join(output,"matched-state.json"),JSON.stringify(states,null,2));

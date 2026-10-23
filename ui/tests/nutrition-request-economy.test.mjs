@@ -150,6 +150,33 @@ test("product details and repeated searches reuse device content; explicit retry
   await loadFoodProduct("42", undefined, 2)
   assert.equal(calls, 4)
 })
+
+test("denied optional browser storage does not prevent a catalog search", async () => {
+  window.dispatchEvent(new Event("training-cache-reset"))
+  setApiAuthenticated(true)
+  const storage = globalThis.localStorage
+  let requests = 0
+  globalThis.fetch = async () => {
+    requests++
+    return Response.json({ products: [] })
+  }
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    get() {
+      throw new DOMException("Storage unavailable", "SecurityError")
+    },
+  })
+  try {
+    assert.deepEqual(await searchFoods("storage denied"), { products: [] })
+    assert.equal(requests, 1)
+  } finally {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      writable: true,
+      value: storage,
+    })
+  }
+})
 test("lost-response receipt reconciles signed facts without a full diary read and cannot duplicate or overwrite a newer day", async () => {
   values.clear()
   window.dispatchEvent(new Event("training-cache-reset"))

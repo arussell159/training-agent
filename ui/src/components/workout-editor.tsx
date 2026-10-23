@@ -4164,7 +4164,7 @@ function EditorWorkspace({
           />
           {mobile && saving && (
             <p role="status" className="px-4 py-1 text-xs text-muted-foreground">
-              Saving and verifying with Intervals.icu…
+              Saving workout…
             </p>
           )}
           {mobile && status === "failed" && error && (
@@ -4255,7 +4255,7 @@ function EditorWorkspace({
                       {saving ? (
                         <>
                           <LoaderCircle size={14} className="animate-spin" />
-                          Saving and verifying with Intervals.icu…
+                          Saving workout…
                         </>
                       ) : status === "synced" ? (
                         <>
@@ -4796,7 +4796,7 @@ function EditorWorkspace({
                 {saving ? (
                   <>
                     <LoaderCircle size={14} className="animate-spin" />
-                    Saving and verifying with Intervals.icu…
+                    Saving workout…
                   </>
                 ) : status === "synced" ? (
                   <>

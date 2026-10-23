@@ -289,6 +289,9 @@ async function reorder(locator, fraction, expected, name) {
 try {
   await page.goto(`${origin}/calendar?theme=light`, { waitUntil: "networkidle" });
   assert.equal(await page.evaluate(() => window.__localPreview?.synthetic), true);
+  // Establish user-owned scrolling before leaving the calendar's initial
+  // today alignment, as a person scrolling to the requested day would.
+  await page.mouse.wheel(0, 1);
   const day = new Date();
   day.setDate(day.getDate() + 3);
   const plus = page.getByRole("button", {
@@ -298,6 +301,10 @@ try {
   await plus.evaluate((node) => node.scrollIntoView({ block: "center" }));
   const plusBox = await plus.boundingBox();
   await page.mouse.move(plusBox.x + plusBox.width / 2, plusBox.y + plusBox.height / 2);
+  await page.waitForFunction(label => {
+    const node = [...document.querySelectorAll("button")].find(button => button.getAttribute("aria-label") === label);
+    return node && getComputedStyle(node).pointerEvents !== "none";
+  }, await plus.getAttribute("aria-label"));
   await plus.click();
   await page.getByRole("dialog").getByRole("button", { name: "Run", exact: true }).click();
   await page.getByLabel("Workout title", { exact: true }).fill(title);

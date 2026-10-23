@@ -8,14 +8,58 @@ import {
   hasWorkoutStructure,
 } from "../src/lib/unstructured-workout.ts"
 import { simpleWorkoutModel } from "../../app-backend/lib/simple-workout.mjs"
+import { hasWorkoutProfile } from "../src/lib/workout-profile-visibility.ts"
+import { calendarProfilePath } from "../src/lib/calendar-profile.ts"
 import {
   newStep,
+  newRepeat,
   validateWorkout,
 } from "../../app-backend/lib/workout-editor-model.mjs"
 import {
   readPendingWorkoutCreation,
   rememberPendingWorkoutCreation,
 } from "../src/lib/pending-workout-creation.ts"
+
+test("simple duration/distance sessions keep executable steps without displaying a profile", () => {
+  for (const sport of ["Swim", "Ride", "Run"]) {
+    for (const values of [{ duration_seconds: 1800 }, { distance_meters: 1000 }, { duration_seconds: 1800, distance_meters: 1000 }]) {
+      const model = simpleWorkoutModel({ name: "Simple session", sport, date: "2026-10-23", values })
+      const saved = structuredClone(model)
+      const workout = { editor_model: model }
+      assert.equal(model.steps.length, 1, "Provider prescription must remain executable")
+      assert.equal(hasWorkoutProfile(workout), false)
+      assert.equal(calendarProfilePath(workout), null)
+      assert.deepEqual(model, saved)
+    }
+  }
+})
+
+test("real targeted intervals, repeats and recovery blocks retain their profiles", () => {
+  const model = simpleWorkoutModel({ name: "Intervals", sport: "Run", date: "2026-10-23", values: { duration_seconds: 1800 } })
+  for (const steps of [[newStep("Run")], [newRepeat([newStep("Run")])], [model.steps[0], { ...model.steps[0], id: "recovery", role: "recovery" }]]) {
+    const workout = { editor_model: { ...model, steps } }
+    assert.equal(hasWorkoutProfile(workout), true)
+    assert.match(calendarProfilePath(workout), /^M0,20/)
+    assert.equal(hasWorkoutProfile({ ...workout, unstructured: true }), false)
+    assert.equal(hasWorkoutProfile({ editor_model: { ...workout.editor_model, unstructured: true } }), false)
+  }
+})
+
+test("native provider simple sessions are hidden, while targets and repeats remain visible", () => {
+  for (const step of [{ duration: 1800 }, { distance: 1000 }, { duration: 1800, distance: 1000, text: "Intervals in the title do not imply a profile" }]) {
+    for (const structure of [[step], { steps: [step] }, { structure: [step] }]) {
+      const workout = { structure: JSON.stringify(structure) }
+      assert.equal(hasWorkoutProfile(workout), false)
+      assert.equal(calendarProfilePath(workout), null)
+    }
+  }
+  for (const steps of [[{ duration: 600, pace: { value: 480, units: "secs/mi" } }], [{ reps: 3, steps: [{ duration: 60 }] }], [{ duration: 600 }, { duration: 60, intensity: "rest" }]]) {
+    assert.equal(hasWorkoutProfile({ structure: JSON.stringify({ steps }) }), true)
+  }
+  for (const structure of [undefined, "", "bad JSON", "null", "[]", "[null]"]) {
+    assert.equal(hasWorkoutProfile({ structure }), false)
+  }
+})
 
 test("title-only simple session stays freeform, but entering a builder removes its empty-step exemption", () => {
   const simple = simpleWorkoutModel({

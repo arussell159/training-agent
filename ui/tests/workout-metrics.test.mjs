@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import { registerHooks } from "node:module"
 import { existsSync } from "node:fs"
 import { fileURLToPath } from "node:url"
+import { calendarDisplayWorkouts } from "../src/lib/calendar-workout-display.ts"
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -31,6 +32,16 @@ const workout = (overrides = {}) => ({
 const summary = (values, completed = false) => ({
   planned: completed ? null : values,
   completed: completed ? values : null,
+})
+
+test("calendar linked-card projection prevents duplicate completed TSS without changing planned TSS", () => {
+  const event = workout({ id: "event:1001", activity_id: "i1001", workout_date: "2026-10-22", status: "completed", workout_summary: { planned: { tss: 40 }, completed: { tss: 37 } } })
+  const raw = { ...event, id: "activity:i1001", workout_summary: { planned: null, completed: { tss: 37 } } }
+  const other = { ...raw, id: "activity:i2", activity_id: "i2" }
+  const rows = [event, raw, other], cards = calendarDisplayWorkouts(rows)
+  assert.equal(workoutTssTotal(cards, "completed").value, 74)
+  assert.equal(workoutTssTotal(cards, "completed").expected, 2)
+  assert.equal(workoutTssTotal(rows, "planned").value, 40)
 })
 
 test("authoritative explicit zero is known TSS for both completed and planned sessions", () => {

@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "./styles/component-variants.css";
+@import "./styles/shared-controls.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -32,7 +33,7 @@
 }
 
 html, body {
-  touch-action: pan-x pan-y;
+  touch-action: auto;
 }
 
 html, body, #root {

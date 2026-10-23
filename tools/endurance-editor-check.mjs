@@ -40,6 +40,8 @@ async function openEditor(page) {
     .getByRole("button", { name: /Edit workout/i })
     .click();
   await page.locator(".we-tp-desktop").waitFor();
+  const expand = page.getByRole("button", { name: "Expand workout", exact: true });
+  if (await expand.count()) await expand.click();
 }
 async function assertBlocked(page, field, text, sport, name) {
   const before = (await raw(page)).writes.length;
@@ -119,6 +121,9 @@ try {
     if (sport === "Swim")
       await setup.getByLabel("Builder distance units", { exact: true }).selectOption("yd");
     await setup.getByRole("button", { name: "Continue", exact: true }).click();
+    // Exact reference geometry below describes the expanded builder. The
+    // initial compact state is a separate supported window size.
+    await page.getByRole("button", { name: "Expand workout", exact: true }).click();
     await page.evaluate(async()=>{await document.fonts.ready});
     const focusedTitle=page.getByLabel("Workout title",{exact:true});
     await focusedTitle.focus();
@@ -548,7 +553,7 @@ try {
     await preview.getByRole("button", { name: "Delete", exact: true }).click();
     await page
       .getByRole("alertdialog")
-      .getByRole("button", { name: "Delete", exact: true })
+      .getByRole("button", { name: "Delete workout", exact: true })
       .click();
     await preview.waitFor({ state: "hidden" });
     for(let attempt=0; (await raw(page)).events.some(row=>row.id===id)&&attempt<100; attempt++) await delay(100);

@@ -213,6 +213,7 @@ export function projectCalendarMove(
       ? {
           ...workout,
           workout_date: date,
+          planned_workout_date: date,
           day: new Date(`${date}T12:00:00`)
             .toLocaleDateString("en-US", { weekday: "short" })
             .toUpperCase(),
@@ -253,6 +254,7 @@ export function rollbackCalendarMove(
     return {
       ...item,
       workout_date: original.workout_date,
+      planned_workout_date: original.planned_workout_date,
       day: original.day,
       date: original.date,
       status: original.status,

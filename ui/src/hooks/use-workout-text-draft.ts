@@ -92,7 +92,10 @@ export function useWorkoutTextDraft(
       ? loadWorkoutEditor(`/api/workouts/${encodeURIComponent(commentTargetId)}/editor`,controller.signal).then(editor=>{
           if(!controller.signal.aborted){
             const nativeDescription=editor.manualDescription ?? editor.originalDescription
-            setDescription(current=>current===baseline.current && !recovered ? nativeDescription : current)
+            // React may run this updater after the saved baseline has advanced.
+            // Compare against the baseline captured before this response instead.
+            const beforeRead=baseline.current
+            setDescription(current=>current===beforeRead && !recovered ? nativeDescription : current)
             baseline.current=nativeDescription
             setSavedDescription(nativeDescription)
             setCompletedEditableFields(editor.completedEditableFields || [])

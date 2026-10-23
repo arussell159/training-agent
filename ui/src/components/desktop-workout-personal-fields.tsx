@@ -404,13 +404,20 @@ export function WorkoutDescriptionInput(
     resize()
     const parent = input.parentElement!
     let width = parent.clientWidth
+    let pendingResize = 0
     const observer = new ResizeObserver(() => {
       if (parent.clientWidth === width) return
       width = parent.clientWidth
-      resize()
+      // Fitting the child changes the observed parent's height. Keep that write
+      // outside ResizeObserver delivery, including when a hidden tab reopens.
+      cancelAnimationFrame(pendingResize)
+      pendingResize = requestAnimationFrame(resize)
     })
     observer.observe(parent)
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(pendingResize)
+    }
   }, [props.value])
   return (
     <textarea

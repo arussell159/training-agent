@@ -1,4 +1,3 @@
-import { RealtimeClient } from '@supabase/realtime-js'
 import { apiFetch } from './api-client'
 import { withRequestDeadline } from './request-deadline'
 
@@ -21,6 +20,10 @@ export async function subscribeTrainingLive(
   signal.throwIfAborted()
   if (!grant.available) throw Error('Live updates unavailable')
   savedGrant = grant
+  // The capability check is tiny. Load the socket runtime only for an account
+  // that can subscribe, after its initial data request has already started.
+  const { RealtimeClient } = await import('@supabase/realtime-js')
+  signal.throwIfAborted()
   const client = new RealtimeClient(`${grant.url}/realtime/v1`, {
     params: { apikey: grant.key }, heartbeatIntervalMs: 25_000,
   })

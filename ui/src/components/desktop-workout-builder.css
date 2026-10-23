@@ -1253,8 +1253,10 @@
       padding: 12px 12px 12px 42px;
     }
     .dtb-summary-grid {
-      grid-template-columns: 260px minmax(0, 1fr);
-      gap: 10px;
+      /* The compact window gives this pane only 470px. Keep summary fields
+         readable and put notes below them in the same existing scroll area. */
+      grid-template-columns: minmax(0, 1fr);
+      gap: 16px;
     }
     .dtb-details {
       padding: 18px 14px;

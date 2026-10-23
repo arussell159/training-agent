@@ -39,7 +39,14 @@ function projected(id: string, input: CommitInput, previous?: PlannedWorkout): P
   const planned = { ...priorValues, ...(input.values || {}), ...(input.values?.duration_seconds === undefined && (input.values === undefined || priorValues?.duration_seconds == null) && !totals.unknownTime ? { duration_seconds: totals.seconds } : {}), ...(input.values?.distance_meters === undefined && priorValues?.distance_meters == null && !totals.unknownDistance && totals.distance > 0 ? {distance_meters:/swim/i.test(model.sport) ? totals.distance / .9144 : totals.distance} : {}) }
   const actual = input.completedValues ? {...previous?.workout_summary?.completed,...input.completedValues} : previous?.workout_summary?.completed || null
   const paired = id.startsWith("activity:") && previous?.activity_id === id.slice(9) && !previous.id.startsWith("activity:")
-  return { ...previous, id:paired ? previous.id : id, sport: model.sport, title: model.name, workout_date: model.date, date: model.date, day: "", duration: "", status: actual || id.startsWith("activity:") ? "completed" : previous?.status || "upcoming", ...(id.startsWith("activity:") ? {activity_id:id.slice(9)} : {}), goal: description, details: description, editable_description: description, editor_model: paired ? previous.editor_model : structuredClone(model), workout_summary: { planned: id.startsWith("activity:") ? previous?.workout_summary?.planned || null : planned, completed: actual }, plannedDurationMinutes: (planned.duration_seconds || 0) / 60 }
+  const activityEdit = id.startsWith("activity:")
+  // Planned and recorded dates/sports are independent on a linked workout.
+  // Keep the actual in its recorded week while immediately moving its target.
+  // Recording identity/status survives missing measurements. A null summary
+  // does not turn a linked recording into a movable planned-only workout.
+  const recorded = Boolean(previous?.activity_id || previous?.id.startsWith("activity:") || previous?.status === "completed")
+  const date = !activityEdit && recorded && previous?.workout_date ? previous.workout_date : model.date
+  return { ...previous, id:paired ? previous.id : id, sport: model.sport, title: model.name, workout_date: date, planned_workout_date: activityEdit ? previous?.planned_workout_date : model.date, date, day: "", duration: "", status: actual || activityEdit ? "completed" : previous?.status || "upcoming", ...(activityEdit ? {activity_id:id.slice(9),activity_type:model.sport} : {provider_type:model.sport,...(recorded ? {activity_type:previous?.activity_type || previous?.provider_type || previous?.sport} : {})}), goal: description, details: description, editable_description: description, editor_model: paired ? previous.editor_model : structuredClone(model), workout_summary: { planned: activityEdit ? previous?.workout_summary?.planned || null : planned, completed: actual }, plannedDurationMinutes: (planned.duration_seconds || 0) / 60 }
 }
 export async function restoreWorkoutCommits() {
   if (!active()) return
@@ -318,12 +325,17 @@ async function processScope() {
 }
 export async function retryWorkoutSynchronization(id: string) {
   if (!active()) throw Error("Sign in to retry synchronization.")
-  const scope = deviceCacheScope(), row = localCommittedWorkout(id)
+  const scope = deviceCacheScope(), session = apiSessionRevision(), row = localCommittedWorkout(id)
+  const requireCurrentAccount = () => {
+    if (scope !== deviceCacheScope() || session !== apiSessionRevision()) throw Error("The connected account changed. The original account's save is retained.")
+  }
   if (!row) throw Error("Reopen the workout before retrying.")
   const ledger = await readWorkoutCommits(scope), latest = ledger.operations.find(op => op.sequence === row.sequence)
+  requireCurrentAccount()
   if(resolutionPending(ledger,id))throw Error("Your reviewed choice is retained and will retry automatically. Confirm it before retrying workout synchronization.")
   if (latest?.backendRevision) {
     const response = await apiFetch(`/api/workout-commits/${encodeURIComponent(id)}/retry`, { method: "POST", signal: AbortSignal.timeout(15000) })
+    requireCurrentAccount()
     if (!response.ok) { const error = await response.json(); throw Error(error.error || "Synchronization could not be retried.") }
   }
   const updated = await transactWorkoutCommits(scope, state => {
@@ -332,6 +344,7 @@ export async function retryWorkoutSynchronization(id: string) {
     current.state = latest?.backendRevision ? "pending" : "local"; current.error = undefined
     for (const op of state.operations) if (op.workoutId === id && op.state === "failed") { op.state = op.backendRevision ? "pending" : "local"; op.nextAttempt = 0 }
   })
+  requireCurrentAccount()
   publish(scope, updated.ledger); schedule(0)
 }
 /** A reviewed conflict is accepted by the backend first. Never replace an edit

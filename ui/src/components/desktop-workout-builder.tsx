@@ -41,6 +41,8 @@ import {
   builderBlock,
   desktopBuilderBlocks,
   desktopTargetUnits,
+  desktopPaceUnitLabel,
+  initialDesktopTargetUnit,
   displayTarget,
   desktopTargetPresentation,
   desktopBuilderTotals,
@@ -323,7 +325,7 @@ function StepTarget({
       <PaceField
         label={key === "value" ? "Target pace" : `${key} pace`}
         value={target[key] || 0}
-        unit={target.unit!.replace("secs", "min")}
+        unit={desktopPaceUnitLabel(target.unit!)}
         onChange={(value) =>
           change({ ...step, target: { ...current, [key]: value } })
         }
@@ -805,29 +807,8 @@ export function DesktopWorkoutBuilder(props: Props) {
   const hasRpe = chartData.segments.some(segment=>segment.step.target.kind === "rpe")
   const rpeAxis = hasRpe && chartData.segments.every(segment=>["none","rpe"].includes(segment.step.target.kind))
   const chartMaximum = desktopProfileMaximum(chartData.segments)
-  const [unit, setUnit] = useState(() => {
-    const preferred =
-      !firstTarget && preferences
-        ? preferences.unit
-        : firstTarget?.kind === "rpe" ? "rpe" : firstTarget?.kind === "hr"
-          ? desktopTargetUnits.some(([value]) => value === firstTarget.unit)
-            ? firstTarget.unit!
-            : "bpm"
-          : firstTarget?.kind === "power"
-            ? "%ftp"
-            : /run|swim/i.test(model.sport)
-              ? "%pace"
-              : "%ftp"
-    if (firstTarget)
-      try {
-        displayTarget(firstTarget, preferred, model, zones)
-      } catch {
-        return desktopTargetUnits.some(([value]) => value === firstTarget.unit)
-          ? firstTarget.unit!
-          : preferred
-      }
-    return preferred
-  })
+  const [unit, setUnit] = useState(() => initialDesktopTargetUnit(firstTarget, model, zones, preferences))
+  const [unitExplicit, setUnitExplicit] = useState(!firstTarget && preferences?.unitExplicit === true)
   const [mode, setMode] = useState<"single" | "range">(
     firstTarget
       ? firstTarget.mode === "single"
@@ -903,12 +884,17 @@ export function DesktopWorkoutBuilder(props: Props) {
         localStorage,
         trainingCacheScope(),
         model.sport,
-        { length, unit, mode }
+        {
+          length,
+          unit: unitExplicit ? unit : preferences?.unit || unit,
+          mode,
+          unitExplicit: unitExplicit || preferences?.unitExplicit === true,
+        }
       )
     } catch {
       /* Browser storage is optional. */
     }
-  }, [length, unit, mode, model.sport])
+  }, [length, unit, mode, model.sport, unitExplicit, preferences])
   const drag = useRef<{ nodes: WorkoutNode[]; original: WorkoutModel } | null>(null)
   const palettePointer = useRef<{ x: number; y: number } | null>(null)
   const stopPalettePan = useRef<(() => void) | null>(null)
@@ -1494,6 +1480,7 @@ export function DesktopWorkoutBuilder(props: Props) {
                     )
                     commit(next)
                     setUnit(event.target.value)
+                    setUnitExplicit(true)
                     setLocalError("")
                   } catch (reason) {
                     setLocalError(
@@ -1623,7 +1610,7 @@ export function DesktopWorkoutBuilder(props: Props) {
               <select
                 aria-label="Builder intensity units"
                 value={unit}
-                onChange={(event) => setUnit(event.target.value)}
+                onChange={(event) => { setUnit(event.target.value); setUnitExplicit(true) }}
               >
                 {desktopTargetUnits.map(([value, label]) => (
                   <option key={value} value={value}>
