@@ -67,6 +67,11 @@ export interface WorkoutSummaryValues {
 }
 
 export interface PlannedWorkout {
+  source?: string
+  read_only?: boolean
+  trainingpeaks_id?: number
+  trainingpeaks_warnings?: string[]
+  external_url?: string
   structure_read_only?: boolean
   template_metadata_error?: string
   display_variant?: "brick" | "day-off" | "custom"
@@ -138,6 +143,8 @@ export interface LibraryWorkout {
 }
 
 export interface TrainingContext {
+  planned_source?: "trainingpeaks"
+  planned_sync?: {lastSyncedAt: string | null; lastAttemptAt: string | null; reconnectRequired: boolean; error: string | null; rangeStart?: string; rangeEnd?: string}
   athlete: {
     sport_settings?: import("../../../app-backend/lib/workout-editor-zones.mjs").SportZoneSettings[]
     time_zone?: string

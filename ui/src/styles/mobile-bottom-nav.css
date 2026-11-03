@@ -1,4 +1,10 @@
 @media (width < 48rem) {
+  /* Decorative children share the button's native hit target, even when a
+     fingertip moves between an icon, its label and the surrounding padding. */
+  [data-native-react-tabs] button > * {
+    pointer-events: none;
+  }
+
   .framework7-root .planned-workout-nav-shell {
     background-color: #f1f1f3;
   }

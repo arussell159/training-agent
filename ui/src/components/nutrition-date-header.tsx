@@ -1,13 +1,11 @@
-import "@/lib/framework7-calendar"
-import { useEffect, useRef, useState } from "react"
-import { f7ready } from "framework7-react"
+import { useEffect, useRef, useState, lazy, Suspense } from "react"
 import type { Calendar } from "framework7/types"
 import { ChevronDown, ChevronLeft, ChevronRight, Ellipsis, Target } from "lucide-react"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
 import { Button } from "@/components/ui/button"
 import { nutritionToday } from "@/lib/nutrition"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { DatePickerCalendar } from "@/components/date-picker-calendar"
+const DatePickerCalendar = lazy(() => import("@/components/date-picker-calendar").then(module => ({ default: module.DatePickerCalendar })))
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
 export function NutritionDateHeader({
@@ -29,6 +27,8 @@ export function NutritionDateHeader({
   const [open, setOpen] = useState(false),
     [closing, setClosing] = useState(false)
   const [month, setMonth] = useState(new Date(`${date}T12:00:00`))
+  const [pickerError, setPickerError] = useState(false)
+  const [pickerRetry, setPickerRetry] = useState(0)
   const container = useRef<HTMLDivElement>(null),
     picker = useRef<Calendar.Calendar | null>(null),
     select = useRef(onSelect),
@@ -67,7 +67,7 @@ export function NutritionDateHeader({
     if (!visible || !mobile) return
     let cancelled = false,
       instance: Calendar.Calendar | null = null
-    f7ready((app) => {
+    void import("@/lib/framework7-calendar").then(() => import("framework7-react")).then(({ f7ready }) => f7ready((app) => {
       if (cancelled || !container.current) return
       const label = (c: Calendar.Calendar) =>
         setMonth(new Date(c.currentYear, c.currentMonth, 1))
@@ -94,13 +94,14 @@ export function NutritionDateHeader({
         },
       })
       picker.current = instance
-    })
+      setPickerError(false)
+    })).catch(() => { if (!cancelled) setPickerError(true) })
     return () => {
       cancelled = true
       instance?.destroy()
       picker.current = null
     }
-  }, [visible, mobile])
+  }, [visible, mobile, pickerRetry])
   const shift = (direction: number) => {
     if (mobile) {
       if (direction < 0) picker.current?.prevMonth(200)
@@ -170,7 +171,7 @@ export function NutritionDateHeader({
         align="start"
         className="nutrition-date-popover w-auto p-0"
       >
-        <DatePickerCalendar
+        {open && <Suspense fallback={<p className="p-4" role="status">Opening calendar…</p>}><DatePickerCalendar
           defaultMonth={month}
           month={month}
           onMonthChange={setMonth}
@@ -183,7 +184,7 @@ export function NutritionDateHeader({
               setOpen(false)
             }
           }}
-        />
+        /></Suspense>}
         <button
           className="mb-3 w-full py-2 text-sm font-medium"
           onClick={() => {
@@ -264,6 +265,7 @@ export function NutritionDateHeader({
             aria-label="Choose date"
           >
             <div ref={container} />
+            {pickerError && <button onClick={() => setPickerRetry(value => value + 1)}>Retry calendar</button>}
             <button
               className="mb-3 w-full py-2 text-sm font-medium"
               onClick={() => {

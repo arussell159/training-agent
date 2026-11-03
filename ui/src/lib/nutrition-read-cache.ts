@@ -55,18 +55,21 @@ const reads = createSharedRequestCache<
   { maxEntries: 20, ttlMs: 30_000, timeoutMs: 15_000 }
 )
 const key = (path: string) => JSON.stringify([deviceCacheScope(), path])
+const searchPath = (query: string) =>
+  `/search?q=${encodeURIComponent(query.trim().replace(/\s+/g, " ").toLowerCase())}`
+export const peekFoodLibrary = () =>
+  (reads.peek(key("/library")) as FoodLibrary | undefined) || null
+export const peekFoodSearch = (query: string) =>
+  query.trim().length >= 2
+    ? (reads.peek(
+        JSON.stringify([deviceCacheScope(), searchPath(query), 0])
+      ) as { products: FoodProduct[] } | undefined) || null
+    : null
 export const loadFoodLibrary = (signal?: AbortSignal) =>
   reads.get(key("/library"), signal) as Promise<FoodLibrary>
 export const searchFoods = (query: string, signal?: AbortSignal, retry = 0) =>
   reads
-    .get(
-      JSON.stringify([
-        deviceCacheScope(),
-        `/search?q=${encodeURIComponent(query.trim().replace(/\s+/g, " "))}`,
-        retry,
-      ]),
-      signal
-    )
+    .get(JSON.stringify([deviceCacheScope(), searchPath(query), retry]), signal)
     .catch((error) => {
       if (signal?.aborted) throw error
       if (

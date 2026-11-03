@@ -31,12 +31,15 @@ export function WorkoutDescription({
     sport_settings?: SportZoneSettings[]
   }
   const sourceDescription =
+    workout.source === "trainingpeaks"
+      ? workout.manual_description || workout.goal || workout.details || ""
+      :
     workout.editable_description ??
     appWorkoutDescription(workout, athlete.sport_settings || []) ??
     workout.details ??
     workout.goal ??
     ""
-  const original = /swim/i.test(workout.sport)
+  const original = workout.source !== "trainingpeaks" && /swim/i.test(workout.sport)
     ? sourceDescription.replace(
         /(\d+(?:\.\d+)?)\s*(?:mtr|meters?|metres?)\b/gi,
         "$1 yd"

@@ -1,5 +1,7 @@
 import { NutritionHomeCard } from "@/components/nutrition-summary"
 import { useEffect, useState } from "react"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { useHomeReady } from "@/lib/home-performance"
 import { dailyWorkouts, dashboardToday, recoverySeries, todaysWorkout } from "@/lib/dashboard-metrics"
 import {
   BedDouble,
@@ -295,6 +297,8 @@ export function SectionCards({
   context: TrainingContext
   onWorkoutOpen?: (workout: PlannedWorkout) => void
 }) {
+  const isMobile = useIsMobile()
+  useHomeReady(isMobile)
   const todayWorkouts = dailyWorkouts(context, dashboardToday(context))
   const today = todayWorkouts[0] ?? todaysWorkout(context)
   const multipleToday = todayWorkouts.length > 1
@@ -316,8 +320,7 @@ export function SectionCards({
 
   return (
     <div className="dashboard-card-grid grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-16">
-      <MobileDailySessions context={context} onWorkoutOpen={onWorkoutOpen} />
-      <Card
+      {isMobile ? <MobileDailySessions context={context} onWorkoutOpen={onWorkoutOpen} /> : <Card
         role={onWorkoutOpen && visibleTodayWorkout ? "button" : undefined}
         tabIndex={onWorkoutOpen && visibleTodayWorkout ? 0 : undefined}
         aria-label={onWorkoutOpen && visibleTodayWorkout ? `Open ${visibleTodayWorkout.title}` : undefined}
@@ -387,7 +390,7 @@ export function SectionCards({
             </div>
           </div>
         </CardContent>
-      </Card>
+      </Card>}
 
       <EventsCard context={context} />
       <RecoveryTrendCard context={context} metric="hrv" />

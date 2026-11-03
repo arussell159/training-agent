@@ -2,6 +2,7 @@ import Framework7 from "framework7/lite"
 import Dialog from "framework7/components/dialog"
 import Sortable from "framework7/components/sortable"
 import Framework7React from "framework7-react"
+import { preserveNativeReactTabs } from "./native-react-tabs.ts"
 // The pinned adapter exports this initializer, but omits its declaration.
 // @ts-expect-error Framework7 React shared initializer has no TypeScript declaration.
 import { f7, f7init } from "framework7-react/shared/f7.js"
@@ -30,7 +31,18 @@ export function initializeFramework7() {
         theme: "ios",
         sortable: { moveElements: false },
         clicks: { externalLinks: "a" },
+        on: {
+          init(this: Framework7) {
+            // The pinned runtime exposes init; its declaration omits it.
+            preserveNativeReactTabs(this.toolbar as typeof this.toolbar & {
+              init: (element: HTMLElement | string) => void
+            })
+          },
+        },
         touch: {
+          // Native browsers already cancel clicks for scrolling. Avoid vetoing
+          // valid taps merely because a fingertip moved more than 5 CSS pixels.
+          touchClicksDistanceThreshold: 20,
           activeState: false,
           touchRipple: false,
           touchHighlight: false,

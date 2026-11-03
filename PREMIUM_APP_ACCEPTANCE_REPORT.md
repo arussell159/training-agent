@@ -139,31 +139,31 @@ Entry profile: production static assets, Edge Chromium 156.0.4314.42 on Intel Co
 
 **The 3× target was not achieved in any measured entry/core flow.** Both useful cold loads are below the 2-second goal on this defined lab profile. Values are rounded milliseconds, **median / empirical p95**; speedup compares medians.
 
-| Entry/navigation flow | Before (ms) | After (ms) | Median speedup | Acceptance |
-| --- | ---: | ---: | ---: | --- |
-| Useful cold Home | 1,373 / 1,468 | 1,246 / 1,311 | 1.10× | ≤2 s goal; not 3× |
-| Useful cold Calendar | 2,148 / 2,333 | 1,600 / 1,661 | 1.34× | ≤2 s goal; not 3× |
-| Retained-data reload, uncached assets | 1,020 / 1,165 | 956 / 1,022 | 1.07× | Not 3×; not a PWA resume test |
-| Warm Home → Calendar | 305 / 469 | 246 / 312 | 1.24× | p95 >200 ms; not 3× |
-| Warm Calendar → Home | 207 / 234 | 157 / 194 | 1.32× | p95 ≤200 ms; not 3× |
-| Home Next day response | 47 / 55 | 38 / 43 | 1.23× | p95 ≤100 ms; not 3× |
+| Entry/navigation flow                 |   Before (ms) |    After (ms) | Median speedup | Acceptance                    |
+| ------------------------------------- | ------------: | ------------: | -------------: | ----------------------------- |
+| Useful cold Home                      | 1,373 / 1,468 | 1,246 / 1,311 |          1.10× | ≤2 s goal; not 3×             |
+| Useful cold Calendar                  | 2,148 / 2,333 | 1,600 / 1,661 |          1.34× | ≤2 s goal; not 3×             |
+| Retained-data reload, uncached assets | 1,020 / 1,165 |   956 / 1,022 |          1.07× | Not 3×; not a PWA resume test |
+| Warm Home → Calendar                  |     305 / 469 |     246 / 312 |          1.24× | p95 >200 ms; not 3×           |
+| Warm Calendar → Home                  |     207 / 234 |     157 / 194 |          1.32× | p95 ≤200 ms; not 3×           |
+| Home Next day response                |       47 / 55 |       38 / 43 |          1.23× | p95 ≤100 ms; not 3×           |
 
 All 12 samples per entry flow completed with no console/page errors. See `performance-comparison-accepted.json` for unrounded values and ratios. The warm reload label in raw data is clarified above: cached account data with uncached assets, not actual return from iOS suspension.
 
 Additional journeys use the same mobile profile, n=12 per flow, with a fresh browser context and reset disposable server fixture per sample. Values below are rounded milliseconds, **median / empirical p95**. The editor is opened immediately after useful details; the date picker is preloaded only before the separate week-jump measurement. Both baseline and final runs use those boundaries.
 
-| Journey | Before (ms) | After (ms) | Result |
-| --- | ---: | ---: | --- |
-| Calendar week jump | 271 / 321 | 243 / 258 | Improved; p95 >200 ms |
-| First workout details | 241 / 266 | 213 / 250 | Improved; not 3× |
-| First editor open | 485 / 521 | 762 / 834 | **Regression; not 3×** |
-| Cached editor open | 92 / 118 | 83 / 94 | p95 ≤200 ms |
-| Save feedback | 51 / 62 | 47 / 54 | p95 ≤100 ms; not a durable acknowledgment |
-| Save to changed visible details | 238 / 291 | 220 / 233 | Separate from immediate feedback |
-| Durable local acceptance | 170 / 194 | 156 / 168 | Strict IndexedDB completion; p95 ≤300 ms |
-| Backend acknowledgment | 316 / 371 | 292 / 310 | Synthetic in-memory backend |
+| Journey                           |   Before (ms) |    After (ms) | Result                                     |
+| --------------------------------- | ------------: | ------------: | ------------------------------------------ |
+| Calendar week jump                |     271 / 321 |     243 / 258 | Improved; p95 >200 ms                      |
+| First workout details             |     241 / 266 |     213 / 250 | Improved; not 3×                           |
+| First editor open                 |     485 / 521 |     762 / 834 | **Regression; not 3×**                     |
+| Cached editor open                |      92 / 118 |       83 / 94 | p95 ≤200 ms                                |
+| Save feedback                     |       51 / 62 |       47 / 54 | p95 ≤100 ms; not a durable acknowledgment  |
+| Save to changed visible details   |     238 / 291 |     220 / 233 | Separate from immediate feedback           |
+| Durable local acceptance          |     170 / 194 |     156 / 168 | Strict IndexedDB completion; p95 ≤300 ms   |
+| Backend acknowledgment            |     316 / 371 |     292 / 310 | Synthetic in-memory backend                |
 | Observed external sync completion | 2,052 / 2,394 | 2,008 / 2,047 | Synthetic provider with fixed 800 ms delay |
-| First usable food results | 363 / 374 | 355 / 382 | Includes debounce; not 3× |
+| First usable food results         |     363 / 374 |     355 / 382 | Includes debounce; not 3×                  |
 
 The first-editor regression is a material remaining limitation: the original calendar eagerly initialized Framework7, while the optimized startup defers its required editor controls. Despite selected-workout preloading, the final immediate first-editor result remains about **57% slower than the baseline**. Removing the remaining cost requires isolating the mobile editor's Framework7 lists, ranges and nested sheets, or restoring that startup work. The current change prioritizes useful calendar loading and retains existing editor behavior; it does not claim that every journey is faster. The final 12-sample journey run had no console/page errors or failed assertions.
 
@@ -195,15 +195,15 @@ Measured root causes and remaining cost: eager nutrition/realtime/date-picker Ja
 
 Used the user's signed-in in-app browser session, after the user opened it. Inspected at 1148×669 and compared equivalent app surfaces. No subscriptions, integrations, account settings or messages were changed. One clearly titled disposable run and its copy were saved and then deleted; no matching disposable records remained. Real workouts were opened read-only and closed with Cancel.
 
-| Surface/workflow | Reference observed | App verification and remaining gap |
-| --- | --- | --- |
-| Calendar | 40px top nav, 56px toolbar, 64px library rail, seven day columns, right summary, card hover/menu, day Add/Cut/Copy/Paste/Shift/Delete | Existing dense calendar retained; explicit summary added; keyboard/mouse actions and persistence covered by fixtures. App identity rail/header differ. No pixel-identical claim. |
-| Bike builder | Duration / %FTP / Range default; four × (6 min at 85–95% + 3 min at 50–60%); cadence, notes, lap end; 36 min total | Matched-state capture, validation, structured serialization, save/reopen and drag pass. |
-| Swim builder | Distance / yds / %ThresholdPace / Range; four × (200 yd at 105–115% + 50 yd at 75–85%); 1,000 yd, 15 min using reference threshold; 25 yd / 25 m / 50 m pools; no cadence | Separate sport fixture verifies yards, pace/recovery/repeats, totals and round trip. |
-| Run builder | Duration / %ThresholdPace / Range; four × (6 min at 105–115% + 3 min at 75–85%); 36 min | Reference changed to three repeats and saved 27 min, then reopened unchanged. App separate run tests pass. |
-| Copy/move/delete | Disposable run Copy/Paste created a second 27 min workout; Delete cleaned both | Reference drag attempt did not establish a successful persisted move. App drag/move is fixture-tested; exact live drag parity remains unverified. |
-| Library | Search, Recents/folders, title/sport A–Z/Z–A, content/sport/distance/duration/TSS/intensity filters | App library/search and calendar library surfaces inspected; complete folder/filter/drag parity is not implemented or verified. |
-| Analysis | Recorded Bike Summary/Analyze, map/graph, time/distance, colored signal controls, min/avg/max, laps and selection | Existing app analysis inspected, lap and axis controls verified, inspector overlap fixed. Complete Analyze360/map/tooltip geometry parity remains unverified. |
+| Surface/workflow | Reference observed                                                                                                                                                        | App verification and remaining gap                                                                                                                                               |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Calendar         | 40px top nav, 56px toolbar, 64px library rail, seven day columns, right summary, card hover/menu, day Add/Cut/Copy/Paste/Shift/Delete                                     | Existing dense calendar retained; explicit summary added; keyboard/mouse actions and persistence covered by fixtures. App identity rail/header differ. No pixel-identical claim. |
+| Bike builder     | Duration / %FTP / Range default; four × (6 min at 85–95% + 3 min at 50–60%); cadence, notes, lap end; 36 min total                                                        | Matched-state capture, validation, structured serialization, save/reopen and drag pass.                                                                                          |
+| Swim builder     | Distance / yds / %ThresholdPace / Range; four × (200 yd at 105–115% + 50 yd at 75–85%); 1,000 yd, 15 min using reference threshold; 25 yd / 25 m / 50 m pools; no cadence | Separate sport fixture verifies yards, pace/recovery/repeats, totals and round trip.                                                                                             |
+| Run builder      | Duration / %ThresholdPace / Range; four × (6 min at 105–115% + 3 min at 75–85%); 36 min                                                                                   | Reference changed to three repeats and saved 27 min, then reopened unchanged. App separate run tests pass.                                                                       |
+| Copy/move/delete | Disposable run Copy/Paste created a second 27 min workout; Delete cleaned both                                                                                            | Reference drag attempt did not establish a successful persisted move. App drag/move is fixture-tested; exact live drag parity remains unverified.                                |
+| Library          | Search, Recents/folders, title/sport A–Z/Z–A, content/sport/distance/duration/TSS/intensity filters                                                                       | App library/search and calendar library surfaces inspected; complete folder/filter/drag parity is not implemented or verified.                                                   |
+| Analysis         | Recorded Bike Summary/Analyze, map/graph, time/distance, colored signal controls, min/avg/max, laps and selection                                                         | Existing app analysis inspected, lap and axis controls verified, inspector overlap fixed. Complete Analyze360/map/tooltip geometry parity remains unverified.                    |
 
 41 endurance browser groups and 14 drag groups passed after the shared-confirmation build. They cover interval order, repeats, recovery, duration/distance, ranges, cadence/lap behavior, invalid drafts, exact native description/private model serialization, save/reopen, reload and cleanup. Existing geometry tests now explicitly expand the default compact dialog before asserting expanded dimensions; assertions were not removed. These are Intervals.icu adapter/serialization fixture round trips, **not a new live Intervals.icu write/readback for each sport**.
 
@@ -219,21 +219,21 @@ Service worker/account cache compatibility, pending writes, auth and account-bou
 
 ## Gates, devices and acceptance checklist
 
-| Gate/check | Result |
-| --- | --- |
-| Production build + TypeScript | Pass, `premium-report-popup-build.log`; deferred Mapbox size warning retained |
-| ESLint | Pass, `premium-report-popup-lint.log` |
-| Full UI tests | **931 passed**, `premium-report-popup-ui-tests.log`, including new hydration and immediate-dismissal regressions |
-| Full backend tests | **1,003 passed**, `premium-backend-tests.log` |
-| Python tests | **5 passed**, `premium-python-tests.log` |
-| Responsive route matrix | **56 combinations per engine**, eight routes × seven widths, Chromium and WebKit; no page errors or root overflow |
-| Shared dialog matrix | **10 per engine**, normal/reduced motion; focus, touch sizing, containment, Escape and scroll unlock |
-| Detail sheet matrix | **5 per engine**, including first-open gestures and reduced motion; focus, Back, containment and scroll unlock |
-| Production confirmations | **6 journeys**, including browser Back, duplicate requests and editor return |
-| Endurance / drag / calendar actions | **41 / 14 / 5** browser groups passed |
-| Sidebar / analysis | **2 / 5** desktop viewport checks passed |
-| Desktop report popups | **3 groups per engine**, plus **13 description resize checks per engine**; Chromium and WebKit |
-| Nutrition | Two engines, five interaction widths plus four production failure widths; 34 UI and 43 backend targeted tests passed |
+| Gate/check                          | Result                                                                                                               |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Production build + TypeScript       | Pass, `premium-report-popup-build.log`; deferred Mapbox size warning retained                                        |
+| ESLint                              | Pass, `premium-report-popup-lint.log`                                                                                |
+| Full UI tests                       | **931 passed**, `premium-report-popup-ui-tests.log`, including new hydration and immediate-dismissal regressions     |
+| Full backend tests                  | **1,003 passed**, `premium-backend-tests.log`                                                                        |
+| Python tests                        | **5 passed**, `premium-python-tests.log`                                                                             |
+| Responsive route matrix             | **56 combinations per engine**, eight routes × seven widths, Chromium and WebKit; no page errors or root overflow    |
+| Shared dialog matrix                | **10 per engine**, normal/reduced motion; focus, touch sizing, containment, Escape and scroll unlock                 |
+| Detail sheet matrix                 | **5 per engine**, including first-open gestures and reduced motion; focus, Back, containment and scroll unlock       |
+| Production confirmations            | **6 journeys**, including browser Back, duplicate requests and editor return                                         |
+| Endurance / drag / calendar actions | **41 / 14 / 5** browser groups passed                                                                                |
+| Sidebar / analysis                  | **2 / 5** desktop viewport checks passed                                                                             |
+| Desktop report popups               | **3 groups per engine**, plus **13 description resize checks per engine**; Chromium and WebKit                       |
+| Nutrition                           | Two engines, five interaction widths plus four production failure widths; 34 UI and 43 backend targeted tests passed |
 
 Route matrix: Home, Calendar, Nutrition, Settings, Library, Workout Reports, Annual Plan and Coach; widths 320, 360, 390, 430, 768, 844 landscape and 1440. Detail/editor/dialog flows are covered separately. Final artifacts: `artifacts/mobile-stability/premium-final/geometry.json` and `premium-final-webkit/geometry.json`. The deliberate Home carousel still scrolls independently. Mobile calendar day-add buttons are absent while desktop buttons remain; Home's verified greeting position remains 56–90px from the top.
 

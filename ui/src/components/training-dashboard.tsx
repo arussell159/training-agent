@@ -12,7 +12,7 @@ import {
   MobileHomeOverview,
   MobileHomeHeading,
 } from "@/components/mobile-home-overview"
-import type { MobileHomeLayout } from "@/lib/mobile-home-layout"
+import { getMobileHomeLayout, type MobileHomeLayout } from "@/lib/mobile-home-layout"
 import { PageErrorBoundary } from "@/components/page-error-boundary"
 import { performanceProbe } from "@/lib/performance-probe"
 import { preloadable } from "@/lib/preloadable"
@@ -33,15 +33,17 @@ import {
   restoreOpenWorkout,
 } from "@/lib/workout-navigation"
 
-const sectionCardsRoute = preloadable(() =>
-  import("@/components/section-cards").then((module) => ({
+const sectionCardsRoute = preloadable(
+  () => import("@/components/section-cards").then((module) => ({
     default: module.SectionCards,
-  }))
+  })),
+  () => <HomeCardsSkeleton />
 )
 const SectionCards = sectionCardsRoute.Component
 if (
   typeof window !== "undefined" &&
-  window.matchMedia("(min-width: 768px)").matches
+  (window.matchMedia("(min-width: 768px)").matches ||
+    getMobileHomeLayout() === "classic")
 )
   void sectionCardsRoute.preload().catch(() => {})
 
@@ -131,11 +133,11 @@ function TrustedTrainingDashboard({
         setChartVisible(true)
         observer.disconnect()
       },
-      { rootMargin: "400px 0px" }
+      { rootMargin: isMobile ? "120px 0px" : "400px 0px" }
     )
     observer.observe(element)
     return () => observer.disconnect()
-  }, [analysisOpen])
+  }, [analysisOpen, isMobile])
 
   const openWorkout = (workout: PlannedWorkout) =>
     runWithWorkoutNavigationGuard(() => {

@@ -7,7 +7,7 @@ const changeEvent = "mobile-home-layout-changed"
 let memoryLayout: MobileHomeLayout = "redesign"
 let storageUnavailable = false
 
-function readLayout(): MobileHomeLayout {
+export function getMobileHomeLayout(): MobileHomeLayout {
   if (storageUnavailable) return memoryLayout
   try {
     const saved = localStorage.getItem(storageKey)
@@ -42,5 +42,5 @@ export function setMobileHomeLayout(layout: MobileHomeLayout) {
 }
 
 export function useMobileHomeLayout() {
-  return useSyncExternalStore(subscribe, readLayout, () => "redesign" as const)
+  return useSyncExternalStore(subscribe, getMobileHomeLayout, () => "redesign" as const)
 }

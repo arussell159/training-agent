@@ -13,12 +13,18 @@ export function NutritionScreen({
   onBack,
   onExit,
   right,
+  feedback,
+  overlay,
+  transitionPhase,
   children,
 }: {
   title: string
   onBack: () => void
   onExit?: () => void
   right?: ReactNode
+  feedback?: ReactNode
+  overlay?: ReactNode
+  transitionPhase?: "confirming" | "leaving" | "arriving"
   children: ReactNode
 }) {
   const exit = useRef(onExit || onBack),
@@ -111,6 +117,7 @@ export function NutritionScreen({
       ref={screen}
       tabIndex={-1}
       aria-label={title}
+      data-nutrition-phase={transitionPhase}
       className="framework7-root nutrition-surface nutrition-screen app-surface-enter"
     >
       <MobileSiteNavbar
@@ -138,6 +145,8 @@ export function NutritionScreen({
           {children}
         </div>
       </div>
+      {feedback}
+      {overlay}
     </section>,
     document.body
   )

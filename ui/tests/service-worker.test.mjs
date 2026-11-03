@@ -2,7 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import vm from "node:vm"
 import fs from "node:fs/promises"
-import { createShellManifest } from "../shell-manifest-plugin.mjs"
+import { createShellManifest, classicHomePreloads, workspacePreloads } from "../shell-manifest-plugin.mjs"
 import {
   appShellRecoveryUrl,
   cleanAppShellRecoveryUrl,
@@ -200,6 +200,26 @@ const network =
       )
     return response(html(version))
   }
+
+test("cold navigation verifies the cache index once without cloning every required asset body", async () => {
+  const cache=memoryCache();await seed(cache)
+  const match=cache.match,keys=cache.keys;let indexes=0,assetBodies=0
+  cache.match=async key=>{if(urlOf(key).includes("/assets/"))assetBodies++;return match(key)}
+  cache.keys=async()=>{indexes++;return keys()}
+  const app=fixture(()=>new Promise(()=>{}),{cache})
+  assert.match(await (await app.request("/calendar")).text(),/one/)
+  assert.equal(indexes,1);assert.equal(assetBodies,0)
+})
+
+test("an evicted required asset or failed cache-index read cannot serve a partial cached shell", async () => {
+  for(const failedIndex of [false,true]){
+    const cache=memoryCache();await seed(cache)
+    if(failedIndex)cache.keys=async()=>{throw Error("Storage temporarily unavailable")}
+    else await cache.delete("/assets/calendar-one.js")
+    const app=fixture(network("two"),{cache})
+    assert.match(await (await app.request("/calendar")).text(),/two/)
+  }
+})
 
 test("a complete cached shell returns while network revalidation remains unresolved", async () => {
   const cache = memoryCache()
@@ -583,6 +603,27 @@ test("build manifest follows static dependencies and CSS without pulling dynamic
   )
 })
 
+test("Home shell pins classic cards and styles while leaving heavy charts and maps deferred", () => {
+  const chunk=(name,options={})=>({type:"chunk",fileName:`assets/${name}.js`,imports:[],...options})
+  const bundle={
+    "assets/main.js":chunk("main",{isEntry:true}),
+    "assets/home.js":chunk("home",{facadeModuleId:"/src/components/training-dashboard.tsx",dynamicImports:["assets/cards.js","assets/chart.js"]}),
+    "assets/cards.js":chunk("cards",{facadeModuleId:"/src/components/section-cards.tsx",imports:["assets/profile.js"],viteMetadata:{importedCss:new Set(["assets/cards.css"])}}),
+    "assets/profile.js":chunk("profile"),"assets/cards.css":{type:"asset"},"assets/chart.js":chunk("chart"),"assets/map.js":chunk("map"),
+  }
+  assert.deepEqual(createShellManifest(bundle,{"/":"training-dashboard"},{}).routes["/"],["/assets/cards.css","/assets/cards.js","/assets/home.js","/assets/profile.js"])
+})
+
+test("Home asset discovery only warms the selected classic mobile Home and executes no private content", () => {
+  const source=classicHomePreloads({routes:{"/":["/assets/home.js","/assets/cards.css"]}}).replace(/^<script>|<\/script>$/g,"")
+  for(const [pathname,mobile,layout,expected] of [["/",true,"classic",2],["/",true,"redesign",0],["/",false,"classic",0],["/calendar",true,"classic",0]]) {
+    const links=[]
+    vm.runInNewContext(source,{location:{pathname},window:{matchMedia:()=>({matches:mobile})},localStorage:{getItem:()=>layout},document:{createElement:()=>({}),head:{appendChild:link=>links.push(link)}}})
+    assert.equal(links.length,expected)
+    if(expected)assert.deepEqual(links.map(l=>l.rel),["modulepreload","stylesheet"])
+  }
+})
+
 test("Calendar shell pins its nested editor styles without fetching another route's lazy features", () => {
   const chunk = (name, options = {}) => ({
     type: "chunk",
@@ -773,4 +814,14 @@ test("an unrelated route's failed stylesheet cannot block recovery of the workou
   await retryFailedPreloadStyles(page)
   assert.equal(requests.at(-1), origin + "/assets/nutrition-page-retired.css")
   stop()
+})
+
+test('active mobile workspace discovers only initial assets, leaving deferred editors alone',()=>{
+ const manifest={startup:{'/nutrition':['/assets/diary.js','/assets/diary.css'],'/calendar':['/assets/calendar.js']},routes:{'/calendar':['/assets/calendar.js','/assets/editor.js']}}
+ const source=workspacePreloads(manifest).replace(/^<script>|<\/script>$/g,'')
+ for(const [pathname,mobile,expected] of [['/nutrition',true,['/assets/diary.js','/assets/diary.css']],['/calendar/',true,['/assets/calendar.js']],['/nutrition',false,[]],['/',true,[]]]){
+  const links=[]
+  vm.runInNewContext(source,{window:{matchMedia:()=>({matches:mobile})},location:{pathname},document:{createElement:()=>({}),head:{appendChild:link=>links.push(link)}}})
+  assert.deepEqual(links.map(link=>link.href),expected)
+ }
 })

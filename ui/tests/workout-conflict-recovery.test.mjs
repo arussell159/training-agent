@@ -68,17 +68,20 @@ test("retry cannot submit an old account's workout after the account changes dur
 
 test("concurrent tabs reject a stale revision and a reopened client retains the latest accepted edit above old snapshots", async () => {
   const env = fixture(), first = env.load(), second = env.load()
+  // Today intentionally belongs to both context buckets. Keep this future-move
+  // case independent of the date on which the suite happens to run.
+  const futureDay = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
   await first.restoreWorkoutCommits(); await second.restoreWorkoutCommits()
-  const accepted = await first.acceptWorkoutCommit(env.id, { model: { ...env.model, name: "Latest accepted", date: "2026-10-26" }, revision: "app:1" })
+  const accepted = await first.acceptWorkoutCommit(env.id, { model: { ...env.model, name: "Latest accepted", date: futureDay }, revision: "app:1" })
   assert.equal(accepted.durableBoundary, "local")
-  assert.equal(accepted.workout.planned_workout_date, "2026-10-26")
+  assert.equal(accepted.workout.planned_workout_date, futureDay)
   await assert.rejects(second.acceptWorkoutCommit(env.id, { model: { ...env.model, name: "Stale tab" }, revision: "app:1" }), /another tab/)
   const reopened = env.load(); await reopened.restoreWorkoutCommits()
   const context = reopened.overlayWorkoutCommits({ athlete: { time_zone: "America/Chicago" }, history: [env.workout], planned: [] })
   const visible = [...context.history, ...context.planned].filter(row => row.id === env.id)
   assert.equal(visible.length, 1)
   assert.equal(visible[0].title, "Latest accepted")
-  assert.equal(visible[0].planned_workout_date, "2026-10-26")
+  assert.equal(visible[0].planned_workout_date, futureDay)
   assert.equal(env.requests.length, 0)
 })
 

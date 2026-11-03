@@ -42,9 +42,15 @@ body.nutrition-flow-open:has(.nutrition-save-bar) .app-toast-viewport {
   --app-toast-bottom-gap: 88px;
 }
 .app-toast {
+  border-radius:14px;
+  padding:12px 42px 12px 12px;
+  box-shadow:0 4px 18px rgb(0 0 0 / 12%);
   background: var(--card, white);
   border-color: color-mix(in srgb, var(--foreground) 18%, transparent);
 }
+.app-toast [data-toast-icon] {width:24px;height:24px}
+.app-toast [data-toast-title] {padding-right:0;font-size:14px;line-height:20px;font-weight:500}
+.app-toast [data-toast-description] {font-size:13px;line-height:18px}
 @media (min-width: 768px) {
   .app-toast-viewport {
     top: auto;

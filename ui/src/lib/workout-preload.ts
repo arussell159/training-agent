@@ -10,7 +10,7 @@ export const workoutDetailRoute = preloadable(() => import("../components/workou
 export const workoutAnalysisRoute = preloadable(() => import("../components/workout-analysis").then(module => ({ default: module.WorkoutAnalysis })), () => createElement(WorkoutAnalysisSkeleton))
 export const workoutAnalysis360Route = preloadable(() => import("../components/workout-analysis-360").then(module => ({ default: module.WorkoutAnalysis360 })), () => createElement(Analysis360Skeleton))
 export function prepareWorkout(workout: PlannedWorkout, recording = false) {
-  if (workout.app_pending_operation) return
+  if (workout.app_pending_operation || workout.source === "trainingpeaks") return
   prefetchWorkoutValues(workout)
   if (recording && (workout.activity_id || workout.id.startsWith("activity:"))) {
     prefetchWorkoutRecording(workout)

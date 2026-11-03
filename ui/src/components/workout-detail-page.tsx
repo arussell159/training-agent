@@ -2,6 +2,7 @@ import { workoutAnalysisRoute } from "@/lib/workout-preload"
 import { ChartSkeleton } from "@/components/loading-layouts"
 import { DesktopWorkoutHeader } from "@/components/desktop-workout-header"
 import { WorkoutAccountBoundary } from "@/components/workout-account-boundary"
+import { TrainingPeaksWorkoutDetails } from "@/components/trainingpeaks-workout-details"
 import {
   registerWorkoutNavigationGuard,
   bypassWorkoutNavigationGuard,
@@ -440,10 +441,11 @@ export function WorkoutDetailPage({
   workout: PlannedWorkout
   onBack: () => void
 }) {
+  const mobile = useIsMobile()
   return (
     <WorkoutAccountBoundary key={workout.id} onClose={onBack}>
       {(isAccountCurrent) => (
-        <TrustedWorkoutDetailPage
+        workout.source === "trainingpeaks" && !mobile ? <TrainingPeaksWorkoutDetails workout={workout} onBack={onBack} /> : <TrustedWorkoutDetailPage
           workout={workout}
           onBack={onBack}
           isAccountCurrent={isAccountCurrent}
@@ -680,7 +682,13 @@ function TrustedWorkoutDetailPage({
   ].filter((stat) => stat.value && stat.value !== "—")
   const load = formatWorkoutTss(workout)
   const time = workoutTime(workout)
-  const distanceLabel = plannedDistanceLabel(workout)
+  const distanceLabel = workout.source === "trainingpeaks"
+    ? values?.distance_meters == null
+      ? "—"
+      : swim
+        ? `${Math.round(values.distance_meters / 0.9144).toLocaleString("en-US")} yds`
+        : `${(values.distance_meters / 1609.344).toFixed(2)} mi`
+    : plannedDistanceLabel(workout)
   const heroTone =
     workout.status === "completed"
       ? "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100"
@@ -698,6 +706,13 @@ function TrustedWorkoutDetailPage({
   }, [])
 
   const workoutActions = [
+    ...(workout.source === "trainingpeaks" && /^trainingpeaks:[1-9]\d*$/.test(workout.id)
+      ? [{
+          value: "trainingpeaks",
+          label: "Open in TrainingPeaks",
+          onSelect: () => window.open(`https://app.trainingpeaks.com/athlete/workout/${workout.id.split(":")[1]}`, "_blank", "noopener,noreferrer"),
+        }]
+      : []),
     ...(editable
       ? [
           {
@@ -784,6 +799,7 @@ function TrustedWorkoutDetailPage({
   return (
     <div
       style={{ overflowAnchor: "none" }}
+      data-trainingpeaks-workout={workout.source === "trainingpeaks" ? workout.id : undefined}
       className={`min-h-svh w-full max-w-full min-w-0 overflow-x-clip ${mobile && workout.status !== "completed" ? "planned-workout-mobile-page" : "bg-background"}`}
     >
       {workoutFiles.dialogs}
@@ -1262,7 +1278,7 @@ function TrustedWorkoutDetailPage({
                       {time.label}: {time.value}
                     </span>
                     {load !== "—" && <span>{load}</span>}
-                    <span>{plannedDistanceLabel(workout)}</span>
+                    <span>{distanceLabel}</span>
                   </div>
                 </div>
 
@@ -1290,6 +1306,11 @@ function TrustedWorkoutDetailPage({
                         mobileCompact
                         hideTitle
                       />
+                      {workout.source === "trainingpeaks" && Boolean(workout.trainingpeaks_warnings?.length) && (
+                        <p role="status" className="mt-3 text-xs text-muted-foreground">
+                          View this workout's interval chart in TrainingPeaks because its structure cannot be displayed exactly here.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </section>

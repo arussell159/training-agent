@@ -1,5 +1,6 @@
 import { TableSkeleton } from "@/components/loading-layouts"
 import { IntervalsConnection } from "@/components/intervals-connection"
+import { HomePerformanceStatus } from "@/components/home-performance-status"
 import { apiFetch } from "@/lib/api-client"
 import { loadWorkspaceRead } from "@/lib/workspace-reads"
 import { MobileSiteNavbar } from "@/components/ui/mobile-site-navbar"
@@ -24,7 +25,7 @@ import { loadTrainingContext, cachedTrainingContext, rememberTrainingContext, ty
 import { cn } from "@/lib/utils"
 import { validatedTrainingContext } from "@/lib/training-context-validation"
 
-type SettingsSection = "nutrition" | "zones" | "race" | "performance" | "library" | "appearance" | "intervals"
+type SettingsSection = "nutrition" | "zones" | "race" | "performance" | "library" | "appearance" | "intervals" | "load-speed"
 type SettingsItem = { id: SettingsSection; label: string; description: string; icon: LucideIcon }
 type RaceEvent = { id: string; name: string; date: string; priority: string }
 const performanceSports: Array<{ value: PerformanceSport; label: string; icon?: LucideIcon }> = [
@@ -46,6 +47,7 @@ const groups: Array<{ label: string; items: SettingsItem[] }> = [
   { label: "Preferences", items: [
     { id: "intervals", label: "Intervals.icu", description: "Connection and automatic updates", icon: Activity },
     { id: "appearance", label: "Appearance", description: "Light, dark, or system", icon: SunMoon },
+    { id: "load-speed", label: "Home load speed", description: "Measured on this device", icon: Gauge },
   ] },
 ]
 const allItems = groups.flatMap(group => group.items)
@@ -398,6 +400,7 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
   const past = events.filter(event => event.date < today).reverse()
   const currentGoal = upcoming.find(event => event.priority === "A") || upcoming[0] || (context.athlete.race && context.athlete.race_date ? { id: "athlete-current-goal", name: context.athlete.race, date: context.athlete.race_date, priority: "A" } : undefined)
   function summary(id: SettingsSection) {
+    if (id === "load-speed") return "Target 250 ms"
     if (id === "intervals") return "API and live updates"
     if (id === "nutrition") return "Meals, calories and macros"
     if (id === "zones") return context.athlete.zones?.bike_ftp ? `FTP ${context.athlete.zones.bike_ftp} W` : "Edit thresholds"
@@ -508,6 +511,7 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
   }
 
   function renderPanel(id: SettingsSection) {
+    if (id === "load-speed") return <HomePerformanceStatus />
     if (id === "intervals") return <IntervalsConnection />
     const athlete = context.athlete
     if (id === "zones") return <div className="space-y-5">

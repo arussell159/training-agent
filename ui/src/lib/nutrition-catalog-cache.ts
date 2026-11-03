@@ -3,6 +3,7 @@ type CatalogStorage = Pick<
   "getItem" | "setItem" | "removeItem" | "key" | "length"
 >
 const PREFIX = "nutrition-catalog-v1:"
+const maintenanceAt = new WeakMap<CatalogStorage, number>()
 // Keep a margin inside FatSecret's 24-hour removal/re-request requirement and
 // the 23-hour signed serving receipt. Reading never extends retrieval age.
 export const CATALOG_CACHE_TTL = 22 * 60 * 60_000
@@ -34,17 +35,23 @@ export function createNutritionCatalogCache(
       .sort((a, b) => b.savedAt - a.savedAt)
       .slice(80)
       .forEach((row) => storage.removeItem(row.name))
+    maintenanceAt.set(storage, now())
   }
   return {
     get<T>(scope: string, path: string): T | null {
       if (!scope || scope === "initial") return null
       try {
-        removeExpired()
+        // Product hydration creates short-lived cache wrappers. Share the sweep
+        // deadline so opening six visible foods does not parse the full catalog
+        // six times. The requested row still validates its own age every time.
+        const swept = maintenanceAt.get(storage)
+        if (swept === undefined || swept > now() || now() - swept >= 60_000) removeExpired()
         const key = name(scope, path),
           row = JSON.parse(storage.getItem(key) || "null")
         if (
           !row ||
           !Number.isFinite(row.savedAt) ||
+          !Number.isFinite(row.expiresAt) ||
           row.savedAt > now() + 60_000 ||
           row.expiresAt <= now() ||
           now() - row.savedAt >= CATALOG_CACHE_TTL
@@ -80,6 +87,7 @@ export function createNutritionCatalogCache(
       }
     },
     clear() {
+      maintenanceAt.delete(storage)
       try {
         for (let i = storage.length - 1; i >= 0; i--) {
           const key = storage.key(i)

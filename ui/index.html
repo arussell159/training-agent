@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f5f5f7" />
+    <script id="mobile-workspace-resume">
+      // An installed app reopens its last primary workspace without a Home hop.
+      // Only a public route name is retained; authentication still runs normally.
+      (() => {
+        try {
+          if (location.pathname !== '/' || location.search || location.hash ||
+              !(navigator.standalone || window.matchMedia('(display-mode: standalone)').matches)) return;
+          const path = localStorage.getItem('ar-performance:last-mobile-workspace');
+          if (['/nutrition', '/calendar'].includes(path)) history.replaceState(history.state, '', path);
+        } catch { /* Storage and standalone support are optional. */ }
+      })();
+    </script>
     <script>
       // Resolve appearance before CSS, authentication or React can paint.
       (() => {
@@ -93,7 +105,9 @@
         // the entire provider history when the cache can open immediately.
         if (!cached) window.__nutritionStartupRequest = { date, response: startupRead('/api/handler?__api_route=nutrition&date=' + date) };
       }
-      if (location.pathname === '/' && window.matchMedia('(max-width: 767px)').matches) {
+      let preloadHomePhoto = true;
+      try { preloadHomePhoto = localStorage.getItem('ar-performance:mobile-home-layout') !== 'classic'; } catch {}
+      if (location.pathname === '/' && window.matchMedia('(max-width: 767px)').matches && preloadHomePhoto) {
         const image = document.createElement('link');
         image.rel = 'preload'; image.as = 'image'; image.href = '/images/home/finish-texas.webp'; image.fetchPriority = 'high';
         document.head.appendChild(image);

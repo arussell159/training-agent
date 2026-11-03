@@ -65,3 +65,14 @@ test("catalog device storage is bounded and unavailable storage never blocks rea
   assert.equal(unavailable.get("a", "/x"), null)
   assert.doesNotThrow(() => unavailable.set("a", "/x", {}))
 })
+
+test('hot product reads validate their own expiry without reparsing every other food',()=>{
+ const device=storage();let now=1000
+ for(let i=0;i<80;i++)createNutritionCatalogCache(device,()=>now).set('a',`/product?id=${i}`,{i})
+ let reads=0;const original=device.getItem;device.getItem=key=>{reads++;return original(key)}
+ for(let i=0;i<6;i++)assert.deepEqual(createNutritionCatalogCache(device,()=>now).get('a',`/product?id=${i}`),{i})
+ assert.equal(reads,6)
+ now+=CATALOG_CACHE_TTL
+ assert.equal(createNutritionCatalogCache(device,()=>now).get('a','/product?id=0'),null)
+ assert.equal(device.length,0)
+})

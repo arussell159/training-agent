@@ -1,4 +1,5 @@
 import { useEffect } from "react"
+import { bindMobileSheetGesture } from "@/lib/mobile-sheet-gesture"
 
 // The title/handle can always dismiss; the reader can dismiss only at its top.
 // Ordinary reading and horizontal gestures remain native browser scrolling.
@@ -13,6 +14,8 @@ export function useSheetDismiss(
     if (!open) return
     const root = document.getElementById(id)
     if (!root) return
+    if (window.matchMedia("(max-width: 767px)").matches)
+      return bindMobileSheetGesture(root, onClose, { expanded, onExpand })
     let gesture: {
       x: number
       y: number

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { createDesktopPreviewFixtures, validDate } from "./desktop-preview-fixtures.mjs";
 import { createDesktopCalendarPreview } from "./desktop-calendar-preview-fixtures.mjs";
 import { createDesktopNutritionPreview } from "./desktop-nutrition-preview-fixtures.mjs";
+import { nutritionReferenceFixture } from "./nutrition-reference-fixture.mjs";
 import { createWorkoutPersonalService } from "../app-backend/lib/workout-personal.mjs";
 import { resolveApiRoute } from "../app-backend/lib/api-routing.mjs";
 import {parseChartTagFilter} from '../app-backend/lib/chart-tags-model.mjs';
@@ -30,7 +31,8 @@ const delayWrites = process.argv.includes("--delay-writes");
 let rejectNutritionOnce = process.argv.includes("--reject-nutrition-once");
 let rejectWorkoutEditOnce = process.argv.includes("--reject-workout-edit-once");
 if (!Number.isInteger(delayMs) || delayMs < 0 || delayMs > 15000) throw new Error("Invalid preview delay");
-const fixture = createDesktopPreviewFixtures(new Date(), { gps: !process.argv.includes("--no-gps") });
+const baseFixture = createDesktopPreviewFixtures(new Date(), { gps: !process.argv.includes("--no-gps") });
+const fixture = process.argv.includes("--nutrition-reference") ? nutritionReferenceFixture(baseFixture) : baseFixture;
 const calendarPreview = process.argv.includes("--calendar-edits")
   ? createDesktopCalendarPreview(fixture, {loseCreateResponseOnce: process.argv.includes("--lose-create-response-once"),loseCopyResponseOnce:process.argv.includes("--lose-copy-response-once"),rejectMoveOnce:process.argv.includes("--reject-move-once"),staleWorkoutClaims:process.argv.includes("--stale-workout-claims"),loseLibraryScheduleResponseOnce:process.argv.includes("--lose-library-schedule-response-once"),loseCoachScheduleResponseOnce:process.argv.includes("--lose-coach-schedule-response-once"),loseMetricsResponseOnce:process.argv.includes("--lose-metrics-response-once"),loseAnnotationResponseOnce:process.argv.includes("--lose-annotation-response-once")})
   : null;
@@ -123,6 +125,8 @@ const apiReply = (api, url) => {
     )
       return { error: "Invalid preview date range" };
     const source = calendarPreview || fixture;
+    if(api === "training-updates" && url.searchParams.get("version") === source.version)
+      return {unchanged:true,version:source.version};
     const context = scope === "range" ? source.context(start, end, "range") : source.context();
     return api === "training-updates"
       ? { unchanged: false, version: source.version, context }
@@ -279,6 +283,11 @@ const server = http.createServer(async (request, response) => {
       const calendarWrite = calendarPreview?.canWrite(api, request.method);
       const nutritionWrite = nutritionPreview?.canWrite(api, request.method);
       const preferenceWrite = api === "config" && request.method === "POST";
+      if (calendarPreview && api === "trainingpeaks/planned" && request.method === "POST") {
+        if (delayWrites && delayedApis.includes(api) && delayMs)
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        return json({enabled: true, count: 0, lastSyncedAt: new Date().toISOString(), error: null});
+      }
       if (
         request.method !== "GET" &&
         !calendarWrite &&
@@ -334,7 +343,7 @@ const server = http.createServer(async (request, response) => {
         "Content-Type": "text/javascript; charset=utf-8",
         "Service-Worker-Allowed": "/",
       });
-      return response.end(request.method === "HEAD" ? undefined : safeWorker);
+      return response.end(request.method === "HEAD" ? undefined : process.argv.includes("--production-worker") ? await fs.readFile(path.join(dist,"sw.js"),"utf8") : safeWorker);
     }
     if (url.pathname === "/__preview/health")
       return json({

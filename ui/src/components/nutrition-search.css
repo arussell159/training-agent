@@ -1,0 +1,113 @@
+/* Search layout retained; diary styles use the original nutrition.css. */
+.nutrition-surface .nutrition-food-thumbnail-plain {
+  display: grid;
+  place-items: center;
+  flex: 0 0 46px;
+  width: 46px;
+  height: 46px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--nutrition-background);
+  color: var(--foreground);
+  overflow: hidden;
+}
+.nutrition-surface .nutrition-food-thumbnail-plain img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.nutrition-screen .nutrition-library-tabs {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  border-bottom: 1px solid var(--border);
+  gap: 0;
+  min-height: 42px;
+}
+.nutrition-screen .nutrition-library-tabs .mobile-filter-tab-pill,
+.nutrition-screen .nutrition-library-tabs .mobile-filter-tab-pill.is-active {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.nutrition-screen
+  .nutrition-library-tabs
+  .mobile-filter-tab-pill[aria-selected="true"] {
+  border-bottom-color: var(--primary);
+}
+.nutrition-screen .nutrition-library-tabs > button {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  min-height: 42px;
+  padding: 8px 0;
+  border-bottom: 2px solid transparent;
+  font-size: 15px;
+  color: var(--muted-foreground);
+}
+.nutrition-screen .nutrition-library-tabs > button[aria-selected="true"] {
+  border-color: var(--primary);
+  color: var(--foreground);
+  font-weight: 600;
+}
+.nutrition-screen .nutrition-searchbar input[type="search"],
+.nutrition-screen .nutrition-searchbar .searchbar-input-wrap {
+  border-radius: 5px;
+  box-shadow: none;
+}
+.nutrition-search-recent-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.4px;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+}
+.nutrition-screen .nutrition-result {
+  gap: 4px;
+  padding: 10px 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.nutrition-result-list {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+.nutrition-result .nutrition-search-food-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+.nutrition-result .nutrition-search-summary {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+.nutrition-result .nutrition-row-action {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  color: var(--nutrition-calories);
+}
+.nutrition-typed-entry-link {
+  display: block;
+  margin: 12px 0 0;
+  text-align: right;
+  font-size: 12px;
+  color: var(--primary);
+}

@@ -68,6 +68,7 @@ export function createShellManifest(
         ...new Set([
           ...dependencies(chunk.fileName),
           ...(calendar ? calendarAssets() : []),
+          ...(name === "training-dashboard" ? chunks.filter(item => isModule(item,"section-cards")).flatMap(item => [...dependencies(item.fileName)]) : []),
         ]),
       ].filter((file) => !base.has(file))
     )
@@ -81,6 +82,7 @@ export function createShellManifest(
         moduleFiles(name, ["/calendar", "/week"].includes(route)),
       ])
     ),
+    startup: Object.fromEntries(Object.entries(routes).map(([route, name]) => [route, moduleFiles(name)])),
     details: Object.fromEntries(
       Object.entries(details).map(([query, name]) => [query, moduleFiles(name)])
     ),
@@ -96,7 +98,8 @@ export function shellManifestPlugin() {
       const html = bundle["index.html"]
       if (!html || html.type !== "asset")
         throw Error("The app shell HTML is missing.")
-      const source = JSON.stringify(createShellManifest(bundle))
+      const manifest = createShellManifest(bundle)
+      const source = JSON.stringify(manifest)
       const hash = createHash("sha256")
         .update(source)
         .digest("hex")
@@ -105,8 +108,21 @@ export function shellManifestPlugin() {
       this.emitFile({ type: "asset", fileName, source })
       html.source = String(html.source).replace(
         "</head>",
-        `<meta name="training-shell-manifest" content="/${fileName}">\n</head>`
+        `<meta name="training-shell-manifest" content="/${fileName}">\n${classicHomePreloads(manifest)}\n${workspacePreloads(manifest)}\n</head>`
       )
     },
   }
+}
+
+// Discover the selected Home's lazy assets while the main bundle downloads.
+// Module preloads fetch/compile only; authentication still owns rendering.
+export function classicHomePreloads(manifest) {
+  const assets=(manifest.routes["/"] || []).filter(file => /\.(?:js|css)$/.test(file))
+  return `<script>(()=>{try{if(location.pathname!=='/'||!window.matchMedia('(max-width: 767px)').matches||localStorage.getItem('ar-performance:mobile-home-layout')!=='classic')return;for(const href of ${JSON.stringify(assets)}){const link=document.createElement('link');link.rel=href.endsWith('.css')?'stylesheet':'modulepreload';link.href=href;link.crossOrigin='';document.head.appendChild(link)}}catch{}})();</script>`
+}
+
+// Start only the active mobile workspace, excluding Calendar's deferred editors.
+export function workspacePreloads(manifest) {
+  const routes = Object.fromEntries(["/nutrition", "/calendar", "/week"].map(route => [route, (manifest.startup?.[route] || []).filter(file => /\.(?:js|css)$/.test(file))]))
+  return `<script>(()=>{try{if(!window.matchMedia('(max-width: 767px)').matches)return;const path=location.pathname.replace(/\\/+$/,'')||'/';for(const href of (${JSON.stringify(routes)})[path]||[]){const link=document.createElement('link');link.rel=href.endsWith('.css')?'stylesheet':'modulepreload';link.href=href;link.crossOrigin='';document.head.appendChild(link)}}catch{}})();</script>`
 }

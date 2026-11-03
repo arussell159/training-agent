@@ -584,7 +584,7 @@ export function nutritionChanged(broadcast = true) {
   window.dispatchEvent(new Event("nutrition-updated"))
 }
 /** Publish the confirmed diary directly instead of rehydrating its entire history. */
-export function commitNutritionView(value: NutritionView, broadcast = true) {
+export function commitNutritionView(value: NutritionView, broadcast = true, pendingWrite = false) {
   const view = validatedNutritionView(value, value.date),
     scope = deviceCacheScope()
   const current = cachedNutrition(view.date)
@@ -645,7 +645,7 @@ export function commitNutritionView(value: NutritionView, broadcast = true) {
     /* Optional broadcast. */
   }
   window.dispatchEvent(
-    new CustomEvent("nutrition-updated", { detail: { confirmed: true } })
+    new CustomEvent("nutrition-updated", { detail: { confirmed: !pendingWrite, pending:pendingWrite } })
   )
   return confirmed
 }
@@ -792,8 +792,8 @@ export function useNutrition(date: string) {
     }
     read()
     const update = (event: Event) => {
-      const saved = (event as CustomEvent<{ confirmed?: boolean }>).detail
-        ?.confirmed
+      const detail = (event as CustomEvent<{ confirmed?: boolean; pending?:boolean }>).detail
+      const saved = (detail?.confirmed || detail?.pending)
         ? cachedNutrition(date)
         : null
       if (saved) {

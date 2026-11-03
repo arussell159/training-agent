@@ -8,6 +8,7 @@ import {
 import { flushSync } from "react-dom"
 import { loadFullTrainingContext } from "@/lib/training-context"
 import "./nutrition.css"
+import "./nutrition-refinements.css"
 import { LoaderCircle, Pencil, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,6 +17,11 @@ import { Card } from "@/components/ui/card"
 import { NutritionScreen, nutritionSaveClass } from "./nutrition-screen"
 import { NutritionDateHeader } from "./nutrition-date-header"
 import { FoodThumbnail } from "./food-thumbnail"
+import {
+  NutritionFoodClipboard,
+  DiaryFoodActions,
+  MealPasteSelect,
+} from "./nutrition-native-actions"
 import { NutritionComposer, type EntryMode } from "./nutrition-composer"
 import {
   displayNutrient,
@@ -23,6 +29,7 @@ import {
   meals,
   nutritionChanged,
   commitNutritionView,
+  cachedNutrition,
   beginNutritionWrite,
   validatedNutritionView,
   nutritionRequest,
@@ -48,6 +55,10 @@ import {
 } from "@/lib/pending-nutrition-write"
 import { loadFoodLibrary } from "@/lib/nutrition-read-cache"
 import { performanceProbe } from "@/lib/performance-probe"
+import {
+  enqueueNutritionAdd,
+  nutritionAddStatus,
+} from "@/lib/nutrition-add-queue"
 import {
   calorieGoal,
   dailyTargets,
@@ -234,10 +245,12 @@ function TargetEditor({
 
 export function NutritionPage({
   onBack,
+  onHome = onBack,
   returnLabel,
   quickAddRequest = 0,
 }: {
   onBack: () => void
+  onHome?: () => void
   returnLabel: string
   quickAddRequest?: number
 }) {
@@ -256,6 +269,19 @@ export function NutritionPage({
   }, [])
   const [date, setDate] = useState(nutritionToday),
     { data, error, loading, reload, setData } = useNutrition(date)
+  const [queued, setQueued] = useState(false)
+  useEffect(() => {
+    const update = () => {
+      try {
+        setQueued(nutritionAddStatus().pending > 0)
+      } catch {
+        setQueued(false)
+      }
+    }
+    update()
+    window.addEventListener("nutrition-add-status", update)
+    return () => window.removeEventListener("nutrition-add-status", update)
+  }, [])
   const [composer, setComposer] = useState<{
       mode: EntryMode
       meal: Meal
@@ -331,9 +357,11 @@ export function NutritionPage({
     action: "add" | "update" | "delete",
     entries?: FoodEntry[],
     id?: string,
-    operationId: string = randomId()
+    operationId: string = randomId(),
+    accepted?: () => void
   ) {
-    if (!data) throw Error("Wait for your food log to load.")
+    if (!data || data.date !== date)
+      throw Error("Wait for your food log to load.")
     if (writeLock.current) throw Error("A food entry is already being saved.")
     const projected = validatedNutritionView(
       projectNutritionChange(data, action, entries, id),
@@ -356,12 +384,15 @@ export function NutritionPage({
         revision: data.day.revision,
       }
       const prior = pendingNutritionWrite(localStorage, scope)
-      const result = await submitNutritionWrite(
+      const submission = submitNutritionWrite(
         localStorage,
         scope,
         prior?.operationId === operationId ? prior : input,
         (payload) => nutritionRequest<NutritionWriteResult>("/entries", payload)
       )
+      commitNutritionView(projected, false, true)
+      accepted?.()
+      const result = await submission
       if (scope !== deviceCacheScope())
         throw Error(
           "Your account changed during this save. Reopen the original account to confirm it."
@@ -415,6 +446,10 @@ export function NutritionPage({
       setRetainedWrite(null)
     } catch (error) {
       if (scope === deviceCacheScope()) {
+        if (
+          [400, 409, 422].includes((error as { status?: number }).status || 0)
+        )
+          commitNutritionView(previous, false)
         setData((current) =>
           current?.date === date && current.day.revision <= data.day.revision
             ? previous
@@ -529,9 +564,20 @@ export function NutritionPage({
                   nutritionSwipe.current = null
                 }}
               >
-                <h2 className="nutrition-overview-title">
-                  Calories &amp; Macros
-                </h2>
+                <div className="nutrition-overview-heading">
+                  <h2 className="nutrition-overview-title">
+                    Calories &amp; Macros
+                  </h2>
+                  <button
+                    type="button"
+                    className="nutrition-overview-add"
+                    aria-label="Add food"
+                    title="Add food to the current meal"
+                    onClick={() => add("write", suggestedMeal())}
+                  >
+                    <Plus className="size-5" />
+                  </button>
+                </div>
                 {progressMetrics.map(({ key, label, color }) => {
                   const goal = resolvedTargets![key]
                   const left = goal == null ? null : goal - totals[key]
@@ -742,116 +788,138 @@ export function NutritionPage({
                 </Card>
               </div>
             </div>
-            <section
-              className="nutrition-meals space-y-3 lg:grid lg:grid-cols-2 lg:gap-5 lg:space-y-0 xl:gap-6"
-              aria-label="Daily meals"
-            >
-              <div className="pt-1 lg:col-span-2 lg:pb-1">
-                <h2 className="text-lg font-semibold">Your meals</h2>
-              </div>
-              {meals.map((meal) => {
-                const entries = data.day.entries.filter((e) => e.meal === meal),
-                  subtotal = foodTotals(entries)
-                return (
-                  <Card
-                    key={meal}
-                    className="nutrition-meal-card gap-0 overflow-hidden py-0"
-                  >
-                    <div className="nutrition-meal-header p-4">
-                      <h3 className="text-lg font-semibold">
-                        {titleCase(meal)}
-                      </h3>
-                      <div
-                        className="nutrition-meal-totals"
-                        aria-label={`${titleCase(meal)} totals`}
-                      >
-                        {progressMetrics.map(({ key, short, color }) => (
-                          <span key={key}>
-                            <i style={{ background: color }} />
-                            {displayNutrient(subtotal[key])} {short}
-                          </span>
-                        ))}
-                      </div>
-                      <Button
-                        variant="secondary"
-                        size="icon-sm"
-                        className="rounded-full"
-                        aria-label={`Add ${meal}`}
-                        disabled={mutating}
-                        onClick={() => add("write", meal)}
-                      >
-                        <Plus />
-                      </Button>
-                    </div>
-                    {entries.length ? (
-                      <div className="divide-y border-t">
-                        {entries.map((entry) => (
-                          <div
-                            key={entry.id}
-                            className="nutrition-diary-row flex items-center gap-3 px-4 py-4"
-                          >
-                            <button
-                              type="button"
-                              className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                              onClick={() => {
-                                setComposer({
-                                  mode: "manual",
-                                  meal: entry.meal,
-                                  existing: entry,
-                                })
-                              }}
-                              disabled={mutating}
-                              aria-label={`Edit ${titleCase(entry.name)}`}
-                            >
-                              <FoodThumbnail
-                                name={entry.name}
-                                imageUrl={entry.imageUrl}
-                              />
-                              <span className="min-w-0 flex-1">
-                                <span className="nutrition-food-name block text-base font-medium">
-                                  {titleCase(entry.name)}
-                                </span>
-                                <span className="nutrition-food-portion mt-0.5 block text-[13px] text-muted-foreground">
-                                  {portionLabel(entry)}
-                                  {entry.source === "ai" ? " · estimated" : ""}
-                                </span>
-                                <span className="nutrition-food-macros mt-1 flex max-w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-medium tabular-nums">
-                                  {progressMetrics.map(
-                                    ({ key, short, color }) => (
-                                      <span
-                                        key={key}
-                                        className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap"
-                                      >
-                                        <span
-                                          className="size-2 rounded-full"
-                                          style={{ background: color }}
-                                          aria-hidden="true"
-                                        />
-                                        {displayNutrient(entry[key])} {short}
-                                      </span>
-                                    )
-                                  )}
-                                </span>
-                              </span>
-                              <Pencil className="hidden size-3 text-muted-foreground sm:block" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => add("write", meal)}
-                        className="border-t border-dashed px-4 py-4 text-left text-xs text-muted-foreground"
-                      >
-                        Nothing logged yet. Add your{" "}
-                        {meal === "snacks" ? "snacks" : meal}.
-                      </button>
-                    )}
-                  </Card>
+            <NutritionFoodClipboard
+              date={date}
+              busy={mutating || queued || loading || data.date !== date}
+              onPaste={async (entries) =>
+                enqueueNutritionAdd(
+                  cachedNutrition(date) || data,
+                  entries,
+                  randomId()
                 )
-              })}
-            </section>
+              }
+              onDelete={remove}
+              onError={setMutationError}
+            >
+              <section
+                className="nutrition-meals space-y-3 lg:grid lg:grid-cols-2 lg:gap-5 lg:space-y-0 xl:gap-6"
+                aria-label="Daily meals"
+              >
+                <div className="pt-1 lg:col-span-2 lg:pb-1">
+                  <h2 className="text-lg font-semibold">Your meals</h2>
+                </div>
+                {meals.map((meal) => {
+                  const entries = data.day.entries.filter(
+                      (e) => e.meal === meal
+                    ),
+                    subtotal = foodTotals(entries)
+                  return (
+                    <Card
+                      key={meal}
+                      className="nutrition-meal-card gap-0 overflow-hidden py-0"
+                    >
+                      <div className="nutrition-meal-header p-4">
+                        <MealPasteSelect meal={meal} />
+                        <h3 className="text-lg font-semibold">
+                          {titleCase(meal)}
+                        </h3>
+                        <div
+                          className="nutrition-meal-totals"
+                          aria-label={`${titleCase(meal)} totals`}
+                        >
+                          {progressMetrics.map(({ key, short, color }) => (
+                            <span key={key}>
+                              <i style={{ background: color }} />
+                              {displayNutrient(subtotal[key])} {short}
+                            </span>
+                          ))}
+                        </div>
+                        <Button
+                          variant="secondary"
+                          size="icon-sm"
+                          className="rounded-full"
+                          aria-label={`Add ${meal}`}
+                          disabled={mutating}
+                          onClick={() => add("write", meal)}
+                        >
+                          <Plus />
+                        </Button>
+                      </div>
+                      {entries.length ? (
+                        <div className="divide-y border-t">
+                          {entries.map((entry) => (
+                            <div
+                              key={entry.id}
+                              className="nutrition-diary-row flex items-center gap-3 px-4 py-4"
+                            >
+                              <DiaryFoodActions
+                                entry={entry}
+                                disabled={
+                                  mutating ||
+                                  queued ||
+                                  loading ||
+                                  data.date !== date
+                                }
+                                onOpen={() =>
+                                  setComposer({
+                                    mode: "manual",
+                                    meal: entry.meal,
+                                    existing: entry,
+                                  })
+                                }
+                              >
+                                <FoodThumbnail
+                                  name={entry.name}
+                                  imageUrl={entry.imageUrl}
+                                />
+                                <span className="min-w-0 flex-1">
+                                  <span className="nutrition-food-name block text-base font-medium">
+                                    {titleCase(entry.name)}
+                                  </span>
+                                  <span className="nutrition-food-portion mt-0.5 block text-[13px] text-muted-foreground">
+                                    {portionLabel(entry)}
+                                    {entry.source === "ai"
+                                      ? " · estimated"
+                                      : ""}
+                                  </span>
+                                  <span className="nutrition-food-macros mt-1 flex max-w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-medium tabular-nums">
+                                    {progressMetrics.map(
+                                      ({ key, short, color }) => (
+                                        <span
+                                          key={key}
+                                          className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap"
+                                        >
+                                          <span
+                                            className="size-2 rounded-full"
+                                            style={{ background: color }}
+                                            aria-hidden="true"
+                                          />
+                                          {displayNutrient(entry[key])} {short}
+                                        </span>
+                                      )
+                                    )}
+                                  </span>
+                                </span>
+                                <Pencil className="hidden size-3 text-muted-foreground sm:block" />
+                              </DiaryFoodActions>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => add("write", meal)}
+                          className="border-t border-dashed px-4 py-4 text-left text-xs text-muted-foreground"
+                        >
+                          Nothing logged yet. Add your{" "}
+                          {meal === "snacks" ? "snacks" : meal}.
+                        </button>
+                      )}
+                    </Card>
+                  )
+                })}
+              </section>
+            </NutritionFoodClipboard>
             {deleted && (
               <div
                 role="status"
@@ -889,14 +957,31 @@ export function NutritionPage({
           date={date}
           aiAvailable={data?.aiAvailable}
           onClose={() => setComposer(null)}
-          onSave={async (entries, operationId) =>
-            change(
-              composer.existing ? "update" : "add",
-              entries,
-              undefined,
-              operationId
-            )
-          }
+          onReturnToSearch={() => setComposer({ mode: "search", meal: composer.meal })}
+          onSave={async (entries, operationId, returnHome = false) => {
+            const home = () => {
+              setComposer(null)
+              onHome()
+            }
+            if (composer.existing)
+              await change(
+                "update",
+                entries,
+                undefined,
+                operationId,
+                returnHome ? home : undefined
+              )
+            else {
+              const view = cachedNutrition(date) || data || date
+              if (typeof view !== "string")
+                validatedNutritionView(
+                  projectNutritionChange(view, "add", entries),
+                  date
+                )
+              enqueueNutritionAdd(view, entries, operationId)
+              if (returnHome) home()
+            }
+          }}
           onMoveExisting={async (nextMeal) => {
             if (!composer.existing) return
             await change("update", [{ ...composer.existing, meal: nextMeal }])

@@ -1,5 +1,7 @@
 import { PageSkeleton } from "@/components/loading-layouts"
 import { cn } from "@/lib/utils"
+import { apiFetch } from "@/lib/api-client"
+import { markHomeNavigation } from "@/lib/home-performance"
 import { installRouteScrollRestoration } from "@/lib/route-scroll-restoration"
 import { appRouteItem as routeItem } from "@/lib/app-route"
 import { restoreReportReader } from "@/lib/report-navigation"
@@ -94,7 +96,7 @@ import { useMobileViewport } from "@/hooks/use-mobile-viewport"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
   cachedTrainingContext,
-  refreshRecentIntervals,
+  loadTrainingContext,
   type PlannedWorkout,
 } from "@/lib/training-context"
 import {
@@ -318,6 +320,11 @@ function AppWorkspace() {
     workoutRouteId() ? null : restoreReportReader()
   )
   const [activeItem, setActiveItem] = useState<string>(routeItem)
+  useEffect(() => {
+    if (!window.matchMedia("(max-width: 767px)").matches) return
+    const path = activeItem === "Nutrition" ? "/nutrition" : activeItem === "Calendar" ? "/calendar" : activeItem === "Home" ? "/" : null
+    if (path) try { localStorage.setItem("ar-performance:last-mobile-workspace", path) } catch { /* Optional launch preference. */ }
+  }, [activeItem])
   const desktopReports = activeItem === "Workout Reports" && !mobileTerms && !selectedReport
   useEffect(() => {
     if (activeItem !== "Home") return
@@ -431,33 +438,29 @@ function AppWorkspace() {
     []
   )
   const isCoachPage = activeItem === "Coach"
-  const refreshIntervals = useCallback(() => {
+  const refreshPlans = useCallback(() => {
     if (refreshRequest.current) return refreshRequest.current
     setIsRefreshing(true)
     const request = (async () => {
       try {
-        const { queue } = await refreshRecentIntervals()
-        if (queue.unknown > 0) {
-          toastManager.add({
-            type: "warning",
-            title: "A workout edit still needs verification",
-            description:
-              "Intervals.icu has not confirmed the edit. Check your calendar before retrying.",
-            timeout: 10000,
-          })
-        } else if (queue.failed > 0) {
-          toastManager.add({
-            type: "warning",
-            title: "A workout edit could not sync",
-            description:
-              "Your saved draft remains available. Check the Intervals.icu connection and refresh again.",
-            timeout: 10000,
-          })
-        }
+        const response = await apiFetch("/api/trainingpeaks/planned", {
+          method: "POST",
+        })
+        const result = await response.json()
+        if (!response.ok || result.error)
+          throw Error(
+            result.error || "The saved plan could not refresh. Please try again."
+          )
+        await loadTrainingContext(true, "full", true)
+        toastManager.add({
+          type: "success",
+          title: "TrainingPeaks plans refreshed",
+          timeout: 3000,
+        })
       } catch (error) {
         toastManager.add({
           type: "error",
-          title: "Training data could not refresh",
+          title: "TrainingPeaks plans could not refresh",
           description:
             error instanceof Error ? error.message : "Please try again.",
           timeout: 6000,
@@ -628,6 +631,7 @@ function AppWorkspace() {
           !quickAdd
         )
           return
+        if(item === "Home")markHomeNavigation()
         setNavigationItem(item)
         preloadPage(item)
         routeScrollTarget.current = 0
@@ -776,7 +780,7 @@ function AppWorkspace() {
     <MobileDefinitionsOpen.Provider value={mobileTerms && termsOpen}>
       <MobileHeaderNavigation.Provider
         value={async () => {
-          await refreshIntervals()
+          await refreshPlans()
         }}
       >
         <BackgroundSync />
@@ -959,12 +963,12 @@ function AppWorkspace() {
                   <DropdownMenuItem
                     disabled={isRefreshing}
                     className="whitespace-nowrap"
-                    onClick={() => void refreshIntervals()}
+                    onClick={() => void refreshPlans()}
                   >
                     <RefreshCw
                       className={isRefreshing ? "animate-spin" : undefined}
                     />
-                    Refresh Intervals.icu
+                    {isRefreshing ? "Refreshing…" : "Refresh plans"}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -1117,6 +1121,7 @@ function AppWorkspace() {
                   ) : activeItem === "Nutrition" ? (
                     <NutritionPage
                       key={nutritionQuickAddRequest}
+                      onHome={()=>selectItem("Home")}
                       onBack={() => selectItem(nutritionReturnRoute.current)}
                       returnLabel={
                         nutritionReturnRoute.current === "Settings"
@@ -1136,6 +1141,8 @@ function AppWorkspace() {
                       onWorkoutOpen={openWorkout}
                       restoreScrollTop={calendarReturnScroll}
                       onScrollRestored={clearCalendarReturnScroll}
+                      onRefreshPlans={refreshPlans}
+                      refreshingPlans={isRefreshing}
                     />
                   ) : isCoachPage ? (
                     <CoachPage />

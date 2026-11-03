@@ -85,6 +85,11 @@ export function BackgroundSync() {
         .catch(() => {}).finally(() => { syncing = false })
     }
     resume()
+    // TrainingPeaks has no push notification on this read-only connection.
+    // Refresh its saved plan in the background while the app is visible.
+    const plannedTimer=window.setInterval(()=>{
+      if(visible())void apiFetch('/api/trainingpeaks/planned').catch(()=>{})
+    },5*60_000)
     window.addEventListener('online', resume)
     window.addEventListener('offline', resume)
     window.addEventListener('pageshow', resume)
@@ -92,6 +97,7 @@ export function BackgroundSync() {
     window.addEventListener('request-background-sync', edited)
     return () => {
       active = false
+      window.clearInterval(plannedTimer)
       controller.abort()
       scheduler.stop()
       disconnect()

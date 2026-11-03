@@ -146,6 +146,16 @@ export function createDesktopNutritionPreview(fixture) {
         return view;
       }
       if (api === "nutrition/search") return { products: matches(url.searchParams.get("q") || "") };
+      if (api === "nutrition/summary") {
+        const start=url.searchParams.get("start"),end=url.searchParams.get("end");
+        if(!validDate(start)||!validDate(end))return {error:"Choose valid dates."};
+        const count=Math.round((Date.parse(end)-Date.parse(start))/86400000)+1;
+        if(count<1||count>366)return {error:"Choose 1–366 days."};
+        return {start,end,days:Array.from({length:count},(_,index)=>{
+          const date=new Date(Date.parse(start+"T12:00:00Z")+index*86400000).toISOString().slice(0,10),view=fixture.nutrition(date);
+          return {date,targets:view.targets,logged:getDay(date).entries.length>0,totals:totals(getDay(date).entries)};
+        })};
+      }
       if (api === "nutrition/product") {
         const product = products.find((product) => product.code === url.searchParams.get("id"));
         return product ? { product } : { error: "Sample food not found." };

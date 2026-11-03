@@ -24,6 +24,8 @@ import "../src/styles/framework7-navbar.less"
 import "../src/styles/mobile-glass-actions.css"
 import "../src/styles/mobile-bottom-nav.css"
 import "../src/styles/mobile-dashboard.css"
+import "../src/styles/mobile-native-tabbar.css"
+import "../src/styles/mobile-native-header.css"
 
 // eslint-disable-next-line react-hooks/rules-of-hooks
 Framework7.use([Framework7React, Searchbar, Calendar, Picker, Sheet, Accordion])

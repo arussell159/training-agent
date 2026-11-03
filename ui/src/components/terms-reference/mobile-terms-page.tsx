@@ -1,4 +1,5 @@
 import "@/lib/framework7-searchbar"
+import "@/lib/framework7-sheet"
 import {
   useCallback,
   useEffect,

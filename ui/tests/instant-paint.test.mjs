@@ -35,6 +35,27 @@ test('reports bootstrap respects saved date filters and a fresh device archive',
   assert.equal(run('all',{version:'saved-v1',expires:Date.now()+60_000}).filter(url=>url.searchParams.get('__api_route')==='workout-history').length,0)
   assert.equal(run('all',{version:'different-user-or-version',expires:Date.now()+60_000}).filter(url=>url.searchParams.get('__api_route')==='workout-history').length,1)
 })
+test('mobile Home preloads its hero only for the selected photo layout, including unavailable storage', () => {
+  const startup = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(match => match[1]).find(value => value.includes('__trainingSessionRequest'))
+  function images(layout) {
+    const links=[]
+    runInNewContext(startup, {
+      window:{matchMedia:()=>({matches:true})},location:{pathname:'/'},
+      localStorage:{getItem:key=>{if(layout==='blocked')throw Error('Unavailable');return key==='ar-performance:mobile-home-layout'?layout:null}},
+      document:{createElement:()=>({}),head:{appendChild:link=>links.push(link)}},
+      AbortController,Response,DOMException,setTimeout,clearTimeout,Intl,Date,encodeURIComponent,
+      fetch:()=>Promise.resolve(null),
+    })
+    return links
+  }
+  assert.equal(images('classic').length,0)
+  for(const layout of ['redesign',null,'blocked']) {
+    const links=images(layout)
+    assert.equal(links.length,1)
+    assert.equal(links[0].href,'/images/home/finish-texas.webp')
+    assert.equal(links[0].fetchPriority,'high')
+  }
+})
 function boot(styles = [], pathname = '/') {
   const events = new Map(), timers = new Map()
   let removed = false, ready = false
@@ -130,3 +151,12 @@ test('a cold route commits its local skeleton instead of suspending the surround
   await route.preload();
   assert.match(render(),/<p>Ready<\/p>/);
 });
+
+test('installed reopen resumes only a primary workspace and preserves explicit links',()=>{
+ const resume=html.match(/<script id="mobile-workspace-resume">([\s\S]*?)<\/script>/)[1]
+ for(const [saved,standalone,pathname,search,hash,expected] of [['/nutrition',true,'/','','','/nutrition'],['/calendar',true,'/','','','/calendar'],['/nutrition',false,'/','','',null],['https://evil.test',true,'/','','',null],['/nutrition',true,'/calendar','','',null],['/nutrition',true,'/','?workout=12','',null],['/nutrition',true,'/','','#link',null]]){
+  let destination=null
+  runInNewContext(resume,{location:{pathname,search,hash},navigator:{standalone},window:{matchMedia:()=>({matches:false})},localStorage:{getItem:()=>saved},history:{state:null,replaceState:(_state,_title,path)=>destination=path}})
+  assert.equal(destination,expected)
+ }
+})

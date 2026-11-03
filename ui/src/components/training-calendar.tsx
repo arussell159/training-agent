@@ -58,6 +58,7 @@ import {
 } from "@/components/desktop-calendar-week-actions"
 import { WorkoutSummary } from "@/components/workout-summary"
 import { DesktopWorkoutDetails } from "@/components/desktop-workout-details"
+import { TrainingPeaksWorkoutDetails } from "@/components/trainingpeaks-workout-details"
 import { WorkoutAccountBoundary } from "@/components/workout-account-boundary"
 import { useWorkoutAccountBoundary } from "@/hooks/use-workout-account-boundary"
 import {
@@ -133,6 +134,7 @@ import {
   Menu,
   X,
   RefreshCw,
+  Ellipsis,
   Trash2,
   ChevronLeft,
   ChevronRight,
@@ -895,6 +897,8 @@ function CalendarWeekViewport({
 }
 
 type TrainingCalendarProps = {
+  onRefreshPlans: () => Promise<void>
+  refreshingPlans: boolean
   onWorkoutOpen?: (workout: PlannedWorkout) => void
   restoreScrollTop?: number | null
   onScrollRestored?: () => void
@@ -919,6 +923,8 @@ export function TrainingCalendar(props: TrainingCalendarProps) {
 }
 
 function TrustedTrainingCalendar({
+  onRefreshPlans,
+  refreshingPlans,
   onWorkoutOpen,
   restoreScrollTop = null,
   onScrollRestored,
@@ -3133,37 +3139,19 @@ function TrustedTrainingCalendar({
               </Button>
             </div>
             <div className="calendar-desktop-tools ml-auto">
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label="Refresh Intervals.icu"
-                title="Refresh Intervals.icu"
-                disabled={moving}
-                onClick={async () => {
-                  if (!acquireCalendarMutation()) return
-                  try {
-                    const result = await refreshRecentIntervals((progress) =>
-                      setMoveNotice(progress.label)
-                    )
-                    setContext(result.context)
-                    setMoveNotice(
-                      result.queue.failed || result.queue.unknown
-                        ? "Calendar refreshed. Some earlier edits still need confirmation in Settings."
-                        : "Calendar refreshed from Intervals.icu."
-                    )
-                  } catch (error) {
-                    setMoveNotice(
-                      error instanceof Error
-                        ? error.message
-                        : "Calendar refresh could not be confirmed."
-                    )
-                  } finally {
-                    releaseCalendarMutation()
-                  }
-                }}
-              >
-                <RefreshCw className={moving ? "animate-spin" : ""} />
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger render={
+                  <Button type="button" size="icon-sm" variant="ghost" aria-label="Calendar options" title="Calendar options" />
+                }>
+                  <Ellipsis />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem disabled={moving || refreshingPlans} onClick={() => void onRefreshPlans()}>
+                    <RefreshCw className={refreshingPlans ? "animate-spin" : ""} />
+                    {refreshingPlans ? "Refreshing…" : "Refresh plans"}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </header>
         )}
@@ -3597,6 +3585,7 @@ function TrustedTrainingCalendar({
                                           moving ||
                                           (!workout.id.startsWith("event:") &&
                                             !workout.id.startsWith("app:") &&
+                                            workout.source !== "trainingpeaks" &&
                                             !(
                                               workout.status === "completed" &&
                                               workout.id.startsWith(
@@ -4118,7 +4107,7 @@ export function WorkoutDialog({
       onClose={() => onOpenChange(false)}
     >
       {(isAccountCurrent) => (
-        <TrustedWorkoutDialog
+        workout.source === "trainingpeaks" ? <Dialog open onOpenChange={onOpenChange}><DialogContent finalFocus={finalFocus} className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>{workout.title}</DialogTitle><DialogDescription>Planned workout from TrainingPeaks</DialogDescription></DialogHeader><TrainingPeaksWorkoutDetails workout={workout} /></DialogContent></Dialog> : <TrustedWorkoutDialog
           workout={workout}
           onOpenChange={onOpenChange}
           showWorkoutProfile={showWorkoutProfile}

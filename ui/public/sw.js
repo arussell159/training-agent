@@ -251,11 +251,14 @@ async function readyShell(cache, url) {
   const assets = requiredAssets(state.manifest, url)
   if (!assets || assets.some((asset) => !state.assets.includes(asset)))
     return null
-  return (await Promise.all(assets.map((path) => match(cache, path)))).every(
-    Boolean
-  )
-    ? cached
-    : null
+  try {
+    // One cache index read proves the same required assets are present without
+    // opening/cloning dozens of response bodies on every cold app launch.
+    const present = new Set((await cache.keys()).map(request => request.url))
+    return assets.every(path => present.has(new URL(path, self.location.origin).href)) ? cached : null
+  } catch {
+    return null
+  }
 }
 async function legacyShell() {
   try {

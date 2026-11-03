@@ -8,6 +8,7 @@ import { retainRecentTrainingContext } from "./training-retention.mjs";
 import { syncRevision } from "./sync-record-revision.mjs";
 import { isCalendarMetricsEntries } from "./calendar-metrics-model.mjs";
 import { annotationOverlapsRange } from "./calendar-annotations-model.mjs";
+import { overlayTrainingPeaksPlans } from "./trainingpeaks-planned.mjs";
 
 export const fastViewId = (config, scope = "full") =>
   `view:v1:${providerConnection(config)}:${scope === "week" ? "startup" : "training"}`;
@@ -89,6 +90,9 @@ export function projectTrainingContext(context, scope = "week", now = new Date()
     wellness: context.wellness,
     history,
     planned,
+    ...(context.planned_source
+      ? { planned_source: context.planned_source, planned_sync: context.planned_sync }
+      : {}),
     wellness_history: (context.wellness_history || [])
       .filter((w) => scope === "full" || w.date >= shift(-30))
       .map((row) =>
@@ -136,7 +140,7 @@ export function prepareFastView(config, context) {
   return full;
 }
 export async function saveFastView(config, store, context, { atomic = true } = {}) {
-  const full = prepareFastView(config, context);
+  const full = prepareFastView(config, await overlayTrainingPeaksPlans(config, store, context));
   const week = projectTrainingContext(full, "week");
   week.version = full.version;
   const rows = [

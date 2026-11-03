@@ -1,25 +1,24 @@
-import { type ReactNode, type MouseEvent, type KeyboardEvent } from "react"
 import {
-  CalendarDays,
-  CalendarRange,
-  Menu,
-  Home,
-  MessageCircle,
-} from "lucide-react"
+  type ReactNode,
+  type MouseEvent,
+  type KeyboardEvent,
+  type CSSProperties,
+} from "react"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useMobileTabGesture } from "@/hooks/use-mobile-tab-gesture"
 import { LiquidGlassLayer } from "@/components/ui/liquid-glass-layer"
+import { MobileTabIcon } from "@/components/ui/mobile-tab-icon"
 
 const destinations = [
-  { label: "Home", icon: Home, id: "home" },
-  { label: "Calendar", icon: CalendarDays, id: "calendar" },
-  { label: "Coach", icon: MessageCircle, id: "coach" },
+  { label: "Home", id: "home" },
+  { label: "Calendar", id: "calendar" },
+  { label: "Coach", id: "coach" },
   {
     label: "Annual Plan",
     displayLabel: "ATP",
-    icon: CalendarRange,
     id: "annual-plan",
   },
-  { label: "Settings", displayLabel: "More", icon: Menu, id: "settings" },
+  { label: "Settings", displayLabel: "More", id: "settings" },
 ]
 
 export function MobilePageTabs({
@@ -58,21 +57,36 @@ export function MobileNavbar({
   onPrefetch?: (destination: string) => void
 }) {
   const mobile = useIsMobile()
+  const selectedIndex = Math.max(
+    0,
+    destinations.findIndex((item) => item.label === activeItem)
+  )
+  const gesture = useMobileTabGesture(
+    activeItem,
+    destinations.length,
+    (index) => onNavigate(destinations[index].label)
+  )
   if (!mobile) return null
   return (
     <nav
-      className="toolbar toolbar-bottom tabbar tabbar-icons no-outline mobile-navbar"
+      className="toolbar toolbar-bottom tabbar tabbar-icons no-outline mobile-navbar native-glass-tabs"
       aria-label="Primary navigation"
+      data-native-react-tabs=""
+      style={
+        { "--mobile-tab-position": `${selectedIndex * 100}%` } as CSSProperties
+      }
     >
       <div className="toolbar-inner">
-        <div
-          className="toolbar-pane liquid-glass-nav"
-          role="tablist"
-          aria-label="App pages"
-        >
+        <div className="toolbar-pane liquid-glass-nav">
           <LiquidGlassLayer />
-          {destinations.map(
-            ({ label, displayLabel, icon: Icon, id }, index) => (
+          <div
+            className="mobile-tab-track"
+            ref={gesture.pane}
+            role="tablist"
+            aria-label="App pages"
+            {...gesture.handlers}
+          >
+            {destinations.map(({ label, displayLabel, id }, index) => (
               <button
                 key={id}
                 type="button"
@@ -84,12 +98,10 @@ export function MobileNavbar({
                 aria-label={displayLabel ?? label}
                 aria-selected={activeItem === label}
                 aria-controls={`mobile-panel-${id}`}
-                tabIndex={
-                  activeItem === label ||
-                  (activeItem === "Annual Plan" && index === 0)
-                    ? 0
-                    : -1
-                }
+                data-tab-index={index}
+                data-highlighted={(gesture.preview ?? selectedIndex) === index}
+                data-press-feedback="off"
+                tabIndex={selectedIndex === index ? 0 : -1}
                 onClick={(event: MouseEvent) => {
                   event.preventDefault()
                   onNavigate(label)
@@ -117,15 +129,15 @@ export function MobileNavbar({
                     ?.focus()
                 }}
               >
-                <Icon
-                  aria-hidden="true"
-                  strokeWidth={label === "Settings" ? 2.8 : undefined}
+                <MobileTabIcon
+                  page={id}
+                  selected={(gesture.preview ?? selectedIndex) === index}
                 />
                 <span className="tabbar-label">{displayLabel ?? label}</span>
               </button>
-            )
-          )}
-          <span className="tab-link-highlight" aria-hidden="true" />
+            ))}
+            <span className="tab-link-highlight" aria-hidden="true" />
+          </div>
         </div>
       </div>
     </nav>

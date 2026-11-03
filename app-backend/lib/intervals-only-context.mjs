@@ -5,6 +5,8 @@ const FIT_CLEANUP_BEFORE = "2026-09-15";
 export function intervalsOnlyContext(context) {
   const keep = (w) => {
     const id = String(w.id || "");
+    if (/^trainingpeaks:[1-9]\d*$/.test(id) && w.source === "trainingpeaks" && w.read_only === true)
+      return true;
     // Legacy cached standalone activities retain file metadata in raw. A planned
     // event needs metadata from its paired recording, never from its own payload.
     const fileType = w.activity_file_type ?? (id.startsWith("activity:") ? w.raw?.file_type : null);

@@ -1,6 +1,13 @@
 import { Toast as ToastPrimitive } from "@base-ui/react/toast"
 import { Check, CircleAlert, LoaderCircle, X } from "lucide-react"
-import { createContext, useContext, useMemo, type ReactNode } from "react"
+import {
+  createContext,
+  useContext,
+  useMemo,
+  useRef,
+  useEffect,
+  type ReactNode,
+} from "react"
 import "./toast.css"
 
 type ToastCommands = Pick<
@@ -25,11 +32,30 @@ function ToastCommandsProvider({ children }: { children: ReactNode }) {
 }
 
 export function AppToastProvider({ children }: { children: ReactNode }) {
+  const viewport = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const node = viewport.current
+    if (!node) return
+    const resize = new ResizeObserver(() => {
+      document.documentElement.style.setProperty(
+        "--nutrition-toast-height",
+        `${node.getBoundingClientRect().height > 0 ? node.getBoundingClientRect().height + 12 : 0}px`
+      )
+    })
+    resize.observe(node)
+    return () => {
+      resize.disconnect()
+      document.documentElement.style.removeProperty("--nutrition-toast-height")
+    }
+  }, [])
   return (
     <ToastPrimitive.Provider timeout={5000} limit={3}>
       <ToastCommandsProvider>{children}</ToastCommandsProvider>
       <ToastPrimitive.Portal>
-        <ToastPrimitive.Viewport className="app-toast-viewport pointer-events-none fixed inset-x-0 mx-auto flex w-full max-w-sm flex-col gap-2 px-3 outline-none md:inset-x-auto md:mx-0 md:w-96 md:max-w-[calc(100vw-2rem)] md:px-0">
+        <ToastPrimitive.Viewport
+          ref={viewport}
+          className="app-toast-viewport pointer-events-none fixed inset-x-0 mx-auto flex w-full max-w-sm flex-col gap-2 px-3 outline-none md:inset-x-auto md:mx-0 md:w-96 md:max-w-[calc(100vw-2rem)] md:px-0"
+        >
           <ToastList />
         </ToastPrimitive.Viewport>
       </ToastPrimitive.Portal>
@@ -47,6 +73,7 @@ function ToastList() {
     >
       <ToastPrimitive.Content className="flex items-start gap-3">
         <div
+          data-toast-icon=""
           className={`flex size-8 shrink-0 items-center justify-center rounded-full ${toast.type === "success" ? "bg-emerald-500/10" : toast.type === "error" ? "bg-destructive/10" : "bg-primary/10"}`}
           aria-hidden="true"
         >
@@ -61,8 +88,12 @@ function ToastList() {
           )}
         </div>
         <div className="min-w-0 flex-1 space-y-1">
-          <ToastPrimitive.Title className="pr-5 text-base leading-6 font-semibold [overflow-wrap:anywhere]" />
+          <ToastPrimitive.Title
+            data-toast-title=""
+            className="pr-5 text-base leading-6 font-semibold [overflow-wrap:anywhere]"
+          />
           <ToastPrimitive.Description
+            data-toast-description=""
             render={<div />}
             className="text-sm leading-5 [overflow-wrap:anywhere] text-muted-foreground"
           />

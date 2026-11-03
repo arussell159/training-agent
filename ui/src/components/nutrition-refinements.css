@@ -1,0 +1,263 @@
+.nutrition-overview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.nutrition-surface .nutrition-overview-add {
+  display: grid;
+  place-items: center;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--nutrition-control);
+  color: var(--foreground);
+}
+.nutrition-overview-heading .nutrition-overview-title {
+  margin: 0;
+  font-size: 16px;
+}
+.nutrition-progress-row > div:first-child {
+  font-size: 13px;
+}
+.nutrition-progress-line {
+  margin-top: 4px;
+}
+.nutrition-screen form.nutrition-food-form {
+  margin: 0;
+}
+@media (width < 48rem) {
+  .nutrition-overview-heading .nutrition-overview-title {
+    font-size: 20px;
+  }
+  .nutrition-overview-heading {
+    margin-bottom: 4px;
+  }
+  .nutrition-progress-row > div:first-child {
+    font-size: 18px;
+  }
+  .nutrition-progress-line {
+    margin-top: 4px;
+  }
+  .nutrition-screen:has(.nutrition-search-controls) {
+    height: var(--app-viewport-height, 100dvh);
+    max-height: var(--app-viewport-height, 100dvh);
+    top: var(--app-viewport-top, 0px);
+    bottom: auto;
+  }
+  .nutrition-screen .nutrition-search-controls {
+    margin-bottom: 8px;
+  }
+  .nutrition-screen .nutrition-search-controls::before {
+    inset: 0;
+    background: var(--nutrition-background);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  :root[data-mobile-keyboard-open="true"]
+    .nutrition-screen-scroll:has(.nutrition-search-controls) {
+    padding-bottom: 0;
+  }
+  :root[data-mobile-keyboard-open="true"]
+    .nutrition-screen-scroll:has(.nutrition-search-controls)
+    > div {
+    padding-bottom: 8px;
+  }
+}
+/* Reserve a real footer below results; notifications never sit on food rows. */
+.nutrition-screen:has(.nutrition-search-controls) > .nutrition-screen-scroll {
+  margin-bottom: var(--nutrition-toast-height, 0px);
+}
+body.nutrition-flow-open:has(.nutrition-search-controls) .app-toast-viewport {
+  top: auto;
+  bottom: calc(
+    100% - var(--app-viewport-top, 0px) - var(--app-viewport-height, 100dvh) +
+      10px + env(safe-area-inset-bottom)
+  );
+  max-height: min(200px, 35dvh);
+  overflow: auto;
+  max-width: 440px;
+}
+body.nutrition-flow-open .app-toast {
+  border-radius: 14px;
+  padding: 10px 40px 10px 12px;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 10%);
+}
+body.nutrition-flow-open .app-toast [data-toast-icon] {
+  width: 24px;
+  height: 24px;
+}
+body.nutrition-flow-open .app-toast [data-toast-title] {
+  font-size: 13px;
+  line-height: 20px;
+  padding-right: 0;
+  font-weight: 500;
+}
+body.nutrition-flow-open .app-toast [data-toast-description] {
+  font-size: 12px;
+  line-height: 16px;
+}
+body.nutrition-flow-open .app-toast:has(~ .app-toast) {
+  display: none;
+}
+.nutrition-food-feedback {
+  flex: 0 0 42px;
+  min-height: 42px;
+  display: grid;
+  align-items: center;
+  padding: 0 16px;
+  background: var(--nutrition-background);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.nutrition-food-receipt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 736px;
+  width: 100%;
+  margin-inline: auto;
+  animation: nutrition-food-receipt-in 220ms ease-out both;
+}
+.nutrition-food-receipt > span:first-of-type { flex: 1; }
+.nutrition-food-receipt > span:last-child { color: var(--muted-foreground); }
+.nutrition-food-receipt-food > span:first-child { font-weight: 500; }
+.nutrition-food-receipt-food > span:last-child { font-size: 11px; color: var(--muted-foreground); }
+.nutrition-food-receipt[data-state="saved"] { animation: nutrition-food-receipt-in 220ms ease-out both, nutrition-food-receipt-out 180ms ease-in 1620ms forwards; }
+.nutrition-food-receipt svg { color: var(--nutrition-calories); }
+.nutrition-food-receipt[data-state="failed"] svg, .nutrition-food-receipt[data-state="paused"] svg { color: var(--destructive); }
+.nutrition-add-check { animation: nutrition-food-check-in 320ms cubic-bezier(.2,.7,.3,1) both; }
+.nutrition-result { transition: background 250ms ease-out; }
+.nutrition-result[data-food-added] { background: color-mix(in srgb, var(--nutrition-calories) 8%, transparent); transition: background 250ms ease-out; }
+.nutrition-result[data-food-added] .nutrition-row-action:last-child { color: var(--nutrition-calories); }
+@keyframes nutrition-food-receipt-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes nutrition-food-receipt-out { to { opacity: 0; transform: translateY(3px); } }
+@keyframes nutrition-food-check-in { from { opacity: 0; transform: scale(.65); } to { opacity: 1; transform: scale(1); } }
+@media (width < 48rem) {
+  .nutrition-screen:has(.nutrition-food-feedback) {
+    height: var(--app-viewport-height, 100dvh);
+    max-height: var(--app-viewport-height, 100dvh);
+    top: var(--app-viewport-top, 0px);
+    bottom: auto;
+  }
+  .nutrition-food-feedback { padding-bottom: env(safe-area-inset-bottom); flex-basis: calc(42px + env(safe-area-inset-bottom)); }
+  :root[data-mobile-keyboard-open="true"] .nutrition-food-feedback { padding-bottom: 0; flex-basis: 42px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nutrition-food-receipt, .nutrition-food-receipt[data-state="saved"], .nutrition-add-check { animation: none; }
+  .nutrition-result, .nutrition-result[data-food-added] { transition: none; }
+}
+/* Keep the live region mounted without reserving a blank keyboard-side footer. */
+.nutrition-screen .nutrition-food-feedback:empty {
+  flex-basis: 0;
+  min-height: 0;
+  padding-block: 0;
+  border: 0;
+}
+
+/* iPhone keyboards are translucent: keep the open food screen underneath them. */
+body.nutrition-flow-open:has(.nutrition-search-controls, .nutrition-food-form) #root[inert] {
+  visibility: hidden;
+}
+@media (width < 48rem) {
+  .nutrition-screen:has(.nutrition-search-controls, .nutrition-food-form) {
+    --nutrition-keyboard-cover: max(0px, calc(100lvh - var(--app-viewport-top, 0px) - var(--app-viewport-height, 100dvh)));
+    --nutrition-feedback-inset: env(safe-area-inset-bottom);
+    --nutrition-feedback-space: 0px;
+    height: max(var(--app-viewport-height, 100dvh), calc(100lvh - var(--app-viewport-top, 0px)));
+    max-height: none;
+  }
+  :root[data-mobile-keyboard-open="true"] .nutrition-screen:has(.nutrition-search-controls, .nutrition-food-form) {
+    --nutrition-feedback-inset: 0px;
+  }
+  .nutrition-screen:has(.nutrition-search-controls, .nutrition-food-form):has(.nutrition-food-receipt) {
+    --nutrition-feedback-space: calc(42px + var(--nutrition-feedback-inset));
+  }
+  .nutrition-screen:has(.nutrition-search-controls, .nutrition-food-form) > .nutrition-screen-scroll {
+    margin-bottom: 0;
+    scroll-padding-bottom: calc(var(--nutrition-keyboard-cover) + var(--nutrition-feedback-space) + var(--nutrition-toast-height, 0px));
+  }
+  .nutrition-screen:has(.nutrition-search-controls, .nutrition-food-form) > .nutrition-screen-scroll > div::after {
+    content: "";
+    display: block;
+    height: calc(var(--nutrition-keyboard-cover) + var(--nutrition-feedback-space) + var(--nutrition-toast-height, 0px));
+  }
+  .nutrition-screen:has(.nutrition-search-controls, .nutrition-food-form) > .nutrition-food-feedback {
+    position: absolute;
+    inset-inline: 0;
+    bottom: var(--nutrition-keyboard-cover);
+  }
+  .nutrition-screen:has(.nutrition-search-controls, .nutrition-food-form) > .nutrition-food-feedback:not(:empty) {
+    height: calc(42px + var(--nutrition-feedback-inset));
+  }
+  .nutrition-screen .nutrition-food-form .nutrition-save-bar {
+    bottom: calc(var(--nutrition-keyboard-cover, 0px) + var(--nutrition-feedback-space, 0px) + var(--nutrition-toast-height, 0px));
+  }
+}
+
+.nutrition-save-affirmation { display: none; }
+@media (width < 48rem) {
+  .nutrition-save-affirmation {
+    position: absolute;
+    z-index: 40;
+    top: min(240px, calc(var(--app-viewport-height, 100dvh) / 2));
+    left: 50%;
+    width: min(300px, calc(100% - 48px));
+    padding: 22px 20px 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    background: var(--nutrition-background);
+    box-shadow: 0 12px 40px rgb(0 0 0 / 12%);
+    text-align: center;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    animation: nutrition-affirmation-in 180ms ease-out both;
+  }
+  .nutrition-save-affirmation strong { font-size: 18px; }
+  .nutrition-save-affirmation > span:not(.nutrition-save-affirmation-icon) { font-size: 13px; line-height: 1.4; }
+  .nutrition-save-affirmation-portion { font-variant-numeric: tabular-nums; }
+  .nutrition-save-affirmation small { font-size: 11px; color: var(--muted-foreground); }
+  .nutrition-save-affirmation-icon {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    margin-bottom: 5px;
+    border-radius: 50%;
+    color: var(--nutrition-calories);
+    background: color-mix(in srgb, var(--nutrition-calories) 12%, transparent);
+    animation: nutrition-affirmation-check 300ms cubic-bezier(.2,.8,.3,1.2) both;
+  }
+  .nutrition-save-affirmation-icon svg { width: 30px; height: 30px; stroke-width: 3; }
+  .nutrition-save-affirmation:not([data-state="failed"]):not([data-state="paused"]) .nutrition-save-affirmation-icon path {
+    stroke-dasharray: 36;
+    animation: nutrition-affirmation-draw 240ms ease-out 40ms both;
+  }
+  .nutrition-save-affirmation[data-state="failed"] .nutrition-save-affirmation-icon,
+  .nutrition-save-affirmation[data-state="paused"] .nutrition-save-affirmation-icon { color: var(--destructive); }
+  .nutrition-screen .nutrition-food-form { transition: opacity 120ms ease-out, transform 120ms ease-out; }
+  .nutrition-screen[data-nutrition-phase="confirming"] .nutrition-food-form { opacity: .35; }
+  .nutrition-screen[data-nutrition-phase="leaving"] .nutrition-food-form { opacity: 0; transform: translateY(-4px); }
+  .nutrition-screen[data-nutrition-phase="leaving"] .nutrition-save-affirmation { animation: nutrition-affirmation-out 120ms ease-in both; }
+  .nutrition-screen[data-nutrition-phase="arriving"] > .nutrition-screen-scroll > div { animation: nutrition-search-arrive 180ms ease-out both; }
+}
+@keyframes nutrition-affirmation-in { from { opacity: 0; transform: translate(-50%, -45%) scale(.96); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@keyframes nutrition-affirmation-out { to { opacity: 0; transform: translate(-50%, -54%) scale(.98); } }
+@keyframes nutrition-affirmation-check { from { opacity: 0; transform: scale(.7); } to { opacity: 1; transform: scale(1); } }
+@keyframes nutrition-affirmation-draw { from { stroke-dashoffset: 36; } to { stroke-dashoffset: 0; } }
+@keyframes nutrition-search-arrive { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .nutrition-save-affirmation, .nutrition-save-affirmation-icon,
+  .nutrition-save-affirmation:not([data-state="failed"]):not([data-state="paused"]) .nutrition-save-affirmation-icon path,
+  .nutrition-screen[data-nutrition-phase="leaving"] .nutrition-save-affirmation,
+  .nutrition-screen[data-nutrition-phase="arriving"] > .nutrition-screen-scroll > div { animation: none; }
+  .nutrition-screen .nutrition-food-form { transition: none; }
+}

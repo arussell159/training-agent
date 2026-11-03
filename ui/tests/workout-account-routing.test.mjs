@@ -45,6 +45,7 @@ test("both actual workout entry routes place every child under an identity-keyed
       guard = () => true
     const render = component(file, name, {
       WorkoutAccountBoundary: "boundary",
+      useIsMobile: () => true,
       [child]: child,
     })
     const output = render({ workout, onBack: close, onOpenChange: close })
@@ -55,6 +56,26 @@ test("both actual workout entry routes place every child under an identity-keyed
     assert.equal(protectedChild.type, child)
     assert.equal(protectedChild.props.isAccountCurrent, guard)
     assert.equal(protectedChild.props.workout, workout)
+  }
+})
+
+test("imported plans use the original mobile overview behind the same account boundary and preserve the desktop view", () => {
+  const workout = { id: "trainingpeaks:9001", source: "trainingpeaks", title: "Imported plan" }
+  const guard = () => true
+  for (const mobile of [true, false]) {
+    const render = component("workout-detail-page", "WorkoutDetailPage", {
+      useIsMobile: () => mobile,
+      WorkoutAccountBoundary: "boundary",
+      TrustedWorkoutDetailPage: "original-overview",
+      TrainingPeaksWorkoutDetails: "desktop-imported-overview",
+    })
+    const output = render({ workout, onBack: () => {} })
+    assert.equal(output.type, "boundary")
+    assert.equal(output.props.key, workout.id)
+    const child = output.children[0](guard)
+    assert.equal(child.type, mobile ? "original-overview" : "desktop-imported-overview")
+    assert.equal(child.props.workout, workout)
+    if (mobile) assert.equal(child.props.isAccountCurrent, guard)
   }
 })
 

@@ -14,6 +14,18 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             {
+              name: "react-runtime",
+              includeDependenciesRecursively: false,
+              test: /node_modules[\\/](?:react|react-dom|scheduler|lucide-react)[\\/]/,
+            },
+            {
+              // Keep the internally circular primitives together rather than
+              // requesting dozens of tiny shared popup/focus chunks at startup.
+              name: "ui-runtime",
+              includeDependenciesRecursively: false,
+              test: /node_modules[\\/](?:@base-ui|@floating-ui)[\\/]/,
+            },
+            {
               name: "framework7-core",
               // Keep React and other shared dependencies outside this lazy
               // group; otherwise importing React downloads all of Framework7.

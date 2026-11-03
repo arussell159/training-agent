@@ -73,6 +73,7 @@ import {loadWorkoutRecurrence,saveWorkoutRecurrence} from './lib/workout-recurre
 import {createRequestCache} from './lib/request-cache.mjs';
 import {compressAsset} from './lib/asset-compression.mjs';
 import {createTrainingUpdates} from './lib/training-updates.mjs';
+import {createTrainingPeaksPlanned, overlayTrainingPeaksPlans, trainingPeaksSnapshotId} from './lib/trainingpeaks-planned.mjs';
 import {contentFingerprint} from './lib/content-fingerprint.mjs';
 import {updateWorkoutDescription,DEFINITION_MARKER} from './lib/workout-description.mjs';
 import {readManualWorkoutDescription} from './lib/workout-manual-description.mjs';
@@ -164,7 +165,10 @@ async function getReportServices(config = coachConfig()) {
   const reports = createCoachReports({ config, source, snapshotCache,
     record: key => storage('coach-report', 'COACH_REPORT', freshReport, key),
     index: storage('coach-report-index', 'COACH_REPORT_INDEX', () => ({ reports: [] })),
-    readContext: async () => loadSupabaseTrainingSnapshot(await readConfig()), readPlans: listAnnualPlans,
+    readContext: async () => {
+      const config=await readConfig(),context=await loadSupabaseTrainingSnapshot(config);
+      return context ? overlayTrainingPeaksPlans(config,createContextStore(config),context) : context;
+    }, readPlans: listAnnualPlans,
     saveReport: input => createCoachReportStore(bootstrap).upsert(input),
     answer: createCoach({ source }),
   });
@@ -347,6 +351,7 @@ function stableUuid(value) {
 }
 
 const checkTrainingUpdates = createTrainingUpdates({
+  decorate:(config,context)=>overlayTrainingPeaksPlans(config,createContextStore(config),context),
   readSnapshot: (config,options)=>loadSupabaseTrainingSnapshot(config,null,options),
   // These few small reads must see a workout uploaded just before app open.
   request: config => createIntervalsClient(config),
@@ -364,7 +369,42 @@ function webhookSync(config) {
   });
 }
 const reconciliationTasks=new Map();
+const trainingPeaksServices=new Map(),trainingPeaksTasks=new Map();
+function trainingPeaksPlans(config) {
+  const key=trainingPeaksSnapshotId(config);
+  if(!trainingPeaksServices.has(key)) {
+    trainingPeaksServices.set(key,createTrainingPeaksPlanned({config,store:createContextStore(config)}));
+    if(trainingPeaksServices.size>8)trainingPeaksServices.delete(trainingPeaksServices.keys().next().value);
+  }
+  return trainingPeaksServices.get(key);
+}
+async function refreshTrainingPeaksPlans(config,options={}) {
+  const service=trainingPeaksPlans(config),store=createContextStore(config);
+  if(!service.enabled || !store.ready)return null;
+  const before=await service.read(),snapshot=await service.refresh(options);
+  if(snapshot && JSON.stringify(before)!==JSON.stringify(snapshot)) {
+    const raw=await loadSupabaseTrainingSnapshot(config,null,{fresh:true});
+    if(raw) {
+      // Advance the source snapshot through its existing CAS boundary. Reusing
+      // the old view revision would make the atomic view writer reject this sync.
+      const saved=await store.updateSyncRecord(String(raw.athlete?.id || 'default'),(row,revision)=>{
+        const current=row?.cursor?.context;
+        if(current?.provider_connection!==providerConnection(config))return null;
+        return {...row,cursor:{...row.cursor,context:{...current,queue_snapshot_revision:revision}}};
+      });
+      if(saved?.cursor?.context)await saveFastView(config,store,saved.cursor.context);
+    }
+  }
+  return snapshot;
+}
+function scheduleTrainingPeaksPlans(config) {
+  const key=trainingPeaksSnapshotId(config);
+  if(!key || trainingPeaksTasks.has(key))return;
+  const task=refreshTrainingPeaksPlans(config).catch(()=>updateLogs('TrainingPeaks plans will retry on the next app check.')).finally(()=>trainingPeaksTasks.delete(key));
+  trainingPeaksTasks.set(key,task);waitUntil(task);
+}
 function scheduleTrainingReconciliation(config) {
+  scheduleTrainingPeaksPlans(config);
   if(!config.INTERVALS_API_KEY || !config.SUPABASE_URL || !config.SUPABASE_SECRET_KEY)return;
   const key=providerConnection(config);
   if(reconciliationTasks.has(key))return;
@@ -777,6 +817,8 @@ async function fetchIntervalsTrainingContext(config, {force = false, timeZone = 
 
 async function scopedTrainingContext(context, scope, today = new Date()) {
   await loadCompletionConfirmation();
+  const planConfig=await readConfig();
+  context=await overlayTrainingPeaksPlans(planConfig,createContextStore(planConfig),context,today);
   context = intervalsOnlyContext(context);
   context = applyCompletionConfirmation(context,completionConfirmation);
   context = await hydrateCalendarMetricsContext(await readConfig(),context,scope && typeof scope==='object'?scope:undefined);
@@ -1033,6 +1075,12 @@ export async function handleRequest(req, res) {
       return;
     }
     if (await handleAuth(req, res, pathname)) return;
+    if(pathname==='/api/trainingpeaks/planned' && (req.method==='GET' || req.method==='POST')) {
+      const config=await readConfig(),service=trainingPeaksPlans(config);
+      const state=req.method==='POST' ? await refreshTrainingPeaksPlans(config,{force:true}) : await service.read();
+      if(req.method==='GET')scheduleTrainingPeaksPlans(config);
+      sendJson(req,res,{enabled:service.enabled,source:'trainingpeaks',count:state?.workouts?.length || 0,lastSyncedAt:state?.lastSyncedAt || null,lastAttemptAt:state?.lastAttemptAt || null,reconnectRequired:Boolean(state?.reconnectRequired),error:state?.error || null,rangeStart:state?.rangeStart,rangeEnd:state?.rangeEnd});return;
+    }
     if(pathname==='/api/workout-commits' && ['GET','POST'].includes(req.method)){
       try{
         const config=await readConfig(),service=workoutCommits(config,req.headers.host);
@@ -1416,6 +1464,12 @@ export async function handleRequest(req, res) {
     const historicalWorkoutRoute=pathname.match(/^\/api\/workout-history\/([^/]+)$/);
     if(historicalWorkoutRoute && req.method==='GET') {
       const config=await readConfig();
+      const workoutId=decodeURIComponent(historicalWorkoutRoute[1]);
+      if(/^trainingpeaks:[1-9]\d*$/.test(workoutId)) {
+        const snapshot=await trainingPeaksPlans(config).read(),workout=snapshot?.workouts?.find(row=>row.id===workoutId);
+        if(!workout)throw Object.assign(Error('This workout is no longer in your imported TrainingPeaks plan.'),{status:404});
+        sendJson(req,res,{workout});return;
+      }
       const request=historicalReads.wrap(createIntervalsClient(config),`${providerConnection(config)}:${requestUrl.searchParams.get('version') || ''}`);
       try { sendJson(req,res,{workout:await fetchHistoricalWorkout(request,decodeURIComponent(historicalWorkoutRoute[1]))}); }
       catch(error) {

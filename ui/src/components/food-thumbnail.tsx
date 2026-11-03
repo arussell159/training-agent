@@ -27,29 +27,42 @@ const illustrations: [RegExp, string][] = [
 export function FoodThumbnail({
   name,
   imageUrl,
+  plain = false,
 }: {
   name: string
   imageUrl?: string | null
+  plain?: boolean
 }) {
   const [failedImage, setFailedImage] = useState<string | null>(null)
+  const [loadedImage, setLoadedImage] = useState<string | null>(null)
   const illustration = illustrations.find(([pattern]) =>
     pattern.test(name)
   )?.[1]
   return (
-    <span className="nutrition-food-thumbnail" aria-hidden="true">
+    <span
+      className={`nutrition-food-thumbnail ${plain ? "nutrition-food-thumbnail-plain" : ""}`}
+      data-image-ready={loadedImage === imageUrl}
+      aria-hidden="true"
+    >
       {imageUrl && failedImage !== imageUrl ? (
-        <img
-          src={imageUrl}
-          alt=""
-          width={44}
-          height={44}
-          loading="lazy"
-          decoding="async"
-          referrerPolicy="no-referrer"
-          onError={() => setFailedImage(imageUrl)}
-        />
+        <>
+          <span className="nutrition-food-image-placeholder">
+            {(!plain && illustration) || <Utensils className="size-5" />}
+          </span>
+          <img
+            src={imageUrl}
+            alt=""
+            width={44}
+            height={44}
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onLoad={() => setLoadedImage(imageUrl)}
+            onError={() => setFailedImage(imageUrl)}
+          />
+        </>
       ) : (
-        illustration || <Utensils className="size-5 text-muted-foreground" />
+        (!plain && illustration) || <Utensils className="size-5" />
       )}
     </span>
   )

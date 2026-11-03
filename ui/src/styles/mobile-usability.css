@@ -1,0 +1,79 @@
+/* Mobile refinements only. Compact controls keep their existing visible size. */
+.nutrition-food-image-placeholder {
+  display: none;
+}
+
+@media (width < 48rem) {
+  .mobile-filter-tab-pill,
+  .nutrition-surface .nutrition-overview-add {
+    position: relative;
+    overflow: visible;
+  }
+  .mobile-filter-tab-pill::after,
+  .nutrition-surface .nutrition-overview-add::after,
+  .nutrition-screen .nutrition-search-clear::after,
+  [data-slot="dialog-close"]::after,
+  [data-slot="sheet-close"]::after {
+    content: "";
+    position: absolute;
+    /* Grow only where needed; adjacent controls never share horizontal space. */
+    inset-block: min(0px, calc(50% - 22px));
+    inset-inline: 0;
+  }
+  .nutrition-surface .nutrition-overview-add::after,
+  .nutrition-screen .nutrition-search-clear::after,
+  [data-slot="dialog-close"]::after,
+  [data-slot="sheet-close"]::after {
+    inset-inline: min(0px, calc(50% - 22px));
+  }
+  [data-slot="dialog-title"],
+  [data-slot="alert-dialog-title"],
+  [data-slot="sheet-title"],
+  .terms-metric-sheet-heading h2 {
+    text-wrap: balance;
+  }
+  input:is([type="number"], [inputmode="decimal"], [inputmode="numeric"]) {
+    font-variant-numeric: tabular-nums;
+  }
+  .nutrition-food-thumbnail:has(.nutrition-food-image-placeholder) {
+    position: relative;
+    isolation: isolate;
+  }
+  .nutrition-food-image-placeholder {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    border-radius: inherit;
+  }
+  .nutrition-food-thumbnail[data-image-ready="true"]
+    .nutrition-food-image-placeholder {
+    visibility: hidden;
+  }
+  .nutrition-food-thumbnail:has(.nutrition-food-image-placeholder) img {
+    position: relative;
+    z-index: 1;
+    opacity: 0;
+    transition: opacity 120ms ease-out;
+  }
+  .nutrition-food-thumbnail[data-image-ready="true"] img {
+    opacity: 1;
+  }
+}
+
+@media (width < 48rem) and (prefers-reduced-motion: reduce) {
+  .nutrition-food-thumbnail img {
+    transition: none !important;
+  }
+  [data-slot="dialog-content"],
+  [data-slot="dialog-overlay"],
+  [data-slot="sheet-content"],
+  [data-slot="sheet-overlay"],
+  [data-slot="alert-dialog-content"],
+  [data-slot="alert-dialog-overlay"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="dropdown-menu-sub-content"] {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -25,6 +25,7 @@ export function MobileFilterTabs<T extends string>({
       <div
         role="tablist"
         aria-label={label}
+        data-native-react-tabs=""
         className={cn("mobile-filter-tabs-inline", className)}
         style={{
           gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))`,
@@ -51,7 +52,7 @@ export function MobileFilterTabs<T extends string>({
   }
 
   return (
-    <div className={cn("toolbar tabbar mobile-filter-toolbar", className)}>
+    <div className={cn("toolbar tabbar mobile-filter-toolbar", className)} data-native-react-tabs="">
       <div className="toolbar-inner">
         <div className="toolbar-pane" role="tablist" aria-label={label}>
           {items.map((item) => (

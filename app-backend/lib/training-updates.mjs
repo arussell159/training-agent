@@ -16,6 +16,7 @@ export function createTrainingUpdates({
   waitUntil,
   now = () => new Date(),
   log = () => {},
+  decorate = async (_config, context) => context,
 }) {
   const checks = new Map();
   const profiles = new Map();
@@ -78,8 +79,8 @@ export function createTrainingUpdates({
         });
         merged.history_revision_source_at = incoming.sync_started_at;
       }
-      const context = prepareFastView(config, merged);
-      const previous = saved ? prepareFastView(config, saved) : null;
+      const context = prepareFastView(config, await decorate(config, merged));
+      const previous = saved ? prepareFastView(config, await decorate(config, saved)) : null;
       const changed = !previous || previous.version !== context.version;
       // Webhook jobs must not mark their revision complete until persistence
       // succeeds. Recording preparation stays off that path.

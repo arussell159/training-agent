@@ -1,0 +1,284 @@
+@media (width < 48rem) {
+  /* Measured against the 1206 × 2622 Apple Health recording at 3×:
+     62pt glass, 28pt symbol boxes, 11pt labels, 21pt side margin.
+     The track is inset 8pt; the lens extends 4pt beyond each tab's sides.
+     Keep the app's five destinations in one group as requested. */
+  .framework7-root .mobile-navbar.toolbar.native-glass-tabs {
+    --f7-toolbar-height: 83px;
+    --f7-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --f7-toolbar-inner-padding-left: 21px;
+    --f7-toolbar-inner-padding-right: 21px;
+    --mobile-tab-tint: #007aff;
+    --mobile-tab-ink: #1c1c1e;
+    --mobile-glass-fill: rgb(248 248 250 / 46%);
+    --mobile-lens-fill: rgb(118 118 128 / 16%);
+    --mobile-edge-fill: rgb(242 242 247 / 78%);
+    height: calc(
+      62px + max(21px, calc(env(safe-area-inset-bottom, 0px) - 13px))
+    );
+    font-family:
+      -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial,
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+    touch-action: pan-y pinch-zoom;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .framework7-root .mobile-navbar.toolbar.native-glass-tabs::after {
+    background-image: linear-gradient(
+      to top,
+      var(--mobile-edge-fill),
+      transparent
+    );
+  }
+
+  .framework7-root .mobile-navbar.toolbar.native-glass-tabs .toolbar-inner {
+    inset-block: 0;
+    height: 100%;
+    padding: 0 max(21px, env(safe-area-inset-right))
+      max(21px, calc(env(safe-area-inset-bottom) - 13px))
+      max(21px, env(safe-area-inset-left));
+    align-items: flex-end;
+  }
+
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .toolbar-pane.liquid-glass-nav {
+    height: 62px;
+    padding-inline: 8px;
+    max-width: 480px;
+    margin: 0 auto;
+    border: 0;
+    border-radius: 32px;
+    background: transparent;
+    box-shadow: 0 12px 28px rgb(0 0 0 / 12%);
+    isolation: isolate;
+    overflow: visible;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: pan-y pinch-zoom;
+  }
+
+  .framework7-root .mobile-navbar.toolbar.native-glass-tabs .mobile-tab-track {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    height: 62px;
+    align-items: center;
+    touch-action: pan-y pinch-zoom;
+  }
+
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .liquid-glass-filter-layer {
+    background: var(--mobile-glass-fill);
+    border: 0.75px solid rgb(255 255 255 / 78%);
+    box-shadow:
+      inset 0 1px 1px rgb(255 255 255 / 75%),
+      inset 0 -0.5px 0.5px rgb(255 255 255 / 38%);
+    -webkit-backdrop-filter: blur(10px) saturate(160%);
+    backdrop-filter: blur(10px) saturate(160%);
+  }
+
+  .framework7-root .mobile-navbar.toolbar.native-glass-tabs .tab-link {
+    height: 62px;
+    min-width: 0;
+    padding: 6px 0 8px;
+    gap: 0;
+    border: 0;
+    border-radius: 31px;
+    background: transparent;
+    color: var(--mobile-tab-ink);
+    overflow: visible;
+    touch-action: pan-y pinch-zoom;
+    transition: color 100ms ease;
+  }
+
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .tab-link[data-highlighted="true"] {
+    color: var(--mobile-tab-tint);
+  }
+
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .tab-link
+    .mobile-tab-icon {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    overflow: visible;
+    transform-origin: 50% 70%;
+    transition: transform 380ms cubic-bezier(0.22, 1.35, 0.36, 1);
+  }
+
+  .framework7-root .mobile-navbar.toolbar.native-glass-tabs .tabbar-label {
+    margin: 0;
+    color: inherit;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 13px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .tab-link-highlight {
+    height: 62px;
+    border-radius: 31px;
+    transition: transform 420ms cubic-bezier(0.22, 1.2, 0.36, 1);
+  }
+
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .tab-link-highlight::before,
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .tab-link-highlight::after {
+    inset: 4px -4px;
+    border-radius: 28px;
+    border: 0;
+    box-shadow: none;
+    transition:
+      scale 380ms cubic-bezier(0.22, 1.35, 0.36, 1),
+      background-color 160ms ease,
+      opacity 160ms ease;
+  }
+
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .tab-link-highlight::before {
+    opacity: 1;
+    background: var(--mobile-lens-fill);
+  }
+
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .tab-link-highlight::after {
+    opacity: 0;
+    background: rgb(255 255 255 / 12%);
+    box-shadow:
+      inset 0 0 0 0.75px rgb(255 255 255 / 76%),
+      0 3px 10px rgb(0 0 0 / 8%);
+    -webkit-backdrop-filter: blur(2px) saturate(160%);
+    backdrop-filter: blur(2px) saturate(160%);
+  }
+
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    [data-contact]
+    .tab-link-highlight::before,
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    [data-contact]
+    .tab-link-highlight::after {
+    scale: 1.08 1.14;
+  }
+
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    [data-contact]
+    .tab-link-highlight::after {
+    opacity: 1;
+  }
+
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    [data-contact]
+    .tab-link[data-highlighted="true"]
+    .mobile-tab-icon {
+    transform: translateY(-1px) scale(1.08);
+  }
+
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    [data-dragging]
+    .tab-link-highlight {
+    transition: none;
+  }
+
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .tab-link:focus-visible {
+    outline: 2px solid var(--mobile-tab-tint);
+    outline-offset: -5px;
+  }
+
+  .dark .framework7-root .mobile-navbar.toolbar.native-glass-tabs {
+    --mobile-tab-tint: #0a84ff;
+    --mobile-tab-ink: #f5f5f7;
+    --mobile-glass-fill: rgb(38 38 40 / 60%);
+    --mobile-lens-fill: rgb(174 174 182 / 22%);
+    --mobile-edge-fill: rgb(0 0 0 / 75%);
+  }
+
+  .dark
+    .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .liquid-glass-filter-layer {
+    background: var(--mobile-glass-fill);
+    border-color: rgb(255 255 255 / 24%);
+    box-shadow: inset 0 1px 1px rgb(255 255 255 / 22%);
+  }
+}
+
+@media (width < 48rem) and (prefers-reduced-motion: reduce) {
+  .framework7-root .mobile-navbar.toolbar.native-glass-tabs .tab-link,
+  .framework7-root .mobile-navbar.toolbar.native-glass-tabs .mobile-tab-icon,
+  .framework7-root .mobile-navbar.toolbar.native-glass-tabs .tab-link-highlight,
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .tab-link-highlight::before,
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .tab-link-highlight::after {
+    transition: none;
+  }
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    [data-contact]
+    .tab-link-highlight::before,
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    [data-contact]
+    .tab-link-highlight::after {
+    scale: 1;
+  }
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    [data-contact]
+    .tab-link
+    .mobile-tab-icon {
+    transform: none;
+  }
+}
+
+@media (width < 48rem) and (prefers-contrast: more),
+  (width < 48rem) and (prefers-reduced-transparency: reduce) {
+  .framework7-root .mobile-navbar.toolbar.native-glass-tabs {
+    --mobile-glass-fill: rgb(248 248 250 / 96%);
+    --mobile-lens-fill: rgb(118 118 128 / 24%);
+  }
+  .dark .framework7-root .mobile-navbar.toolbar.native-glass-tabs {
+    --mobile-glass-fill: rgb(38 38 40 / 96%);
+  }
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .liquid-glass-filter-layer {
+    background: #f6f6f8;
+  }
+  .dark
+    .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .liquid-glass-filter-layer {
+    background: #262628;
+  }
+}

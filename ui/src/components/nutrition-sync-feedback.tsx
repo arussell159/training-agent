@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react"
 import { useToastManager } from "@/components/ui/toast"
 import { deviceCacheScope } from "@/lib/device-cache"
 import { apiSessionRevision } from "@/lib/api-client"
+import { hasQueuedFoodAdds, nutritionAddPrefix } from "@/lib/nutrition-add-keys"
 import {
   pendingNutritionWrite,
   recoverPendingNutritionWrite,
@@ -19,11 +20,57 @@ export function NutritionSyncFeedback() {
   useEffect(() => {
     let mounted = true
     let active = false
+    const queuedStatus = (
+      event:
+        Event | { detail: { pending: number; failed: number; error?: string } }
+    ) => {
+      if (!mounted) return
+      const state = (
+        event as CustomEvent<{
+          pending: number
+          failed: number
+          error?: string
+        }>
+      ).detail
+      if (!state) return
+      update(
+        state.error || state.failed
+          ? "error"
+          : state.pending
+            ? "pending"
+            : "success"
+      )
+      const retry = (
+        <button
+          className="min-h-9 font-semibold underline"
+          onClick={() =>
+            window.dispatchEvent(new Event("nutrition-write-retry"))
+          }
+        >
+          Retry
+        </button>
+      )
+      if (state.error || state.failed)
+        toastRef.current.add({
+          id: "nutrition-save",
+          type: "error",
+          title: state.failed ? "Food needs attention" : "Food save paused",
+          description: (
+            <>
+              {state.error ||
+                "The entry is retained on this device and was not added."}{" "}
+              {retry}
+            </>
+          ),
+          timeout: 0,
+        })
+      else toastRef.current.close("nutrition-save")
+    }
     const update = (state: string) =>
       window.dispatchEvent(
         new CustomEvent("nutrition-write-recovery", { detail: { state } })
       )
-    const recover = async () => {
+    const recover = async (retryQueue = false) => {
       const scope = deviceCacheScope(),
         session = apiSessionRevision()
       if (
@@ -40,6 +87,41 @@ export function NutritionSyncFeedback() {
       let input
       try {
         input = pendingNutritionWrite(localStorage, scope)
+        if (
+          hasQueuedFoodAdds(localStorage, scope) &&
+          (!input ||
+            localStorage.getItem(nutritionAddPrefix(scope) + input.operationId))
+        ) {
+          active = true
+          try {
+            const queue = await import("@/lib/nutrition-add-queue")
+            queuedStatus({ detail: queue.nutritionAddStatus() })
+            await queue.drainNutritionAdds(retryQueue)
+          } catch (problem) {
+            toastRef.current.add({
+              id: "nutrition-save",
+              type: "error",
+              title: "Food save needs attention",
+              description: (
+                <>
+                  {(problem as Error).message}{" "}
+                  <button
+                    className="min-h-9 font-semibold underline"
+                    onClick={() =>
+                      window.dispatchEvent(new Event("nutrition-write-retry"))
+                    }
+                  >
+                    Retry
+                  </button>
+                </>
+              ),
+              timeout: 0,
+            })
+          } finally {
+            active = false
+          }
+          return
+        }
       } catch (problem) {
         toastRef.current.add({
           id: "nutrition-save",
@@ -114,6 +196,8 @@ export function NutritionSyncFeedback() {
         )
           nutritionChanged()
         update("success")
+        if (hasQueuedFoodAdds(localStorage, scope))
+          queueMicrotask(() => void recover())
         toastRef.current.update("nutrition-save", {
           type: "success",
           title: "Food entry saved.",
@@ -138,8 +222,8 @@ export function NutritionSyncFeedback() {
         active = false
       }
     }
-    const check = () => {
-      void recover()
+    const check = (event?: Event) => {
+      void recover(event?.type === "nutrition-write-retry")
     }
     const retained = () => {
       if (!mounted) return
@@ -160,7 +244,7 @@ export function NutritionSyncFeedback() {
               been confirmed saved.{" "}
               <button
                 className="min-h-11 font-semibold underline"
-                onClick={check}
+                onClick={() => check()}
               >
                 Retry saved food entry
               </button>
@@ -176,6 +260,8 @@ export function NutritionSyncFeedback() {
     // retain one actionable app-level notice even after that editor closes.
     const retainedNotice = () => setTimeout(retained, 0)
     window.addEventListener("nutrition-write-retained", retainedNotice)
+    window.addEventListener("nutrition-add-status", queuedStatus)
+    window.addEventListener("nutrition-updated", check)
     check()
     for (const name of [
       "online",
@@ -190,6 +276,8 @@ export function NutritionSyncFeedback() {
     return () => {
       mounted = false
       window.removeEventListener("nutrition-write-retained", retainedNotice)
+      window.removeEventListener("nutrition-add-status", queuedStatus)
+      window.removeEventListener("nutrition-updated", check)
       for (const name of [
         "online",
         "offline",

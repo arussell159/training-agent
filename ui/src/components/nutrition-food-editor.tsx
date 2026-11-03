@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import { Trash2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -11,6 +11,7 @@ import {
 } from "@/lib/nutrition"
 import { portionOptions, scaleFood } from "@/lib/nutrition-math"
 import { FoodThumbnail } from "./food-thumbnail"
+import { bindFoodKeyboardSubmit } from "@/lib/nutrition-keyboard-submit"
 
 export function FoodEditor({
   entry,
@@ -20,6 +21,7 @@ export function FoodEditor({
   editable = false,
   disabled = false,
   onValidityChange,
+  onSubmit,
 }: {
   entry: FoodEntry
   onChange: (entry: FoodEntry) => void
@@ -28,6 +30,7 @@ export function FoodEditor({
   editable?: boolean
   disabled?: boolean
   onValidityChange?: (valid: boolean) => void
+  onSubmit?: () => void
 }) {
   const amountErrorId = useId()
   // Scale from the original values so repeated unit changes never accumulate rounding.
@@ -72,6 +75,18 @@ export function FoodEditor({
     Number.isFinite(Number(amount)) &&
     Number(amount) * factor > 0 &&
     Number(amount) * factor <= 100000
+  const amountInput = useRef<HTMLInputElement>(null)
+  const keyboardSubmit = useRef({ validAmount, disabled, onSubmit })
+  keyboardSubmit.current = { validAmount, disabled, onSubmit }
+  const canSubmit = Boolean(onSubmit)
+  useEffect(() => {
+    if (!canSubmit || !amountInput.current) return
+    return bindFoodKeyboardSubmit(amountInput.current, {
+      valid: () =>
+        keyboardSubmit.current.validAmount && !keyboardSubmit.current.disabled,
+      submit: () => keyboardSubmit.current.onSubmit?.(),
+    })
+  }, [canSubmit])
   const update = (patch: Partial<FoodEntry>) =>
     onChange({
       ...entry,
@@ -186,6 +201,7 @@ export function FoodEditor({
       <label className="nutrition-field">
         Amount
         <Input
+          ref={amountInput}
           aria-label="Portion amount"
           aria-invalid={!validAmount}
           aria-describedby={!validAmount ? amountErrorId : undefined}
@@ -194,6 +210,7 @@ export function FoodEditor({
           max="100000"
           step="any"
           inputMode="decimal"
+          enterKeyHint="done"
           value={amount}
           onFocus={(event) => event.currentTarget.select()}
           onChange={(e) => changeAmount(e.target.value)}

@@ -521,6 +521,8 @@ export function createDesktopCalendarPreview(fixture, {loseCreateResponseOnce = 
       return {...row,context:savedContext};
     }
     if(["training-context","training-updates"].includes(api)&&method==="GET") {
+      const version=`synthetic-calendar-${fixture.version}-${revision}`;
+      if(api==="training-updates"&&url.searchParams.get("version")===version)return {unchanged:true,version};
       const scope=url.searchParams.get("scope"),start=url.searchParams.get("start"),end=url.searchParams.get("end");
       if(scope==="range"&&(!validPreviewDate(start)||!validPreviewDate(end)||start>end||(Date.parse(end)-Date.parse(start))/86400000>370)) throw Object.assign(Error("Invalid preview date range"),{status:400});
       const saved=await wellnessService.hydrateContext(scope==="range"?context(start,end,"range"):context(),scope==="range"?{start,end}:undefined);

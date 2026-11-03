@@ -21,7 +21,7 @@ export function MobileHeaderMenu({
       setError(
         failure instanceof Error
           ? failure.message
-          : "Intervals.icu refresh failed."
+          : "TrainingPeaks plans could not refresh."
       )
     } finally {
       setBusy(false)
@@ -41,7 +41,7 @@ export function MobileHeaderMenu({
           },
           {
             value: "refresh",
-            label: busy ? "Refreshing…" : "Refresh",
+            label: busy ? "Refreshing…" : "Refresh plans",
             disabled: busy,
             onSelect: () => void runRefresh(),
           },
