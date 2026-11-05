@@ -8,6 +8,10 @@
   padding: 0;
   overflow: hidden;
 }
+.we-dialog[data-app-dialog-layout="fullscreen"] {
+  /* Keep the editor and its action sheets above the bottom tabs. */
+  z-index: 70;
+}
 @media (min-width: 768px) {
   [role="dialog"].we-dialog.we-tp-desktop { width: calc(100vw - 24px); max-width: 1900px !important; height: calc(100dvh - 24px); max-height: calc(100dvh - 24px); border-radius: 8px; }
   .dtb-loading { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 20px; padding: 16px; }

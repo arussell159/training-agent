@@ -4,7 +4,9 @@ const pressTargets = [
   '[role="checkbox"], [role="radio"], [role="option"], [role="combobox"]',
   '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]',
   '[role="slider"], [role="spinbutton"], [role="treeitem"], [role="scrollbar"]',
-  '.calendar-jump-inline .calendar-day:not(.calendar-day-disabled), .dialog .dialog-button',
+  // Framework7 renders these controls as plain elements.
+  ".calendar-jump-inline .calendar-day:not(.calendar-day-disabled)",
+  ".dialog .dialog-button, .actions-modal .actions-button",
   "[data-press-action]",
 ].join(", ")
 

@@ -1494,6 +1494,7 @@ function MobileRecoveryRow({ step, depth, model, onOpen, onBeginSort }: {
 }) {
   return <ListItem
     key={step.id}
+    data-press-action=""
     sortable
     noChevron
     className="we-mobile-interval-row we-mobile-fixed-recovery"
@@ -1567,6 +1568,7 @@ function mobileIntervalRows(props: MobileRowsProps): ReactNode[] {
     const row = (
       <ListItem
         key={node.id}
+        data-press-action=""
         id={`mobile-step-${node.id}`}
         sortable
         noChevron
