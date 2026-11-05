@@ -1,5 +1,20 @@
-/** Web-drawn symbols with the native tab bar's filled selected treatment.
- * iOS supplies San Francisco for labels; no Apple font/icon files are bundled. */
+// Share the outline in both states so filling the symbol never moves its edges.
+const calendarOutline =
+  "M7.2 5.5h13.6a2.5 2.5 0 0 1 2.5 2.5v14a2.5 2.5 0 0 1-2.5 2.5H7.2a2.5 2.5 0 0 1-2.5-2.5V8a2.5 2.5 0 0 1 2.5-2.5Z"
+const calendarMarks = [14.5, 19.5]
+  .flatMap((y) =>
+    [9, 14, 19].map((x) => `M${x - 1.3} ${y - 1.3}h2.6v2.6h-2.6Z`)
+  )
+  .join(" ")
+const planMarks =
+  "M9 13.55h10a.95.95 0 0 1 0 1.9H9a.95.95 0 0 1 0-1.9ZM9 18.55h7a.95.95 0 0 1 0 1.9H9a.95.95 0 0 1 0-1.9Z"
+const coachOutline =
+  "M24.5 12.8c0 5-4.5 8.7-10.5 8.7-1.1 0-2.2-.1-3.1-.4l-4.3 2.2 1-3.6c-2.6-1.6-4-4.1-4.1-6.9C3.5 7.8 8 4 14 4s10.5 3.8 10.5 8.8Z"
+const coachMarks = [8, 14, 20]
+  .map((x) => `M${x} 11.8a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 1 0 0-2.4Z`)
+  .join(" ")
+
+/** Web-drawn symbols with the native tab bar's filled selected treatment. */
 export function MobileTabIcon({
   page,
   selected,
@@ -14,38 +29,32 @@ export function MobileTabIcon({
       fill="none"
       className="mobile-tab-icon"
     >
-      {page === "home" &&
-        (selected ? (
-          <path
-            fill="currentColor"
-            fillRule="evenodd"
-            d="M3.1 12.3 12.4 4a2.4 2.4 0 0 1 3.2 0l9.3 8.3a1.3 1.3 0 0 1-1.7 2l-.9-.8v10a1.8 1.8 0 0 1-1.8 1.8h-13a1.8 1.8 0 0 1-1.8-1.8v-10l-.9.8a1.3 1.3 0 0 1-1.7-2ZM11 25.3h6v-9.1a1.2 1.2 0 0 0-1.2-1.2h-3.6a1.2 1.2 0 0 0-1.2 1.2Z"
-          />
-        ) : (
-          <path
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="m3.5 12.8 9.1-8.2a2.1 2.1 0 0 1 2.8 0l9.1 8.2M6.7 10v13.2a1 1 0 0 0 1 1H11v-8.1h6v8.1h3.3a1 1 0 0 0 1-1V10"
-          />
-        ))}
+      {page === "home" && (
+        <path
+          fill={selected ? "currentColor" : "none"}
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinejoin="round"
+          d="m3.5 12.8 9.1-8.2a2.1 2.1 0 0 1 2.8 0l9.1 8.2-3.2-2.9v13.3a1 1 0 0 1-1 1H17v-8.1h-6v8.1H7.7a1 1 0 0 1-1-1V9.9Z"
+        />
+      )}
       {(page === "calendar" || page === "annual-plan") && (
         <>
-          {selected ? (
+          {selected && (
             <path
               fill="currentColor"
               fillRule="evenodd"
-              d="M7 4.5h14a3 3 0 0 1 3 3v15a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-15a3 3 0 0 1 3-3ZM6 9.7h16V8.2H6Zm2 3v2.7h2.7v-2.7Zm4.7 0v2.7h2.7v-2.7Zm4.7 0v2.7h2.7v-2.7ZM8 18v2.7h2.7V18Zm4.7 0v2.7h2.7V18Zm4.7 0v2.7h2.7V18Z"
+              d={`${calendarOutline} M6.6 9.05h14.8v1.9H6.6Z ${page === "calendar" ? calendarMarks : planMarks}`}
             />
-          ) : (
+          )}
+          <path d={calendarOutline} stroke="currentColor" strokeWidth="1.9" />
+          {!selected && (
             <g
               stroke="currentColor"
               strokeWidth="1.9"
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <rect x="4.7" y="5.5" width="18.6" height="19" rx="2.5" />
               <path d="M5 10h18" />
               {page === "calendar" ? (
                 <path
@@ -73,24 +82,28 @@ export function MobileTabIcon({
           )}
         </>
       )}
-      {page === "coach" &&
-        (selected ? (
-          <path
-            fill="currentColor"
-            fillRule="evenodd"
-            d="M14 3C7.4 3 2.5 7.2 2.5 12.8c0 3.3 1.7 6.2 4.4 7.9L5.5 25l5.6-2.8c.9.2 1.9.3 2.9.3 6.6 0 11.5-4.2 11.5-9.7S20.6 3 14 3Zm-6.5 8.8a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm6.5 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm6.5 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Z"
-          />
-        ) : (
+      {page === "coach" && (
+        <>
+          {selected && (
+            <path
+              fill="currentColor"
+              fillRule="evenodd"
+              d={`${coachOutline} ${coachMarks}`}
+            />
+          )}
           <g
             stroke="currentColor"
             strokeWidth="1.9"
             strokeLinecap="round"
             strokeLinejoin="round"
           >
-            <path d="M24.5 12.8c0 5-4.5 8.7-10.5 8.7-1.1 0-2.2-.1-3.1-.4l-4.3 2.2 1-3.6c-2.6-1.6-4.1-4-4.1-6.9C3.5 7.8 8 4 14 4s10.5 3.8 10.5 8.8Z" />
-            <path d="M8 13h.01m6 0h.01m6 0h.01" strokeWidth="2.4" />
+            <path d={coachOutline} />
+            {!selected && (
+              <path d="M8 13h.01m6 0h.01m6 0h.01" strokeWidth="2.4" />
+            )}
           </g>
-        ))}
+        </>
+      )}
       {page === "settings" && (
         <path
           stroke="currentColor"

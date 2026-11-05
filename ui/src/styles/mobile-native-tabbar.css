@@ -111,8 +111,21 @@
     height: 28px;
     flex: 0 0 28px;
     overflow: visible;
-    transform-origin: 50% 70%;
-    transition: transform 380ms cubic-bezier(0.22, 1.35, 0.36, 1);
+  }
+
+  /* Scale the visible content about its centers while keeping the tab hit area. */
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .tab-link[data-app-pressed] {
+    scale: none;
+  }
+
+  .framework7-root
+    .mobile-navbar.toolbar.native-glass-tabs
+    .tab-link[data-app-pressed]
+    :is(.mobile-tab-icon, .tabbar-label) {
+    scale: 0.97;
+    transform-origin: center;
   }
 
   .framework7-root .mobile-navbar.toolbar.native-glass-tabs .tabbar-label {
@@ -190,14 +203,6 @@
   .framework7-root
     .mobile-navbar.toolbar.native-glass-tabs
     [data-dragging]
-    .tab-link[data-highlighted="true"]
-    .mobile-tab-icon {
-    transform: translateY(-1px) scale(1.08);
-  }
-
-  .framework7-root
-    .mobile-navbar.toolbar.native-glass-tabs
-    [data-dragging]
     .tab-link-highlight {
     transition: none;
   }
@@ -229,7 +234,6 @@
 
 @media (width < 48rem) and (prefers-reduced-motion: reduce) {
   .framework7-root .mobile-navbar.toolbar.native-glass-tabs .tab-link,
-  .framework7-root .mobile-navbar.toolbar.native-glass-tabs .mobile-tab-icon,
   .framework7-root .mobile-navbar.toolbar.native-glass-tabs .tab-link-highlight,
   .framework7-root
     .mobile-navbar.toolbar.native-glass-tabs
@@ -248,13 +252,6 @@
     [data-dragging]
     .tab-link-highlight::after {
     scale: 1;
-  }
-  .framework7-root
-    .mobile-navbar.toolbar.native-glass-tabs
-    [data-dragging]
-    .tab-link
-    .mobile-tab-icon {
-    transform: none;
   }
 }
 
