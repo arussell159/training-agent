@@ -69,12 +69,12 @@ function BootReady() {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BootReady />
+    <InteractionFeedback />
     <div id="framework7-root" className="framework7-root">
       <AppAuth>
         <ThemeProvider>
           <TooltipProvider>
             <AppToastProvider>
-              <InteractionFeedback />
               <WorkoutSyncFeedback />
               <NutritionSyncFeedback />
               <App />

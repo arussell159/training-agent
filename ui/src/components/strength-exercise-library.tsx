@@ -631,6 +631,7 @@ export function StrengthExerciseDefinitionDialog({
                   href={strengthExerciseVideo(draft.videoUrl)?.url}
                   target="_blank"
                   rel="noopener noreferrer"
+                  className="inline-block"
                 >
                   Open exercise video
                 </a>

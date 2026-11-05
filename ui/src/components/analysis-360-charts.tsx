@@ -232,6 +232,7 @@ export function Analysis360SignalChart({
               role="img"
               aria-label={`${recordedSignalInfo(primaryKey, sport).label} recorded chart. Drag to select, then use Zoom.`}
               tabIndex={0}
+              data-press-action="gesture"
               onPointerDown={down}
               onPointerMove={move}
               onPointerUp={up}

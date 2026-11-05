@@ -1457,6 +1457,7 @@ function MobileIntervalSheet({
   return (
     <>
       <div
+        data-press-action=""
         className="sheet-backdrop we-mobile-interval-backdrop"
         onClick={() => void requestClose()}
       />
@@ -2440,6 +2441,7 @@ function MobileEditorBody({
       ) : (
         <>
           <div
+            data-press-action=""
             className="sheet-backdrop we-mobile-add-backdrop"
         onClick={() => {
           setAddOpen(false)
@@ -2546,6 +2548,7 @@ function MobileEditorBody({
       ) : (
         <>
           <div
+            data-press-action=""
             className="sheet-backdrop we-mobile-actions-backdrop"
             onClick={() => setActionId(null)}
       />
@@ -3042,6 +3045,7 @@ function IntervalChart({
                         desktop ? gesture?.dragged ? "grabbing" : "grab" : s.step.target.kind === "none" ? "pointer" : "ns-resize",
                       touchAction: "none",
                     }}
+                    data-press-action="gesture"
                     onPointerDown={(e) => begin(e, s.step, "intensity", w)}
                     onPointerMove={drag}
                     onPointerUp={finish}
@@ -3070,6 +3074,7 @@ function IntervalChart({
                     fill={active ? "var(--foreground)" : "transparent"}
                     opacity=".25"
                     style={{ cursor: "ew-resize", touchAction: "none" }}
+                    data-press-action="gesture"
                     onPointerDown={(e) => begin(e, s.step, "duration", w)}
                     onPointerMove={drag}
                     onPointerUp={finish}

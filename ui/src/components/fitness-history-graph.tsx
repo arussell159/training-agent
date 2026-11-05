@@ -218,6 +218,7 @@ export function FitnessHistoryGraph({
       </div>
       <div
         className="relative min-h-0 flex-1 touch-pan-y select-none"
+        data-press-action={!loading && hasValues ? "gesture" : undefined}
         onPointerDown={(event) => {
           if (isMobile) event.currentTarget.setPointerCapture(event.pointerId)
           inspectHistory(event)

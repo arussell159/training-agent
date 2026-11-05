@@ -657,7 +657,10 @@ function DayMenu({
     event.currentTarget.value = ""
   }
   return (
-    <div className="mobile-calendar-day-heading relative -mx-4 flex min-h-11 items-center px-4 py-0.5 md:mx-0 md:mb-3 md:block md:min-h-0 md:px-0 md:py-0 md:pb-0">
+    <div
+      data-press-feedback-surface={mobile ? "" : undefined}
+      className="mobile-calendar-day-heading relative -mx-4 flex min-h-11 items-center px-4 py-0.5 md:mx-0 md:mb-3 md:block md:min-h-0 md:px-0 md:py-0 md:pb-0"
+    >
       {mobile ? (
         <>
           {children}

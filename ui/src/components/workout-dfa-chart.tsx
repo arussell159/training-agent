@@ -101,6 +101,7 @@ export function WorkoutDfaChart({
             role="img"
             aria-label="Recorded DFA a1 over the full workout. Slide to inspect; tap outside to dismiss."
             tabIndex={0}
+            data-press-action="gesture"
             onPointerDown={(e) => {
               if (!e.isPrimary) return
               const bounds = e.currentTarget.getBoundingClientRect()

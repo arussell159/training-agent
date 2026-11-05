@@ -329,6 +329,7 @@ export function MobileTermsPage({
           (view.metricId ? " backdrop-in" : "")
         }
         aria-hidden="true"
+        data-press-action=""
         onClick={closeMetric}
       />
       <Sheet

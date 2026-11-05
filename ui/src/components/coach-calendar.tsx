@@ -280,7 +280,7 @@ export function CoachCalendar({ refreshKey }: { refreshKey: number }) {
                 href={proposal.runUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="text-xs underline underline-offset-4"
+                className="inline-block text-xs underline underline-offset-4"
               >
                 View push result
               </a>

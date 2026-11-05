@@ -146,7 +146,10 @@ export function NutritionScanner({
           )}
           {active ? "Stop camera" : "Open camera"}
         </Button>
-        <label className="inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-full border bg-background px-4 text-sm font-medium">
+        <label
+          data-press-feedback-surface=""
+          className="inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-full border bg-background px-4 text-sm font-medium"
+        >
           <ImagePlus className="size-4" />
           Choose photo
           <input

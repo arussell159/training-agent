@@ -920,6 +920,7 @@ export function ChartAreaInteractive({
           </div>
           <div
             className={`relative touch-pan-y select-none ${compactDesktop ? "dashboard-training-history-plot-region" : ""}`}
+            data-press-action={isMobile ? "gesture" : undefined}
             onPointerDown={(event) => {
               if (!isMobile) return
               event.currentTarget.setPointerCapture(event.pointerId)

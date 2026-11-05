@@ -95,6 +95,7 @@ function WorkoutPreview({
   if (!hasWorkoutProfile(workout)) return null
   return (
     <div
+      data-press-action={onOpen ? "" : undefined}
       onClickCapture={
         onOpen
           ? (event) => {

@@ -6,19 +6,25 @@ import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
 import { MobileDefinitionsOpen } from "@/components/ui/mobile-header-navigation"
 
+const DialogPointerDismissal = React.createContext(true)
+
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   const definitionsOpen = React.useContext(MobileDefinitionsOpen)
   return (
-    <DialogPrimitive.Root
-      data-slot="dialog"
-      {...props}
-      modal={definitionsOpen ? false : props.modal}
-      onOpenChange={(open, details) => {
-        // The shared Definitions page temporarily sits above an open editor.
-        // Keep its draft mounted, and let that page own focus until it closes.
-        if (open || !definitionsOpen) props.onOpenChange?.(open, details)
-      }}
-    />
+    <DialogPointerDismissal.Provider
+      value={!definitionsOpen && !props.disablePointerDismissal}
+    >
+      <DialogPrimitive.Root
+        data-slot="dialog"
+        {...props}
+        modal={definitionsOpen ? false : props.modal}
+        onOpenChange={(open, details) => {
+          // The shared Definitions page temporarily sits above an open editor.
+          // Keep its draft mounted, and let that page own focus until it closes.
+          if (open || !definitionsOpen) props.onOpenChange?.(open, details)
+        }}
+      />
+    </DialogPointerDismissal.Provider>
   )
 }
 
@@ -38,9 +44,11 @@ function DialogOverlay({
   className,
   ...props
 }: DialogPrimitive.Backdrop.Props) {
+  const canDismiss = React.useContext(DialogPointerDismissal)
   return (
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
+      data-press-action={canDismiss ? "" : undefined}
       className={cn(
         "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className

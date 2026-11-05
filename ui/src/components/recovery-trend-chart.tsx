@@ -58,6 +58,7 @@ export function RecoveryTrendChart({
       aria-describedby={selected ? descriptionId : undefined}
       tabIndex={points.length ? 0 : undefined}
       className="relative h-20 w-full touch-pan-y rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-24"
+      data-press-action="gesture"
       onPointerDown={(event) => {
         pressed.current = true
         selectPoint(event)

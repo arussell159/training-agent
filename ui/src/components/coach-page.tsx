@@ -286,6 +286,7 @@ export function CoachPage() {
               (openReportId ? " backdrop-in" : "")
             }
             aria-hidden="true"
+            data-press-action=""
             onClick={closeReport}
           />
           <Sheet

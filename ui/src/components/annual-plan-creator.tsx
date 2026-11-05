@@ -779,6 +779,7 @@ export function AnnualPlanCreator() {
         ]}
       />
       {isMobile && mobileChartOpen && plan && <div
+        data-press-action="self"
         className="mobile-calendar-picker-layer annual-plan-chart-layer"
         onClick={(event) => { if (event.target === event.currentTarget) setMobileChartOpen(false) }}
       >
@@ -844,6 +845,7 @@ export function AnnualPlanCreator() {
         <div
           className={`terms-metric-backdrop sheet-backdrop annual-plan-week-backdrop${mobileWeekDialogId ? " backdrop-in" : ""}`}
           aria-hidden="true"
+          data-press-action=""
           onClick={closeWeekSheet}
         />
         <Sheet

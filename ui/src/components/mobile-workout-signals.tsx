@@ -290,6 +290,7 @@ export function MobileWorkoutSignals({
               className="block h-auto w-full touch-pan-y select-none"
               role="img"
               aria-label={`${label(key)} over the full workout. Slide your finger to inspect values.`}
+              data-press-action="gesture"
               onPointerDown={(e) => {
                 e.currentTarget.setPointerCapture(e.pointerId)
                 move(e, key)

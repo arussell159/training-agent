@@ -171,11 +171,11 @@
 
   .framework7-root
     .mobile-navbar.toolbar.native-glass-tabs
-    [data-contact]
+    [data-dragging]
     .tab-link-highlight::before,
   .framework7-root
     .mobile-navbar.toolbar.native-glass-tabs
-    [data-contact]
+    [data-dragging]
     .tab-link-highlight::after {
     scale: 1.08 1.14;
   }
@@ -189,7 +189,7 @@
 
   .framework7-root
     .mobile-navbar.toolbar.native-glass-tabs
-    [data-contact]
+    [data-dragging]
     .tab-link[data-highlighted="true"]
     .mobile-tab-icon {
     transform: translateY(-1px) scale(1.08);
@@ -241,17 +241,17 @@
   }
   .framework7-root
     .mobile-navbar.toolbar.native-glass-tabs
-    [data-contact]
+    [data-dragging]
     .tab-link-highlight::before,
   .framework7-root
     .mobile-navbar.toolbar.native-glass-tabs
-    [data-contact]
+    [data-dragging]
     .tab-link-highlight::after {
     scale: 1;
   }
   .framework7-root
     .mobile-navbar.toolbar.native-glass-tabs
-    [data-contact]
+    [data-dragging]
     .tab-link
     .mobile-tab-icon {
     transform: none;

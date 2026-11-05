@@ -5,11 +5,20 @@
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
   }
-  :where(button, a[href], [role="button"], summary)[data-app-pressed] {
-    /* Contact feedback never moves controls or waits for an animation. */
-    opacity: 0.86;
-    transition: none;
-  }
+}
+
+[data-app-pressed] {
+  /* Use the individual property to keep existing position transforms. */
+  scale: 0.97;
+  transition: none;
+}
+
+[data-app-pressed="pointer"] {
+  transform-origin: var(--app-press-origin);
+}
+
+svg :where([data-app-pressed]) {
+  transform-box: fill-box;
 }
 .app-surface-enter {
   animation: none;

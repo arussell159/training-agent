@@ -69,6 +69,7 @@ export function MobileActionMenu({
   if (!mobile) return children
   return (
     <span
+      data-press-feedback-surface=""
       className={cn(
         plain
           ? "relative inline-flex size-11 shrink-0 items-center justify-center"
@@ -144,6 +145,7 @@ export function MobileDatePicker({
   )
   return displayValue ? (
     <span
+      data-press-feedback-surface=""
       className={cn(
         "relative inline-flex items-center focus-within:ring-2 focus-within:ring-ring",
         className

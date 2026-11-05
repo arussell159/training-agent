@@ -205,6 +205,7 @@ export function Analysis360Table({
             {filtered.map((row) => (
               <tr
                 key={row.id}
+                data-press-action={onSelect ? "" : undefined}
                 aria-selected={
                   onToggle ? selected?.includes(row.id) : undefined
                 }

@@ -554,7 +554,7 @@ export function AccountSecurity() {
           {location.hostname === "127.0.0.1" ? (
             <>
               Use{" "}
-              <a className="underline" href="http://localhost:4173/settings">
+              <a className="inline-block underline" href="http://localhost:4173/settings">
                 localhost
               </a>{" "}
               for local passkey testing. Register a separate passkey on the live

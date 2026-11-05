@@ -100,7 +100,6 @@ export function MobileNavbar({
                 aria-controls={`mobile-panel-${id}`}
                 data-tab-index={index}
                 data-highlighted={(gesture.preview ?? selectedIndex) === index}
-                data-press-feedback="off"
                 tabIndex={selectedIndex === index ? 0 : -1}
                 onClick={(event: MouseEvent) => {
                   event.preventDefault()

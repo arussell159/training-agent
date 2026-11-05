@@ -7,14 +7,22 @@ function setup(t) {
     attributes = new Map()
     disabled = false
     inert = false
+    gesture = false
+    isConnected = true
     closest(selector) {
       return selector === "[inert]" ? (this.inert ? this : null) : this
     }
-    matches() {
-      return this.disabled
+    matches(selector) {
+      return (
+        (selector.startsWith(":disabled") && this.disabled) ||
+        (selector.includes('[data-press-action="gesture"]') && this.gesture)
+      )
     }
     setAttribute(key, value) {
       this.attributes.set(key, value)
+    }
+    getAttribute(key) {
+      return this.attributes.get(key) ?? null
     }
     removeAttribute(key) {
       this.attributes.delete(key)
@@ -28,7 +36,19 @@ function setup(t) {
   const document = new EventTarget(),
     browser = new EventTarget()
   document.visibilityState = "visible"
-  browser.matchMedia = () => ({ matches: true })
+  let nextFrame
+  browser.requestAnimationFrame = (callback) => {
+    nextFrame = callback
+    return 1
+  }
+  browser.cancelAnimationFrame = () => {
+    nextFrame = undefined
+  }
+  const paint = () => {
+    const callback = nextFrame
+    nextFrame = undefined
+    callback?.()
+  }
   const remove = installInteractionFeedback(document, browser)
   t.after(() => {
     remove()
@@ -55,10 +75,10 @@ function setup(t) {
       "feedback must not prevent the underlying gesture/action"
     )
   }
-  return { control, document, browser, emit, remove }
+  return { control, document, browser, emit, paint, remove }
 }
 
-test("contact begins immediately and pointer release clears it synchronously", (t) => {
+test("desktop contact begins immediately and pointer release clears it synchronously", (t) => {
   const view = setup(t)
   view.emit("pointerdown")
   assert.equal(view.control.pressed, true)
@@ -75,6 +95,22 @@ test("only the original pointer may move or release contact; scrolling cancels f
   view.emit("pointermove", { clientY: 40 })
   assert.equal(view.control.pressed, false)
   view.emit("pointerdown")
+  view.emit("pointercancel")
+  assert.equal(view.control.pressed, false)
+})
+
+test("a gesture surface waits for layout reads and cannot become pressed after release", (t) => {
+  const view = setup(t)
+  view.control.gesture = true
+  view.emit("pointerdown")
+  assert.equal(view.control.pressed, false)
+  view.emit("pointerup")
+  view.paint()
+  assert.equal(view.control.pressed, false)
+
+  view.emit("pointerdown")
+  view.paint()
+  assert.equal(view.control.pressed, true)
   view.emit("pointercancel")
   assert.equal(view.control.pressed, false)
 })

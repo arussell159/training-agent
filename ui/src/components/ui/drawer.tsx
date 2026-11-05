@@ -5,6 +5,7 @@ import { Drawer as DrawerPrimitive } from "@base-ui/react/drawer"
 import { cn } from "cn"
 
 type DrawerContextProps = {
+  canDismiss: boolean
   hasSnapPoints: boolean
   modal: DrawerPrimitive.Root.Props["modal"]
   showSwipeHandle: boolean
@@ -24,6 +25,7 @@ function useDrawer() {
 }
 
 function Drawer({
+  disablePointerDismissal = false,
   modal = true,
   showSwipeHandle = false,
   snapPoints,
@@ -34,14 +36,21 @@ function Drawer({
 }) {
   const hasSnapPoints = snapPoints != null && snapPoints.length > 0
   const contextValue = React.useMemo(
-    () => ({ hasSnapPoints, modal, showSwipeHandle, swipeDirection }),
-    [hasSnapPoints, modal, showSwipeHandle, swipeDirection]
+    () => ({
+      canDismiss: !disablePointerDismissal,
+      hasSnapPoints,
+      modal,
+      showSwipeHandle,
+      swipeDirection,
+    }),
+    [disablePointerDismissal, hasSnapPoints, modal, showSwipeHandle, swipeDirection]
   )
 
   return (
     <DrawerContext.Provider value={contextValue}>
       <DrawerPrimitive.Root
         data-slot="drawer"
+        disablePointerDismissal={disablePointerDismissal}
         modal={modal}
         snapPoints={snapPoints}
         swipeDirection={swipeDirection}
@@ -86,6 +95,7 @@ function DrawerSwipeHandle({
   return (
     <div
       data-slot="drawer-swipe-handle"
+      data-press-action="gesture"
       aria-hidden="true"
       className={cn(
         "relative z-10 flex shrink-0 cursor-grab transition-opacity duration-200 group-data-nested-drawer-open/drawer-popup:opacity-0 group-data-nested-drawer-swiping/drawer-popup:opacity-100 group-data-[swipe-axis=x]/drawer-popup:h-full group-data-[swipe-axis=x]/drawer-popup:w-3 group-data-[swipe-axis=x]/drawer-popup:items-center group-data-[swipe-axis=y]/drawer-popup:h-3 group-data-[swipe-axis=y]/drawer-popup:w-full group-data-[swipe-axis=y]/drawer-popup:justify-center group-data-[swipe-direction=down]/drawer-popup:items-end group-data-[swipe-direction=left]/drawer-popup:order-last group-data-[swipe-direction=left]/drawer-popup:justify-start group-data-[swipe-direction=right]/drawer-popup:justify-end group-data-[swipe-direction=up]/drawer-popup:order-last group-data-[swipe-direction=up]/drawer-popup:items-start after:block after:shrink-0 after:rounded-full after:bg-muted group-data-[swipe-axis=x]/drawer-popup:after:h-24 group-data-[swipe-axis=x]/drawer-popup:after:w-1 group-data-[swipe-axis=y]/drawer-popup:after:h-1 group-data-[swipe-axis=y]/drawer-popup:after:w-24 active:cursor-grabbing",
@@ -101,7 +111,7 @@ function DrawerContent({
   children,
   ...props
 }: DrawerPrimitive.Popup.Props) {
-  const { hasSnapPoints, modal, showSwipeHandle, swipeDirection } = useDrawer()
+  const { canDismiss, hasSnapPoints, modal, showSwipeHandle, swipeDirection } = useDrawer()
   const swipeAxis =
     swipeDirection === "down" || swipeDirection === "up" ? "y" : "x"
 
@@ -112,6 +122,7 @@ function DrawerContent({
       )}
       <DrawerPrimitive.Viewport
         data-slot="drawer-viewport"
+        data-press-action={modal === true && canDismiss ? "self" : undefined}
         data-modal={modal}
         className="pointer-events-none fixed inset-0 z-50 select-none data-[modal=true]:pointer-events-auto"
       >

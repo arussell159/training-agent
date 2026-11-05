@@ -465,7 +465,7 @@ export function SettingsWorkspace({ onWorkoutOpen }: { onWorkoutOpen?: (workout:
     if (item.id === "appearance") {
       const Icon = item.icon
       return (
-        <div key={item.id} className="relative">
+        <div key={item.id} className="relative" data-press-feedback-surface="">
           <div className="pointer-events-none flex h-14 w-full items-center gap-3 px-4 text-sm" aria-hidden="true">
             <Icon className="size-4 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
