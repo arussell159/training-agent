@@ -22,38 +22,106 @@ function pressOrigin(offset: number, size: number) {
   return `${Math.max(0, Math.min(100, (offset / (size || 1)) * 100))}%`
 }
 
+type PressSurface = HTMLElement | SVGElement
+
 /** Contact feedback only: never prevents, delays, or synthesizes an action. */
 export function installInteractionFeedback(
   document: Document,
   browser: Window
 ) {
-  let pressed: HTMLElement | SVGElement | null = null
+  const motions = new Map<PressSurface, Animation[]>()
+  let pressed: PressSurface | null = null
   let pendingFrame: number | null = null
   let contact:
     | { kind: "pointer"; id: number; x: number; y: number }
     | { kind: "key"; key: string }
     | null = null
-  const clear = () => {
+  const stopMotion = (surface: PressSurface) => {
+    for (const animation of motions.get(surface) ?? []) {
+      animation.onfinish = null
+      animation.cancel()
+    }
+    motions.delete(surface)
+    if (surface.getAttribute("data-app-press-origin") !== null) {
+      surface.style.removeProperty("--app-press-origin")
+      surface.removeAttribute("data-app-press-origin")
+    }
+  }
+  const clear = (immediate = false) => {
     if (pendingFrame !== null) browser.cancelAnimationFrame(pendingFrame)
     pendingFrame = null
-    if (pressed?.getAttribute("data-app-pressed") === "pointer")
-      pressed.style.removeProperty("--app-press-origin")
-    pressed?.removeAttribute("data-app-pressed")
+    const surface = pressed
     pressed = null
     contact = null
+    if (!surface) return
+    surface.removeAttribute("data-app-pressed")
+    const animations = motions.get(surface)
+    const first = animations?.[0]
+    if (
+      !immediate &&
+      surface.isConnected &&
+      animations &&
+      first &&
+      typeof first.currentTime === "number" &&
+      first.currentTime > 0
+    ) {
+      first.onfinish = () => {
+        if (
+          first.currentTime === 0 &&
+          motions.get(surface) === animations &&
+          pressed !== surface
+        )
+          stopMotion(surface)
+      }
+      // Reverse from the current scale so even a short tap releases smoothly.
+      for (const animation of animations) animation.reverse()
+    } else {
+      stopMotion(surface)
+    }
   }
-  const show = (surface: HTMLElement | SVGElement, pointer?: PointerEvent) => {
+  const reset = () => {
+    clear(true)
+    for (const surface of motions.keys()) stopMotion(surface)
+  }
+  const show = (surface: PressSurface, pointer?: PointerEvent) => {
     pressed = surface
-    if (pointer?.pointerType) {
+    const contentOnly =
+      surface.getAttribute("data-press-feedback-content") !== null
+    const previous = motions.get(surface)
+    const instant =
+      typeof surface.animate !== "function" ||
+      browser.matchMedia("(prefers-reduced-motion: reduce)").matches
+    if (!instant && previous) {
+      surface.setAttribute("data-app-pressed", "")
+      for (const animation of previous) {
+        animation.onfinish = null
+        animation.updatePlaybackRate(1)
+        animation.play()
+      }
+      return
+    }
+    if (previous) stopMotion(surface)
+    if (pointer?.pointerType && !contentOnly) {
       // Keep the down point inside the scaled control, including at its edges.
       const { left, top, width, height } = surface.getBoundingClientRect()
       const x = pressOrigin(pointer.clientX - left, width)
       const y = pressOrigin(pointer.clientY - top, height)
       surface.style.setProperty("--app-press-origin", `${x} ${y}`)
-      surface.setAttribute("data-app-pressed", "pointer")
-    } else {
-      surface.setAttribute("data-app-pressed", "")
+      surface.setAttribute("data-app-press-origin", "")
     }
+    surface.setAttribute("data-app-pressed", instant ? "instant" : "")
+    if (instant) return
+    const targets = contentOnly ? Array.from(surface.children) : [surface]
+    motions.set(
+      surface,
+      targets.map((target) => {
+        const scale = browser.getComputedStyle(target).scale
+        return target.animate(
+          { scale: [scale === "none" ? "1" : scale, "0.97"] },
+          { duration: 120, easing: "ease-in-out", fill: "both" }
+        )
+      })
+    )
   }
   const press = (target: EventTarget | null, pointer?: PointerEvent) => {
     if (!(target instanceof Element)) return false
@@ -71,9 +139,12 @@ export function installInteractionFeedback(
     )
       return false
     const parent = control.parentElement
-    const surface = parent?.hasAttribute("data-press-feedback-surface")
-      ? parent
-      : control
+    const surface =
+      parent &&
+      (parent.hasAttribute("data-press-feedback-surface") ||
+        control.getAttribute("data-press-feedback-surface") === "parent")
+        ? parent
+        : control
     if (pointer && control.matches(measureOnPointerDown)) {
       // Let charts, sliders, and calendar gestures measure their resting box.
       pendingFrame = browser.requestAnimationFrame(() => {
@@ -102,10 +173,11 @@ export function installInteractionFeedback(
       contact.id === event.pointerId &&
       Math.hypot(event.clientX - contact.x, event.clientY - contact.y) > 10
     )
-      clear()
+      clear(true)
   }
   const release = (event: PointerEvent) => {
-    if (contact?.kind === "pointer" && contact.id === event.pointerId) clear()
+    if (contact?.kind === "pointer" && contact.id === event.pointerId)
+      clear(event.type === "pointercancel")
   }
   const key = (event: KeyboardEvent) => {
     if (event.repeat || (event.key !== "Enter" && event.key !== " ")) return
@@ -116,7 +188,7 @@ export function installInteractionFeedback(
     if (contact?.kind === "key" && contact.key === event.key) clear()
   }
   const visibility = () => {
-    if (document.visibilityState === "hidden") clear()
+    if (document.visibilityState === "hidden") reset()
   }
   document.addEventListener("pointerdown", down, {
     capture: true,
@@ -131,9 +203,9 @@ export function installInteractionFeedback(
   document.addEventListener("keydown", key, true)
   document.addEventListener("keyup", keyRelease, true)
   document.addEventListener("visibilitychange", visibility)
-  browser.addEventListener("blur", clear)
+  browser.addEventListener("blur", reset)
   return () => {
-    clear()
+    reset()
     document.removeEventListener("pointerdown", down, true)
     document.removeEventListener("pointermove", move, true)
     document.removeEventListener("pointerup", release, true)
@@ -141,6 +213,6 @@ export function installInteractionFeedback(
     document.removeEventListener("keydown", key, true)
     document.removeEventListener("keyup", keyRelease, true)
     document.removeEventListener("visibilitychange", visibility)
-    browser.removeEventListener("blur", clear)
+    browser.removeEventListener("blur", reset)
   }
 }

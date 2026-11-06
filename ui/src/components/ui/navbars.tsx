@@ -99,6 +99,7 @@ export function MobileNavbar({
                 aria-selected={activeItem === label}
                 aria-controls={`mobile-panel-${id}`}
                 data-tab-index={index}
+                data-press-feedback-content=""
                 data-highlighted={(gesture.preview ?? selectedIndex) === index}
                 tabIndex={selectedIndex === index ? 0 : -1}
                 onClick={(event: MouseEvent) => {

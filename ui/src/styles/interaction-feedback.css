@@ -7,17 +7,17 @@
   }
 }
 
-[data-app-pressed] {
-  /* Use the individual property to keep existing position transforms. */
+[data-app-pressed="instant"]:not([data-press-feedback-content]),
+[data-app-pressed="instant"][data-press-feedback-content] > * {
   scale: 0.97;
   transition: none;
 }
 
-[data-app-pressed="pointer"] {
+[data-app-press-origin] {
   transform-origin: var(--app-press-origin);
 }
 
-svg :where([data-app-pressed]) {
+svg :where([data-app-press-origin]) {
   transform-box: fill-box;
 }
 .app-surface-enter {

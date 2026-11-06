@@ -100,6 +100,7 @@ export function NutritionHomeCard({
     >
       <button
         type="button"
+        data-press-feedback-surface="parent"
         aria-label="Open nutrition tracker"
         onClick={openNutrition}
         className="absolute inset-0 z-10 rounded-[22px] focus-visible:outline-2 focus-visible:outline-ring lg:rounded-xl"

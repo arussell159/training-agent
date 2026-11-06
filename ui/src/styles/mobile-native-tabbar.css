@@ -113,18 +113,11 @@
     overflow: visible;
   }
 
-  /* Scale the visible content about its centers while keeping the tab hit area. */
+  /* Press feedback animates these children so the tab's hit area stays put. */
   .framework7-root
     .mobile-navbar.toolbar.native-glass-tabs
-    .tab-link[data-app-pressed] {
-    scale: none;
-  }
-
-  .framework7-root
-    .mobile-navbar.toolbar.native-glass-tabs
-    .tab-link[data-app-pressed]
+    .tab-link
     :is(.mobile-tab-icon, .tabbar-label) {
-    scale: 0.97;
     transform-origin: center;
   }
 
